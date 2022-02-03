@@ -1,0 +1,33 @@
+name: Setup ENV
+description: Setup environment
+inputs:
+  base-build-number:
+    description: >-
+      The base value for all build-numbers.
+      This will be added to any build-number to prevent collision with previous CI/CD builds.
+    required: false
+    default: '10000'
+  project-name:
+    description: Project Name, defaults to GitHub repo name.
+    required: false
+  environment:
+    description: Environment, either staging or production
+    required: false
+  build-number:
+    description: >-
+      Build number. If provided, it is assumed to include the base-build-number already.
+      Defaults to GitHub actions run number.
+    required: true
+
+outputs:
+  project-name:
+    description: Project name
+  environment:
+    description: Environment
+  build-number:
+    description: Build number
+  ecs-task-role-arn:
+    description: AWS IAM Role ARN used to build/deploy the project.
+runs:
+  using: 'node16'
+  main: '../../dist/setup-env.js'
