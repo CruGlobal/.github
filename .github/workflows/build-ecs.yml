@@ -1,0 +1,91 @@
+name: Build and push to ECR
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: >-
+          Branch, tag or commit used when calling the workflow.
+          Required if calling the workflow from non default 'main' branch.
+      base-build-number:
+        type: string
+        required: false
+        default: '10000'
+        description: >-
+          The base value for all build-numbers.
+          This will be added to any build-number to prevent collision with previous CI/CD builds.
+    outputs:
+      project-name:
+        description: Project Name, defaults to GitHub repo name.
+        value: ${{ jobs.build.outputs.project-name }}
+      environment:
+        description: Environment, either staging or production.
+        value: ${{ jobs.build.outputs.environment }}
+      build-number:
+        description: Build number
+        value: ${{ jobs.build.outputs.build-number }}
+
+jobs:
+  build:
+    name: Build docker image
+    runs-on: ubuntu-latest
+    outputs:
+      project-name: ${{ steps.env.outputs.project-name }}
+      environment: ${{ steps.env.outputs.environment }}
+      build-number: ${{ steps.env.outputs.build-number }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v2
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup Build environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+        with:
+          base-build-number: ${{ inputs.base-build-number }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.env.outputs.ecs-task-role-arn }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Import Build Secrets
+        uses: ./cru-github-actions/actions/secrets
+        with:
+          type: BUILD
+
+      - name: Checkout Project
+        uses: actions/checkout@v2
+        with:
+          path: project
+
+      - name: Run build.sh
+        working-directory: project
+        run: ./build.sh
+
+      - name: Docker Push to ECR
+        working-directory: project
+        run: docker push 056154071827.dkr.ecr.us-east-1.amazonaws.com/$PROJECT_NAME:$ENVIRONMENT-$BUILD_NUMBER
+
+#      - name: Build and Push
+#        uses: docker/build-push-action@v2
+#        with:
+#          context: project
+#          push: true
+#          tags: 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment }}-${{ steps.env.outputs.build-number }}
+#          build-args: |
+#            DD_API_KEY=${{ env.DD_API_KEY }}
+#            SIDEKIQ_CREDS=${{ env.SIDEKIQ_CREDS }}

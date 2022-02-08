@@ -1,0 +1,7 @@
+{
+  "name": "Build and Deploy to ECS",
+  "description": "Build application docker image and deploys to ECS. This workflow requires a build.sh script and application resources defined in Terraform.",
+  "filePatterns": [
+    "^build.sh"
+  ]
+}
