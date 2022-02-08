@@ -1,12 +1,12 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import {environmentFromBranch, taskRoleARN} from './ecs-config'
+import { environmentFromBranch, taskRoleARN } from './ecs-config'
+import { ecsBuildNumber } from './aws.js'
 
 async function run () {
-  const baseBuildNumber = parseInt(core.getInput('base-build-number', {required: false}))
-  const projectName = core.getInput('project-name', {required: false}) || github.context.repo.repo
-  const environment = core.getInput('environment', {required: false}) || environmentFromBranch(github.context.payload.ref_name)
-  const buildNumber = core.getInput('build-number', {required: false}) || (baseBuildNumber + github.context.runNumber)
+  const projectName = core.getInput('project-name', { required: false }) || github.context.repo.repo
+  const environment = core.getInput('environment', { required: false }) || environmentFromBranch(github.context.payload.ref_name)
+  const buildNumber = core.getInput('build-number', { required: false }) || await ecsBuildNumber(projectName)
 
   const outputs = {
     'project-name': projectName,

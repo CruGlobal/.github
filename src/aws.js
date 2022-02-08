@@ -14,6 +14,11 @@ import {
   ListTagsForResourceCommand
 } from '@aws-sdk/client-ssm'
 
+import {
+  DynamoDBClient,
+  UpdateItemCommand
+} from '@aws-sdk/client-dynamodb'
+
 const tagReducer = (previousValue, currentValue) => {
   previousValue[currentValue.Key] = currentValue.Value
   return previousValue
@@ -84,4 +89,16 @@ export async function ssmParameters (prefix, decrypt = true) {
       tags: tags.reduce(tagReducer, {})
     }
   }))
+}
+
+export async function ecsBuildNumber (projectName) {
+  const client = new DynamoDBClient({})
+  return (await client.send(new UpdateItemCommand({
+    TableName: 'ECSBuildNumbers',
+    Key: { ProjectName: { 'S': projectName } },
+    ExpressionAttributeNames: { '#buildNumber': 'BuildNumber' },
+    ExpressionAttributeValues: { ':num': { 'N': '1' }, ':base': { 'N': '10000' } },
+    UpdateExpression: 'SET #buildNumber = if_not_exists(#buildNumber, :base) + :num',
+    ReturnValues: 'UPDATED_NEW'
+  }))).Attributes.BuildNumber.N
 }

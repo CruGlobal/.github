@@ -1,4 +1,4 @@
-import {ssmParameters} from './aws'
+import { ssmParameters } from './aws'
 
 const ACCOUNTS = {
   'cruds': '056154071827',
@@ -84,12 +84,12 @@ export async function buildSecrets (projectName, environment) {
   const env = environmentNickname(environment)
   return (await ssmParameters(`/ecs/${projectName}/${env}/`))
     .filter(param => BUILD_PARAM_TYPES.includes(param.tags['param_type']))
-    .reduce((acc, key) => ({...acc, [key.name.split('/').pop()]: key.value}), {})
+    .reduce((acc, key) => ({ ...acc, [key.name.split('/').pop()]: key.value }), {})
 }
 
 export async function runtimeSecrets (projectName, environment) {
   const env = environmentNickname(environment)
   return (await ssmParameters(`/ecs/${projectName}/${env}/`, false))
     .filter(param => RUNTIME_PARAM_TYPES.includes(param.tags['param_type']))
-    .reduce((acc, key) => [...acc, {name: key.name.split('/').pop(), valueFrom: key.name}], [])
+    .reduce((acc, key) => [...acc, { name: key.name.split('/').pop(), valueFrom: key.name }], [])
 }
