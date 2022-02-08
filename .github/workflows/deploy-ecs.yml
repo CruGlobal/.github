@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       build-number:
-        description: ECS build number
+        description: Project build number
         required: true
         type: string
 
@@ -30,6 +30,8 @@ jobs:
     permissions:
       id-token: write
       contents: write
+    env:
+      BUILD_NUMBER: ${{ inputs.build-number }}
     steps:
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v2

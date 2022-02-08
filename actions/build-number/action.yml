@@ -1,0 +1,12 @@
+name: Build Number
+description: Provides next build number for the project.
+inputs:
+  project-name:
+    description: Project name. Defaults to PROJECT_NAME from environment variable.
+    required: false
+outputs:
+  build-number:
+    description: Build number. Also exported to BUILD_NUMBER environment variable.
+runs:
+  using: 'node16'
+  main: '../../dist/build-number.js'
