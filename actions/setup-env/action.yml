@@ -1,12 +1,6 @@
 name: Setup ENV
 description: Setup environment
 inputs:
-  base-build-number:
-    description: >-
-      The base value for all build-numbers.
-      This will be added to any build-number to prevent collision with previous CI/CD builds.
-    required: false
-    default: '10000'
   project-name:
     description: Project Name, defaults to GitHub repo name.
     required: false
@@ -14,9 +8,7 @@ inputs:
     description: Environment, either staging or production
     required: false
   build-number:
-    description: >-
-      Build number. If provided, it is assumed to include the base-build-number already.
-      Defaults to GitHub actions run number.
+    description: Build number, defaults to next available number for project-name.
     required: true
 
 outputs:

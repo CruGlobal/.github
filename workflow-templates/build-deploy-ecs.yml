@@ -1,4 +1,4 @@
-name: Build
+name: Build & Deploy ECS
 
 on:
   push:
@@ -15,13 +15,5 @@ on:
 
 jobs:
   build:
+    name: Build
     uses: CruGlobal/.github/.github/workflows/build-ecs.yml@v1
-
-  deploy:
-    uses: CruGlobal/.github/.github/workflows/deploy-ecs.yml@v1
-    needs: build
-    if: ${{ github.event_name == 'push' || github.events.inputs.auto-deploy == 'true' }}
-    with:
-      project-name: ${{ needs.build.outputs.project-name }}
-      environment: ${{ needs.build.outputs.environment }}
-      build-number: ${{ needs.build.outputs.build-number }}
