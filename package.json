@@ -27,7 +27,7 @@
     "escape-string-regexp": "^5.0.0"
   },
   "devDependencies": {
-    "eslint": "^8.0.0",
+    "eslint": "^8.8.0",
     "jest": "^27.2.5",
     "license-webpack-plugin": "^4.0.0",
     "terser-webpack-plugin": "^5.3.0",
