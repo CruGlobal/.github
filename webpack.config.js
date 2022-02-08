@@ -6,6 +6,7 @@ module.exports = {
   mode: 'production',
   target: 'node',
   entry: {
+    'build-number': './src/build-number.js',
     'deploy-ecs': './src/deploy-ecs.js',
     'secrets': './src/secrets.js',
     'setup-env': './src/setup-env.js'
@@ -25,8 +26,7 @@ module.exports = {
           }
         }
       })
-    ],
-    usedExports: true
+    ]
   },
   plugins: [
     new LicenseWebpackPlugin({

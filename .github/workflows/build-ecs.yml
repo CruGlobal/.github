@@ -28,7 +28,7 @@ jobs:
     outputs:
       project-name: ${{ steps.env.outputs.project-name }}
       environment: ${{ steps.env.outputs.environment }}
-      build-number: ${{ steps.env.outputs.build-number }}
+      build-number: ${{ steps.build-number.outputs.build-number }}
     permissions:
       id-token: write
       contents: read
@@ -49,6 +49,10 @@ jobs:
         with:
           aws-region: us-east-1
           role-to-assume: ${{ steps.env.outputs.ecs-task-role-arn }}
+
+      - name: Increment Build Number
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v1

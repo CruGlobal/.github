@@ -7,17 +7,12 @@ inputs:
   environment:
     description: Environment, either staging or production
     required: false
-  build-number:
-    description: Build number, defaults to next available number for project-name.
-    required: true
 
 outputs:
   project-name:
     description: Project name
   environment:
     description: Environment
-  build-number:
-    description: Build number
   ecs-task-role-arn:
     description: AWS IAM Role ARN used to build/deploy the project.
 runs:
