@@ -3,8 +3,10 @@ import assert from 'assert'
 import escapeStringRegexp from 'escape-string-regexp'
 
 import {
-  ecsListServices, ecsRegisterTaskDefinition,
-  ecsServiceTaskDefinitions, ecsUpdateService
+  ecsListServices,
+  ecsRegisterTaskDefinition,
+  ecsServiceTaskDefinitions,
+  ecsUpdateService
 } from './aws'
 
 import {

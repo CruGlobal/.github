@@ -1,4 +1,4 @@
-name: Build ECS
+name: Build and push to ECR
 
 on:
   workflow_call:
@@ -30,7 +30,7 @@ on:
 
 jobs:
   build:
-    name: Build
+    name: Build docker image
     runs-on: ubuntu-latest
     outputs:
       project-name: ${{ steps.env.outputs.project-name }}
@@ -72,11 +72,11 @@ jobs:
         with:
           path: project
 
-      - name: Docker Build
+      - name: Run build.sh
         working-directory: project
         run: ./build.sh
 
-      - name: Docker Push
+      - name: Docker Push to ECR
         working-directory: project
         run: docker push 056154071827.dkr.ecr.us-east-1.amazonaws.com/$PROJECT_NAME:$ENVIRONMENT-$BUILD_NUMBER
 

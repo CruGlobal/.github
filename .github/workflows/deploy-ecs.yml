@@ -1,3 +1,5 @@
+name: Deploy to ECS
+
 on:
   workflow_call:
     inputs:
@@ -21,11 +23,9 @@ on:
         required: true
         type: string
 
-name: Deploy
-
 jobs:
   deploy:
-    name: Deploy
+    name: Update ECS
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -52,8 +52,5 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
 
-      - name: Test Credentials
-        run: aws sts get-caller-identity
-
-      - name: Deploy to ECS
+      - name: Update and register Task Definition
         uses: ./cru-github-actions/actions/deploy-ecs
