@@ -17,9 +17,9 @@ on:
       environment:
         description: Environment, either staging or production.
         value: ${{ jobs.build.outputs.environment }}
-      build-number:
-        description: Build number
-        value: ${{ jobs.build.outputs.build-number }}
+#      build-number:
+#        description: Build number
+#        value: ${{ jobs.build.outputs.build-number }}
 
 jobs:
   build:
@@ -28,7 +28,7 @@ jobs:
     outputs:
       project-name: ${{ steps.env.outputs.project-name }}
       environment: ${{ steps.env.outputs.environment }}
-      build-number: ${{ steps.env.outputs.build-number }}
+#      build-number: ${{ steps.env.outputs.build-number }}
     permissions:
       id-token: write
       contents: read

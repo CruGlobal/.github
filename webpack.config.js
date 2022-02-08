@@ -25,8 +25,7 @@ module.exports = {
           }
         }
       })
-    ],
-    usedExports: true
+    ]
   },
   plugins: [
     new LicenseWebpackPlugin({
