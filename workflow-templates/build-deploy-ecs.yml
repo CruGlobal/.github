@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - $default-branch
+      - staging
   workflow_dispatch:
     inputs:
       auto-deploy:
