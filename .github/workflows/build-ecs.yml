@@ -75,6 +75,8 @@ jobs:
         working-directory: project
         run: docker push 056154071827.dkr.ecr.us-east-1.amazonaws.com/$PROJECT_NAME:$ENVIRONMENT-$BUILD_NUMBER
 
+      - run: echo "::notice title=Build Success::Successfully built - $ENVIRONMENT-$BUILD_NUMBER"
+
 #      - name: Build and Push
 #        uses: docker/build-push-action@v2
 #        with:
