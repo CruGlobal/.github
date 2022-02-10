@@ -9,7 +9,8 @@ module.exports = {
     'build-number': './src/build-number.js',
     'deploy-ecs': './src/deploy-ecs.js',
     'secrets': './src/secrets.js',
-    'setup-env': './src/setup-env.js'
+    'setup-env': './src/setup-env.js',
+    'trigger-deploy': './src/trigger-deploy.js'
   },
   output: {
     path: path.resolve(__dirname, 'dist')
