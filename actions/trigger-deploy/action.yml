@@ -16,8 +16,7 @@ inputs:
     default: ECS_V1
   github-token:
     description: The GitHub token used to create a workflow_dispatch event.
-    default: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
-    required: false
+    required: true
 runs:
   using: 'node16'
   main: '../../dist/trigger-deploy.js'
