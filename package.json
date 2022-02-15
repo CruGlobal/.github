@@ -31,7 +31,7 @@
   "devDependencies": {
     "eslint": "^8.8.0",
     "jest": "^27.5.1",
-    "license-webpack-plugin": "^4.0.1",
+    "license-webpack-plugin": "^4.0.2",
     "terser-webpack-plugin": "^5.3.1",
     "webpack": "^5.68.0",
     "webpack-cli": "^4.9.2"
