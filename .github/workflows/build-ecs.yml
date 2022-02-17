@@ -7,23 +7,21 @@ on:
         type: string
         required: false
         default: main
-        description: >-
-          Branch, tag or commit used when calling the workflow.
-          Required if calling the workflow from non default 'main' branch.
+        description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
     outputs:
       project-name:
         description: Project Name, defaults to GitHub repo name.
         value: ${{ jobs.build.outputs.project-name }}
       environment:
-        description: Environment, either staging or production.
+        description: Environment (staging/production).
         value: ${{ jobs.build.outputs.environment }}
       build-number:
-        description: Build number
+        description: Build Number/Tag
         value: ${{ jobs.build.outputs.build-number }}
 
 jobs:
   build:
-    name: Build docker image
+    name: Build Docker Container
     runs-on: ubuntu-latest
     outputs:
       project-name: ${{ steps.env.outputs.project-name }}
@@ -54,8 +52,21 @@ jobs:
         uses: ./cru-github-actions/actions/build-number
         id: build-number
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@master
+        id: buildx
+
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v1
+        id: ecr
+
+      - name: Cache Docker Layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx
 
       - name: Import Build Secrets
         uses: ./cru-github-actions/actions/secrets
@@ -70,19 +81,20 @@ jobs:
       - name: Run build.sh
         working-directory: project
         run: ./build.sh
+        env:
+          DOCKER_ARGS: |
+            --builder ${{ steps.buildx.outputs.name }}
+            --cache-from type=local,src=/tmp/.buildx-cache
+            --cache-to type=local,dest=/tmp/.buildx-cache-new
+            --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
+            --push
 
-      - name: Docker Push to ECR
-        working-directory: project
-        run: docker push 056154071827.dkr.ecr.us-east-1.amazonaws.com/$PROJECT_NAME:$ENVIRONMENT-$BUILD_NUMBER
+      # Temp fix
+      # https://github.com/docker/build-push-action/issues/252
+      # https://github.com/moby/buildkit/issues/1896
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - run: echo "::notice title=Build Success::Successfully built - $ENVIRONMENT-$BUILD_NUMBER"
-
-#      - name: Build and Push
-#        uses: docker/build-push-action@v2
-#        with:
-#          context: project
-#          push: true
-#          tags: 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment }}-${{ steps.env.outputs.build-number }}
-#          build-args: |
-#            DD_API_KEY=${{ env.DD_API_KEY }}
-#            SIDEKIQ_CREDS=${{ env.SIDEKIQ_CREDS }}

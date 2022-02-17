@@ -7,19 +7,17 @@ on:
         type: string
         required: false
         default: main
-        description: >-
-          Branch, tag or commit used when calling the workflow.
-          Required if calling the workflow from non default 'main' branch.
+        description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
       project-name:
         description: Project Name
         required: true
         type: string
       environment:
-        description: Environment (staging / production)
+        description: Environment (staging/production)
         required: true
         type: string
       build-number:
-        description: Project build number
+        description: Build Number/Tag
         required: true
         type: string
 
