@@ -56,3 +56,5 @@ jobs:
 
       - name: Update and register Task Definition
         uses: ./cru-github-actions/actions/deploy-ecs
+
+      - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"
