@@ -51,5 +51,8 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
 
+      - name: Ensure Image Exists
+        run: aws ecr describe-images --repository-name $PROJECT_NAME --image-ids imageTag=$ENVIRONMENT-$BUILD_NUMBER
+
       - name: Update and register Task Definition
         uses: ./cru-github-actions/actions/deploy-ecs
