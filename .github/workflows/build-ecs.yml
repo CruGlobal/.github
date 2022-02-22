@@ -3,6 +3,10 @@ name: Build & Push to ECR
 on:
   workflow_call:
     inputs:
+      environment:
+        description: Environment (staging/production)
+        required: false
+        type: string
       workflow-ref:
         type: string
         required: false
@@ -41,6 +45,8 @@ jobs:
       - name: Setup Build environment
         uses: ./cru-github-actions/actions/setup-env
         id: env
+        with:
+          environment: ${{ inputs.environment }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
