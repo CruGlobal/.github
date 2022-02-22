@@ -3,6 +3,7 @@ import * as github from '@actions/github'
 import { environmentFromBranch, taskRoleARN } from './ecs-config'
 
 async function run () {
+  core.debug(JSON.stringify(github.context, undefined, 2))
   const projectName = core.getInput('project-name', { required: false }) || github.context.repo.repo
   const environment = core.getInput('environment', { required: false }) || environmentFromBranch(github.context.payload.ref_name)
 
