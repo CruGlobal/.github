@@ -22,7 +22,7 @@ export async function run () {
           'build-number': buildNumber,
         }
     })
-    core.notice('Successfully triggered a deployment on [cru-deploy](https://github.com/CruGlobal/cru-deploy/actions/workflows/promote-ecs.yml).')
+    core.notice('Successfully triggered a deployment at https://github.com/CruGlobal/cru-deploy/actions/workflows/promote-ecs.yml.')
   } catch (error) {
     core.setFailed(error.message)
   }
