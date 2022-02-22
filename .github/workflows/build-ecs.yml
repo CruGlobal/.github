@@ -80,16 +80,25 @@ jobs:
         with:
           path: project
 
+      - name: Start Docker Network
+        run: docker network create ${{ steps.env.outputs.project-name }}
+
       - name: Run build.sh
         working-directory: project
         run: ./build.sh
         env:
+          DOCKER_NETWORK: ${{ steps.env.outputs.project-name }}
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
             --cache-from type=local,src=/tmp/.buildx-cache
             --cache-to type=local,dest=/tmp/.buildx-cache-new
             --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
             --push
+
+      - name: Stop Docker Network
+        run: docker network rm ${{ steps.env.outputs.project-name }}
+        if: ${{ always() }}
+        continue-on-error: true
 
       # Temp fix
       # https://github.com/docker/build-push-action/issues/252
