@@ -1,0 +1,13 @@
+name: Docker Network
+description: Create a docker network
+branding:
+  color: orange
+  icon: wifi
+inputs:
+  name:
+    description: Docker network name
+    required: true
+runs:
+  using: 'node16'
+  main: '../../dist/docker-network.js'
+  post: '../../dist/docker-network.js'
