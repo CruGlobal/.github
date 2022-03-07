@@ -3,10 +3,13 @@ import assert from 'assert'
 import escapeStringRegexp from 'escape-string-regexp'
 
 import {
+  ecsDescribeTaskDefinition,
   ecsListServices,
   ecsRegisterTaskDefinition,
   ecsServiceTaskDefinitions,
-  ecsUpdateService
+  ecsUpdateService,
+  eventBridgeListRules,
+  eventBridgeListTargets, eventBridgeUpdateTarget
 } from './aws'
 
 import {
@@ -45,8 +48,9 @@ async function run () {
     )
 
     await updateServices(projectName, environment, buildNumber)
+    await updateScheduledTasks(projectName, environment, buildNumber)
   } catch (error) {
-    core.setFailed(error.message);
+    core.setFailed(error.message)
   }
 }
 
@@ -63,6 +67,23 @@ async function updateServices (projectName, environment, buildNumber) {
 
     // TODO: Update SimpleDB (v3 SDK doesn't exist fot this service).
     // See https://github.com/CruGlobal/ecs_config/blob/master/bin/jenkins-deploy#L102
+  }
+}
+
+async function updateScheduledTasks (projectName, environment, buildNumber) {
+  const env = environmentNickname(environment)
+
+  const rules = await eventBridgeListRules(`ecstask-${projectName}-${env}`)
+  for (const rule of rules) {
+    const targets = await eventBridgeListTargets(rule.Name)
+    for (const target of targets) {
+      // This really should only ever be 1 target per rule, but API allows for more
+      core.info(`Updating ECS Scheduled Task: ${target.Id}`)
+
+      const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
+      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
+      await eventBridgeUpdateTarget(rule.Name, target)
+    }
   }
 }
 
