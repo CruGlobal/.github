@@ -19,6 +19,13 @@ import {
   UpdateItemCommand
 } from '@aws-sdk/client-dynamodb'
 
+import {
+  EventBridgeClient,
+  ListRulesCommand,
+  ListTargetsByRuleCommand,
+  PutTargetsCommand
+} from '@aws-sdk/client-eventbridge'
+
 const tagReducer = (previousValue, currentValue) => {
   previousValue[currentValue.Key] = currentValue.Value
   return previousValue
@@ -101,4 +108,38 @@ export async function ecsBuildNumber (projectName) {
     UpdateExpression: 'SET #buildNumber = if_not_exists(#buildNumber, :base) + :num',
     ReturnValues: 'UPDATED_NEW'
   }))).Attributes.BuildNumber.N
+}
+
+export async function eventBridgeListRules (prefix) {
+  const client = new EventBridgeClient({})
+  const rules = []
+  let NextToken = undefined
+
+  do {
+    const command = new ListRulesCommand({ NamePrefix: prefix, Limit: 10, NextToken })
+    const response = await client.send(command)
+    rules.push(...response.Rules)
+    NextToken = response.NextToken
+  } while (NextToken)
+  return rules
+}
+
+export async function eventBridgeListTargets (ruleName) {
+  const client = new EventBridgeClient({})
+  const targets = []
+  let NextToken = undefined
+
+  do {
+    const command = new ListTargetsByRuleCommand({ Rule: ruleName, Limit: 10, NextToken })
+    const response = await client.send(command)
+    targets.push(...response.Targets)
+    NextToken = response.NextToken
+  } while (NextToken)
+  return targets
+}
+
+export async function eventBridgeUpdateTarget(ruleName, target) {
+  const client = new EventBridgeClient({})
+  const command = new PutTargetsCommand({Rule: ruleName, Targets: [target]})
+  return await client.send(command)
 }
