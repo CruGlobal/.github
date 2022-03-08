@@ -73,16 +73,23 @@ async function updateServices (projectName, environment, buildNumber) {
 async function updateScheduledTasks (projectName, environment, buildNumber) {
   const env = environmentNickname(environment)
 
-  const rules = await eventBridgeListRules(`ecstask-${projectName}-${env}`)
-  for (const rule of rules) {
-    const targets = await eventBridgeListTargets(rule.Name)
-    for (const target of targets) {
-      // This really should only ever be 1 target per rule, but API allows for more
-      core.info(`Updating ECS Scheduled Task: ${target.Id}`)
+  try {
+    const rules = await eventBridgeListRules(`ecstask-${projectName}-${env}`)
+    for (const rule of rules) {
+      const targets = await eventBridgeListTargets(rule.Name)
+      for (const target of targets) {
+        // This really should only ever be 1 target per rule, but API allows for more
+        core.info(`Updating ECS Scheduled Task: ${target.Id}`)
 
-      const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
-      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
-      await eventBridgeUpdateTarget(rule.Name, target)
+        const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
+        target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
+        await eventBridgeUpdateTarget(rule.Name, target)
+      }
+    }
+  } catch (error) {
+    if (error?.name !== 'UnauthorizedException') {
+      // Not all deployments can List Rules, don't fail if they can't.
+      throw error
     }
   }
 }
