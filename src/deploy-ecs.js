@@ -81,7 +81,7 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
       core.info(`Updating ECS Scheduled Task: ${target.Id}`)
 
       const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
-      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
+      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber)
       await eventBridgeUpdateTarget(rule.Name, target)
     }
   }
