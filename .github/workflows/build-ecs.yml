@@ -104,5 +104,6 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+        continue-on-error: true
 
       - run: echo "::notice title=Build Success::Successfully built - $ENVIRONMENT-$BUILD_NUMBER"
