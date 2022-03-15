@@ -64,9 +64,8 @@ async function updateServices (projectName, environment, buildNumber) {
     core.info(`Updating ECS Service: ${serviceName}`)
     const taskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
     const service = await ecsUpdateService(serviceArn, cluster, taskDefinitionArn)
-
-    // TODO: Update SimpleDB (v3 SDK doesn't exist fot this service).
-    // See https://github.com/CruGlobal/ecs_config/blob/master/bin/jenkins-deploy#L102
+    // Sleep 3 sec between updates to help with API rate limiting
+    await new Promise(resolve => setTimeout(resolve, 3000))
   }
 }
 
@@ -83,6 +82,8 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
       const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
       target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber)
       await eventBridgeUpdateTarget(rule.Name, target)
+      // Sleep 3 sec between updates to help with API rate limiting
+      await new Promise(resolve => setTimeout(resolve, 3000))
     }
   }
 }

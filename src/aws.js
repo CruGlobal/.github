@@ -32,9 +32,10 @@ const tagReducer = (previousValue, currentValue) => {
 }
 
 const chunk = (arr, size) => arr.reduce((acc, _, i) => (i % size) ? acc : [...acc, arr.slice(i, i + size)], [])
+const RETRY_CONFIG = {maxAttempts: 5, retryMode: 'standard'}
 
 export async function ecsListServices (regexp, cluster) {
-  const client = new ECSClient({})
+  const client = new ECSClient({...RETRY_CONFIG})
   const serviceArns = []
   for await (const page of paginateListServices({ client, pageSize: 50 }, { cluster })) {
     serviceArns.push(...page.serviceArns)
@@ -43,7 +44,7 @@ export async function ecsListServices (regexp, cluster) {
 }
 
 export async function ecsServiceTaskDefinitions (serviceArns, cluster) {
-  const client = new ECSClient({})
+  const client = new ECSClient({...RETRY_CONFIG})
   const services = []
   for (const arns of chunk(serviceArns, 10)) {
     const result = await client.send(new DescribeServicesCommand({ cluster, services: arns }))
@@ -60,24 +61,24 @@ export async function ecsServiceTaskDefinitions (serviceArns, cluster) {
 }
 
 export async function ecsDescribeTaskDefinition (taskDefinition) {
-  const client = new ECSClient({})
+  const client = new ECSClient({...RETRY_CONFIG})
   return client.send(new DescribeTaskDefinitionCommand({ taskDefinition, include: [TaskDefinitionField.TAGS] }))
 }
 
 export async function ecsRegisterTaskDefinition (taskDefinition) {
-  const client = new ECSClient({})
+  const client = new ECSClient({...RETRY_CONFIG})
   const response = await client.send(new RegisterTaskDefinitionCommand(taskDefinition))
   return response.taskDefinition.taskDefinitionArn
 }
 
 export async function ecsUpdateService (service, cluster, taskDefinition) {
-  const client = new ECSClient({})
+  const client = new ECSClient({...RETRY_CONFIG})
   const response = await client.send(new UpdateServiceCommand({ service, cluster, taskDefinition }))
   return response.service
 }
 
 export async function ssmParameters (prefix, decrypt = true) {
-  const client = new SSMClient({ region: 'us-east-1' })
+  const client = new SSMClient({ region: 'us-east-1', ...RETRY_CONFIG })
   const params = []
   for await (const page of paginateGetParametersByPath({ client, pageSize: 10 }, {
     Path: prefix,
@@ -99,7 +100,7 @@ export async function ssmParameters (prefix, decrypt = true) {
 }
 
 export async function ecsBuildNumber (projectName) {
-  const client = new DynamoDBClient({})
+  const client = new DynamoDBClient({...RETRY_CONFIG})
   return (await client.send(new UpdateItemCommand({
     TableName: 'ECSBuildNumbers',
     Key: { ProjectName: { 'S': projectName } },
@@ -111,7 +112,7 @@ export async function ecsBuildNumber (projectName) {
 }
 
 export async function eventBridgeListRules (prefix) {
-  const client = new EventBridgeClient({})
+  const client = new EventBridgeClient({...RETRY_CONFIG})
   const rules = []
   let NextToken = undefined
 
@@ -125,7 +126,7 @@ export async function eventBridgeListRules (prefix) {
 }
 
 export async function eventBridgeListTargets (ruleName) {
-  const client = new EventBridgeClient({})
+  const client = new EventBridgeClient({...RETRY_CONFIG})
   const targets = []
   let NextToken = undefined
 
@@ -139,7 +140,7 @@ export async function eventBridgeListTargets (ruleName) {
 }
 
 export async function eventBridgeUpdateTarget(ruleName, target) {
-  const client = new EventBridgeClient({})
+  const client = new EventBridgeClient({...RETRY_CONFIG})
   const command = new PutTargetsCommand({Rule: ruleName, Targets: [target]})
   return await client.send(command)
 }
