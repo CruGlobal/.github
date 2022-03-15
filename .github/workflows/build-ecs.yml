@@ -103,6 +103,6 @@ jobs:
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache 2>/dev/null
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache || true
 
       - run: echo "::notice title=Build Success::Successfully built - $ENVIRONMENT-$BUILD_NUMBER"
