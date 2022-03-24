@@ -11,9 +11,9 @@ const ACCOUNTS = {
 }
 const DEFAULT_ACCOUNT = 'cruds'
 
-const PARAM_TYPES = ['BUILD', 'RUNTIME', 'ALL']
-const BUILD_PARAM_TYPES = ['BUILD', 'ALL']
-const RUNTIME_PARAM_TYPES = ['RUNTIME', 'ALL']
+export const PARAM_TYPES = ['BUILD', 'RUNTIME', 'ALL']
+export const BUILD_PARAM_TYPES = ['BUILD', 'ALL']
+export const RUNTIME_PARAM_TYPES = ['RUNTIME', 'ALL']
 
 export function environmentNickname (environment) {
   switch (environment) {
@@ -80,10 +80,10 @@ export function ecrImageTag (projectName, environment, buildNumber) {
   return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}:${environment}-${buildNumber}`
 }
 
-export async function buildSecrets (projectName, environment) {
+export async function secrets (projectName, environment, types = PARAM_TYPES) {
   const env = environmentNickname(environment)
   return (await ssmParameters(`/ecs/${projectName}/${env}/`))
-    .filter(param => BUILD_PARAM_TYPES.includes(param.tags['param_type']))
+    .filter(param => types.includes(param.tags['param_type']))
     .reduce((acc, key) => ({ ...acc, [key.name.split('/').pop()]: key.value }), {})
 }
 
