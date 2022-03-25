@@ -62,6 +62,7 @@ jobs:
         with:
           node-version: '16'
           cache: 'yarn'
+          cache-dependency-path: 'project/yarn.lock'
 
       - name: Install packages
         run: yarn
