@@ -54,6 +54,8 @@ jobs:
 
       - name: Checkout Project
         uses: actions/checkout@v3
+        with:
+          path: project
 
       - name: Setup NodeJS 16.x
         uses: actions/setup-node@v2
@@ -63,6 +65,7 @@ jobs:
 
       - name: Install packages
         run: yarn
+        working-directory: project
 
       - name: Import Secrets
         uses: ./cru-github-actions/actions/secrets
@@ -71,3 +74,4 @@ jobs:
 
       - name: Package Serverless Functions
         run: npx serverless package --verbose
+        working-directory: project
