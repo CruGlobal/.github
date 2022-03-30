@@ -68,7 +68,7 @@ jobs:
         id: ecr
 
       - name: Cache Docker Layers
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}
@@ -106,4 +106,5 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
         continue-on-error: true
 
-      - run: echo "::notice title=Build Success::Successfully built - $ENVIRONMENT-$BUILD_NUMBER"
+      - name: Notify Success
+        run: echo "::notice title=Build Success::Successfully built - $ENVIRONMENT-$BUILD_NUMBER"

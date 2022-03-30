@@ -1,0 +1,81 @@
+name: Deploy Serverless
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
+    outputs:
+      project-name:
+        description: Project Name, defaults to GitHub repo name.
+        value: ${{ jobs.build.outputs.project-name }}
+      environment:
+        description: Environment (staging/production).
+        value: ${{ jobs.build.outputs.environment }}
+      build-number:
+        description: Build Number/Tag
+        value: ${{ jobs.build.outputs.build-number }}
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      project-name: ${{ steps.env.outputs.project-name }}
+      environment: ${{ steps.env.outputs.environment }}
+      build-number: ${{ steps.build-number.outputs.build-number }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v3
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup Build environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.env.outputs.ecs-task-role-arn }}
+
+      - name: Increment Build Number
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
+
+      - name: Checkout Project
+        uses: actions/checkout@v3
+        with:
+          path: project
+
+      - name: Setup NodeJS 16.x
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+          cache: 'yarn'
+          cache-dependency-path: 'project/yarn.lock'
+
+      - name: Install packages
+        run: yarn
+        working-directory: project
+
+      - name: Import Secrets
+        uses: ./cru-github-actions/actions/secrets
+        with:
+          type: ALL
+
+      - name: Deploy Serverless Functions
+        run: npx serverless deploy --verbose
+        working-directory: project
+
+      - name: Notify Success
+        run: echo "::notice title=Deploy Success::Successfully deployed - $ENVIRONMENT-$BUILD_NUMBER"
