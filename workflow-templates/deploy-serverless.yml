@@ -1,0 +1,16 @@
+name: Deploy Serverless Functions
+
+on:
+  push:
+    branches:
+      # Automatically deploy $default-branch and staging. Additional branches may be added.
+      - $default-branch
+      - staging
+  workflow_dispatch:
+  # Allows manual build and deploy of any branch/ref
+
+jobs:
+  # Deploy Serverless functions
+  deploy:
+    name: Deploy
+    uses: CruGlobal/.github/.github/workflows/deploy-serverless.yml@v1

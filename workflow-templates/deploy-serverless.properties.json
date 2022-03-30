@@ -1,0 +1,7 @@
+{
+  "name": "Deploy Serverless Functions",
+  "description": "Deploy Serverless Framework functions. This workflow requires a serverless.yml config file and application resources defined in Terraform.",
+  "filePatterns": [
+    "serverless.yml"
+  ]
+}
