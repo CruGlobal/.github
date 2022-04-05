@@ -82,8 +82,8 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
       const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
       target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber)
       await eventBridgeUpdateTarget(rule.Name, target)
-      // Sleep 3 sec between updates to help with API rate limiting
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      // Sleep 10 sec between updates to help with API rate limiting
+      await new Promise(resolve => setTimeout(resolve, 10000))
     }
   }
 }
