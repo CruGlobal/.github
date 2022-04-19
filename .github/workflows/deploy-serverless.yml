@@ -76,9 +76,7 @@ jobs:
       - name: Setup Google Keyfile
         run: printenv GOOGLE_KEYFILE > keyfile.json
         working-directory: project
-        if: env.CHECK_GOOGLE_KEYFILE != ''
-        env:
-          CHECK_GOOGLE_KEYFILE: ${{ secrets.GOOGLE_KEYFILE }}
+        if: env.GOOGLE_KEYFILE != ''
 
       - name: Deploy Serverless Functions
         run: npx serverless deploy --verbose
