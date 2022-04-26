@@ -21,7 +21,7 @@
   },
   "homepage": "https://github.com/CruGlobal/.github/#readme",
   "dependencies": {
-    "@actions/core": "^1.6.0",
+    "@actions/core": "^1.7.0",
     "@actions/exec": "^1.1.1",
     "@actions/github": "^5.0.1",
     "@aws-sdk/client-ssm": "^3.67.0",
