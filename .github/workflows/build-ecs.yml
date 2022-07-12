@@ -23,6 +23,7 @@ jobs:
   build:
     name: Build Docker Container
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       project-name: ${{ steps.env.outputs.project-name }}
       environment: ${{ steps.env.outputs.environment }}
