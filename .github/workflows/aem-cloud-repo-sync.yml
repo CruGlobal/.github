@@ -55,7 +55,7 @@ jobs:
         run: |
             git remote remove origin
             git remote add origin https://git.cloudmanager.adobe.com/cru/${{ inputs.cloud-repository-name }}
-            git push https://${{ secrets.cloud-repository-username }}:${{ secrets.cloud-repository-password }}@git.cloudmanager.adobe.com/cru/${{ inputs.cloud-repository-name }} aem-cloud-repo-sync --force
+            git push https://${{ secrets.cloud-repository-username }}:${{ secrets.cloud-repository-password }}@git.cloudmanager.adobe.com/cru/${{ inputs.cloud-repository-name }} ${{ inputs.aem-cloud-branch-name }} --force
 
       - name: update CruGlobal aem-cloud submodules
         if: ${{ inputs.update-submodules }}
