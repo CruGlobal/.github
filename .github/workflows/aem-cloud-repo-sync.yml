@@ -1,0 +1,71 @@
+name: AEM Cloud Repository Sync
+
+on:
+  workflow_call:
+    inputs:
+      cloud-repository-name:
+        description: Cloud Repository Name
+        required: true
+        type: string
+      user-email:
+        description: User Email
+        required: true
+        type: string
+      user-name:
+        description: User Name
+        required: true
+        type: string
+      aem-cloud-branch-name:
+        description: Branch Name
+        required: true
+        type: string
+      update-submodules:
+        description: Update submodules directive
+        required: false
+        type: boolean
+        default: true
+
+    secrets:
+      cloud-repository-username:
+        description: Cloud Repository User Name
+        required: true
+      cloud-repository-password:
+        description: Cloud Repository Password
+        required: true
+      aem-repository-github-api-token:
+        description: Cloud Repository Personal Access Token
+        required: true
+
+jobs:
+  # Running jobs directly on the runner machine
+  aem-cloud-repo-sync:
+    runs-on: ubuntu-latest
+
+    # Service containers to run with `runner-job`
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: set git config
+        run: |
+            git config --global credential.helper cache
+            git config --global user.email ${{ inputs.user-email }}
+            git config --global user.name ${{ inputs.user-name }}
+
+      - name: sync to aem cloud git repository
+        run: |
+            git remote remove origin
+            git remote add origin https://git.cloudmanager.adobe.com/cru/${{ inputs.cloud-repository-name }}
+            git push https://${{ secrets.cloud-repository-username }}:${{ secrets.cloud-repository-password }}@git.cloudmanager.adobe.com/cru/${{ inputs.cloud-repository-name }} aem-cloud-repo-sync --force
+
+      - name: update CruGlobal aem-cloud submodules
+        if: ${{ inputs.update-submodules }}
+        run: |
+            git clone https://user:${{ secrets.aem-repository-github-api-token }}@github.com/CruGlobal/aem-cloud.git
+            cd aem-cloud
+            git fetch origin ${{ inputs.aem-cloud-branch-name }}
+            git checkout ${{ inputs.aem-cloud-branch-name }}
+            git submodule update --init --recursive
+            git submodule update --remote
+            git add .
+            git commit -m 'submodule update'
+            git push origin ${{ inputs.aem-cloud-branch-name }}
