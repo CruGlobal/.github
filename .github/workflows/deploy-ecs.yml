@@ -51,7 +51,7 @@ jobs:
           environment: ${{ inputs.environment }}
 
       - name: Add DataDog Tags
-        run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME,environment:$ENVIRONMENT,build_number:$BUILD_NUMBER"
+        run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME" "environment:$ENVIRONMENT" "build_number:$BUILD_NUMBER"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
