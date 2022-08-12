@@ -20,6 +20,10 @@ on:
         description: Build Number/Tag
         required: true
         type: string
+    secrets:
+      datadog-api-key:
+        description: DataDog API Key
+        required: true
 
 jobs:
   deploy:
@@ -30,6 +34,7 @@ jobs:
       contents: write
     env:
       BUILD_NUMBER: ${{ inputs.build-number }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
     steps:
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v3
@@ -38,7 +43,7 @@ jobs:
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
 
-      - name: Setup Build environment
+      - name: Setup Deploy environment
         uses: ./cru-github-actions/actions/setup-env
         id: env
         with:
