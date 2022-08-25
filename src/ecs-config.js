@@ -23,6 +23,8 @@ export function environmentNickname (environment) {
       return 'stage'
     case 'development':
       return 'dev'
+    case 'lab':
+      return 'lab'
     default:
       return environment
   }
@@ -34,6 +36,8 @@ export function environmentFromBranch (branch) {
     case 'master':
     case 'production':
       return 'production'
+    case branch.match(/^lab-.+/)?.input:
+      return 'lab'
     case 'staging':
     default:
       return 'staging'
