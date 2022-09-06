@@ -5,7 +5,7 @@ inputs:
     description: Project name.
     required: true
   environment:
-    description: Environment (staging/production).
+    description: Environment (staging/production/lab).
     required: true
   build-number:
     description: Build number.
