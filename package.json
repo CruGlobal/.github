@@ -24,7 +24,7 @@
     "@actions/core": "^1.9.1",
     "@actions/exec": "^1.1.1",
     "@actions/github": "^5.0.1",
-    "@aws-sdk/client-ssm": "^3.145.0",
+    "@aws-sdk/client-ssm": "^3.183.0",
     "@aws-sdk/client-ecs": "^3.145.0",
     "@aws-sdk/client-dynamodb": "^3.145.0",
     "@aws-sdk/client-eventbridge": "^3.145.0",
