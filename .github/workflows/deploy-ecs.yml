@@ -54,7 +54,7 @@ jobs:
         run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "build_number:$BUILD_NUMBER"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v1-node16
         with:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS

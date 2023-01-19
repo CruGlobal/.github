@@ -108,7 +108,7 @@ Secrets are exported to the environment.
 ...
   steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
+      uses: aws-actions/configure-aws-credentials@v1-node16
       with:
         aws-region: us-east-1
         role-to-assume: role_arn
