@@ -27,7 +27,7 @@
     "@aws-sdk/client-ssm": "^3.252.0",
     "@aws-sdk/client-ecs": "^3.252.0",
     "@aws-sdk/client-dynamodb": "^3.252.0",
-    "@aws-sdk/client-eventbridge": "^3.252.0",
+    "@aws-sdk/client-eventbridge": "^3.256.0",
     "escape-string-regexp": "^5.0.0"
   },
   "devDependencies": {
