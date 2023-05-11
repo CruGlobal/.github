@@ -43,7 +43,7 @@ jobs:
         id: env
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1-node16
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-region: us-east-1
           role-to-assume: ${{ steps.env.outputs.ecs-task-role-arn }}
@@ -58,7 +58,7 @@ jobs:
           path: project
 
       - name: Setup NodeJS 16.x
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
           node-version: '16'
           cache: 'yarn'
