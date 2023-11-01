@@ -7,7 +7,6 @@ export async function run () {
     const environment = core.getInput('environment', { required: true })
     const buildNumber = core.getInput('build-number', { required: true })
     const githubToken = core.getInput('github-token', { required: true })
-    const type = core.getInput('type')
 
     const octokit = getOctokit(githubToken)
 

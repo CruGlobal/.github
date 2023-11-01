@@ -63,7 +63,7 @@ async function updateServices (projectName, environment, buildNumber) {
     const serviceName = serviceArn.split('/').pop()
     core.info(`Updating ECS Service: ${serviceName}`)
     const taskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
-    const service = await ecsUpdateService(serviceArn, cluster, taskDefinitionArn)
+    await ecsUpdateService(serviceArn, cluster, taskDefinitionArn)
     // Sleep 3 sec between updates to help with API rate limiting
     await new Promise(resolve => setTimeout(resolve, 10000))
   }
