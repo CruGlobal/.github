@@ -63,7 +63,7 @@ export function awsAccountNumber (awsAccount = DEFAULT_ACCOUNT) {
   if (/^\d{12,}$/.test(awsAccount))
     return awsAccount
 
-  if (!ACCOUNTS.hasOwnProperty(awsAccount))
+  if (!Object.prototype.hasOwnProperty.call(ACCOUNTS, awsAccount))
     throw new TypeError(`Unknown AWS account alias: ${awsAccount}`)
 
   // Otherwise, lookup account number

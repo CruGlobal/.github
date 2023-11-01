@@ -10,10 +10,6 @@ inputs:
   build-number:
     description: Build number.
     required: true
-  type:
-    description: Deployment type
-    required: false
-    default: ECS_V1
   github-token:
     description: The GitHub token used to create a workflow_dispatch event.
     required: true
