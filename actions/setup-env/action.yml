@@ -16,5 +16,5 @@ outputs:
   ecs-task-role-arn:
     description: AWS IAM Role ARN used to build/deploy the project.
 runs:
-  using: 'node16'
+  using: 'node20'
   main: '../../dist/setup-env.js'
