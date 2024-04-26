@@ -14,5 +14,5 @@ inputs:
     description: The GitHub token used to create a workflow_dispatch event.
     required: true
 runs:
-  using: 'node16'
+  using: 'node20'
   main: '../../dist/trigger-deploy.js'

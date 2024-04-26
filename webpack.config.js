@@ -14,7 +14,8 @@ module.exports = {
     'trigger-deploy': './src/trigger-deploy.js'
   },
   output: {
-    path: path.resolve(__dirname, 'dist')
+    path: path.resolve(__dirname, 'dist'),
+    chunkFormat: false
   },
   devtool: 'source-map',
   optimization: {
