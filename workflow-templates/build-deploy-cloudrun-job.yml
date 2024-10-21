@@ -1,0 +1,39 @@
+name: Build and Deploy Cloud Run Job
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v0
+        with:
+          workload_identity_provider: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker
+
+      - name: Build Docker image
+        run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/your-image-name:latest .
+
+      - name: Push Docker image
+        run: docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/your-image-name:latest
+
+      - name: Deploy to Cloud Run Job
+        run: |
+          gcloud run jobs update your-job-name \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/your-image-name:latest \
+            --region ${{ secrets.GCP_REGION }}

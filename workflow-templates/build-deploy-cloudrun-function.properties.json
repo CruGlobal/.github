@@ -1,0 +1,8 @@
+{
+  "name": "Build and Deploy Cloud Run Function",
+  "description": "Build Docker image and deploy to Google Cloud Run Function. This workflow requires authentication to Google Cloud.",
+  "filePatterns": [
+    "^Dockerfile",
+    "^cloudrun-function-config.yml"
+  ]
+}

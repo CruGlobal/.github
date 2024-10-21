@@ -1,0 +1,8 @@
+{
+  "name": "Build and Deploy Cloud Run Job",
+  "description": "Build Docker image and deploy to Google Cloud Run Job. This workflow requires authentication to Google Cloud.",
+  "filePatterns": [
+    "^Dockerfile",
+    "^cloudrun-job-config.yml"
+  ]
+}
