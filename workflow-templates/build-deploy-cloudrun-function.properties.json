@@ -1,0 +1,14 @@
+{
+  "name": "Build and Deploy Cloud Run Function",
+  "description": "Deploy a Cloud Function to Google Cloud Run. This workflow requires authentication to Google Cloud.",
+  "filePatterns": [
+    "^Dockerfile",
+    "^cloudrun-function-config.yml"
+  ],
+  "inputs": {
+    "function_name": {
+      "description": "The name of the Cloud Function to deploy",
+      "required": true
+    }
+  }
+}
