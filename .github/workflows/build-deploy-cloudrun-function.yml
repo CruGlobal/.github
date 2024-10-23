@@ -1,10 +1,19 @@
-name: Build and Deploy Cloud Run Job
+name: Build and Deploy Cloud Run Function
 
 # Trigger the workflow on push events to the main branch
 on:
   push:
     branches:
-      - main
+      - $default-branch
+      - staging
+    workflow_dispatch:
+      # Allows manual build and deploy of any branch/ref
+      inputs:
+        auto-deploy:
+          type: boolean
+          description: Deploy image after building?
+          required: true
+          default: 'false'
 
 jobs:
   build-and-deploy:
@@ -28,7 +37,8 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: 'github-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+          service_account: '${{ GITHUB_REPOSITORY##*/ }}-github-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+
 
       # Step 3: Set up the Google Cloud SDK
       - name: Set up Cloud SDK
