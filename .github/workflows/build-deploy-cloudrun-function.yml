@@ -6,14 +6,14 @@ on:
     branches:
       - $default-branch
       - staging
-    workflow_dispatch:
-      # Allows manual build and deploy of any branch/ref
-      inputs:
-        auto-deploy:
-          type: boolean
-          description: Deploy image after building?
-          required: true
-          default: 'false'
+  workflow_dispatch:
+    # Allows manual build and deploy of any branch/ref
+    inputs:
+      auto-deploy:
+        type: boolean
+        description: Deploy image after building?
+        required: true
+        default: 'false'
 
 jobs:
   build-and-deploy:
