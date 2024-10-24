@@ -91,6 +91,7 @@ jobs:
             --runtime=python312 \
             --entry-point=hello_http \
             --trigger-http
+            --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
 
       # Step 5: Post a comment on the pull request if it is merged
       - uses: actions/github-script@v6
