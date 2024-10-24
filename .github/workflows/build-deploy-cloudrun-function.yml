@@ -28,9 +28,21 @@ on:
         required: true
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      build-number: ${{ steps.build-number.outputs.build-number }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Increment Build Number
+        id: build-number
+        run: echo "::set-output name=build-number::$(date +%s)"
+
   build-and-deploy:
     runs-on: ubuntu-latest
-
+    needs: build
     # Set permissions for the job
     permissions:
       contents: read
@@ -52,14 +64,14 @@ jobs:
           service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
 
       # Step 3: Set up the Google Cloud SDK
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      #- name: Set up Cloud SDK
+      #  uses: google-github-actions/setup-gcloud@v2
 
       # Step 4: Deploy the Cloud Function using gcloud
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloud-functions@v3'
         with:
-          name: ${{ inputs.function_name }}-${{ jobs.build.outputs.build-number }}
+          name: ${{ inputs.function_name }}-${{ needs.build.outputs.build-number }}
           region: ${{ secrets.GCP_REGION }}
           runtime: 'python312'
           source_dir: './${{ inputs.function_name }}'
