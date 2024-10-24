@@ -59,12 +59,12 @@ jobs:
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloud-functions@v3'
         with:
-          name: ${{ inputs.function_name }}
+          name: ${{ inputs.function_name }}-${{ jobs.build.outputs.build-number }}
           region: ${{ secrets.GCP_REGION }}
           runtime: 'python312'
           source_dir: './${{ inputs.function_name }}'
           entry_point: 'hello_http'
-          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+          #service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
 
       #- name: Deploy to Cloud Run Functions
       #  id: deploy
@@ -72,7 +72,7 @@ jobs:
       #    GCP_REGION: ${{ secrets.GCP_REGION }}
       #  run: |
       #    gcloud functions deploy ${{ inputs.function_name }} \
-      #      --quiet \
+      #      --no-allow-unauthenticated \
       #      --region $GCP_REGION \
       #      --gen2 \
       #      --source=./${{ inputs.function_name }} \
