@@ -34,9 +34,8 @@ jobs:
         name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: '${{ GITHUB_REPOSITORY##*/ }}-github-sa@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
 
 
       # Step 3: Set up the Google Cloud SDK
