@@ -9,11 +9,9 @@ on:
   workflow_dispatch:
     # Allows manual build and deploy of any branch/ref
     inputs:
-      auto-deploy:
-        type: boolean
-        description: Deploy image after building?
+      function_name:
+        description: 'The name of the Cloud Function to deploy'
         required: true
-        default: 'false'
 
 jobs:
   build-and-deploy:
@@ -73,8 +71,3 @@ jobs:
               repo: context.repo.repo,
               body: output
 
-# Define the input parameter for the function name
-inputs:
-  function_name:
-    description: 'The name of the Cloud Function to deploy'
-    required: true
