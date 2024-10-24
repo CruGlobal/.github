@@ -66,7 +66,8 @@ jobs:
             --gen2 \
             --source=. \
             --runtime=python312 \
-            --entry-point=hello_http
+            --entry-point=hello_http \
+            --trigger-http 
 
       # Step 5: Post a comment on the pull request if it is merged
       - uses: actions/github-script@v6
