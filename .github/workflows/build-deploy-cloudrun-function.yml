@@ -6,11 +6,12 @@ on:
     branches:
       - $default-branch
       - staging
-  workflow_dispatch:
+  workflow_call:
     # Allows manual build and deploy of any branch/ref
     inputs:
       function_name:
         description: 'The name of the Cloud Function to deploy'
+        type: string
         required: true
 
 jobs:
