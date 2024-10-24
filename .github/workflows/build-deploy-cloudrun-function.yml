@@ -64,7 +64,7 @@ jobs:
           gcloud functions deploy ${{ inputs.function_name }} \
             --region $GCP_REGION \
             --gen2 \
-            --source=. \
+            --source=./${{ inputs.function_name }} \
             --runtime=python312 \
             --entry-point=hello_http \
             --trigger-http 
