@@ -1,0 +1,27 @@
+name: Build & Deploy Cloudrun Functions
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+    paths:
+      - 'function-name/**'
+  workflow_dispatch:
+    inputs:
+      function_name:
+        description: 'The name of the Cloud Function to deploy'
+        required: true
+        default: 'function-name'
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build & Deploy
+        uses: CruGlobal/.github/.github/workflows/build-deploy-cloudrun-function.yml@gcp-cloudrun
+        with:
+          function_name: ${{ github.event.inputs.function_name }}
