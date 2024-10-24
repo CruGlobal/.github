@@ -17,8 +17,11 @@ on:
       WORKLOAD_IDENTITY_PROVIDER:
         description: 'Workload Identity Provider'
         required: true
-      GCP_SERVICE_ACCOUNT_EMAIL:
-        description: 'GCP Service Account Email'
+      GCP_SERVICE_ACCOUNT:
+        description: 'GCP Service Account Name'
+        required: true
+      GCP_PROJECT_ID:
+        description: 'GCP Project ID'
         required: true
       GCP_REGION:
         description: 'GCP Region'
@@ -44,8 +47,9 @@ jobs:
         name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
 
       # Step 3: Set up the Google Cloud SDK
       - name: Set up Cloud SDK
