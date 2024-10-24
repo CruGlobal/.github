@@ -64,7 +64,7 @@ jobs:
           runtime: 'python312'
           source_dir: './${{ inputs.function_name }}'
           entry_point: 'hello_http'
-          service_account_email: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
 
       #- name: Deploy to Cloud Run Functions
       #  id: deploy
