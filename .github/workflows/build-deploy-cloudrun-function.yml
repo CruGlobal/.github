@@ -62,12 +62,14 @@ jobs:
           GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
           gcloud functions deploy ${{ inputs.function_name }} \
+            --quiet \
             --region $GCP_REGION \
             --gen2 \
             --source=./${{ inputs.function_name }} \
             --runtime=python312 \
             --entry-point=hello_http \
-            --trigger-http 
+            --trigger-http
+            --verbosity=debug
 
       # Step 5: Post a comment on the pull request if it is merged
       - uses: actions/github-script@v6
