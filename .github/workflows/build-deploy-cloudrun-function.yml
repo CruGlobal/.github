@@ -34,8 +34,8 @@ jobs:
         name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
 
 
       # Step 3: Set up the Google Cloud SDK
@@ -47,7 +47,7 @@ jobs:
         id: deploy
         run: |
           gcloud functions deploy ${{ inputs.function_name }} \
-            --region ${{ secrets.GCP_REGION }} \
+            --region ${{ inputs.region }} \
             --gen2 \
             --source=. \
             --runtime=python312 \
