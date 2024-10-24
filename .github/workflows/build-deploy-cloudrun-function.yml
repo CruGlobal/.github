@@ -62,7 +62,7 @@ jobs:
           GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
           gcloud functions deploy ${{ inputs.function_name }} \
-            --quiet \
+            --no-allow-unauthenticated \
             --region $GCP_REGION \
             --gen2 \
             --source=./${{ inputs.function_name }} \
