@@ -56,20 +56,32 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       # Step 4: Deploy the Cloud Function using gcloud
-      - name: Deploy to Cloud Run Functions
-        id: deploy
-        env:
-          GCP_REGION: ${{ secrets.GCP_REGION }}
-        run: |
-          gcloud functions deploy ${{ inputs.function_name }} \
-            --quiet \
-            --region $GCP_REGION \
-            --gen2 \
-            --source=./${{ inputs.function_name }} \
-            --runtime=python312 \
-            --entry-point=hello_http \
-            --trigger-http
-            --verbosity=debug
+      - id: 'deploy'
+        uses: 'google-github-actions/deploy-cloud-functions@v3'
+        with:
+          name: ${{ inputs.function_name }}
+          region: ${{ secrets.GCP_REGION }}
+          environment: GEN_2
+          runtime: 'python312'
+          source: './${{ inputs.function_name }}'
+          entry_point: 'hello_http'
+          trigger: 'http'
+          service_account_email: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      #- name: Deploy to Cloud Run Functions
+      #  id: deploy
+      #  env:
+      #    GCP_REGION: ${{ secrets.GCP_REGION }}
+      #  run: |
+      #    gcloud functions deploy ${{ inputs.function_name }} \
+      #      --quiet \
+      #      --region $GCP_REGION \
+      #      --gen2 \
+      #      --source=./${{ inputs.function_name }} \
+      #      --runtime=python312 \
+      #      --entry-point=hello_http \
+      #      --trigger-http
+      #      --verbosity=debug
 
       # Step 5: Post a comment on the pull request if it is merged
       - uses: actions/github-script@v6
