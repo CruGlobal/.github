@@ -13,13 +13,18 @@ on:
         description: 'The name of the Cloud Function to deploy'
         type: string
         required: true
-    secrets:
-        WORKLOAD_IDENTITY_PROVIDER:
-          required: true
-        GCP_SERVICE_ACCOUNT_EMAIL:
-          required: true
-        GCP_REGION:
-          required: true
+      WORKLOAD_IDENTITY_PROVIDER:
+        description: 'Workload Identity Provider'
+        type: string
+        required: true
+      GCP_SERVICE_ACCOUNT_EMAIL:
+        description: 'GCP Service Account Email'
+        type: string
+        required: true
+      GCP_REGION:
+        description: 'GCP Region'
+        type: string
+        required: true
 
 jobs:
   build-and-deploy:
@@ -41,8 +46,8 @@ jobs:
         name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          workload_identity_provider: ${{ inputs.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ inputs.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       # Step 3: Set up the Google Cloud SDK
       - name: Set up Cloud SDK
@@ -52,7 +57,7 @@ jobs:
       - name: Deploy to Cloud Run Functions
         id: deploy
         env:
-          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_REGION: ${{ inputs.GCP_REGION }}
         run: |
           gcloud functions deploy ${{ inputs.function_name }} \
             --region $GCP_REGION \
