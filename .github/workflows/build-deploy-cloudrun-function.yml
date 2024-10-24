@@ -44,7 +44,6 @@ jobs:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
 
-
       # Step 3: Set up the Google Cloud SDK
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -52,9 +51,11 @@ jobs:
       # Step 4: Deploy the Cloud Function using gcloud
       - name: Deploy to Cloud Run Functions
         id: deploy
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
           gcloud functions deploy ${{ inputs.function_name }} \
-            --region ${{ secret.GCP_REGION }} \
+            --region $GCP_REGION \
             --gen2 \
             --source=. \
             --runtime=python312 \
@@ -77,4 +78,3 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: output
-
