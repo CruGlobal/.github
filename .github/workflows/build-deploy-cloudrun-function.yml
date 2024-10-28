@@ -60,7 +60,7 @@ jobs:
           GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
           gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
-          gcloud functions deploy ${{ inputs.function_name }}-function \
+          gcloud functions deploy ${{ inputs.function_name }} \
             --region $GCP_REGION \
             --source=./${{ inputs.function_name }} \
             --build-service-account=projects/${{ secrets.GCP_PROJECT_ID }}/serviceAccounts/${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }} \
