@@ -11,6 +11,14 @@ on:
         description: 'The name of the Cloud Function to deploy'
         type: string
         required: true
+      entry_point:
+        description: 'The python function serving as the entry point'
+        type: string
+        required: true
+      runtime:
+        description: 'The function runtime'
+        type: string
+        required: true
     secrets:
       WORKLOAD_IDENTITY_PROVIDER:
         description: 'Workload Identity Provider'
@@ -63,6 +71,8 @@ jobs:
           gcloud functions deploy ${{ inputs.function_name }} \
             --region $GCP_REGION \
             --source=./${{ inputs.function_name }} \
+            --entry-point=${{ inputs.entry_point }} \
+            --runtime=${{ inputs.runtime }} \
             --build-service-account=projects/${{ secrets.GCP_PROJECT_ID }}/serviceAccounts/${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }} \
 
       - uses: actions/github-script@v6
