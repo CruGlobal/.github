@@ -7,6 +7,10 @@ on:
       - staging
   workflow_call:
     inputs:
+      environment:
+        type: string
+        description: environment to deploy to
+        required: true
       function_name:
         description: 'The name of the Cloud Function to deploy'
         type: string
@@ -20,33 +24,22 @@ on:
         type: string
         required: true
     secrets:
-      WORKLOAD_IDENTITY_PROVIDER:
-        description: 'Workload Identity Provider'
-        required: true
-      GCP_SERVICE_ACCOUNT:
-        description: 'GCP Service Account Name'
-        required: true
-      GCP_SERVICE_ACCOUNT_EMAIL:
-        description: 'GCP Service Account Email'
-        required: true
-      RUN_SERVICE_ACCOUNT:
-        description: 'Run Service Account'
-        required: true
-      GCP_PROJECT_ID:
-        description: 'GCP Project ID'
-        required: true
-      GCP_REGION:
-        description: 'GCP Region'
-        required: true
+        GCP_PROJECT_ID:
+        GCP_PROJECT_NUMBER:
+        WORKLOAD_IDENTITY_POOL:
+        WORKLOAD_IDENTITY_PROVIDER:
+        GCP_SERVICE_ACCOUNT:
+        GCP_SERVICE_ACCOUNT_EMAIL:
+        GCP_REGION:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
       pull-requests: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,10 +47,17 @@ jobs:
       - id: 'auth'
         name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+          WORKLOAD_IDENTITY_POOL: ${{ vars.WORKLOAD_IDENTITY_POOL }}
+          WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WORKLOAD_IDENTITY_POOL }}/providers/${{ vars.WORKLOAD_IDENTITY_PROVIDER }}'
+          service_account: '${{ vars.GCP_SERVICE_ACCOUNT }}@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -65,15 +65,17 @@ jobs:
       - name: Deploy to Cloud Run Functions
         id: deploy
         env:
-          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
         run: |
-          gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+          gcloud config set project ${{ vars.GCP_PROJECT_ID }}
           gcloud functions deploy ${{ inputs.function_name }} \
-            --region $GCP_REGION \
+            --region ${{ vars.GCP_REGION }} \
             --source=./${{ inputs.function_name }} \
             --entry-point=${{ inputs.entry_point }} \
             --runtime=${{ inputs.runtime }} \
-            --build-service-account=projects/${{ secrets.GCP_PROJECT_ID }}/serviceAccounts/${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }} \
+            --build-service-account=projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - uses: actions/github-script@v6
         if: github.event.pull_request.merged == true
@@ -85,7 +87,7 @@ jobs:
             ${{ steps.deploy.outputs.stdout }}
             \`\`\`
             </details>
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ inputs.function_name }}\`, Workflow: \`${{ github.workflow }}\`*`;
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ vars.function_name }}\`, Workflow: \`${{ github.workflow }}\`*`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
