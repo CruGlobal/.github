@@ -1,0 +1,41 @@
+name: Build & Deploy Cloudrun Function POC
+
+on:
+  push:
+    branches:
+      # Automatically deploy $default-branch. Create a workflow per branch.
+      - $default-branch
+    paths:
+      - 'Path-to-fuction/**' # Update with path to the function
+  workflow_dispatch:
+    inputs:
+      function_name:
+        description: 'The name of the Cloud Function to deploy'
+        required: true
+        default: 'function-name' # Update with function name
+      entry_point:
+        description: 'The python function serving as the entry point'
+        required: true
+        default: 'entry_point' # Update with entry point
+      runtime:
+        description: 'The function runtime'
+        required: true
+        default: 'runtime' # Update with runtime
+
+jobs:
+  build_and_deploy:
+
+    uses: CruGlobal/.github/.github/workflows/build-deploy-cloudrun-function.yml@v1
+    with:
+      function_name: ${{ github.event.inputs.function_name }}
+      entry_point: { entry_point } # hello_http
+      runtime: { runtime } # python312
+      environment: { environment }  # production
+    secrets:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+      WORKLOAD_IDENTITY_POOL: ${{ vars.WORKLOAD_IDENTITY_POOL }}
+      WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
