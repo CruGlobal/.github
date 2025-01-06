@@ -76,19 +76,10 @@ jobs:
 
       - name: Deploy Cloud Run Job
         run: |
-          gcloud run jobs create ${{ inputs.job_name }} \
+          gcloud run jobs deploy ${{ inputs.job_name }} \
             --region=${{ vars.GCP_REGION }} \
             --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest \
-            --service-account=${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }} \
-            --set-secrets=GEONAMES_PASSWORD=${{ inputs.job_name }}_GEONAMES_PASSWORD:latest \
-            --set-secrets=GEONAMES_USERNAME=${{ inputs.job_name }}_GEONAMES_USERNAME:latest \
-            --set-secrets=MAXMIND_LICENSE_KEY=${{ inputs.job_name }}_MAXMIND_LICENSE_KEY:latest \
-            --task-timeout=3600s \
-            --max-retries=1
-
-      - name: Execute Cloud Run Job
-        run: |
-          gcloud run jobs execute ${{ inputs.job_name }} --region=${{ vars.GCP_REGION }}
+            --service-account=${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }} 
 
       - uses: actions/github-script@v6
         if: github.event.pull_request.merged == true
