@@ -1,4 +1,4 @@
-name: Build and Deploy Cloud Run Function
+name: Build and Deploy Cloud Run Job
 
 on:
   push:
@@ -11,16 +11,16 @@ on:
         type: string
         description: environment to deploy to
         required: true
-      function_name:
-        description: 'The name of the Cloud Function to deploy'
+      job_name:
+        description: 'The name of the Cloud Job to deploy'
         type: string
         required: true
       entry_point:
-        description: 'The python function serving as the entry point'
+        description: 'The python Job serving as the entry point'
         type: string
         required: true
       runtime:
-        description: 'The function runtime'
+        description: 'The Job runtime'
         type: string
         required: true
     secrets:
@@ -62,7 +62,19 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Cloud Run Functions
+      - name: Configure Docker to use gcloud as a credential helper
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Build Docker image
+        run: |
+          docker build -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest ./${{ inputs.job_name }}
+
+      - name: Push Docker image to Google Container Registry
+        run: |
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest
+
+      - name: Deploy Cloud Run Job
         id: deploy
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -70,24 +82,22 @@ jobs:
           GCP_REGION: ${{ vars.GCP_REGION }}
         run: |
           gcloud config set project ${{ vars.GCP_PROJECT_ID }}
-          gcloud functions deploy ${{ inputs.function_name }} \
-            --region ${{ vars.GCP_REGION }} \
-            --source=./${{ inputs.function_name }} \
-            --entry-point=${{ inputs.entry_point }} \
-            --runtime=${{ inputs.runtime }} \
-            --build-service-account=projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          gcloud run jobs deploy ${{ inputs.job_name }} \
+            --region=${{ vars.GCP_REGION }} \
+            --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest \
+            --service-account=${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - uses: actions/github-script@v6
         if: github.event.pull_request.merged == true
         with:
           script: |
-            const output = `#### GCF Deploy ⚙️\`${{ steps.deploy.outcome }}\`
+            const output = `#### Cloud Run Job Deploy ⚙️\`${{ steps.deploy.outcome }}\`
             <details><summary>Show Deploy</summary>
             \`\`\`\n
             ${{ steps.deploy.outputs.stdout }}
             \`\`\`
             </details>
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ inputs.function_name }}\`, Workflow: \`${{ github.workflow }}\`*`;
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ inputs.job_name }}\`, Workflow: \`${{ github.workflow }}\`*`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
