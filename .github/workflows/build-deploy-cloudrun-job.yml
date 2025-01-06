@@ -85,7 +85,7 @@ jobs:
           gcloud run jobs deploy ${{ inputs.job_name }} \
             --region=${{ vars.GCP_REGION }} \
             --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest \
-            --service-account=${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+            --build-service-account=projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - uses: actions/github-script@v6
         if: github.event.pull_request.merged == true
