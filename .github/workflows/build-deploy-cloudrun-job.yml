@@ -62,6 +62,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Configure Docker to use gcloud as a credential helper
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+
       - name: Build Docker image
         run: |
           docker build -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest ./${{ inputs.job_name }}
