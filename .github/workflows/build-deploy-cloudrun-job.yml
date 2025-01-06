@@ -75,7 +75,13 @@ jobs:
           docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest
 
       - name: Deploy Cloud Run Job
+        id: deploy
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
         run: |
+          gcloud config set project ${{ vars.GCP_PROJECT_ID }}
           gcloud run jobs deploy ${{ inputs.job_name }} \
             --region=${{ vars.GCP_REGION }} \
             --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest \
