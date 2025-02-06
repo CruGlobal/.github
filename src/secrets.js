@@ -27,7 +27,8 @@ async function run () {
     const selectedSecrets = await secrets(projectName, environment, types)
     for (const key in selectedSecrets) {
       // Only mark the value of a secret as secret if it doesn't match projectName or environment
-      if (![projectName, environment].includes(selectedSecrets[key])) {
+      // And is more than 2 characters long
+      if (![projectName, environment].includes(selectedSecrets[key]) && selectedSecrets[key].length > 2) {
         core.setSecret(selectedSecrets[key])
       }
       core.exportVariable(key, selectedSecrets[key])
