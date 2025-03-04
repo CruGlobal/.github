@@ -86,7 +86,7 @@ jobs:
             --region=${{ vars.GCP_REGION }} \
             --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest 
 
-      - uses: actions/github-script@v6
+      - uses: actions/github-script@v7
         if: github.event.pull_request.merged == true
         with:
           script: |
