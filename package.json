@@ -1,6 +1,6 @@
 {
   "name": "cruglobal-dot-github",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Cru Actions and Workflows",
   "private": true,
   "sideEffects": false,
