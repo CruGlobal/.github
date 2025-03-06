@@ -80,7 +80,7 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
       core.info(`Updating ECS Scheduled Task: ${target.Id}`)
 
       const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
-      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber, currentTaskDefinition.tags)
+      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber)
       await eventBridgeUpdateTarget(rule.Name, target)
       // Sleep 10 sec between updates to help with API rate limiting
       await new Promise(resolve => setTimeout(resolve, 10000))
@@ -88,11 +88,11 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
   }
 }
 
-async function updateTaskDefinition (taskDefinition, projectName, environment, buildNumber, taskTags) {
+async function updateTaskDefinition (taskDefinition, projectName, environment, buildNumber) {
   const image = ecrImageTag(projectName, environment, buildNumber)
   const secrets = await runtimeSecrets(projectName, environment)
 
-  const taskDef = {tags: taskTags || []}
+  const taskDef = {}
   for (const [key, value] of Object.entries(taskDefinition)) {
     if (INVALID_TASK_DEF_KEYS.includes(key)) {
       continue
