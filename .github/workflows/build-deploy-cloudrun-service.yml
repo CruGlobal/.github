@@ -15,14 +15,6 @@ on:
         description: 'The name of the Cloud Run Service to deploy'
         type: string
         required: true
-      entry_point:
-        description: 'The python service serving as the entry point'
-        type: string
-        required: true
-      runtime:
-        description: 'The service runtime'
-        type: string
-        required: true
     secrets:
         GCP_PROJECT_ID:
         GCP_PROJECT_NUMBER:

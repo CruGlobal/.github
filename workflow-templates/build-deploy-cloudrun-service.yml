@@ -12,14 +12,6 @@ on:
         description: 'The name of the Cloud Run Service to deploy'
         required: true
         default: 'service-name' # Update with service name
-      entry_point:
-        description: 'The python service serving as the entry point'
-        required: true
-        default: 'entry_point' # Update with entry point
-      runtime:
-        description: 'The service runtime'
-        required: true
-        default: 'runtime' # Update with runtime
 
 jobs:
   build_and_deploy:
@@ -27,8 +19,6 @@ jobs:
     uses: CruGlobal/.github/.github/workflows/build-deploy-cloudrun-service.yml@v1
     with:
       service_name: ${{ github.event.inputs.service_name }}
-      entry_point: ${{ github.event.inputs.entry_point }}
-      runtime: ${{ github.event.inputs.runtime }}
       environment: ${{ github.event.inputs.environment }}
     secrets:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}

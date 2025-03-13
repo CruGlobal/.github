@@ -9,14 +9,6 @@
     "service_name": {
       "description": "The name of the Cloud Run Service to deploy",
       "required": true
-    },
-    "entry_point": {
-      "description": "The python service serving as the entry point",
-      "required": true
-    },
-    "runtime": {
-      "description": "The service runtime",
-      "required": true
     }
   }
 }
