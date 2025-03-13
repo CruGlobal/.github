@@ -1,0 +1,40 @@
+name: Build & Deploy Cloudrun Service POC
+
+on:
+  push:
+    branches:
+      - $default-branch
+    paths:
+      - 'Path-to-function/**' # Update with path to the service
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'The name of the Cloud Run Service to deploy'
+        required: true
+        default: 'service-name' # Update with service name
+      entry_point:
+        description: 'The python service serving as the entry point'
+        required: true
+        default: 'entry_point' # Update with entry point
+      runtime:
+        description: 'The service runtime'
+        required: true
+        default: 'runtime' # Update with runtime
+
+jobs:
+  build_and_deploy:
+
+    uses: CruGlobal/.github/.github/workflows/build-deploy-cloudrun-service.yml@v1
+    with:
+      service_name: ${{ github.event.inputs.service_name }}
+      entry_point: ${{ github.event.inputs.entry_point }}
+      runtime: ${{ github.event.inputs.runtime }}
+      environment: ${{ github.event.inputs.environment }}
+    secrets:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+      WORKLOAD_IDENTITY_POOL: ${{ vars.WORKLOAD_IDENTITY_POOL }}
+      WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
