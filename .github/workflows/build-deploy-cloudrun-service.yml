@@ -1,0 +1,97 @@
+name: Build and Deploy Cloud Run Service
+
+on:
+  push:
+    branches:
+      - $default-branch
+      - staging
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        description: environment to deploy to
+        required: true
+      service_name:
+        description: 'The name of the Cloud Run Service to deploy'
+        type: string
+        required: true
+    secrets:
+        GCP_PROJECT_ID:
+        GCP_PROJECT_NUMBER:
+        WORKLOAD_IDENTITY_POOL:
+        WORKLOAD_IDENTITY_PROVIDER:
+        GCP_SERVICE_ACCOUNT:
+        GCP_SERVICE_ACCOUNT_EMAIL:
+        GCP_REGION:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - id: 'auth'
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+          WORKLOAD_IDENTITY_POOL: ${{ vars.WORKLOAD_IDENTITY_POOL }}
+          WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WORKLOAD_IDENTITY_POOL }}/providers/${{ vars.WORKLOAD_IDENTITY_PROVIDER }}'
+          service_account: '${{ vars.GCP_SERVICE_ACCOUNT }}@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker to use gcloud as a credential helper
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Build Docker image
+        run: |
+          docker build -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrs-artifacts/${{ inputs.service_name }}:latest ./${{ inputs.service_name }}
+
+      - name: Push Docker image to Google Container Registry
+        run: |
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrs-artifacts/${{ inputs.service_name }}:latest
+
+      - name: Deploy Cloud Run Service
+        id: deploy
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+        run: |
+          gcloud config set project ${{ vars.GCP_PROJECT_ID }}
+          gcloud run deploy ${{ inputs.service_name }} \
+            --region=${{ vars.GCP_REGION }} \
+            --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrs-artifacts/${{ inputs.service_name }}:latest
+
+      - uses: actions/github-script@v6
+        if: github.event.pull_request.merged == true
+        with:
+          script: |
+            const output = `#### Cloud Run Service Deploy ⚙️\`${{ steps.deploy.outcome }}\`
+            <details><summary>Show Deploy</summary>
+            \`\`\`\n
+            ${{ steps.deploy.outputs.stdout }}
+            \`\`\`
+            </details>
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ inputs.service_name }}\`, Workflow: \`${{ github.workflow }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });

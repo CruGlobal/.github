@@ -1,0 +1,14 @@
+{
+  "name": "Build and Deploy Cloud Run Service",
+  "description": "Deploy a Cloud Run Service to Google Cloud. This workflow requires authentication to Google Cloud.",
+  "filePatterns": [
+    "^Dockerfile",
+    "^cloudrun-service-config.yml"
+  ],
+  "inputs": {
+    "service_name": {
+      "description": "The name of the Cloud Run Service to deploy",
+      "required": true
+    }
+  }
+}
