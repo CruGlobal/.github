@@ -1,0 +1,53 @@
+name: Get PR Release Label
+# Checks a pr for valid release labels ('major', 'minor', 'patch', 'skip-release').
+# It also verifies that only one release label is present
+on:
+  workflow_call:
+    outputs:
+      label:
+        value: ${{ jobs.get-release-type.outputs.label }}
+        description: The label ('major', 'minor', 'patch', or 'no_release')
+      valid:
+        value: ${{ jobs.get-release-type.outputs.valid }}
+        description: 'True if 1 label was found'
+env:
+  MAJOR: ${{ contains(github.event.pull_request.labels.*.name, 'major') }}
+  MINOR: ${{ contains(github.event.pull_request.labels.*.name, 'minor') }}
+  PATCH: ${{ contains(github.event.pull_request.labels.*.name, 'patch') }}
+  NO_RELEASE: ${{ contains(github.event.pull_request.labels.*.name, 'skip-release') }}
+jobs:
+  get-release-type:
+    name: Get PR Release Label
+    runs-on: ubuntu-latest
+    outputs: 
+      label: ${{ steps.release-type.outputs.label }}
+      valid: ${{ steps.release-type.outputs.valid }}
+    steps:
+      - name: Get Release Type
+        id: release-type
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { MAJOR, MINOR, PATCH, NO_RELEASE} = process.env;
+            let labelCount = 0;
+            let label;
+            if(PATCH == 'true') {
+              label = 'patch'
+              labelCount++;
+            }
+            if(MINOR == 'true') {
+              label = 'minor'
+              labelCount++;
+            }
+            if(MAJOR == 'true') {
+              label = 'major'
+              labelCount++;
+            }
+            if(NO_RELEASE == 'true') {
+              label = 'no_release'
+              labelCount++;
+            }
+            const valid = labelCount == 1;
+            if(!valid) core.warning(`Found ${labelCount} release labels`);
+            core.setOutput("label", label);
+            core.setOutput("valid", valid);

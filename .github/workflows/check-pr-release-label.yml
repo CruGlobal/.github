@@ -1,0 +1,26 @@
+name: Check Release Label
+# Used in PRs to check for a valid release label. Adds a comment if it's missing.
+on:
+  workflow_call:
+jobs:
+  call-get-labels:
+    name: Labels
+    uses: ./.github/workflows/get-pr-release-label.yml
+  check_pr:
+    needs: [call-get-labels]
+    runs-on: ubuntu-latest
+    steps:
+      - name: No Label Found
+        run: | 
+          echo "::error::missing release label"
+          exit 1
+        if: needs.call-get-labels.outputs.valid != 'true'
+
+      - name: Add Comment
+        uses: NejcZdovc/comment-pr@v2
+        if: failure()
+        with:
+          message: "**Please add one release label:**<br>**`major`** (for breaking changes), **`minor`** (for new features), **`patch`** (for bug fixes) or **`skip-release`** (to skip the auto release process)."
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          
