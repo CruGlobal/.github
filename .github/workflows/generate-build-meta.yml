@@ -1,0 +1,36 @@
+name: Generate Build Meta Data
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      identifier:
+        type: string
+        required: true
+    outputs:
+      build:
+        value: ${{ jobs.generate-build-meta.outputs.build }}
+jobs:
+  generate-build-meta:
+    name: Generate Build Meta Data
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.build_meta.outputs.build }}
+    steps:
+      - name: Increment the Runtime Version
+        uses: actions/github-script@v6
+        id: build_meta
+        env:
+          version: ${{ inputs.version }}
+          identifier: ${{ inputs.identifier }}
+        with:
+          result-encoding: string
+          script: |
+            const { identifier, version } = process.env;
+            const [ semver, meta ] = version.split("+");
+            let [major, minor, patch] = semver.split(".");
+            minor = `0${minor}`.slice(-2);
+            patch = `0${patch}`.slice(-2);
+            const build = `${identifier}${major}${minor}${patch}${meta ? "." + meta : ""}`;
+            core.setOutput('build', build);

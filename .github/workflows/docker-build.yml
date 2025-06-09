@@ -1,0 +1,75 @@
+name: Docker Build and Push
+# Builds a new docker image and push it to dockerhub
+on:
+  workflow_call:
+    inputs:
+      tags:
+        description: Docker tags to publish with (comma seperated)
+        required: true
+        type: string
+      base_tag:
+        description: Tag of digiserve/service-cli to use as the base (master/develop)
+        default: master
+        type: string
+      branch:
+        description: Specify the branch to building 
+        required: false
+        type: string
+    secrets:
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_PASSWORD:
+        required: true
+jobs:
+  build:
+    name: Docker Build and Push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Derive docker hub repo name
+        id: repo_name
+        shell: bash
+        run: |
+          REGEX="/ab_service_(.+)"
+          [[ "${{ github.repository }}" =~ $REGEX ]]
+          DOCKER_HUB_REPO=ab-${BASH_REMATCH[1]/_/-}
+          echo "docker_hub_repo=$DOCKER_HUB_REPO" >> $GITHUB_OUTPUT
+      
+      - name: Generate Docker Tags
+        id: generate_tags
+        uses: actions/github-script@v7
+        env:
+          DOCKER_HUB_REPO: ${{ steps.repo_name.outputs.docker_hub_repo }}
+          TAGS: ${{ inputs.tags }}
+        with:
+          script: |
+            const { DOCKER_HUB_REPO, TAGS } = process.env;
+            const tags = TAGS.replaceAll("+", "_").split(",");
+            const fullNames = tags.map(tag => `digiserve/${DOCKER_HUB_REPO}:${tag}`);
+            core.setOutput('full_tags', fullNames.join(","));
+
+      - name: Checkout to update the context for building and pushing the Docker package
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          submodules: recursive
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: BRANCH=${{ inputs.base_tag }}
+          tags: ${{ steps.generate_tags.outputs.full_tags }}

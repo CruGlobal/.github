@@ -1,0 +1,39 @@
+name: Dependabot Auto Merge
+# Automatically merge dependabot prs from ab-utils
+on:
+  workflow_call:
+    secrets:
+      # GITHUB_TOKEN:
+      #   description: "Requires permissions contents: write & pull-requests: write"
+      #   required: true
+      DEPENDABOT_TOKEN:
+        description: PAT
+        required: true
+jobs:
+  dependabot:
+    name: Dependabot Approve PRs and Merge
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    strategy:
+      matrix:
+        package: ["@digiserve/ab-utils"]
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v1
+        with:
+          github-token: "${{ secrets.DEPENDABOT_TOKEN }}"
+      
+      - name: Authenticate cli with a PAT
+        run: echo "${{ secrets.DEPENDABOT_TOKEN }}" | gh auth login --with-token
+
+      - name: Approve a PR
+        id: approve
+        if: ${{ contains(steps.metadata.outputs.dependency-names, matrix.package) }}
+        run: gh pr review --approve "$PR_URL" && echo "isapprove=1" >> $GITHUB_OUTPUT
+
+      - name: Enable auto-merge for Dependabot PRs
+        if: steps.approve.outputs.isapprove == '1'
+        run: gh pr merge --auto --merge "$PR_URL"

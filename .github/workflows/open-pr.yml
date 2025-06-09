@@ -1,0 +1,59 @@
+name: Open PR
+# Creates a PR
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: Branch to merge
+        required: true
+        type: string
+      title:
+        description: PR Title
+        required: true
+        type: string
+      body:
+        description: PR Body
+        type: string
+        required: true
+      release_notes:
+        description: Notes to be used when the PR gets merged.
+        type: string
+        required: true
+      base:
+        description: Base to merge into (default `master`).
+        type: string
+        required: false
+        default: master
+jobs:
+  fail:
+    name: Create a PR
+    runs-on: ubuntu-latest
+    steps: 
+      - uses: actions/github-script@v7
+        id: my-script
+        env:
+          BRANCH: ${{ inputs.branch }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          NOTES: ${{ inputs.release_notes }}
+          BASE: ${{ inputs.base }}
+        with:
+          result-encoding: string
+          script: |
+            const { TITLE, BRANCH, BODY, NOTES, BASE } = process.env;
+            const body = `${BODY}\n\n # Release Notes\n<!-- #release_notes -->${NOTES}<!-- /release_notes -->`;
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: TITLE,
+              base: BASE,
+              head: BRANCH,
+              body,
+            });
+            console.log(pr.data);
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.data.number,
+              labels: ['patch'],
+            });

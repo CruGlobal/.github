@@ -1,0 +1,67 @@
+name: Cypress E2E Tests
+# Runs our Cypress E2E test suite. Includes setting up AppBuilder using the github reference of the current repository
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ${{ github.ref }}
+jobs:
+  e2e-tests:
+    name: Cypress E2E Tests
+    runs-on: ubuntu-latest
+    env:
+      CYPRESS_RESPONSE_TIMEOUT: 200000
+      CYPRESS_DEFAULT_COMMAND_TIMEOUT: 30000
+      CYPRESS_RETRIES: 2
+    steps:
+      - name: Get Repo Name
+        id: repo_name
+        run: echo "name=$(basename ${{ github.repository }})" >> $GITHUB_OUTPUT
+
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          path: ${{ steps.repo_name.outputs.name }}
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - name: Install AppBuilder
+        uses: CruGlobal/ab-install-action@v1
+
+      - name: Check out kitchen-sink tests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/kitchensink_app
+          path: AppBuilder/test/e2e/cypress/e2e/kitchensink_app
+
+      - run: npm install pm2@latest -g
+      - name: Save Logs
+        run: pm2 start ./logs.js -- --toFile logs/ABServices.log
+        working-directory: ./AppBuilder
+
+      - name: Wait for AB
+        # Skipping the wait step. Cypress has a bit of wait time built in. It might be enough.
+        if: false
+        uses: ifaxity/wait-on-action@v1.1.0
+        with:
+          resource: http://localhost:80
+          timeout: 300000
+
+      - name: Run Cypress Tests
+        run: npm run test:e2e:app -- --browser chrome
+        working-directory: ./AppBuilder
+
+      - name: Save Screenshots 
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: ./AppBuilder/test/e2e/cypress/screenshots
+          
+      - name: Save Service Logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ABServices.log
+          path: ./AppBuilder/logs/ABServices.log

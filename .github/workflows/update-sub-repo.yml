@@ -1,0 +1,62 @@
+name: Update Sub Repo
+# Updates a sub repo to a given version and commits it to a new branch.
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: Full sub repo name with organization
+        required: false
+        type: string
+      short_name:
+        description: Short name for the sub repo
+        required: true
+        type: string
+      folder:
+        description: Folder name for the sub repo in the main repo
+        required: true
+        type: string
+      version:
+        description: Git tag in the sub repo 
+        type: string
+        required: true
+    outputs:
+      branch:
+        value: ${{ jobs.update.outputs.branch }}
+        description: Name of the generated branch that this workflow committed to.
+    secrets:
+      TOKEN:
+        required: true
+
+jobs:
+  update:
+    name: Update Sub Repo
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.set_branch.outputs.branch }}
+    steps:
+      - name: Set branch name
+        id: set_branch
+        env:
+          SUB: ${{ inputs.short_name }}
+          VERSION: ${{ inputs.version }}
+        run: echo "branch=CI/update/$SUB-$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.TOKEN }}
+          submodules: recursive
+          fetch-depth: 0
+        
+      - name: Checkout Tag
+        run: git fetch --all --tags && git checkout v${{ inputs.VERSION }}
+        working-directory: ./${{ inputs.folder }}
+
+      - name: Commit Change to New Branch
+        id: commit_version
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: ${{ inputs.folder }}
+          message: Update ${{ inputs.short_name }} to ${{ inputs.VERSION }}
+          new_branch: ${{ steps.set_branch.outputs.branch }}
+          default_author: github_actions
