@@ -46,7 +46,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: us-east-1
-          role-to-assume: ${{ steps.env.outputs.ecs-task-role-arn }}
+          role-to-assume: ${{ steps.env.outputs.role-arn }}
 
       - name: Increment Build Number
         uses: ./cru-github-actions/actions/build-number

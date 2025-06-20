@@ -11,6 +11,7 @@ async function run () {
     const branchTag = github.context.ref.split('/').pop()
     const projectName = core.getInput('project-name', { required: false }) || github.context.repo.repo
     const environment = core.getInput('environment', { required: false }) || environmentFromBranch(branchTag)
+    const roleSuffix = core.getInput('role-suffix', { required: false }) || 'TaskRole'
 
     const outputs = {
       'project-name': projectName,
@@ -22,7 +23,7 @@ async function run () {
       core.exportVariable(key.toUpperCase().replaceAll(/[-.]/g, '_'), value)
     }
 
-    core.setOutput('ecs-task-role-arn', taskRoleARN(outputs['project-name'], outputs.environment))
+    core.setOutput('role-arn', taskRoleARN(outputs['project-name'], outputs.environment, roleSuffix))
   } catch (error) {
     core.setFailed(error.message)
   }

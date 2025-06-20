@@ -70,9 +70,9 @@ export function awsAccountNumber (awsAccount = DEFAULT_ACCOUNT) {
   return ACCOUNTS[awsAccount]
 }
 
-export function taskRoleARN (projectName, environment, awsAccount = DEFAULT_ACCOUNT) {
+export function taskRoleARN (projectName, environment, roleSuffix, awsAccount = DEFAULT_ACCOUNT) {
   const env = environmentNickname(environment)
-  return `arn:aws:iam::${awsAccountNumber(awsAccount)}:role/${projectName}-${env}-TaskRole`
+  return `arn:aws:iam::${awsAccountNumber(awsAccount)}:role/${projectName}-${env}-${roleSuffix}`
 }
 
 export function ecrRegistry (account, region = 'us-east-1') {
