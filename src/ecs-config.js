@@ -1,4 +1,7 @@
-import { ssmParameters } from './aws'
+import {
+  ecrGetImageDigest,
+  ssmParameters
+} from './aws'
 
 const ACCOUNTS = {
   'cruds': '056154071827',
@@ -82,6 +85,11 @@ export function ecrRegistry (account, region = 'us-east-1') {
 
 export function ecrImageTag (projectName, environment, buildNumber) {
   return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}:${environment}-${buildNumber}`
+}
+
+export async function ecrImageDigest (projectName, environment, buildNumber) {
+  const digest = await ecrGetImageDigest(projectName, environment, buildNumber)
+  return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}:${digest}`
 }
 
 export async function secrets (projectName, environment, types = PARAM_TYPES) {

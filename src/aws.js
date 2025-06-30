@@ -26,6 +26,18 @@ import {
   PutTargetsCommand
 } from '@aws-sdk/client-eventbridge'
 
+import {
+  ECRClient,
+  BatchGetImageCommand
+} from '@aws-sdk/client-ecr'
+
+import {
+  LambdaClient,
+  GetFunctionCommand,
+  ListFunctionsCommand,
+  UpdateFunctionCodeCommand
+} from '@aws-sdk/client-lambda'
+
 const tagReducer = (previousValue, currentValue) => {
   previousValue[currentValue.Key] = currentValue.Value
   return previousValue
@@ -142,5 +154,49 @@ export async function eventBridgeListTargets (ruleName) {
 export async function eventBridgeUpdateTarget(ruleName, target) {
   const client = new EventBridgeClient({...RETRY_CONFIG})
   const command = new PutTargetsCommand({Rule: ruleName, Targets: [target]})
+  return await client.send(command)
+}
+
+export async function ecrGetImageDigest(projectName, environment, buildNumber) {
+  const client = new ECRClient({...RETRY_CONFIG})
+  const repositoryName = `${projectName}`
+  const imageTag = `${environment}-${buildNumber}`
+  const command = new BatchGetImageCommand({
+    repositoryName,
+    imageIds: [{ imageTag }],
+    acceptedMediaTypes: ['application/vnd.docker.distribution.manifest.v2+json']
+  })
+  return (await client.send(command)).images[0].imageId.imageDigest
+}
+
+export async function lambdaListFunctionNames(projectName, environment) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  const functionNames = []
+  let Marker = undefined
+
+  do {
+    const command = new ListFunctionsCommand({ MaxItems: 50, Marker })
+    const response = await client.send(command)
+    functionNames.push(...response.Functions
+      .filter(fn => fn.FunctionName.startsWith(`${projectName}-${environment}`))
+      .map(fn => fn.FunctionName))
+    Marker = response.NextToken
+  } while (Marker)
+
+  return functionNames
+}
+
+export async function lambdaGetFunction(functionName) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  const command = new GetFunctionCommand({ FunctionName: functionName })
+  return await client.send(command)
+}
+
+export async function lambdaUpdateFunctionCode(functionName, imageDigestUri) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  const command = new UpdateFunctionCodeCommand({
+    FunctionName: functionName,
+    ImageUri: imageDigestUri
+  })
   return await client.send(command)
 }
