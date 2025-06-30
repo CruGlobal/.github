@@ -13,6 +13,14 @@ inputs:
   github-token:
     description: The GitHub token used to create a workflow_dispatch event.
     required: true
+  deploy-type:
+    description: Type of deployment ('ecs', 'lambda'). Defaults to 'ecs'.
+    required: false
+    default: 'ecs'
+  workflow-ref:
+    description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'main' branch.
+    required: false
+    default: 'main'
 runs:
   using: 'node20'
   main: '../../dist/trigger-deploy.js'
