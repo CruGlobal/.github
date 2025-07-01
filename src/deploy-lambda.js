@@ -46,7 +46,7 @@ async function updateLambdaFunctions(projectName, environment, buildNumber) {
   // Update each Lambda function that uses the ECR image
   for (const functionName of functionNames) {
     const fn = await lambdaGetFunction(functionName)
-    if (fn.Configuration.Code.ImageUri.startsWith(`${ecrRegistry('cruds')}/${projectName}@`)) {
+    if (fn.Code.ImageUri.startsWith(`${ecrRegistry('cruds')}/${projectName}@`)) {
       core.info(`Updating Lambda function: ${functionName}`)
       await lambdaUpdateFunctionCode(functionName, imageDigestUri)
     } else {
