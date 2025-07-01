@@ -12,7 +12,7 @@ const ACCOUNTS = {
   'cru-prod': '151451362611',
   'user-bastion': '725722162525'
 }
-const DEFAULT_ACCOUNT = 'cruds'
+export const DEFAULT_ACCOUNT = 'cruds'
 
 export const PARAM_TYPES = ['BUILD', 'RUNTIME', 'ALL']
 export const BUILD_PARAM_TYPES = ['BUILD', 'ALL']
@@ -89,7 +89,7 @@ export function ecrImageTag (projectName, environment, buildNumber) {
 
 export async function ecrImageDigest (projectName, environment, buildNumber) {
   const digest = await ecrGetImageDigest(projectName, environment, buildNumber)
-  return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}:${digest}`
+  return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@${digest}`
 }
 
 export async function secrets (projectName, environment, types = PARAM_TYPES) {

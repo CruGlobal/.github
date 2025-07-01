@@ -8,6 +8,7 @@ import {
 } from './aws'
 
 import {
+  DEFAULT_ACCOUNT,
   ecrImageDigest,
   ecrRegistry,
   environmentNickname,
@@ -46,7 +47,11 @@ async function updateLambdaFunctions(projectName, environment, buildNumber) {
   // Update each Lambda function that uses the ECR image
   for (const functionName of functionNames) {
     const fn = await lambdaGetFunction(functionName)
-    if (fn.Code.ImageUri.startsWith(`${ecrRegistry('cruds')}/${projectName}@`)) {
+    // Check if the function's image URI matches the ECR repo or scratch repo
+    if (
+        fn.Code.ResolvedImageUri.startsWith(`${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@`) ||
+        fn.Code.ResolvedImageUri.startsWith(`${ecrRegistry(DEFAULT_ACCOUNT)}/scratch@`)
+    ) {
       core.info(`Updating Lambda function: ${functionName}`)
       await lambdaUpdateFunctionCode(functionName, imageDigestUri)
     } else {
