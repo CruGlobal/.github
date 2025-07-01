@@ -1,0 +1,9 @@
+{
+  "name": "Build and Deploy to Lambda",
+  "description": "Builds lambda docker image and deploys to Lambda. This workflow requires a build.sh script and the `aws/lambda/app` Terraform module",
+  "filePatterns": [
+    "build.sh$",
+    "package.json$",
+    "^Dockerfile"
+  ]
+}

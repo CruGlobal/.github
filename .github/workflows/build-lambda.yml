@@ -42,6 +42,8 @@ jobs:
       - name: Setup Build environment
         uses: ./cru-github-actions/actions/setup-env
         id: env
+        with:
+          role-suffix: GitHubRole
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -95,9 +97,13 @@ jobs:
           DOCKER_NETWORK: ${{ steps.env.outputs.project-name }}
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            --build-arg PROJECT_NAME=${{ steps.env.outputs.project-name }}
+            --build-arg ENVIRONMENT=${{ steps.env.outputs.environment }}
+            --build-arg BUILD_NUMBER=${{ steps.build-number.outputs.build-number }}
             --cache-from type=local,src=/tmp/.buildx-cache
             --cache-to type=local,dest=/tmp/.buildx-cache-new
             --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
+            --provenance=false
             --push
 
       # Temp fix

@@ -7,14 +7,18 @@ inputs:
   environment:
     description: Environment, either staging or production
     required: false
+  role-suffix:
+    description: Suffix for the AWS IAM Role ARN, defaults to 'TaskRole'
+    required: false
+    default: 'TaskRole'
 
 outputs:
   project-name:
     description: Project name
   environment:
     description: Environment
-  ecs-task-role-arn:
-    description: AWS IAM Role ARN used to build/deploy the project.
+  role-arn:
+    description: AWS IAM Role ARN to be assumed by GitHub to build/deploy the project.
 runs:
   using: 'node20'
   main: '../../dist/setup-env.js'

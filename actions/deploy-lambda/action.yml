@@ -1,0 +1,16 @@
+name: Deploy Lambda
+description: Deploy Lambda Functions
+inputs:
+  project-name:
+    description: Project name. Defaults to PROJECT_NAME from environment variable.
+    required: false
+  environment:
+    description: Environment, either staging or production. Defaults to ENVIRONMENT environment variable.
+    required: false
+  build-number:
+    description: Build number/tag. Defaults to BUILD_NUMBER environment variable.
+    required: false
+
+runs:
+  using: 'node20'
+  main: '../../dist/deploy-lambda.js'

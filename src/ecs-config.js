@@ -1,4 +1,7 @@
-import { ssmParameters } from './aws'
+import {
+  ecrGetImageDigest,
+  ssmParameters
+} from './aws'
 
 const ACCOUNTS = {
   'cruds': '056154071827',
@@ -9,7 +12,7 @@ const ACCOUNTS = {
   'cru-prod': '151451362611',
   'user-bastion': '725722162525'
 }
-const DEFAULT_ACCOUNT = 'cruds'
+export const DEFAULT_ACCOUNT = 'cruds'
 
 export const PARAM_TYPES = ['BUILD', 'RUNTIME', 'ALL']
 export const BUILD_PARAM_TYPES = ['BUILD', 'ALL']
@@ -70,9 +73,9 @@ export function awsAccountNumber (awsAccount = DEFAULT_ACCOUNT) {
   return ACCOUNTS[awsAccount]
 }
 
-export function taskRoleARN (projectName, environment, awsAccount = DEFAULT_ACCOUNT) {
+export function taskRoleARN (projectName, environment, roleSuffix, awsAccount = DEFAULT_ACCOUNT) {
   const env = environmentNickname(environment)
-  return `arn:aws:iam::${awsAccountNumber(awsAccount)}:role/${projectName}-${env}-TaskRole`
+  return `arn:aws:iam::${awsAccountNumber(awsAccount)}:role/${projectName}-${env}-${roleSuffix}`
 }
 
 export function ecrRegistry (account, region = 'us-east-1') {
@@ -82,6 +85,11 @@ export function ecrRegistry (account, region = 'us-east-1') {
 
 export function ecrImageTag (projectName, environment, buildNumber) {
   return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}:${environment}-${buildNumber}`
+}
+
+export async function ecrImageDigest (projectName, environment, buildNumber) {
+  const digest = await ecrGetImageDigest(projectName, environment, buildNumber)
+  return `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@${digest}`
 }
 
 export async function secrets (projectName, environment, types = PARAM_TYPES) {

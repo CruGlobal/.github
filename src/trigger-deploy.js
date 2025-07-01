@@ -7,21 +7,35 @@ export async function run () {
     const environment = core.getInput('environment', { required: true })
     const buildNumber = core.getInput('build-number', { required: true })
     const githubToken = core.getInput('github-token', { required: true })
+    const deployType = core.getInput('deploy-type', { required: false }) || 'ecs'
+    const workflowRef = core.getInput('workflow-ref', { required: false }) || 'main'
 
     const octokit = getOctokit(githubToken)
+
+    let workflowId
+    switch (deployType) {
+      case 'ecs':
+        workflowId = 'promote-ecs.yml'
+        break
+      case 'lambda':
+        workflowId = 'deploy-lambda.yml'
+        break
+        default:
+          throw new Error(`Unknown deploy type: ${deployType}. Supported types are: ecs, lambda.`)
+    }
 
     await octokit.rest.actions.createWorkflowDispatch({
         owner: 'CruGlobal',
         repo: 'cru-deploy',
-        ref: 'main',
-        workflow_id: 'promote-ecs.yml',
+        ref: workflowRef,
+        workflow_id: workflowId,
         inputs: {
           'project-name': projectName,
           'environment': environment,
           'build-number': buildNumber,
         }
     })
-    core.notice('Successfully triggered a deployment at https://github.com/CruGlobal/cru-deploy/actions/workflows/promote-ecs.yml.')
+    core.notice(`Successfully triggered a deployment at https://github.com/CruGlobal/cru-deploy/actions/workflows/${workflowId}.`)
   } catch (error) {
     core.setFailed(error.message)
   }

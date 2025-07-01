@@ -1,0 +1,68 @@
+name: Deploy to Lambda
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
+      project-name:
+        description: Project Name
+        required: true
+        type: string
+      environment:
+        description: Environment (staging/production/lab).
+        required: true
+        type: string
+      build-number:
+        description: Build Number/Tag
+        required: true
+        type: string
+    secrets:
+      datadog-api-key:
+        description: DataDog API Key
+        required: true
+
+jobs:
+  deploy:
+    name: Update Lambda Functions
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    env:
+      BUILD_NUMBER: ${{ inputs.build-number }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v4
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup Deploy environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+        with:
+          project-name: ${{ inputs.project-name }}
+          environment: ${{ inputs.environment }}
+
+      - name: Add DataDog Tags
+        run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "build_number:$BUILD_NUMBER"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployLambda
+
+      - name: Ensure Image Exists
+        run: aws ecr describe-images --repository-name $PROJECT_NAME --image-ids imageTag=$ENVIRONMENT-$BUILD_NUMBER
+
+      - name: Deploy Lambda Functions
+        uses: ./cru-github-actions/actions/deploy-lambda
+
+      - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"

@@ -8,6 +8,7 @@ module.exports = {
   entry: {
     'build-number': './src/build-number.js',
     'deploy-ecs': './src/deploy-ecs.js',
+    'deploy-lambda': './src/deploy-lambda.js',
     'docker-network': './src/docker-network.js',
     'secrets': './src/secrets.js',
     'setup-env': './src/setup-env.js',
