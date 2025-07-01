@@ -40,7 +40,7 @@ jobs:
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ inputs.app_id }}
-          private-key: ${{ secrets.app_secret }}
+          private-key: ${{ secrets.GS_DEV_APP_PK }}
           repositories: ${{ matrix.repo }}
       - name: Get name
         id: get-name
