@@ -36,6 +36,8 @@ jobs:
           path: AppBuilder/test/e2e/cypress/e2e/kitchensink_app
 
       - name: Run AppBuilder
+        # Skipping this step.
+        if: false
         run: set -a; . ./.env; set +a && docker stack deploy -c docker-compose.yml -c docker-compose.override.yml -c ./test/setup/test-compose.yml ab -d
         working-directory: ./AppBuilder
 
@@ -53,9 +55,13 @@ jobs:
           timeout: 300000
 
       - name: Install wait-on module
+        # Skipping this step.
+        if: false
         run: npm install wait-on -g
 
       - name: Run wait-on
+        # Skipping this step.
+        if: false
         run: wait-on http://localhost:80
 
       - name: Run Cypress Tests
