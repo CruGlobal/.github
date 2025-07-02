@@ -47,6 +47,10 @@ async function updateLambdaFunctions(projectName, environment, buildNumber) {
   // Update each Lambda function that uses the ECR image
   for (const functionName of functionNames) {
     const fn = await lambdaGetFunction(functionName)
+    if (fn.Configuration.PackageType !== 'Image') {
+        core.info(`Skipping Lambda function: ${functionName} (not an image function)`)
+        continue
+    }
     // Check if the function's image URI matches the ECR repo or scratch repo
     if (
         fn.Code.ResolvedImageUri.startsWith(`${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@`) ||
