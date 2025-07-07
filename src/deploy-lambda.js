@@ -9,7 +9,7 @@ import {
 
 import {
   DEFAULT_ACCOUNT,
-  ecrImageDigest,
+  ecrImageTag,
   ecrRegistry,
   environmentNickname,
 } from './ecs-config'
@@ -39,7 +39,7 @@ async function run () {
 
 async function updateLambdaFunctions(projectName, environment, buildNumber) {
   const env = environmentNickname(environment)
-  const imageDigestUri = await ecrImageDigest(projectName, environment, buildNumber)
+  const imageUri = await ecrImageTag(projectName, environment, buildNumber)
 
   // List all Lambda functions that match the project name and environment
   const functionNames = await lambdaListFunctionNames(projectName, env)
@@ -57,7 +57,7 @@ async function updateLambdaFunctions(projectName, environment, buildNumber) {
         fn.Code.ResolvedImageUri.startsWith(`${ecrRegistry(DEFAULT_ACCOUNT)}/scratch@`)
     ) {
       core.info(`Updating Lambda function: ${functionName}`)
-      await lambdaUpdateFunctionCode(functionName, imageDigestUri)
+      await lambdaUpdateFunctionCode(functionName, imageUri)
     } else {
       core.info(`Skipping Lambda function: ${functionName} (not using ECR image)`)
       continue
