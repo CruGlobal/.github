@@ -192,11 +192,11 @@ export async function lambdaGetFunction(functionName) {
   return await client.send(command)
 }
 
-export async function lambdaUpdateFunctionCode(functionName, imageDigestUri) {
+export async function lambdaUpdateFunctionCode(functionName, imageUri) {
   const client = new LambdaClient({...RETRY_CONFIG})
   const command = new UpdateFunctionCodeCommand({
     FunctionName: functionName,
-    ImageUri: imageDigestUri
+    ImageUri: imageUri
   })
   return await client.send(command)
 }
