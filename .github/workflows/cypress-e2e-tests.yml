@@ -49,7 +49,7 @@ jobs:
       - name: Wait for AB
         # Skipping the wait step. Cypress has a bit of wait time built in. It might be enough.
         if: false
-        uses: ifaxity/wait-on-action@v1.1.0
+        uses: ifaxity/wait-on-action@v1.2.1
         with:
           resource: http://localhost:80
           timeout: 300000
