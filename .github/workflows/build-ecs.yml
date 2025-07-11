@@ -8,10 +8,10 @@ on:
         required: false
         default: main
         description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
-      role-arn:
+      microservice-app:
         type: string
         required: false
-        description: Assume non-standard role for build. Defaults to 'arn:aws:iam::056154071827:role/${project}-${env}-TaskRole'.
+        description: Name of the parent microservices project.
     outputs:
       project-name:
         description: Project Name, defaults to GitHub repo name.
@@ -46,12 +46,14 @@ jobs:
       - name: Setup Build environment
         uses: ./cru-github-actions/actions/setup-env
         id: env
+        with:
+          project-name: ${{ inputs.microservice-app }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: us-east-1
-          role-to-assume: ${{ inputs.role-arn || steps.env.outputs.role-arn }}
+          role-to-assume: ${{ steps.env.outputs.role-arn }}
 
       - name: Increment Build Number
         uses: ./cru-github-actions/actions/build-number
@@ -101,7 +103,7 @@ jobs:
             --builder ${{ steps.buildx.outputs.name }}
             --cache-from type=local,src=/tmp/.buildx-cache
             --cache-to type=local,dest=/tmp/.buildx-cache-new
-            --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
+            --tag ${{ steps.ecr.outputs.registry }}/${{ inputs.microservice-app && inputs.microservice-app || steps.env.outputs.project-name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
             --push
 
       # Temp fix
