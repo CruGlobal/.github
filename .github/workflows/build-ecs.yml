@@ -8,6 +8,10 @@ on:
         required: false
         default: main
         description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
+      role-arn:
+        type: string
+        required: false
+        description: Assume non-standard role for build. Defaults to 'arn:aws:iam::056154071827:role/${project}-${env}-TaskRole'.
     outputs:
       project-name:
         description: Project Name, defaults to GitHub repo name.
@@ -47,7 +51,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: us-east-1
-          role-to-assume: ${{ steps.env.outputs.role-arn }}
+          role-to-assume: ${{ inputs.role-arn || steps.env.outputs.role-arn }}
 
       - name: Increment Build Number
         uses: ./cru-github-actions/actions/build-number
