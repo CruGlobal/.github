@@ -26,7 +26,7 @@
     "@actions/github": "^6.0.1",
     "@aws-sdk/client-dynamodb": "^3.840.0",
     "@aws-sdk/client-ecr": "^3.840.0",
-    "@aws-sdk/client-ecs": "^3.840.0",
+    "@aws-sdk/client-ecs": "^3.859.0",
     "@aws-sdk/client-eventbridge": "^3.840.0",
     "@aws-sdk/client-lambda": "^3.840.0",
     "@aws-sdk/client-ssm": "^3.840.0",
