@@ -20,7 +20,7 @@ jobs:
         run: echo "name=$(basename ${{ github.repository }})" >> $GITHUB_OUTPUT
 
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: ${{ steps.repo_name.outputs.name }}
           ref: ${{ inputs.ref }}
@@ -30,7 +30,7 @@ jobs:
         uses: CruGlobal/ab-install-action@v1
 
       - name: Check out kitchen-sink tests
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/kitchensink_app
           path: AppBuilder/test/e2e/cypress/e2e/kitchensink_app

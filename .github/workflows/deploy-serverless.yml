@@ -32,7 +32,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Cru Actions & Workflows
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: CruGlobal/.github
           ref: ${{ inputs.workflow-ref }}
@@ -53,7 +53,7 @@ jobs:
         id: build-number
 
       - name: Checkout Project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: project
 
