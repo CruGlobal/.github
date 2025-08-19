@@ -43,6 +43,7 @@ async function updateLambdaFunctions(projectName, environment, buildNumber) {
 
   // List all Lambda functions that match the project name and environment
   const functionNames = await lambdaListFunctionNames(projectName, env)
+  core.info(`functionNames: ${JSON.stringify(functionNames)}`)
 
   // Update each Lambda function that uses the ECR image
   for (const functionName of functionNames) {
