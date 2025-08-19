@@ -34,8 +34,8 @@ import {
 import {
   LambdaClient,
   GetFunctionCommand,
-  ListFunctionsCommand,
-  UpdateFunctionCodeCommand
+  UpdateFunctionCodeCommand,
+  paginateListFunctions
 } from '@aws-sdk/client-lambda'
 
 const tagReducer = (previousValue, currentValue) => {
@@ -172,16 +172,12 @@ export async function ecrGetImageDigest(projectName, environment, buildNumber) {
 export async function lambdaListFunctionNames(projectName, environment) {
   const client = new LambdaClient({...RETRY_CONFIG})
   const functionNames = []
-  let Marker = undefined
 
-  do {
-    const command = new ListFunctionsCommand({ MaxItems: 50, Marker })
-    const response = await client.send(command)
-    functionNames.push(...response.Functions
+  for await (const page of paginateListFunctions({ client, pageSize: 50 }, {})) {
+    functionNames.push(...page.Functions
       .filter(fn => fn.FunctionName.startsWith(`${projectName}-${environment}`))
       .map(fn => fn.FunctionName))
-    Marker = response.NextToken
-  } while (Marker)
+  }
 
   return functionNames
 }

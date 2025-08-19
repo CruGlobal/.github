@@ -51,7 +51,7 @@ jobs:
             const match = name.match(/ab_service_(.+)/);
             return match?.[1] ?? name
       - name: Repository Dispatch
-        uses: peter-evans/repository-dispatch@v2
+        uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ steps.generate-token.outputs.token }}
           repository: ${{ github.repository_owner }}/${{ matrix.repo }}
