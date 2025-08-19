@@ -40,6 +40,7 @@ async function run () {
 async function updateLambdaFunctions(projectName, environment, buildNumber) {
   const env = environmentNickname(environment)
   const imageUri = ecrImageTag(projectName, environment, buildNumber)
+  core.info(`imageUri: ${imageUri}`)
 
   // List all Lambda functions that match the project name and environment
   const functionNames = await lambdaListFunctionNames(projectName, env)
