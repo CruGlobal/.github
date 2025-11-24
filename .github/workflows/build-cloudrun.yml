@@ -31,6 +31,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    environment: ${{ steps.env.outputs.environment }}
     steps:
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v6
