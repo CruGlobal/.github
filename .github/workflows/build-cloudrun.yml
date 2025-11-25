@@ -110,10 +110,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx
 
-#      - name: Import Build Secrets
-#        uses: ./cru-github-actions/actions/secrets
-#        with:
-#          type: BUILD
+      - name: Import Build Secrets
+        uses: ./cru-github-actions/actions/gcp-secrets
+        with:
+          project: ${{ steps.auth.outputs.project_id }}
+          type: BUILD
 
       - name: Checkout Project
         uses: actions/checkout@v6
@@ -129,7 +130,7 @@ jobs:
             --builder ${{ steps.buildx.outputs.name }}
             --cache-from type=local,src=/tmp/.buildx-cache
             --cache-to type=local,dest=/tmp/.buildx-cache-new
-            --tag us-central1-docker.pkg.dev/${{ steps.auth.outputs.project_id}}/${{ steps.env.outputs.project-name }}/${{ steps.env.outputs.environment}}:${{ steps.build-number.outputs.build-number}}
+            --tag us-central1-docker.pkg.dev/${{ steps.auth.outputs.project_id }}/${{ steps.env.outputs.project-name }}/application:${{ steps.env.outputs.environment }}-${{ steps.build-number.outputs.build-number }}
             --push
 
       # Temp fix
