@@ -1,0 +1,78 @@
+name: Deploy to CloudRun
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
+      project-name:
+        description: Project Name
+        required: true
+        type: string
+      environment:
+        description: Environment (staging/production/lab).
+        required: true
+        type: string
+      project:
+        description: GCP Project Name
+        required: true
+        type: string
+      build-number:
+        description: Build Number/Tag
+        required: true
+        type: string
+    secrets:
+      datadog-api-key:
+        description: DataDog API Key
+        required: true
+
+jobs:
+  deploy:
+    name: Update CloudRun
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    env:
+      BUILD_NUMBER: ${{ inputs.build-number }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v5
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup Deploy environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+        with:
+          project-name: ${{ inputs.project-name }}
+          environment: ${{ inputs.environment }}
+
+#      - name: Add DataDog Tags
+#        run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "build_number:$BUILD_NUMBER"
+
+      - name: Configure GCP credentials
+        uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ inputs.project }}.iam.gserviceaccount.com
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ steps.auth.outputs.project_id }}
+
+      - name: Ensure Image Exists
+        run: gcloud artifacts docker images describe us-central1-docker.pkg.dev/${{ inputs.project }}/${{ step.env.outputs.project-name }}/application:${{ steps.env.outputs.environment }}-${{ input.build-number }}
+
+#      - name: Update and register Task Definition
+#        uses: ./cru-github-actions/actions/deploy-ecs
+#
+#      - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"

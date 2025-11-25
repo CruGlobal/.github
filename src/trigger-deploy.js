@@ -8,11 +8,13 @@ export async function run () {
     const buildNumber = core.getInput('build-number', { required: true })
     const githubToken = core.getInput('github-token', { required: true })
     const deployType = core.getInput('deploy-type', { required: false }) || 'ecs'
+    const project = core.getInput('project', { required: deployType === 'cloudrun' })
     const workflowRef = core.getInput('workflow-ref', { required: false }) || 'main'
 
     const octokit = getOctokit(githubToken)
 
     let workflowId
+    let inputs = {}
     switch (deployType) {
       case 'ecs':
         workflowId = 'promote-ecs.yml'
@@ -20,7 +22,13 @@ export async function run () {
       case 'lambda':
         workflowId = 'deploy-lambda.yml'
         break
-        default:
+      case 'cloudrun':
+        workflowId = 'deploy-cloudrun.yml'
+        inputs = {
+          'project': project,
+        }
+        break
+      default:
           throw new Error(`Unknown deploy type: ${deployType}. Supported types are: ecs, lambda.`)
     }
 
@@ -33,6 +41,7 @@ export async function run () {
           'project-name': projectName,
           'environment': environment,
           'build-number': buildNumber,
+          ...inputs,
         }
     })
     core.notice(`Successfully triggered a deployment at https://github.com/CruGlobal/cru-deploy/actions/workflows/${workflowId}.`)

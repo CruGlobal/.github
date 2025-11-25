@@ -13,8 +13,11 @@ inputs:
   github-token:
     description: The GitHub token used to create a workflow_dispatch event.
     required: true
+  project:
+    description: GCP Project ID. Required for `cloudrun`
+    required: false
   deploy-type:
-    description: Type of deployment ('ecs', 'lambda'). Defaults to 'ecs'.
+    description: Type of deployment ('ecs', 'lambda', 'cloudrun'). Defaults to 'ecs'.
     required: false
     default: 'ecs'
   workflow-ref:
@@ -22,5 +25,5 @@ inputs:
     required: false
     default: 'main'
 runs:
-  using: 'node20'
+  using: 'node24'
   main: '../../dist/trigger-deploy.js'

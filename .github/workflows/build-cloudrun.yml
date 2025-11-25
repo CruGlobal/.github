@@ -12,6 +12,9 @@ on:
       project-name:
         description: Project Name, defaults to GitHub repo name.
         value: ${{ jobs.build.outputs.project-name }}
+      project:
+        description: GCP Project ID
+        value: ${{ jobs.build.outputs.project }}
       environment:
         description: Environment (staging/production/lab).
         value: ${{ jobs.build.outputs.environment }}
@@ -45,6 +48,7 @@ jobs:
       - setup
     outputs:
       project-name: ${{ steps.env.outputs.project-name }}
+      project: ${{ steps.auth.outputs.project_id }}
       environment: ${{ steps.env.outputs.environment }}
       build-number: ${{ steps.build-number.outputs.build-number }}
     permissions:
