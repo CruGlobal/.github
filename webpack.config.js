@@ -10,6 +10,7 @@ module.exports = {
     'deploy-ecs': './src/deploy-ecs.js',
     'deploy-lambda': './src/deploy-lambda.js',
     'docker-network': './src/docker-network.js',
+    'gcp-secrets': './src/gcp-secrets.js',
     'secrets': './src/secrets.js',
     'setup-env': './src/setup-env.js',
     'trigger-deploy': './src/trigger-deploy.js'
