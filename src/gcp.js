@@ -5,7 +5,7 @@ export async function secrets (project, types = PARAM_TYPES) {
     const client = new SecretManagerServiceClient()
     const [secrets] = await client.listSecrets({
         parent: `projects/${project}`,
-        filter: types.map(type => `label.param_type=${type.toLowerCase()}`).join(" OR ")
+        filter: types.map(type => `labels.param_type=${type.toLowerCase()}`).join(" OR ")
     })
 
     return await secrets.reduce(async (acc, secret) => {
