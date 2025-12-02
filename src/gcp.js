@@ -48,7 +48,9 @@ export async function updateService(name, template) {
                 containers: [template],
             }
         },
-        updateMask: "template.containers"
+        updateMask: {
+            paths: ["template.containers"]
+        }
     })
     const [response] = await operation.promise()
     return response
