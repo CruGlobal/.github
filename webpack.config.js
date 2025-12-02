@@ -7,6 +7,7 @@ module.exports = {
   target: 'node',
   entry: {
     'build-number': './src/build-number.js',
+    'deploy-cloudrun': './src/deploy-cloudrun.js',
     'deploy-ecs': './src/deploy-ecs.js',
     'deploy-lambda': './src/deploy-lambda.js',
     'docker-network': './src/docker-network.js',

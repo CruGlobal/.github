@@ -70,9 +70,9 @@ jobs:
           project_id: ${{ steps.auth.outputs.project_id }}
 
       - name: Ensure Image Exists
-        run: gcloud artifacts docker images describe us-central1-docker.pkg.dev/${{ inputs.project }}/${{ steps.env.outputs.project-name }}/application:${{ steps.env.outputs.environment }}-${{ inputs.build-number }}
+        run: gcloud artifacts docker images describe us-central1-docker.pkg.dev/${{ inputs.project }}/container/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment }}-${{ inputs.build-number }}
 
-#      - name: Update and register Task Definition
-#        uses: ./cru-github-actions/actions/deploy-ecs
-#
-#      - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"
+      - name: Update CloudRun
+        uses: ./cru-github-actions/actions/deploy-cloudrun
+
+      - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"

@@ -134,7 +134,7 @@ jobs:
             --builder ${{ steps.buildx.outputs.name }}
             --cache-from type=local,src=/tmp/.buildx-cache
             --cache-to type=local,dest=/tmp/.buildx-cache-new
-            --tag us-central1-docker.pkg.dev/${{ steps.auth.outputs.project_id }}/${{ steps.env.outputs.project-name }}/application:${{ steps.env.outputs.environment }}-${{ steps.build-number.outputs.build-number }}
+            --tag us-central1-docker.pkg.dev/${{ steps.auth.outputs.project_id }}/container/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment }}-${{ steps.build-number.outputs.build-number }}
             --push
 
       # Temp fix

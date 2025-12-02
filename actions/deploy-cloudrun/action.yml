@@ -1,0 +1,19 @@
+name: Deploy CloudRun
+description: Deploy CloudRun containers
+inputs:
+  project-name:
+    description: Project name. Defaults to PROJECT_NAME environment variable.
+    required: false
+  project:
+    description: GCP Project. Defaults to GCP_PROJECT environment variable.
+    required: false
+  environment:
+    description: Environment, either staging or production. Defaults to ENVIRONMENT environment variable.
+    required: false
+  build-number:
+    description: Build number/tag. Defaults to BUILD_NUMBER environment variable.
+    required: false
+
+runs:
+  using: 'node24'
+  main: '../../dist/deploy-cloudrun.js'
