@@ -11,7 +11,7 @@ export function gcrRegistry(project, projectName, region = DEFAULT_REGION) {
 }
 
 export function gcrImageTag(project, projectName, environment, buildNumber) {
-    return `${gcrRegistry(peoject, projectName)}:${environment}-${buildNumber}`
+    return `${gcrRegistry(project, projectName)}:${environment}-${buildNumber}`
 }
 
 export async function listSecrets(project, types = PARAM_TYPES) {
