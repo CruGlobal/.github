@@ -42,10 +42,13 @@ export async function cloudrunListServices(project) {
 export async function updateService(name, template) {
     const client = new ServicesClient()
     const [operation] = await client.updateService({
-        name: name,
         service: {
-            template: template,
-        }
+            name: name,
+            template: {
+                containers: [template],
+            }
+        },
+        updateMask: "template.containers"
     })
     const [response] = await operation.promise()
     return response

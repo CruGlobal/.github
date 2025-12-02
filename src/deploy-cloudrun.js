@@ -39,9 +39,9 @@ async function updateCloudRun(projectName, project, environment, buildNumber) {
     // Update each CloudRun service
     // TODO: selectively update services?
     for (const service of services) {
-        const template = service.template
-        template.containers[0].image = imageUri
-        template.containers[0].env = secrets.map(secret => ({
+        const container = service.template.containers[0]
+        container.image = imageUri
+        container.env = secrets.map(secret => ({
             name: secret.name.split('/').pop(),
             valueSource: {
                 secretKeyRef: {
@@ -51,7 +51,7 @@ async function updateCloudRun(projectName, project, environment, buildNumber) {
             }
         }))
         core.info(`updating service: ${service.name}`)
-        await updateService(service.name, template)
+        await updateService(service.name, container)
     }
 }
 
