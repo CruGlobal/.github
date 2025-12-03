@@ -1,6 +1,6 @@
 {
   "name": "cruglobal-dot-github",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Cru Actions and Workflows",
   "private": true,
   "sideEffects": false,
@@ -30,6 +30,8 @@
     "@aws-sdk/client-eventbridge": "^3.864.0",
     "@aws-sdk/client-lambda": "^3.864.0",
     "@aws-sdk/client-ssm": "^3.864.0",
+    "@google-cloud/run": "^3.0.1",
+    "@google-cloud/secret-manager": "^6.1.1",
     "escape-string-regexp": "^5.0.0"
   },
   "devDependencies": {

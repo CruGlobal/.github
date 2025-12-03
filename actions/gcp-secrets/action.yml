@@ -1,0 +1,13 @@
+name: 'GCP Application Secrets'
+description: 'Provides GCP application secrets'
+inputs:
+  project:
+    description: GCP Project. Defaults to GCP_PROJECT from environment variable.
+    required: false
+  type:
+    description: Parameter Type (BUILD, RUNTIME, ALL)
+    required: false
+    default: BUILD
+runs:
+  using: 'node24'
+  main: '../../dist/gcp-secrets.js'
