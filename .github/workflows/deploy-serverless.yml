@@ -32,7 +32,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Cru Actions & Workflows
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: CruGlobal/.github
           ref: ${{ inputs.workflow-ref }}
@@ -53,14 +53,14 @@ jobs:
         id: build-number
 
       - name: Checkout Project
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: project
 
-      - name: Setup NodeJS 22.x
-        uses: actions/setup-node@v4
+      - name: Setup NodeJS 24.x
+        uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'yarn'
           cache-dependency-path: 'project/yarn.lock'
 

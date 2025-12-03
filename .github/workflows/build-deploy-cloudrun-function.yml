@@ -42,7 +42,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - id: 'auth'
         name: Authenticate to Google Cloud
@@ -60,7 +60,7 @@ jobs:
           service_account: '${{ vars.GCP_SERVICE_ACCOUNT }}@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Deploy to Cloud Run Functions
         id: deploy
