@@ -20,5 +20,5 @@ outputs:
   role-arn:
     description: AWS IAM Role ARN to be assumed by GitHub to build/deploy the project.
 runs:
-  using: 'node20'
+  using: 'node24'
   main: '../../dist/setup-env.js'

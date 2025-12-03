@@ -10,7 +10,7 @@ jobs:
     name: Update Release Tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: sersoft-gmbh/running-release-tags-action@v3
         with:
           tag: v1.5.2

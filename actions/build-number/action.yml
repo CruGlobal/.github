@@ -8,5 +8,5 @@ outputs:
   build-number:
     description: Build number. Also exported to BUILD_NUMBER environment variable.
 runs:
-  using: 'node20'
+  using: 'node24'
   main: '../../dist/build-number.js'
