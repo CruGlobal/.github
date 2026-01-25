@@ -105,7 +105,7 @@ jobs:
         run: ./build.sh
         env:
           DOCKER_NETWORK: ${{ steps.env.outputs.project-name }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN || github.token }}
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
             --cache-from type=local,src=/tmp/.buildx-cache
