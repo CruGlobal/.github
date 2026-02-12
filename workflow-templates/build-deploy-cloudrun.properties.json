@@ -1,0 +1,7 @@
+{
+  "name": "Build and Deploy to Cloud Run",
+  "description": "Build application docker image and deploys to CloudRun. This workflow requires a build.sh script and application resources defined in Terraform.",
+  "filePatterns": [
+    "^build.sh"
+  ]
+}
