@@ -73,3 +73,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: BRANCH=${{ inputs.base_tag }}
           tags: ${{ steps.generate_tags.outputs.full_tags }}
+          sbom: true 
+          provenance: true
