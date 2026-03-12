@@ -45,9 +45,11 @@ async function updateCloudRun(projectName, project, environment, buildNumber) {
         const envVars = []
 
         // Persist non-secret ENV vars
-        for (const env of container.env ) {
-            if (env.value !== undefined) {
-                envVars.push(env)
+        if (container.env !== null) {
+            for (const env of container.env) {
+                if (env.value !== undefined) {
+                    envVars.push(env)
+                }
             }
         }
 
