@@ -55,7 +55,7 @@ jobs:
           project-name: ${{ inputs.microservice-app }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
           role-to-assume: ${{ steps.env.outputs.role-arn }}
@@ -70,7 +70,7 @@ jobs:
           name: ${{ steps.env.outputs.project-name }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         id: buildx
         with:
           driver-opts: network=${{ steps.env.outputs.project-name }}
@@ -82,7 +82,7 @@ jobs:
           mask-password: true
 
       - name: Cache Docker Layers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/.buildx-cache
           key: "${{ runner.os }}-buildx-${{ github.sha }}"
