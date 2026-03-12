@@ -1,7 +1,6 @@
-@actions/core:1.11.1 -- MIT
-@actions/exec:1.1.1 -- MIT
-@actions/http-client:2.2.3 -- MIT
-@actions/io:1.1.3 -- MIT
-@fastify/busboy:2.1.1 -- MIT
+@actions/core:3.0.0 -- MIT
+@actions/exec:3.0.0 -- MIT
+@actions/http-client:4.0.0 -- MIT
+@actions/io:3.0.2 -- MIT
 tunnel:0.0.6 -- MIT
-undici:5.29.0 -- MIT
+undici:6.23.0 -- MIT

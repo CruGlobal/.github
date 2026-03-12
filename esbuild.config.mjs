@@ -15,11 +15,11 @@ const handlerMap = {
 
 // Build each action as a separate bundle with flat output
 for (const [input, output] of Object.entries(handlerMap)) {
-    await esbuild.build({
+    esbuild.build({
         entryPoints: [input],
         bundle: true,
         platform: 'node',
-        target: 'node22',
+        target: 'node24',
         outfile: `dist/${output}.js`,
         sourcemap: true,
         plugins: [
