@@ -1,11 +1,11 @@
 {
   "name": "cruglobal-dot-github",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Cru Actions and Workflows",
   "private": true,
   "sideEffects": false,
   "scripts": {
-    "build": "webpack",
+    "build": "node esbuild.config.mjs",
     "lint": "eslint .",
     "test": "jest",
     "all": "npm run lint && npm run build && npm run test"
@@ -37,12 +37,10 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.1",
+    "esbuild": "^0.27.4",
+    "esbuild-plugin-license": "^1.2.3",
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
-    "jest": "^30.2.0",
-    "license-webpack-plugin": "^4.0.2",
-    "terser-webpack-plugin": "^5.3.14",
-    "webpack": "5.103.0",
-    "webpack-cli": "^6.0.1"
+    "jest": "^30.2.0"
   }
 }
