@@ -41,15 +41,30 @@ async function updateCloudRun(projectName, project, environment, buildNumber) {
     for (const service of services) {
         const container = service.template.containers[0]
         container.image = imageUri
-        container.env = secrets.map(secret => ({
-            name: secret.name.split('/').pop(),
-            valueSource: {
-                secretKeyRef: {
-                    secret: secret.name,
-                    version: "latest"
-                }
+
+        const envVars = []
+
+        // Persist non-secret ENV vars
+        for (const env of container.env ) {
+            if (env.value !== undefined) {
+                envVars.push(env)
             }
-        }))
+        }
+
+        // Add secret ENV vars
+        for (const secret of secrets) {
+            envVars.push({
+                name: secret.name.split('/').pop(),
+                valueSource: {
+                    secretKeyRef: {
+                        secret: secret.name,
+                        version: "latest" // TODO: pin to specific secret version
+                    }
+                }
+            })
+        }
+
+        container.env = envVars
         core.info(`updating service: ${service.name}`)
         await updateService(service.name, container)
     }
