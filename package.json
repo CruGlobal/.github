@@ -27,7 +27,7 @@
     "@aws-sdk/client-ecs": "^3.1007.0",
     "@aws-sdk/client-eventbridge": "^3.1007.0",
     "@aws-sdk/client-lambda": "^3.1007.0",
-    "@aws-sdk/client-ssm": "^3.1007.0",
+    "@aws-sdk/client-ssm": "^3.1010.0",
     "@google-cloud/run": "^3.2.0",
     "@google-cloud/secret-manager": "^6.1.1",
     "escape-string-regexp": "^5.0.0"
