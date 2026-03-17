@@ -23,7 +23,7 @@
     "@actions/exec": "^3.0.0",
     "@actions/github": "^8.0.1",
     "@aws-sdk/client-dynamodb": "^3.1007.0",
-    "@aws-sdk/client-ecr": "^3.1007.0",
+    "@aws-sdk/client-ecr": "^3.1010.0",
     "@aws-sdk/client-ecs": "^3.1007.0",
     "@aws-sdk/client-eventbridge": "^3.1007.0",
     "@aws-sdk/client-lambda": "^3.1007.0",
