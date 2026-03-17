@@ -44,7 +44,7 @@ jobs:
           repositories: ${{ matrix.repo }}
       - name: Get name
         id: get-name
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const name = context.payload.repository.name;
