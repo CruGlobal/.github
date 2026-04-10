@@ -46,10 +46,13 @@ export async function updateService(name, template) {
             name: name,
             template: {
                 containers: [template],
+                annotations: {
+                    "client.knative.dev/force-revision": Date.now().toString(),
+                }
             }
         },
         updateMask: {
-            paths: ["template.containers"]
+            paths: ["template.containers", "template.annotations"],
         }
     })
     const [response] = await operation.promise()
