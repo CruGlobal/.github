@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import assert from 'assert'
-import {cloudrunListServices, gcrImageTag, listSecrets, updateService} from "./gcp";
+import {cloudrunGetJob, cloudrunListServices, gcrImageTag, listSecrets, runJob, updateJob, updateService} from "./gcp";
 import {RUNTIME_PARAM_TYPES} from "./ecs-config";
 
 async function run() {
@@ -27,6 +27,10 @@ async function run() {
     }
 }
 
+// Name of the optional database migrations Cloud Run job, created by the
+// gcp/cloudrun/app terraform module when `database_migrations` is enabled.
+const DB_MIGRATE_JOB = 'db-migrate'
+
 async function updateCloudRun(projectName, project, environment, buildNumber) {
     const imageUri = gcrImageTag(project, projectName, environment, buildNumber)
     core.info(`imageUri: ${imageUri}`)
@@ -36,40 +40,58 @@ async function updateCloudRun(projectName, project, environment, buildNumber) {
     core.info(`services: ${JSON.stringify(services.map(s => s.name))}`)
     const secrets = await listSecrets(project, RUNTIME_PARAM_TYPES)
 
+    // Run database migrations (if the db-migrate job exists) to completion
+    // before updating services. A failed migration fails the deploy and
+    // leaves the running services untouched.
+    const job = await cloudrunGetJob(project, DB_MIGRATE_JOB)
+    if (job) {
+        const container = job.template.template.containers[0]
+        container.image = imageUri
+        container.env = mergeEnvVars(container.env, secrets)
+        core.info(`updating job: ${job.name}`)
+        await updateJob(job)
+        core.info(`executing job: ${job.name}`)
+        await runJob(job.name)
+    }
+
     // Update each CloudRun service
     // TODO: selectively update services?
     for (const service of services) {
         const container = service.template.containers[0]
         container.image = imageUri
-
-        const envVars = []
-
-        // Persist non-secret ENV vars
-        if (container.env !== null) {
-            for (const env of container.env) {
-                if (env.value !== undefined) {
-                    envVars.push(env)
-                }
-            }
-        }
-
-        // Add secret ENV vars
-        for (const secret of secrets) {
-            envVars.push({
-                name: secret.name.split('/').pop(),
-                valueSource: {
-                    secretKeyRef: {
-                        secret: secret.name,
-                        version: "latest" // TODO: pin to specific secret version
-                    }
-                }
-            })
-        }
-
-        container.env = envVars
+        container.env = mergeEnvVars(container.env, secrets)
         core.info(`updating service: ${service.name}`)
         await updateService(service.name, container)
     }
+}
+
+// Persist a container's non-secret ENV vars and (re)add all secret ENV vars
+function mergeEnvVars(currentEnv, secrets) {
+    const envVars = []
+
+    // Persist non-secret ENV vars
+    if (currentEnv) {
+        for (const env of currentEnv) {
+            if (env.value !== undefined) {
+                envVars.push(env)
+            }
+        }
+    }
+
+    // Add secret ENV vars
+    for (const secret of secrets) {
+        envVars.push({
+            name: secret.name.split('/').pop(),
+            valueSource: {
+                secretKeyRef: {
+                    secret: secret.name,
+                    version: "latest" // TODO: pin to specific secret version
+                }
+            }
+        })
+    }
+
+    return envVars
 }
 
 run()
