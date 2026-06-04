@@ -39,15 +39,10 @@ export async function cloudrunListServices(project) {
     return services
 }
 
-export async function cloudrunGetJob(project, name) {
+export async function cloudrunListJobs(project) {
     const client = new JobsClient()
-    try {
-        const [job] = await client.getJob({name: `projects/${project}/locations/${DEFAULT_REGION}/jobs/${name}`})
-        return job
-    } catch (error) {
-        if (error.code === 5) return null // gRPC NOT_FOUND
-        throw error
-    }
+    const [jobs] = await client.listJobs({parent: `projects/${project}/locations/${DEFAULT_REGION}`})
+    return jobs
 }
 
 // Update a job with a full read-modify-write of the job resource (output-only
