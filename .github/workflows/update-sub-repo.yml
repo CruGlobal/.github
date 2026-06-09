@@ -54,7 +54,7 @@ jobs:
 
       - name: Commit Change to New Branch
         id: commit_version
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           add: ${{ inputs.folder }}
           message: Update ${{ inputs.short_name }} to ${{ inputs.VERSION }}

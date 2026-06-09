@@ -48,7 +48,7 @@ jobs:
           body: ${{ inputs.body }}
           token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Delete branch ${{ inputs.BRANCH }}
-        uses: dawidd6/action-delete-branch@v3
-        with:
-          branches: ${{ inputs.branch }}
+      - name: Delete branch ${{ inputs.branch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${{ inputs.branch }}"

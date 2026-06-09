@@ -59,7 +59,7 @@ jobs:
         run: npm run build
 
       - name: Commit dist/ if it changed
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           add: dist/
           message: 'build: rebuild dist/'
@@ -67,7 +67,7 @@ jobs:
 
       # Runs only after dist/ is rebuilt and committed above.
       - name: Update running release tag
-        uses: sersoft-gmbh/running-release-tags-action@v3
+        uses: sersoft-gmbh/running-release-tags-action@v4
         with:
           tag: v1.5.2
           update-minor: false

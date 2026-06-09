@@ -46,7 +46,7 @@ jobs:
 
       - id: 'auth'
         name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
@@ -86,7 +86,7 @@ jobs:
             --region=${{ vars.GCP_REGION }} \
             --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest 
 
-      - uses: actions/github-script@v6
+      - uses: actions/github-script@v9
         if: github.event.pull_request.merged == true
         with:
           script: |
