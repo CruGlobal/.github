@@ -1,0 +1,60 @@
+name: Build dist/
+
+# Rebuilds the bundled dist/ artifacts on main and commits them back, so that
+# contributors and Dependabot never have to run `npm run build` themselves.
+#
+# This replaces the old "fail the PR if dist/ is stale" check. Dependabot
+# bumps a dependency, the CI workflow gates the merge on lint/build/test, and
+# once the PR squash-merges to main this job regenerates dist/ from the new
+# sources and commits the result. Between the merge and this commit landing,
+# main briefly carries sources ahead of their bundle; consumers pinned to a
+# release tag are unaffected since tags are cut from a fully-built main.
+#
+# NOTE: this pushes directly to main with the default GITHUB_TOKEN. The branch
+# ruleset protecting main must list the GitHub Actions bot as a bypass actor,
+# otherwise the push is rejected. A commit pushed by GITHUB_TOKEN does not
+# re-trigger workflows, so this never loops.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'esbuild.config.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Avoid racing commits if several merges land in quick succession.
+concurrency:
+  group: build-dist
+  cancel-in-progress: false
+
+jobs:
+  build-dist:
+    name: Rebuild and commit dist/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.tool-versions'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild the dist/ directory
+        run: npm run build
+
+      - name: Commit dist/ if it changed
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: dist/
+          message: 'build: rebuild dist/'
+          default_author: github_actions
