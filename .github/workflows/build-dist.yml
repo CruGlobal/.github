@@ -65,10 +65,18 @@ jobs:
           message: 'build: rebuild dist/'
           default_author: github_actions
 
+      # Derive the release tag from package.json so the rolling major tag
+      # tracks the version automatically. Only the major is parsed from this
+      # (update-minor: false), so v1.7.0 keeps v1 pointed at the latest commit
+      # and a future 2.0.0 bump would correctly start moving v2.
+      - name: Read version from package.json
+        id: pkg
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       # Runs only after dist/ is rebuilt and committed above.
       - name: Update running release tag
         uses: sersoft-gmbh/running-release-tags-action@v4
         with:
-          tag: v1.5.2
+          tag: ${{ steps.pkg.outputs.tag }}
           update-minor: false
           create-release: false
