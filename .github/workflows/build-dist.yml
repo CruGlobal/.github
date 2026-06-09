@@ -10,10 +10,11 @@ name: Build dist/
 # main briefly carries sources ahead of their bundle; consumers pinned to a
 # release tag are unaffected since tags are cut from a fully-built main.
 #
-# NOTE: this pushes directly to main with the default GITHUB_TOKEN. The branch
-# ruleset protecting main must list the GitHub Actions bot as a bypass actor,
-# otherwise the push is rejected. A commit pushed by GITHUB_TOKEN does not
-# re-trigger workflows, so this never loops.
+# NOTE: this pushes directly to main with secrets.CRU_DEVOPS_GITHUB_TOKEN, a
+# PAT whose user is allowed to bypass the branch ruleset protecting main;
+# the default GITHUB_TOKEN would be rejected. The commit only touches dist/,
+# which is excluded from this workflow's path filter, so the push never
+# re-triggers this job (no loop).
 
 on:
   push:
@@ -39,6 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # PAT for a user allowed to bypass the main branch ruleset, so the
+          # rebuilt dist/ can be pushed straight to main.
+          token: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
