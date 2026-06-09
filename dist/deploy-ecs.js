@@ -33268,7 +33268,7 @@ var require_package = __commonJS({
     module2.exports = {
       name: "@aws-sdk/client-ecs",
       description: "AWS SDK for JavaScript Ecs Client for Node.js, Browser and React Native",
-      version: "3.1064.0",
+      version: "3.1065.0",
       scripts: {
         build: "concurrently 'yarn:build:types' 'yarn:build:es' && yarn build:cjs",
         "build:cjs": "node ../../scripts/compilation/inline",
@@ -33290,8 +33290,8 @@ var require_package = __commonJS({
       dependencies: {
         "@aws-crypto/sha256-browser": "5.2.0",
         "@aws-crypto/sha256-js": "5.2.0",
-        "@aws-sdk/core": "^3.974.19",
-        "@aws-sdk/credential-provider-node": "^3.972.53",
+        "@aws-sdk/core": "^3.974.20",
+        "@aws-sdk/credential-provider-node": "^3.972.54",
         "@aws-sdk/types": "^3.973.12",
         "@smithy/core": "^3.24.6",
         "@smithy/fetch-http-handler": "^5.4.6",
@@ -34864,7 +34864,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.18",
+      version: "3.997.19",
       description: "Nested clients for AWS SDK packages.",
       main: "./dist-cjs/index.js",
       module: "./dist-es/index.js",
@@ -34893,7 +34893,7 @@ var init_package = __esm({
       dependencies: {
         "@aws-crypto/sha256-browser": "5.2.0",
         "@aws-crypto/sha256-js": "5.2.0",
-        "@aws-sdk/core": "^3.974.19",
+        "@aws-sdk/core": "^3.974.20",
         "@aws-sdk/signature-v4-multi-region": "^3.996.33",
         "@aws-sdk/types": "^3.973.12",
         "@smithy/core": "^3.24.6",
@@ -41833,8 +41833,11 @@ var require_dist_cjs12 = __commonJS({
             profile,
             filepath,
             configFilepath,
-            ignoreCache
-          })();
+            ignoreCache,
+            clientConfig,
+            parentClientConfig,
+            logger: logger2
+          })({ callerClientConfig });
           token = {
             accessToken: _token.token,
             expiresAt: new Date(_token.expiration).toISOString()
@@ -53014,7 +53017,7 @@ var require_package2 = __commonJS({
     module2.exports = {
       name: "@aws-sdk/client-ssm",
       description: "AWS SDK for JavaScript Ssm Client for Node.js, Browser and React Native",
-      version: "3.1064.0",
+      version: "3.1065.0",
       scripts: {
         build: "concurrently 'yarn:build:types' 'yarn:build:es' && yarn build:cjs",
         "build:cjs": "node ../../scripts/compilation/inline",
@@ -53036,8 +53039,8 @@ var require_package2 = __commonJS({
       dependencies: {
         "@aws-crypto/sha256-browser": "5.2.0",
         "@aws-crypto/sha256-js": "5.2.0",
-        "@aws-sdk/core": "^3.974.19",
-        "@aws-sdk/credential-provider-node": "^3.972.53",
+        "@aws-sdk/core": "^3.974.20",
+        "@aws-sdk/credential-provider-node": "^3.972.54",
         "@aws-sdk/types": "^3.973.12",
         "@smithy/core": "^3.24.6",
         "@smithy/fetch-http-handler": "^5.4.6",
@@ -66755,7 +66758,7 @@ var require_package3 = __commonJS({
     module2.exports = {
       name: "@aws-sdk/client-eventbridge",
       description: "AWS SDK for JavaScript Eventbridge Client for Node.js, Browser and React Native",
-      version: "3.1064.0",
+      version: "3.1065.0",
       scripts: {
         build: "concurrently 'yarn:build:types' 'yarn:build:es' && yarn build:cjs",
         "build:cjs": "node ../../scripts/compilation/inline",
@@ -66777,8 +66780,8 @@ var require_package3 = __commonJS({
       dependencies: {
         "@aws-crypto/sha256-browser": "5.2.0",
         "@aws-crypto/sha256-js": "5.2.0",
-        "@aws-sdk/core": "^3.974.19",
-        "@aws-sdk/credential-provider-node": "^3.972.53",
+        "@aws-sdk/core": "^3.974.20",
+        "@aws-sdk/credential-provider-node": "^3.972.54",
         "@aws-sdk/signature-v4-multi-region": "^3.996.33",
         "@aws-sdk/types": "^3.973.12",
         "@smithy/core": "^3.24.6",
@@ -66788,7 +66791,7 @@ var require_package3 = __commonJS({
         tslib: "^2.6.2"
       },
       devDependencies: {
-        "@aws-sdk/signature-v4-crt": "3.1064.0",
+        "@aws-sdk/signature-v4-crt": "3.1065.0",
         "@tsconfig/node20": "20.1.8",
         "@types/node": "^20.14.8",
         concurrently: "7.0.0",
