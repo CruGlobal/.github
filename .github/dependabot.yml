@@ -5,9 +5,31 @@ updates:
     schedule:
       interval: weekly
       day: tuesday
+    commit-message:
+      prefix: chore(github-actions)
+    labels:
+      - dependencies
+      - patch
+    # Roll all minor/patch action bumps into a single PR so the
+    # auto-merge flow handles one check run instead of many.
+    groups:
+      github-actions:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
       day: tuesday
+    commit-message:
+      prefix: chore(npm)
+    labels:
+      - dependencies
+      - patch
+    groups:
+      npm:
+        update-types:
+          - minor
+          - patch
