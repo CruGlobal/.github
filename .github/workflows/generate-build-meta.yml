@@ -19,7 +19,7 @@ jobs:
       build: ${{ steps.build_meta.outputs.build }}
     steps:
       - name: Increment the Runtime Version
-        uses: actions/github-script@v6
+        uses: actions/github-script@v9
         id: build_meta
         env:
           version: ${{ inputs.version }}

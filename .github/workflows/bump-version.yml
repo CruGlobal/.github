@@ -36,7 +36,7 @@ jobs:
         run: npm i semver -f
 
       - name: Increment the Runtime Version
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         id: increment_version
         env:
           TYPE: ${{ inputs.type }}
@@ -60,7 +60,7 @@ jobs:
 
       - name: Commit Change
         id: commit_version
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         env:
           NEW_VERSION: ${{ steps.increment_version.outputs.new_version }}
         with:

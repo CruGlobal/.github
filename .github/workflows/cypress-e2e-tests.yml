@@ -46,14 +46,6 @@ jobs:
         run: pm2 start ./logs.js -- --toFile logs/ABServices.log
         working-directory: ./AppBuilder
 
-      - name: Wait for AB
-        # Skipping the wait step. Cypress has a bit of wait time built in. It might be enough.
-        if: false
-        uses: ifaxity/wait-on-action@v1.2.1
-        with:
-          resource: http://localhost:80
-          timeout: 300000
-
       - name: Install wait-on module
         # Skipping this step.
         if: false
@@ -69,14 +61,14 @@ jobs:
         working-directory: ./AppBuilder
 
       - name: Save Screenshots 
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: cypress-screenshots
           path: ./AppBuilder/test/e2e/cypress/screenshots
           
       - name: Save Service Logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ABServices.log
