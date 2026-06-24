@@ -27,7 +27,7 @@ jobs:
       new_version: ${{ steps.increment_version.outputs.new_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
 

@@ -40,7 +40,7 @@ jobs:
     name: Rebuild dist/ and release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # PAT for a user allowed to bypass the main branch ruleset, so the
           # rebuilt dist/ and the release tags can be pushed straight to main.
