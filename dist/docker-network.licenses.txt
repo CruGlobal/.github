@@ -3,4 +3,4 @@
 @actions/http-client:4.0.1 -- MIT
 @actions/io:3.0.2 -- MIT
 tunnel:0.0.6 -- MIT
-undici:6.26.0 -- MIT
+undici:6.27.0 -- MIT
