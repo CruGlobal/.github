@@ -41,7 +41,7 @@ jobs:
       DD_API_KEY: ${{ secrets.datadog-api-key }}
     steps:
       - name: Checkout Cru Actions & Workflows
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: CruGlobal/.github
           ref: ${{ inputs.workflow-ref }}
