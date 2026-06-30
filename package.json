@@ -23,12 +23,12 @@
     "@actions/core": "^3.0.0",
     "@actions/exec": "^3.0.0",
     "@actions/github": "^8.0.1",
-    "@aws-sdk/client-dynamodb": "^3.1075.0",
-    "@aws-sdk/client-ecr": "^3.1075.0",
-    "@aws-sdk/client-ecs": "^3.1075.0",
-    "@aws-sdk/client-eventbridge": "^3.1075.0",
-    "@aws-sdk/client-lambda": "^3.1075.0",
-    "@aws-sdk/client-ssm": "^3.1075.0",
+    "@aws-sdk/client-dynamodb": "^3.1076.0",
+    "@aws-sdk/client-ecr": "^3.1076.0",
+    "@aws-sdk/client-ecs": "^3.1076.0",
+    "@aws-sdk/client-eventbridge": "^3.1076.0",
+    "@aws-sdk/client-lambda": "^3.1076.0",
+    "@aws-sdk/client-ssm": "^3.1076.0",
     "@google-cloud/run": "^3.3.0",
     "@google-cloud/secret-manager": "^6.2.0",
     "escape-string-regexp": "^5.0.0"
@@ -38,7 +38,7 @@
     "@eslint/js": "^10.0.1",
     "esbuild": "^0.28.1",
     "esbuild-plugin-license": "^1.2.3",
-    "eslint": "^10.5.0",
+    "eslint": "^10.6.0",
     "globals": "^17.7.0",
     "vitest": "^4.1.9"
   }
