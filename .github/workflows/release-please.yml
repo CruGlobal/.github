@@ -1,0 +1,75 @@
+name: Release Please
+
+# Release pipeline for this repo's actions/workflows.
+#
+# release-please reads Conventional Commits on main and maintains a release PR
+# (version bump in package.json + CHANGELOG.md). Merging that PR tags vX.Y.Z and
+# cuts a GitHub release; the roll-tags job then points the major (v1) and minor
+# (v1.7) tags at the same commit so consumers pinned to `@v1` / `@v1.7` track it.
+#
+# dist/ is kept current by build-dist.yml (rebuilt + committed on every push to
+# main), so the released commit already carries the built dist/ and the tags
+# never point at an unbuilt commit.
+#
+# CRU_DEVOPS_GITHUB_TOKEN (a PAT whose user bypasses the main branch ruleset) is
+# required so the release PR's commits trigger CI — the required "Lint, Build &
+# Test" check — which the default GITHUB_TOKEN cannot do, and so tag pushes are
+# allowed.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: node
+          token: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN }}
+
+  # Roll the major (v1) and minor (v1.7) tags onto the released commit so
+  # consumers pinned to `@v1` / `@v1.7` pick up the release. release-please
+  # already created the exact vX.Y.Z tag. Tags are moved via the refs API, so
+  # there's no checkout — and none of the shallow-clone tag-push pitfalls that
+  # silently broke the previous running-release-tags-action step.
+  roll-tags:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Roll v{major} and v{major}.{minor} to the release commit
+        env:
+          GH_TOKEN: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.release-please.outputs.sha }}
+          MAJOR: ${{ needs.release-please.outputs.major }}
+          MINOR: ${{ needs.release-please.outputs.minor }}
+        run: |
+          roll() {
+            local tag="$1"
+            if gh api "repos/$REPO/git/refs/tags/$tag" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/$REPO/git/refs/tags/$tag" -f sha="$SHA" -F force=true
+            else
+              gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$SHA"
+            fi
+            echo "rolled $tag -> $SHA"
+          }
+          roll "v$MAJOR"
+          roll "v$MAJOR.$MINOR"

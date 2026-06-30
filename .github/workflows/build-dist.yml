@@ -1,24 +1,18 @@
-name: Build dist/ & Release
+name: Build dist/
 
-# Post-merge pipeline for main, run as a single ordered job:
-#   1. Rebuild the bundled dist/ artifacts and commit them back, so that
-#      contributors and Dependabot never have to run `npm run build`.
-#   2. Move the running release tag — but only AFTER dist/ has been rebuilt,
-#      so the tag always points at a fully-built commit.
+# Rebuild the bundled dist/ artifacts on every push to main and commit them
+# back, so contributors and Dependabot never have to run `npm run build` and
+# every commit on main is runnable as an action. Because dist/ is always
+# current on main, the commit release-please tags already carries the built
+# output. Versioning, tags and releases are handled by release-please.yml.
 #
-# This replaces the old standalone Release workflow, which fired on every
-# push to main and therefore ran twice per merge: once on the merge commit
-# (stale dist) and again on the dist-rebuild commit.
+# Triggers on every push to main EXCEPT commits that only touch dist/ — that is
+# the bot's own "build: rebuild dist/" commit. paths-ignore keeps it from
+# re-triggering this workflow, so the pipeline never loops.
 #
-# Triggers on every push to main EXCEPT commits that only touch dist/ — that
-# is the bot's own "build: rebuild dist/" commit. paths-ignore keeps it from
-# re-triggering this workflow, so the pipeline never loops and Release runs
-# exactly once per merge. Merges that don't change sources still run (dist is
-# rebuilt as a no-op) so the release tag is always updated.
-#
-# dist/ commits and tags are pushed with secrets.CRU_DEVOPS_GITHUB_TOKEN, a
-# PAT whose user can bypass the main branch ruleset; the default GITHUB_TOKEN
-# would be rejected.
+# dist/ commits are pushed with secrets.CRU_DEVOPS_GITHUB_TOKEN, a PAT whose
+# user can bypass the main branch ruleset; the default GITHUB_TOKEN would be
+# rejected.
 
 on:
   push:
@@ -30,20 +24,20 @@ on:
 permissions:
   contents: write
 
-# Avoid racing commits/tags if several merges land in quick succession.
+# Avoid racing commits if several merges land in quick succession.
 concurrency:
   group: build-dist
   cancel-in-progress: false
 
 jobs:
   build-dist:
-    name: Rebuild dist/ and release
+    name: Rebuild dist/
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           # PAT for a user allowed to bypass the main branch ruleset, so the
-          # rebuilt dist/ and the release tags can be pushed straight to main.
+          # rebuilt dist/ can be pushed straight to main.
           token: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN }}
 
       - name: Set up Node.js
@@ -64,19 +58,3 @@ jobs:
           add: dist/
           message: 'build: rebuild dist/'
           default_author: github_actions
-
-      # Derive the release tag from package.json so the rolling major tag
-      # tracks the version automatically. Only the major is parsed from this
-      # (update-minor: false), so v1.7.0 keeps v1 pointed at the latest commit
-      # and a future 2.0.0 bump would correctly start moving v2.
-      - name: Read version from package.json
-        id: pkg
-        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
-      # Runs only after dist/ is rebuilt and committed above.
-      - name: Update running release tag
-        uses: sersoft-gmbh/running-release-tags-action@v4
-        with:
-          tag: ${{ steps.pkg.outputs.tag }}
-          update-minor: false
-          create-release: false
