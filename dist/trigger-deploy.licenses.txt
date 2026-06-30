@@ -1,6 +1,6 @@
 @actions/core:3.0.1 -- MIT
 @actions/exec:3.0.0 -- MIT
-@actions/github:8.0.1 -- MIT
+@actions/github:9.1.1 -- MIT
 @actions/http-client:4.0.1 -- MIT
 @actions/io:3.0.2 -- MIT
 @octokit/auth-token:6.0.0 -- MIT
