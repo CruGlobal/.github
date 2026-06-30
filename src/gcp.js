@@ -67,13 +67,16 @@ export async function runJob(name) {
     return execution
 }
 
-export async function updateService(name, template) {
+// `containers` is the full container list for the service template (the app
+// container plus any sidecars), so deploys preserve sidecars instead of
+// collapsing the service to a single container.
+export async function updateService(name, containers) {
     const client = new ServicesClient()
     const [operation] = await client.updateService({
         service: {
             name: name,
             template: {
-                containers: [template],
+                containers: containers,
                 annotations: {
                     "client.knative.dev/force-revision": Date.now().toString(),
                 }

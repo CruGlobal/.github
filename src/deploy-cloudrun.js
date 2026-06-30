@@ -63,14 +63,29 @@ async function updateCloudRun(projectName, project, environment, buildNumber) {
         await updateJobImage(job, imageUri, secrets)
     }
 
-    // Update each CloudRun service
+    // Update each CloudRun service. Refresh only the APP container's image/env
+    // and pass ALL containers through, so any sidecars are preserved — e.g. the
+    // Datadog Agent the gcp/cloudrun/app module adds when datadog_apm = true.
+    // (Previously this collapsed the service to containers[0], which dropped the
+    // sidecar — and broke the deploy outright when the app declared depends_on
+    // the agent.) The app container is the one running this project's image, or
+    // the ingress container (the one with a port) before the first real build;
+    // single-container services have exactly one and behave as before.
     // TODO: selectively update services?
+    const repo = imageUri.split(':')[0]
     for (const service of services) {
-        const container = service.template.containers[0]
-        container.image = imageUri
-        container.env = mergeEnvVars(container.env, secrets)
-        core.info(`updating service: ${service.name}`)
-        await updateService(service.name, container)
+        const containers = service.template.containers
+        const updated = containers.map(container => {
+            const isApp =
+                containers.length === 1 ||
+                container.image?.split(':')[0] === repo ||
+                (container.ports?.length ?? 0) > 0
+            return isApp
+                ? {...container, image: imageUri, env: mergeEnvVars(container.env, secrets)}
+                : container
+        })
+        core.info(`updating service: ${service.name} (${updated.length} container(s))`)
+        await updateService(service.name, updated)
     }
 }
 
