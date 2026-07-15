@@ -54,8 +54,8 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: ${{ inputs.environment }}
 
-#      - name: Add DataDog Tags
-#        run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "build_number:$BUILD_NUMBER"
+      - name: Add DataDog Tags
+        run: npx @datadog/datadog-ci tag --level pipeline --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "build_number:$BUILD_NUMBER"
 
       - name: Configure GCP credentials
         uses: google-github-actions/auth@v3
