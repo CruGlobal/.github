@@ -62,6 +62,9 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
 
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       # TODO(draft): per deploy-type, query what is ACTUALLY running on stage
       # and resolve it to an immutable digest:
       #   ecs:      aws ecs describe-services / describe-task-definition -> container image
@@ -89,7 +92,17 @@ jobs:
         id: release
         run: echo "TODO(draft): tag ${{ steps.stage.outputs.digest }} as release-<r>"
 
-      - name: Mark Deployment in Datadog
-        run: npx @datadog/datadog-ci deployment mark --env production --service "$PROJECT_NAME" --revision "${{ steps.stage.outputs.digest }}"
+      # Pinned major + continue-on-error: telemetry must never fail a
+      # production action (see the deployment-mark incident, PR #425).
+      - name: Record Deployment in Datadog
+        continue-on-error: true
+        run: >-
+          npx @datadog/datadog-ci@5 dora deployment
+          --service "$PROJECT_NAME"
+          --env production
+          --version "${{ steps.stage.outputs.digest }}"
+          --started-at "$DEPLOY_STARTED_AT"
+          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          --skip-git
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME stage image promoted to production"

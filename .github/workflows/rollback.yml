@@ -61,6 +61,9 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
 
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       # TODO(draft): resolve the target release — the given release tag, or the
       # release immediately before the one currently deployed — to a digest.
       - name: Resolve release digest
@@ -72,7 +75,18 @@ jobs:
       - name: Deploy release digest to production
         run: echo "TODO(draft): deploy ${{ steps.target.outputs.digest }} via deploy-${{ inputs.deploy-type }} action"
 
-      - name: Mark Rollback in Datadog
-        run: npx @datadog/datadog-ci deployment mark --is-rollback --env production --service "$PROJECT_NAME" --revision "${{ steps.target.outputs.digest }}"
+      # dora deployment has no --is-rollback; tag it instead. Pinned major +
+      # continue-on-error per the deployment-mark incident (PR #425).
+      - name: Record Rollback in Datadog
+        continue-on-error: true
+        run: >-
+          npx @datadog/datadog-ci@5 dora deployment
+          --service "$PROJECT_NAME"
+          --env production
+          --version "${{ steps.target.outputs.digest }}"
+          --started-at "$DEPLOY_STARTED_AT"
+          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          --skip-git
+          --custom-tags "rollback:true"
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME production rolled back to ${{ inputs.release || 'previous release' }}"
