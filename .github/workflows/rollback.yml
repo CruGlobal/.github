@@ -1,0 +1,78 @@
+# DRAFT — promotion pipeline skeleton (see docs/promotion-pipeline.md).
+# Redeploys a previous release's image to production. No rebuild, ever.
+# Shares the production lock and human gate with promote.yml. This same
+# workflow is the execution target for severity-gated AUTO-rollback later —
+# automation would invoke it only for releases stamped rollback-safe.
+name: Rollback Production
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+      project-name:
+        description: Project Name
+        required: true
+        type: string
+      deploy-type:
+        description: Runtime target (ecs, lambda, cloudrun)
+        required: true
+        type: string
+      release:
+        description: Release tag to redeploy (defaults to the previous release)
+        required: false
+        type: string
+      project:
+        description: GCP Project (cloudrun only)
+        required: false
+        type: string
+    secrets:
+      datadog-api-key:
+        description: DataDog API Key
+        required: true
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.project-name }} to ${{ inputs.release || 'previous release' }}
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: write
+    env:
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup Deploy environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+        with:
+          project-name: ${{ inputs.project-name }}
+          environment: production
+
+      # TODO(draft): resolve the target release — the given release tag, or the
+      # release immediately before the one currently deployed — to a digest.
+      - name: Resolve release digest
+        id: target
+        run: |
+          echo "TODO(draft): resolve ${{ inputs.release || 'previous release' }} for ${{ inputs.deploy-type }}"
+          echo "digest=sha256:TODO" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy release digest to production
+        run: echo "TODO(draft): deploy ${{ steps.target.outputs.digest }} via deploy-${{ inputs.deploy-type }} action"
+
+      - name: Mark Rollback in Datadog
+        run: npx @datadog/datadog-ci deployment mark --is-rollback --env production --service "$PROJECT_NAME" --revision "${{ steps.target.outputs.digest }}"
+
+      - run: echo "::notice title=Rolled Back::$PROJECT_NAME production rolled back to ${{ inputs.release || 'previous release' }}"

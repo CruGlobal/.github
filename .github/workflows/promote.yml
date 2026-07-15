@@ -1,0 +1,95 @@
+# DRAFT — promotion pipeline skeleton (see docs/promotion-pipeline.md).
+# Promotes the EXACT image currently running on stage to production:
+# resolve the stage digest, deploy that digest to prod (no rebuild),
+# then tag it release-<r> as the rollback point.
+#
+# Intended caller: cru-deploy (workflow_dispatch wrapper). The `production`
+# GitHub Environment there provides the human gate (required reviewers);
+# the concurrency group below is the shared production lock.
+name: Promote to Production
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+      project-name:
+        description: Project Name
+        required: true
+        type: string
+      deploy-type:
+        description: Runtime target (ecs, lambda, cloudrun)
+        required: true
+        type: string
+      project:
+        description: GCP Project (cloudrun only)
+        required: false
+        type: string
+    secrets:
+      datadog-api-key:
+        description: DataDog API Key
+        required: true
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.project-name }} stage image to production
+    runs-on: ubuntu-latest
+    environment: production
+    # The single production lock: a promote, a rollback, and a hotfix for the
+    # same project can never overlap. Never cancel an in-flight production action.
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: write
+    env:
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup Deploy environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+        with:
+          project-name: ${{ inputs.project-name }}
+          environment: production
+
+      # TODO(draft): per deploy-type, query what is ACTUALLY running on stage
+      # and resolve it to an immutable digest:
+      #   ecs:      aws ecs describe-services / describe-task-definition -> container image
+      #   lambda:   aws lambda get-function -> Code.ResolvedImageUri (already a digest)
+      #   cloudrun: gcloud run services describe -> spec image + status digest
+      # Refusing to promote by tag makes this race-free: what was reviewed is
+      # what ships, even if a newer candidate landed on stage mid-review.
+      - name: Resolve stage image digest
+        id: stage
+        run: |
+          echo "TODO(draft): resolve digest for ${{ inputs.deploy-type }}"
+          echo "digest=sha256:TODO" >> "$GITHUB_OUTPUT"
+
+      # TODO(draft): requires the deploy actions to accept an explicit `image`
+      # input (docs/promotion-pipeline.md, required change 1). Auth per target:
+      # GitHubDeployECS / GitHubDeployLambda roles, cru-deploy@<project> SA.
+      - name: Deploy stage digest to production
+        run: echo "TODO(draft): deploy ${{ steps.stage.outputs.digest }} via deploy-${{ inputs.deploy-type }} action"
+
+      # TODO(draft): allocate release number (monotonic per project — reuse the
+      # DynamoDB counter pattern) and add release-<r> to the promoted digest.
+      # Needs registry tag-write on the deploy identities OR a release ledger
+      # instead (docs/promotion-pipeline.md, open question 3).
+      - name: Tag release
+        id: release
+        run: echo "TODO(draft): tag ${{ steps.stage.outputs.digest }} as release-<r>"
+
+      - name: Mark Deployment in Datadog
+        run: npx @datadog/datadog-ci deployment mark --env production --service "$PROJECT_NAME" --revision "${{ steps.stage.outputs.digest }}"
+
+      - run: echo "::notice title=Promoted::$PROJECT_NAME stage image promoted to production"

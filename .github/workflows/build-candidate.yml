@@ -1,0 +1,105 @@
+# DRAFT — promotion pipeline skeleton (see docs/promotion-pipeline.md).
+# Builds ONE environment-neutral image from the tip of main, tagged
+# candidate-<n> and sha-<gitsha>. The same image is later promoted to
+# production unchanged; nothing environment-specific may be baked in here.
+name: Build Candidate
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit used when calling the workflow.
+      target:
+        type: string
+        required: true
+        description: Runtime target (ecs, lambda, cloudrun). Selects registry + build identity.
+    outputs:
+      project-name:
+        description: Project name
+        value: ${{ jobs.build.outputs.project-name }}
+      candidate:
+        description: Candidate tag (candidate-<build-number>)
+        value: ${{ jobs.build.outputs.candidate }}
+      build-number:
+        description: Build number
+        value: ${{ jobs.build.outputs.build-number }}
+
+jobs:
+  build:
+    name: Build candidate image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      project-name: ${{ steps.env.outputs.project-name }}
+      candidate: candidate-${{ steps.build-number.outputs.build-number }}
+      build-number: ${{ steps.build-number.outputs.build-number }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # TODO(draft): environment is passed ONLY to resolve the build role and
+      # secrets namespace (candidates are prod-bound). It must never influence
+      # image contents. Open question 1: introduce a `shared` BUILD namespace.
+      - name: Setup Build environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: env
+        with:
+          environment: production
+          role-suffix: ${{ inputs.target == 'ecs' && 'TaskRole' || 'GitHubRole' }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.env.outputs.role-arn }}
+
+      - name: Generate Build Number
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
+
+      # TODO(draft): GCP auth + Artifact Registry login when target == cloudrun
+      # (mirrors build-cloudrun.yml: google-github-actions/auth@v3 via
+      # vars.GCP_WORKLOAD_IDENTITY_PROVIDER + vars.GCP_SERVICE_ACCOUNT).
+      - name: Login to Amazon ECR
+        if: inputs.target != 'cloudrun'
+        uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+        with:
+          mask-password: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Export BUILD secrets
+        uses: ./cru-github-actions/actions/secrets
+        with:
+          type: BUILD
+
+      - name: Checkout project
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          path: project
+
+      # Env-neutral: no ENVIRONMENT build arg, no env-specific tags. The image
+      # gets candidate-<n> and sha-<gitsha> and is pushed once.
+      - name: Build & push candidate
+        working-directory: project
+        run: ./build.sh
+        env:
+          DOCKER_ARGS: >-
+            --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:candidate-${{ steps.build-number.outputs.build-number }}
+            --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:sha-${{ github.sha }}
+            --push
+
+      - run: echo "::notice title=Candidate Built::${{ steps.env.outputs.project-name }} candidate-${{ steps.build-number.outputs.build-number }} (sha-${{ github.sha }})"
