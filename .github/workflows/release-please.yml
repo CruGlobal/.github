@@ -64,7 +64,10 @@ jobs:
         run: |
           roll() {
             local tag="$1"
-            if gh api "repos/$REPO/git/refs/tags/$tag" >/dev/null 2>&1; then
+            # GET /git/refs/tags/<tag> prefix-matches (v1.1 "exists" because
+            # v1.1.0 does), so require an exact ref via matching-refs before
+            # choosing update-vs-create.
+            if gh api "repos/$REPO/git/matching-refs/tags/$tag" --jq '.[].ref' | grep -qx "refs/tags/$tag"; then
               gh api -X PATCH "repos/$REPO/git/refs/tags/$tag" -f sha="$SHA" -F force=true
             else
               gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$SHA"
