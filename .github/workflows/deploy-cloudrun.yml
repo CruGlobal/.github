@@ -75,4 +75,7 @@ jobs:
       - name: Update CloudRun
         uses: ./cru-github-actions/actions/deploy-cloudrun
 
+      - name: Mark Deployment in Datadog
+        run: npx @datadog/datadog-ci deployment mark --env "$ENVIRONMENT" --service "$PROJECT_NAME" --revision "$ENVIRONMENT-$BUILD_NUMBER" --tags "build_number:$BUILD_NUMBER"
+
       - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"
