@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.0](https://github.com/CruGlobal/.github/compare/v1.1.0...v1.8.0) (2026-07-15)
+
+
+### Bug Fixes
+
+* **deploy:** replace removed 'deployment mark' with dora deployment; telemetry can no longer fail deploys ([36e3b29](https://github.com/CruGlobal/.github/commit/36e3b298c2d1b3a27d89f6dd39f429710ff1429c))
+* **deploy:** replace removed 'deployment mark' with dora deployment; telemetry can't fail deploys ([e5e2483](https://github.com/CruGlobal/.github/commit/e5e248351243969f0e2004308bb7a417d5773862))
+* **release-please:** exact-match tag rolling + bootstrap to 1.8.0 ([c409973](https://github.com/CruGlobal/.github/commit/c409973e315b5b14b0c51b57eb1493f3cb4e10c7))
+* **release-please:** use exact ref match when rolling minor tag ([a4ded62](https://github.com/CruGlobal/.github/commit/a4ded62bb002374681cec7134b8a62e77aa8a84f))
+
 ## [1.1.0](https://github.com/CruGlobal/.github/compare/v1.0.0...v1.1.0) (2026-07-15)
 
 
