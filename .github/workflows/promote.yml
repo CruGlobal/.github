@@ -1,0 +1,195 @@
+name: Promote
+
+# Promote the artifact currently running in release-candidate to production.
+# "Build once, promote the artifact": the exact digest running in release-
+# candidate is deployed to production and tagged release-<n>, where <n> is the
+# candidate's build number (no separate release counter — releases are traceable
+# to their candidate for free).
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      project-name:
+        type: string
+        required: true
+        description: Project name (shared-registry repo/image).
+    secrets:
+      datadog-api-key:
+        required: true
+        description: DataDog API key.
+      authz-token:
+        required: true
+        description: GitHub token used to verify the actor has push access to the app repo.
+
+jobs:
+  promote:
+    name: Promote release-candidate to production
+    runs-on: ubuntu-latest
+    # Shared production lock with rollback: only one production mutation per app
+    # at a time, and never cancelled mid-flight.
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      # Authorization: the human running a production change must have push-level
+      # access to the app repo. TODO: replace PAT with a dedicated GitHub App.
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          ACTOR: ${{ github.actor }}
+          APP_REPO: CruGlobal/${{ inputs.project-name }}
+        run: |
+          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
+          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          case "$permission" in
+            admin|write|maintain) ;;
+            *)
+              echo "::error::$ACTOR is not authorized to promote $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # app-info for BOTH environments: the release-candidate project (to read
+      # the running candidate) and the production project (to deploy into). The
+      # v1 info service only knows legacy env names, so translate first.
+      - name: Look up app info (release-candidate)
+        id: app-info-rc
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: release-candidate
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
+          provider=$(echo "$info" | jq -r '.Provider')
+          project_id=$(echo "$info" | jq -r '.ProjectId')
+          if [ "$provider" != "gcp" ]; then
+            echo "::error::only cloudrun apps are supported in this v2 pass (provider=$provider for $PROJECT_NAME)"
+            exit 1
+          fi
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider project=$project_id"
+
+      - name: Look up app info (production)
+        id: app-info-prod
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: production
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
+          provider=$(echo "$info" | jq -r '.Provider')
+          project_id=$(echo "$info" | jq -r '.ProjectId')
+          if [ "$provider" != "gcp" ]; then
+            echo "::error::only cloudrun apps are supported in this v2 pass (provider=$provider for $PROJECT_NAME)"
+            exit 1
+          fi
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider project=$project_id"
+
+      - name: Configure GCP credentials (release-candidate SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ steps.app-info-rc.outputs.project-id }}.iam.gserviceaccount.com
+
+      - name: Resolve running release-candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          mode: environment
+          environment: release-candidate
+          runtime-project: ${{ steps.app-info-rc.outputs.project-id }}
+
+      # Derive the release number from the candidate tag on the running digest.
+      # Fails clearly if the running image was not deployed from a candidate.
+      - name: Determine release number from candidate
+        id: release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate-<n> tag; cannot derive a release number. Deploy a candidate via deploy-candidate first."
+            exit 1
+          fi
+          number="${candidate#candidate-}"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "release=release-$number" >> "$GITHUB_OUTPUT"
+
+      - name: Configure GCP credentials (production SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ steps.app-info-prod.outputs.project-id }}.iam.gserviceaccount.com
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          runtime-project: ${{ steps.app-info-prod.outputs.project-id }}
+          image: ${{ steps.resolve.outputs.image }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      # Tag the promoted digest release-<n> in the shared registry (the prod
+      # cru-deploy SA holds AR writer there). release-<n> reuses the candidate's
+      # build number, so releases are monotonic and traceable to their candidate.
+      - name: Tag digest as release
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+        run: |
+          image_base="us-central1-docker.pkg.dev/cru-shared-artifacts/${PROJECT_NAME}/${PROJECT_NAME}"
+          gcloud artifacts docker tags add \
+            "${image_base}@${{ steps.resolve.outputs.digest }}" \
+            "${image_base}:${{ steps.release.outputs.release }}"
+
+      - name: Record deployment in Datadog
+        continue-on-error: true
+        run: >-
+          npx @datadog/datadog-ci@5 dora deployment
+          --service "$PROJECT_NAME"
+          --env "production"
+          --version "${{ steps.release.outputs.release }}"
+          --started-at "$DEPLOY_STARTED_AT"
+          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          --skip-git
+          --custom-tags "release:${{ steps.release.outputs.release }}"
+
+      - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"

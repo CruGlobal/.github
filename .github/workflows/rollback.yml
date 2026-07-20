@@ -1,0 +1,150 @@
+name: Rollback
+
+# Roll production back to a previously promoted release. The release tag is
+# resolved to its digest in the shared registry and redeployed to production.
+#
+# NOTE: automatic "previous release" selection (roll back to release-<n-1>
+# without naming it) lands in a later v2 pass; for now the target release is an
+# explicit input.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      project-name:
+        type: string
+        required: true
+        description: Project name (shared-registry repo/image).
+      release:
+        type: string
+        required: true
+        description: Release to roll back to, e.g. release-10012 or bare 10012.
+    secrets:
+      datadog-api-key:
+        required: true
+        description: DataDog API key.
+      authz-token:
+        required: true
+        description: GitHub token used to verify the actor has push access to the app repo.
+
+jobs:
+  rollback:
+    name: Roll production back
+    runs-on: ubuntu-latest
+    # Shared production lock with promote: only one production mutation per app
+    # at a time, and never cancelled mid-flight.
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      ENVIRONMENT: production
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      # Authorization: the human running a production change must have push-level
+      # access to the app repo. TODO: replace PAT with a dedicated GitHub App.
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          ACTOR: ${{ github.actor }}
+          APP_REPO: CruGlobal/${{ inputs.project-name }}
+        run: |
+          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
+          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          case "$permission" in
+            admin|write|maintain) ;;
+            *)
+              echo "::error::$ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Look up app info (production)
+        id: app-info
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: production
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
+          provider=$(echo "$info" | jq -r '.Provider')
+          project_id=$(echo "$info" | jq -r '.ProjectId')
+          if [ "$provider" != "gcp" ]; then
+            echo "::error::only cloudrun apps are supported in this v2 pass (provider=$provider for $PROJECT_NAME)"
+            exit 1
+          fi
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider project=$project_id"
+
+      # Accept either "release-10012" or a bare "10012" and normalize to a tag.
+      - name: Normalize release tag
+        id: release
+        env:
+          RELEASE: ${{ inputs.release }}
+        run: |
+          number="${RELEASE#release-}"
+          if ! echo "$number" | grep -qE '^[0-9]+$'; then
+            echo "::error::invalid release '$RELEASE'; expected 'release-<n>' or a bare '<n>'"
+            exit 1
+          fi
+          echo "tag=release-$number" >> "$GITHUB_OUTPUT"
+
+      - name: Configure GCP credentials (production SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ steps.app-info.outputs.project-id }}.iam.gserviceaccount.com
+
+      - name: Resolve release image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          mode: tag
+          tag: ${{ steps.release.outputs.tag }}
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          runtime-project: ${{ steps.app-info.outputs.project-id }}
+          image: ${{ steps.resolve.outputs.image }}
+
+      - name: Record deployment in Datadog
+        continue-on-error: true
+        run: >-
+          npx @datadog/datadog-ci@5 dora deployment
+          --service "$PROJECT_NAME"
+          --env "production"
+          --version "${{ steps.release.outputs.tag }}"
+          --started-at "$DEPLOY_STARTED_AT"
+          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          --skip-git
+          --custom-tags "rollback:true"
+
+      - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ steps.release.outputs.tag }} in production"
