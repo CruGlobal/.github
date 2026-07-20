@@ -1,0 +1,31 @@
+name: Deploy
+description: >-
+  Deploy a pre-built, digest-pinned image to a target environment
+  (pipeline v2 build-once/promote-the-artifact).
+inputs:
+  type:
+    description: Runtime to deploy to. One of ecs | lambda | cloudrun.
+    required: true
+  project-name:
+    description: Project name.
+    required: true
+  environment:
+    description: Long environment name (production | release-candidate | preview) to deploy to.
+    required: true
+  image:
+    description: >-
+      FULL DIGEST reference to deploy (name@sha256:...). The action fails if
+      given a tag reference — v2 deploys digests, never tags.
+    required: true
+  runtime-project:
+    description: GCP project ID of the target environment project. Required for cloudrun.
+    required: false
+outputs:
+  deployed-image:
+    description: The digest reference that was deployed.
+  services:
+    description: Comma-separated names of the services that were updated.
+
+runs:
+  using: 'node24'
+  main: '../../dist/deploy.js'

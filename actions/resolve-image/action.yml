@@ -1,0 +1,42 @@
+name: Resolve Image
+description: >-
+  Resolve a build tag or a running environment to a digest-pinned image
+  reference in the shared registry (pipeline v2).
+inputs:
+  type:
+    description: Runtime to resolve for. One of ecs | lambda | cloudrun.
+    required: true
+  project-name:
+    description: Project name (also the shared-registry repo and image name).
+    required: true
+  mode:
+    description: >-
+      Resolution mode. "environment" resolves the image currently RUNNING in an
+      environment; "tag" resolves a tag against the shared registry.
+    required: true
+  environment:
+    description: >-
+      Long environment name (production | release-candidate | preview) whose
+      running image to resolve. Required when mode=environment.
+    required: false
+  tag:
+    description: >-
+      Tag to resolve against the shared registry, e.g. candidate-10012 or
+      release-3. Required when mode=tag.
+    required: false
+  runtime-project:
+    description: >-
+      GCP project ID of the app's target environment project. Required for
+      cloudrun when mode=environment.
+    required: false
+outputs:
+  image:
+    description: Full digest reference, e.g. us-central1-docker.pkg.dev/cru-shared-artifacts/hoax/hoax@sha256:...
+  digest:
+    description: The sha256:... digest portion of the resolved image.
+  tags:
+    description: Comma-separated tags currently on that digest in the shared registry, when resolvable.
+
+runs:
+  using: 'node24'
+  main: '../../dist/resolve-image.js'
