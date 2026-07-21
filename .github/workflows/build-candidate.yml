@@ -216,11 +216,135 @@ jobs:
     if: inputs.type == 'ecs'
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Candidates are prod-bound: they build with the app's PRODUCTION-env
+    # GitHubRole (arn:aws:iam::056154071827:role/<project>-prod-GitHubRole). The
+    # aws/ecs/app v2 module change grants that role ECR push on the app's repo +
+    # the build-number DynamoDB counter (v1's dual-purpose TaskRole-as-build-
+    # identity is retired for v2). ECR is org-shared (account 056154071827), so
+    # the candidate-<n>/sha-<gitsha> families land in the app's EXISTING per-app
+    # ECR repo, keyed on the PROJECT NAME (v2 fixes v1's repo-name mismatch).
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ needs.setup.outputs.project-name }}
+    outputs:
+      build-number: ${{ steps.existing.outputs.build-number || steps.build-number.outputs.build-number }}
+      candidate: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+      image: ${{ steps.guard.outputs.image || steps.resolve.outputs.image }}
+      digest: ${{ steps.guard.outputs.digest || steps.resolve.outputs.digest }}
     steps:
-      - name: Not yet implemented
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup AWS environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: setup-env
+        with:
+          project-name: ${{ needs.setup.outputs.project-name }}
+          environment: production
+          role-suffix: GitHubRole
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
+
+      # No-change guard: if this exact git sha was already built and pushed as a
+      # candidate, reuse it rather than building again. resolve-image fails
+      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      - name: No-change guard (resolve existing sha)
+        uses: ./cru-github-actions/actions/resolve-image
+        id: guard
+        continue-on-error: true
+        with:
+          type: ecs
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Reuse existing candidate
+        if: steps.guard.outcome == 'success'
+        id: existing
+        env:
+          TAGS: ${{ steps.guard.outputs.tags }}
         run: |
-          echo "::error::ecs candidate builds land in a later v2 pass"
-          exit 1
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            exit 1
+          fi
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate#candidate-}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=No-change build::reusing $candidate (git sha already built)"
+
+      - name: Increment build number
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
+
+      - name: Compute candidate tag
+        if: steps.guard.outcome != 'success'
+        id: built
+        run: echo "candidate=candidate-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.guard.outcome != 'success'
+        uses: docker/setup-buildx-action@v4
+        id: buildx
+
+      - name: Login to Amazon ECR
+        if: steps.guard.outcome != 'success'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Gated behind inputs.build-secrets, same D2 gating as the cloudrun job. ECS
+      # BUILD secrets come from the app's per-app SSM path (/ecs/<project>/prod/),
+      # imported prod-bound to match the candidate's identity.
+      - name: Import build secrets
+        if: steps.guard.outcome != 'success' && inputs.build-secrets
+        uses: ./cru-github-actions/actions/secrets
+        with:
+          project-name: ${{ needs.setup.outputs.project-name }}
+          environment: production
+          type: BUILD
+
+      - name: Checkout project
+        if: steps.guard.outcome != 'success'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: project
+
+      - name: Run build.sh
+        if: steps.guard.outcome != 'success'
+        working-directory: project
+        run: ./build.sh
+        env:
+          DOCKER_ARGS: |
+            --builder ${{ steps.buildx.outputs.name }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:candidate-${{ steps.build-number.outputs.build-number }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
+            --push
+
+      - name: Resolve pushed digest
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ecs
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Notify success
+        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
 
   build-lambda:
     name: Build Candidate (Lambda)

@@ -30,3 +30,32 @@ export function environmentNickname (environment) {
   }
   return nickname
 }
+
+// v2 long name -> the LEGACY long environment name that existing infra (and the
+// v1 info service) keys off. ECS service / task-definition names were created by
+// v1 infra using these legacy names, so ECS resolution matches against both the
+// legacy long name and the nickname. This is the same translation the app-info
+// lookup in the workflows performs inline (release-candidate -> staging).
+//
+//   v2 long name         legacy long name
+//   ------------------   ----------------
+//   production           production
+//   release-candidate    staging
+//   preview              lab
+export const V2_LEGACY_ENVIRONMENTS = Object.freeze({
+  production: 'production',
+  'release-candidate': 'staging',
+  preview: 'lab'
+})
+
+// Resolve a v2 long environment name to its legacy long name. Throws on an
+// unknown name, matching environmentNickname's fail-fast behavior.
+export function legacyEnvironment (environment) {
+  const legacy = V2_LEGACY_ENVIRONMENTS[environment]
+  if (!legacy) {
+    throw new Error(
+      `Unknown v2 environment "${environment}". Expected one of: ${Object.keys(V2_LEGACY_ENVIRONMENTS).join(', ')}`
+    )
+  }
+  return legacy
+}

@@ -5,6 +5,12 @@ name: Promote
 # candidate is deployed to production and tagged release-<n>, where <n> is the
 # candidate's build number (no separate release counter — releases are traceable
 # to their candidate for free).
+#
+# Multi-provider router (D9 pattern at job level): a `lookup` job runs the authz
+# gate + both app-info fetches (release-candidate and production) and outputs the
+# provider + type + per-env project-ids. Authz lives in `lookup`, which every
+# provider job `needs`, so it ALWAYS passes before any provider job mutates
+# production. Provider jobs are gated on `needs.lookup.outputs.provider`.
 
 on:
   workflow_call:
@@ -27,23 +33,18 @@ on:
         description: GitHub token used to verify the actor has push access to the app repo.
 
 jobs:
-  promote:
-    name: Promote release-candidate to production
+  lookup:
+    name: Authorize & look up app info
     runs-on: ubuntu-latest
-    # Shared production lock with rollback: only one production mutation per app
-    # at a time, and never cancelled mid-flight.
-    concurrency:
-      group: production-${{ inputs.project-name }}
-      cancel-in-progress: false
-    permissions:
-      id-token: write
-      contents: read
-    env:
-      PROJECT_NAME: ${{ inputs.project-name }}
-      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    outputs:
+      provider: ${{ steps.app-info-rc.outputs.provider }}
+      type: ${{ steps.app-info-rc.outputs.type }}
+      rc-project-id: ${{ steps.app-info-rc.outputs.project-id }}
+      prod-project-id: ${{ steps.app-info-prod.outputs.project-id }}
     steps:
-      # Authorization: the human running a production change must have push-level
-      # access to the app repo. TODO: replace PAT with a dedicated GitHub App.
+      # Authorization runs FIRST, before any provider job mutates production: the
+      # human running a production change must have push-level access to the app
+      # repo. TODO: replace PAT with a dedicated GitHub App.
       - name: Authorize actor
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
@@ -60,16 +61,9 @@ jobs:
               ;;
           esac
 
-      - name: Checkout Cru Actions & Workflows
-        uses: actions/checkout@v7
-        with:
-          repository: CruGlobal/.github
-          ref: ${{ inputs.workflow-ref }}
-          path: cru-github-actions
-
-      # app-info for BOTH environments: the release-candidate project (to read
-      # the running candidate) and the production project (to deploy into). The
-      # v1 info service only knows legacy env names, so translate first.
+      # app-info for BOTH environments: release-candidate (to read the running
+      # candidate) and production (to deploy into). The v1 info service only knows
+      # legacy env names, so translate first. Provider must be gcp or aws.
       - name: Look up app info (release-candidate)
         id: app-info-rc
         env:
@@ -84,13 +78,16 @@ jobs:
           esac
           info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
           provider=$(echo "$info" | jq -r '.Provider')
-          project_id=$(echo "$info" | jq -r '.ProjectId')
-          if [ "$provider" != "gcp" ]; then
-            echo "::error::only cloudrun apps are supported in this v2 pass (provider=$provider for $PROJECT_NAME)"
-            exit 1
-          fi
+          type=$(echo "$info" | jq -r '.Type // empty')
+          project_id=$(echo "$info" | jq -r '.ProjectId // empty')
+          case "$provider" in
+            gcp|aws) ;;
+            *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
+          esac
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
-          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider project=$project_id"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       - name: Look up app info (production)
         id: app-info-prod
@@ -105,20 +102,39 @@ jobs:
             *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
           esac
           info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
-          provider=$(echo "$info" | jq -r '.Provider')
-          project_id=$(echo "$info" | jq -r '.ProjectId')
-          if [ "$provider" != "gcp" ]; then
-            echo "::error::only cloudrun apps are supported in this v2 pass (provider=$provider for $PROJECT_NAME)"
-            exit 1
-          fi
+          project_id=$(echo "$info" | jq -r '.ProjectId // empty')
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
-          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider project=$project_id"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
+
+  promote-gcp:
+    name: Promote release-candidate to production (Cloud Run)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'gcp'
+    runs-on: ubuntu-latest
+    # Shared production lock with rollback: only one production mutation per app
+    # at a time, and never cancelled mid-flight.
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
 
       - name: Configure GCP credentials (release-candidate SA)
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: cru-deploy@${{ steps.app-info-rc.outputs.project-id }}.iam.gserviceaccount.com
+          service_account: cru-deploy@${{ needs.lookup.outputs.rc-project-id }}.iam.gserviceaccount.com
 
       - name: Resolve running release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
@@ -128,7 +144,7 @@ jobs:
           project-name: ${{ inputs.project-name }}
           mode: environment
           environment: release-candidate
-          runtime-project: ${{ steps.app-info-rc.outputs.project-id }}
+          runtime-project: ${{ needs.lookup.outputs.rc-project-id }}
 
       # Derive the release number from the candidate tag on the running digest.
       # Fails clearly if the running image was not deployed from a candidate.
@@ -151,7 +167,7 @@ jobs:
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: cru-deploy@${{ steps.app-info-prod.outputs.project-id }}.iam.gserviceaccount.com
+          service_account: cru-deploy@${{ needs.lookup.outputs.prod-project-id }}.iam.gserviceaccount.com
 
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
@@ -162,23 +178,118 @@ jobs:
           type: cloudrun
           project-name: ${{ inputs.project-name }}
           environment: production
-          runtime-project: ${{ steps.app-info-prod.outputs.project-id }}
+          runtime-project: ${{ needs.lookup.outputs.prod-project-id }}
           image: ${{ steps.resolve.outputs.image }}
 
-      - name: Setup gcloud CLI
-        uses: google-github-actions/setup-gcloud@v3
-
       # Tag the promoted digest release-<n> in the shared registry (the prod
-      # cru-deploy SA holds AR writer there). release-<n> reuses the candidate's
-      # build number, so releases are monotonic and traceable to their candidate.
+      # cru-deploy SA holds AR writer there). Replaces the gcloud CLI tagging step
+      # with the provider-agnostic tag-image action.
       - name: Tag digest as release
+        uses: ./cru-github-actions/actions/tag-image
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          digest: ${{ steps.resolve.outputs.digest }}
+          tag: ${{ steps.release.outputs.release }}
+
+      - name: Record deployment in Datadog
+        continue-on-error: true
+        run: >-
+          npx @datadog/datadog-ci@5 dora deployment
+          --service "$PROJECT_NAME"
+          --env "production"
+          --version "${{ steps.release.outputs.release }}"
+          --started-at "$DEPLOY_STARTED_AT"
+          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          --skip-git
+          --custom-tags "release:${{ steps.release.outputs.release }}"
+
+      - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
+
+  promote-aws:
+    name: Promote release-candidate to production (ECS)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'aws'
+    runs-on: ubuntu-latest
+    # Shared production lock with rollback (same group as promote-gcp).
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Guard supported AWS type
         env:
-          PROJECT_NAME: ${{ inputs.project-name }}
+          TYPE: ${{ needs.lookup.outputs.type }}
         run: |
-          image_base="us-central1-docker.pkg.dev/cru-shared-artifacts/${PROJECT_NAME}/${PROJECT_NAME}"
-          gcloud artifacts docker tags add \
-            "${image_base}@${{ steps.resolve.outputs.digest }}" \
-            "${image_base}:${{ steps.release.outputs.release }}"
+          case "$TYPE" in
+            ecs) ;;
+            *) echo "::error::v2 AWS deploys support type 'ecs' only in this pass (got '$TYPE'); lambda/serverless land in a later pass."; exit 1 ;;
+          esac
+
+      # One deploy role (GitHubDeployECS) covers the rc + prod clusters, which
+      # share the cruds account (056154071827) — no per-env re-auth needed.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      - name: Resolve running release-candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          mode: environment
+          environment: release-candidate
+
+      - name: Determine release number from candidate
+        id: release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate-<n> tag; cannot derive a release number. Deploy a candidate via deploy-candidate first."
+            exit 1
+          fi
+          number="${candidate#candidate-}"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "release=release-$number" >> "$GITHUB_OUTPUT"
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          image: ${{ steps.resolve.outputs.image }}
+
+      # Tag the promoted digest release-<n> in ECR (manifest re-tag). Requires
+      # ecr:PutImage on GitHubDeployECS — see the tag-image comment / docs.
+      - name: Tag digest as release
+        uses: ./cru-github-actions/actions/tag-image
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          digest: ${{ steps.resolve.outputs.digest }}
+          tag: ${{ steps.release.outputs.release }}
 
       - name: Record deployment in Datadog
         continue-on-error: true

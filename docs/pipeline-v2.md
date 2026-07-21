@@ -25,6 +25,24 @@ One Artifact Registry repo per app in the shared GCP project
 us-central1-docker.pkg.dev/cru-shared-artifacts/<project-name>/<project-name>:<tag>
 ```
 
+### Shared registry (ECS / ECR)
+
+ECR needs **no shared-project work**: it is already org-shared — one registry
+(account `056154071827`, region `us-east-1`), one repo per app. v2 just adds the
+new tag families to the app's **existing** ECR repo:
+
+```
+056154071827.dkr.ecr.us-east-1.amazonaws.com/<project-name>:<tag>
+```
+
+**The project-name fix.** v1's ECS path keyed the ECR repo off the *repository
+name* in some places and the *project name* in others. v2 keys everything —
+build tagging, tag→digest resolution, the app-container image match — on the
+**project name** consistently. The ECR repo is `<project-name>`; the app
+container is the one whose image repo segment equals `<project-name>` (or the
+`scratch` placeholder). This is the same "one repo per app, named after the app"
+convention Cloud Run uses.
+
 ### Tag families
 
 | Tag                | When            | Purpose                                   |
@@ -98,15 +116,15 @@ Deploys a pre-built, digest-pinned image to a target environment.
 
 ## Implemented vs stubbed
 
-| Runtime  | resolve-image | deploy   |
-| -------- | ------------- | -------- |
-| cloudrun | implemented   | implemented |
-| ecs      | stub (throws) | stub (throws) |
-| lambda   | stub (throws) | stub (throws) |
+| Runtime  | resolve-image | deploy      | build-candidate |
+| -------- | ------------- | ----------- | --------------- |
+| cloudrun | implemented   | implemented | implemented     |
+| ecs      | implemented   | implemented | implemented     |
+| lambda   | stub (throws) | stub (throws) | stub (fails)  |
 
-Both actions use a router that dispatches on `type`. The stubs throw a clear
-"lands in a later v2 pass" error, so ECS/Lambda get filled in later without any
-change to the action interfaces.
+Both actions use a router that dispatches on `type`. The Lambda stubs throw a
+clear "lands in a later v2 pass" error, so Lambda gets filled in later without
+any change to the action interfaces.
 
 ### Cloud Run implementation notes
 
@@ -130,6 +148,121 @@ change to the action interfaces.
   3. update each service, rewriting **only** the app container (sidecars such as
      the Datadog agent are preserved), re-attaching RUNTIME secrets as
      `secretKeyRef:latest`, and forcing a new revision.
+
+### ECS implementation notes
+
+ECS shares the Cloud Run action contracts but derives everything from the env
+**nickname + naming conventions** — it takes **no `runtime-project`** (that input
+is GCP-only). Long name → nickname (`prod`/`stage`/`lab`) → cluster; long name →
+legacy long name (`production`/`staging`/`lab`) is also used, because v1 infra
+named services with either the legacy long name or the nickname.
+
+- **tag -> digest**: `resolve-image mode=tag` calls ECR `DescribeImages` by
+  `imageTag` and returns the `imageDigest` (plus every tag on that digest). The
+  full ref is `056154071827.dkr.ecr.us-east-1.amazonaws.com/<project>@<digest>`.
+- **environment -> digest**: `resolve-image mode=environment` lists the app's
+  services in the env cluster (regex `/<project>-(<legacy>|<nick>)-`), reads the
+  app container's image off the service's **current** task definition, and
+  normalizes it to a digest ref — resolving via ECR if it is a tag ref. The
+  `scratch` placeholder (a service never deployed) is skipped.
+- **deploy — RATIFIED compose-from-family-latest semantics** (deliberately
+  different from v1's action, which *copied the service's live revision*):
+
+  1. For each matching service, read its current task def **only to learn the
+     family**, then `DescribeTaskDefinition` on the **bare family name** to get
+     the family's **latest** revision — **Terraform's template**. (Terraform owns
+     the task-definition shape; the aws/ecs/app module registers new revisions,
+     and the deploy always builds on the newest one.)
+  2. Compose a new registration from that template: strip the read-only fields,
+     swap **only** the app container's `image` to the given digest and refresh
+     its RUNTIME `secrets` from SSM (`/ecs/<project>/<nick>/`). Sidecars (nginx,
+     fluentbit, …) pass through untouched.
+  3. `RegisterTaskDefinition` → update **every** matching service to the new
+     revision.
+  4. Re-point EventBridge scheduled tasks: for each target under an
+     `ecstask-<project>-<nick>` rule, compose from *its* family's latest revision
+     the same way and `PutTargets`.
+
+  **Why family-latest, not the live revision:** the aws/ecs/app module change
+  (separate PR) owns the template. If the deploy copied the running revision it
+  would freeze whatever the *previous* deploy composed and silently drop any
+  Terraform-side changes (new sidecar, cpu/memory, log config). Composing from
+  the family's latest revision means every deploy picks up the current template
+  and changes only the one thing a deploy is allowed to change: the app image
+  (and its runtime secrets).
+
+- **app-container identification**: the `scratch` placeholder, or the container
+  whose image **repo segment equals the project name** — using `parseImageRef`
+  so digest refs (`…@sha256:…`) and multi-segment hosts parse correctly. (v1's
+  `image.split(':')` / substring `indexOf` mis-parsed digest refs and could match
+  `app` against a repo named `app-web`.)
+- **digest invariant**: `deploy-ecs` calls `assertDigestRef(image)` up front, so
+  a tag ref fails before any AWS call — same as the Cloud Run module.
+- **transient-failure tolerance**: every ECR/ECS/EventBridge client is built with
+  v1's retry config (`maxAttempts: 5`, standard mode), now policy for all v2
+  remote calls after the pilot 503.
+
+## Action: tag-image
+
+Provider-agnostic **release tagging**. Adds a tag (e.g. `release-10038`) to an
+already-pushed digest **without rebuilding or re-pushing layers** — the v2
+replacement for promote's `gcloud artifacts docker tags add` CLI step.
+
+| Input              | Required | Default               | Description                                      |
+| ------------------ | -------- | --------------------- | ------------------------------------------------ |
+| `type`             | yes      | —                     | `ecs` \| `lambda` \| `cloudrun`                 |
+| `project-name`     | yes      | —                     | project name (shared-registry repo/image)        |
+| `digest`           | yes      | —                     | the digest to tag, bare `sha256:...`             |
+| `tag`              | yes      | —                     | tag to add, e.g. `release-10038`                 |
+| `registry-project` | no       | `cru-shared-artifacts`| cloudrun only — GCP project of the registry      |
+
+| Output  | Description                              |
+| ------- | ---------------------------------------- |
+| `image` | full digest reference that was tagged    |
+| `tag`   | the tag that was applied                 |
+
+- **cloudrun**: creates (or moves, idempotently) the tag via the Artifact
+  Registry REST `tags` API — a Docker version's ID *is* its digest, and the
+  package is the project name.
+- **ecs / lambda**: re-tags the ECR manifest — `BatchGetImage` for the digest's
+  manifest, then `PutImage` under the new tag (idempotent: an
+  `ImageAlreadyExistsException` for the same tag+digest is treated as success).
+
+## Multi-provider routing (D9 pattern, job level)
+
+`deploy-candidate`, `promote`, and `rollback` are **routers**: a first `lookup`
+job does the app-info fetch(es) (`curl | jq`) and outputs `provider`
+(`gcp`/`aws`), `type` (from app-info's `Type`), and the per-env project-id(s);
+then provider-specific jobs are gated on `needs.lookup.outputs.provider`. Only
+one provider job runs per app (an app is one provider).
+
+```
+promote:
+  lookup ─┬─(provider==gcp)→ promote-gcp   # WIF auth, cloudrun resolve→deploy→tag-image(cloudrun)→dora
+          └─(provider==aws)→ promote-aws   # configure-aws-credentials, ecs resolve→deploy→tag-image(ecs)→dora
+```
+
+- **GCP jobs keep today's flow exactly** — WIF auth as the env `cru-deploy` SA,
+  `resolve-image`/`deploy` with `type: cloudrun` and `runtime-project` — with one
+  change: the `gcloud` release-tag step is replaced by `actions/tag-image`.
+- **AWS jobs** `configure-aws-credentials@v6` assuming
+  `arn:aws:iam::056154071827:role/GitHubDeployECS` (region `us-east-1`), then the
+  same `resolve → deploy → tag-image → dora` sequence with `type` from app-info.
+  The rc + prod ECS clusters share the cruds account, so — unlike GCP's per-env
+  SA re-auth — one credential covers the whole promote. A guard step fails
+  clearly for AWS types not yet supported (`lambda`, `serverless`).
+- **Authorization** (promote/rollback) runs in the `lookup` job, which every
+  provider job `needs`, so it **always** passes before any provider job mutates
+  production — provider-agnostic by construction.
+- **Concurrency locks** (`production-<project>`, `release-candidate-<project>`,
+  `cancel-in-progress: false`) live on each provider job. Both providers declare
+  the same group, and only one ever runs, so whichever runs holds the lock;
+  promote and rollback still **share** `production-<project>`.
+- **build-candidate** routes the same way (a `setup` job then per-`type` build
+  jobs); the ECS build job mirrors the Cloud Run one (no-change guard via
+  `resolve-image sha-<sha>`, `build-number`, buildx, `./build.sh` pushing
+  `<ecr>/<project>:candidate-<n>` and `:sha-<sha>`, BUILD-secrets gated behind
+  `build-secrets`). Lambda stays a stub.
 
 # Pass 2: reusable workflows
 
@@ -353,6 +486,22 @@ actions page.
 Plain `roles/artifactregistry.writer` (tag create) suffices for the prod
 `cru-deploy` SA — releases are permanent, so no `tags.delete` / `repoAdmin` grant
 is needed.
+
+### Grants matrix additions (ECS / AWS)
+
+| Identity                                      | Needs                                                                          | Why                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| app **prod** ECS build role (`<project>-prod-GitHubRole`) | ECR **push** on the app's ECR repo + DynamoDB `UpdateItem` on `ECSBuildNumbers` | `build-candidate` (ECS) pushes `candidate-*`/`sha-*` and increments the build counter |
+| `GitHubDeployECS` (`arn:aws:iam::056154071827:role/GitHubDeployECS`) | ECS deploy (`ecs:*TaskDefinition`, `ecs:UpdateService`), EventBridge (`events:*Targets`), SSM read, ECR `DescribeImages`/`BatchGetImage` | AWS `deploy-candidate`/`promote`/`rollback` resolve + deploy |
+| `GitHubDeployECS`                              | **`ecr:PutImage`** on each app's ECR repo                                       | `promote` (ECS) stamps `release-<n>` via the tag-image manifest re-tag |
+
+> **Terraform follow-ups (aws/ecs/app module, separate PR):**
+> 1. Add a dedicated **`<project>-<env>-GitHubRole`** for builds and **remove
+>    GitHub trust from `TaskRole`** — ending v1's dual-purpose role. Candidates
+>    are prod-bound, so the ECS build identity is `<project>-prod-GitHubRole`.
+> 2. Add **`ecr:PutImage`** to `GitHubDeployECS` — without it the `promote` ECS
+>    release-tag step (`actions/tag-image`) fails. `BatchGetImage` +
+>    `DescribeImages` are read-side and typically already granted.
 
 ## Pass 3 sketch: `cru-deploy` wrapper workflows
 

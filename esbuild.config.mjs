@@ -14,7 +14,8 @@ const handlerMap = {
     // pipeline v2
     './src/resolve-image.js': 'resolve-image',
     './src/deploy.js': 'deploy',
-    './src/dispatch.js': 'dispatch'
+    './src/dispatch.js': 'dispatch',
+    './src/tag-image.js': 'tag-image'
 }
 
 // Build each action as a separate bundle with flat output

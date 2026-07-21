@@ -1,5 +1,11 @@
 import { GoogleAuth } from 'google-auth-library'
 import { DEFAULT_REGION } from '../gcp'
+import { parseImageRef } from './image-ref'
+
+// Re-export the provider-neutral reference helpers so existing importers
+// (deploy.js, resolve-cloudrun.js, tests) keep working after the extraction
+// into src/v2/image-ref.js.
+export { parseImageRef, isDigestRef, isTagRef, assertDigestRef } from './image-ref'
 
 // The shared Artifact Registry project. v2 builds an env-neutral image once and
 // pushes it here; every environment then deploys (by digest) out of this one
@@ -29,48 +35,6 @@ export function sharedImageTag (projectName, tag) {
 // Digest-pinned reference: <image>@sha256:... (what v2 always deploys).
 export function sharedImageDigest (projectName, digest) {
   return `${sharedRegistryImage(projectName)}@${digest}`
-}
-
-// Parse a container image reference into its parts. Handles both digest refs
-// (name@sha256:...) and tag refs (name:tag), and the Artifact Registry host
-// which never carries a port so the final ':' is always a tag separator.
-//
-//   parseImageRef('host/p/r/i@sha256:abc') -> {name:'host/p/r/i', digest:'sha256:abc', tag:null}
-//   parseImageRef('host/p/r/i:candidate-1') -> {name:'host/p/r/i', digest:null, tag:'candidate-1'}
-//   parseImageRef('host/p/r/i')             -> {name:'host/p/r/i', digest:null, tag:null}
-export function parseImageRef (ref) {
-  const at = ref.indexOf('@')
-  if (at !== -1) {
-    return { name: ref.slice(0, at), digest: ref.slice(at + 1), tag: null }
-  }
-  const lastSlash = ref.lastIndexOf('/')
-  const lastColon = ref.lastIndexOf(':')
-  if (lastColon > lastSlash) {
-    return { name: ref.slice(0, lastColon), digest: null, tag: ref.slice(lastColon + 1) }
-  }
-  return { name: ref, digest: null, tag: null }
-}
-
-// True when a reference is pinned to a digest (name@sha256:...).
-export function isDigestRef (ref) {
-  return parseImageRef(ref).digest !== null
-}
-
-// True when a reference is pinned to a tag (name:tag), not a digest.
-export function isTagRef (ref) {
-  const { digest, tag } = parseImageRef(ref)
-  return digest === null && tag !== null
-}
-
-// Enforce the v2 deploy invariant: what runs in an environment is always pinned
-// by digest, never by a mutable tag. Throws with a clear message otherwise.
-export function assertDigestRef (ref) {
-  if (!isDigestRef(ref)) {
-    throw new Error(
-      `Expected a digest-pinned image reference (name@sha256:...) but got "${ref}". ` +
-      'v2 deploys digests, never tags — resolve the tag to a digest first.'
-    )
-  }
 }
 
 // Predicate identifying the "app" container within a Cloud Run service
@@ -156,4 +120,49 @@ export async function tagsForDigest (projectName, digest) {
   const images = await listDockerImages(SHARED_PROJECT, sharedRegistryRepo(projectName))
   const match = images.find(image => parseImageRef(image.uri).digest === digest)
   return match?.tags ?? []
+}
+
+// Add (or move) a tag onto a digest via the Artifact Registry REST API — the
+// programmatic equivalent of `gcloud artifacts docker tags add`, used by the
+// tag-image action to stamp release-<n> onto a promoted digest without shelling
+// out to gcloud.
+//
+// A Docker image version's ID in Artifact Registry is its digest (sha256:...),
+// and the image name is the package. For the shared registry the repo and the
+// package are both the project name. Requires roles/artifactregistry.writer.
+//
+// Idempotent: create-or-move (POST to create; if the tag already exists, PATCH
+// it to point at this version), matching `tags add` semantics.
+export async function addTag (project, repository, packageName, digest, tag) {
+  const client = await authClient()
+  const parent =
+    `projects/${project}/locations/${SHARED_LOCATION}` +
+    `/repositories/${repository}/packages/${encodeURIComponent(packageName)}`
+  const tagName = `${parent}/tags/${tag}`
+  const version = `${parent}/versions/${digest}`
+
+  try {
+    await client.request({
+      url: `https://artifactregistry.googleapis.com/v1/${parent}/tags`,
+      method: 'POST',
+      params: { tagId: tag },
+      data: { name: tagName, version }
+    })
+  } catch (error) {
+    const status = error?.response?.status ?? error?.status ?? error?.code
+    // 409 ALREADY_EXISTS: the tag exists -> move it to this version.
+    if (status === 409) {
+      await client.request({
+        url: `https://artifactregistry.googleapis.com/v1/${tagName}`,
+        method: 'PATCH',
+        params: { updateMask: 'version' },
+        data: { name: tagName, version }
+      })
+    } else {
+      throw error
+    }
+  }
+
+  const image = `${SHARED_LOCATION}-docker.pkg.dev/${project}/${repository}/${packageName}@${digest}`
+  return { tag, version, image }
 }
