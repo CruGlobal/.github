@@ -55,6 +55,7 @@ debug:4.4.3 -- MIT
 duplexify:4.1.3 -- MIT
 ecdsa-sig-formatter:1.0.11 -- Apache-2.0
 end-of-stream:1.4.5 -- MIT
+escape-string-regexp:5.0.0 -- MIT
 extend:3.0.2 -- MIT
 fetch-blob:3.2.0 -- MIT
 formdata-polyfill:4.0.10 -- MIT
