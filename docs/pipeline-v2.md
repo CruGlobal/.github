@@ -452,3 +452,16 @@ jobs:
    promote step's authorization check (the actor must have `push` on the app
    repo) will use `CRU_DEVOPS_GITHUB_TOKEN` for the pilot. **TODO:** move to a
    dedicated GitHub App.
+
+## Pilot finding (2026-07-21): BUILD secrets gated pending D2 provisioning
+
+The first hoax candidate build failed at `Import build secrets`: the
+`cru-shared-artifacts` project does not have the Secret Manager API enabled,
+and — the deeper issue — the shared BUILD-secrets store isn't designed yet for
+multi-app use: the `gcp-secrets` action filters only by `param_type`, so in a
+shared project it would import every app's BUILD secrets, and build SAs would
+need cross-app Secret Manager read. Until the D2 store lands (API enablement,
+per-app label filtering in `gcp-secrets`, scoped IAM), `build-candidate.yml`
+gates the step behind a `build-secrets` input (default `false`). Consequence:
+apps that need BUILD-type secrets cannot migrate to v2 until D2 ships; apps
+without them (hoax) are unaffected.

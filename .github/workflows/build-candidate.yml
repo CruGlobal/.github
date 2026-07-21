@@ -22,6 +22,16 @@ on:
         required: false
         default: ''
         description: Project name (shared-registry repo/image). Defaults to the repository name.
+      build-secrets:
+        type: boolean
+        required: false
+        default: false
+        description: >-
+          Import BUILD-type secrets from the shared store (cru-shared-artifacts
+          Secret Manager) into the build environment. Off by default until the
+          D2 shared BUILD-secrets store is provisioned (Secret Manager API,
+          per-app label filtering, and IAM grants); apps with BUILD secrets
+          cannot migrate to v2 before that lands.
     outputs:
       project-name:
         description: Project name (defaults to the repository name).
@@ -161,8 +171,10 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
+      # Gated behind inputs.build-secrets until the D2 shared BUILD-secrets
+      # store is provisioned (Secret Manager API + per-app filtering + IAM).
       - name: Import build secrets
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outcome != 'success' && inputs.build-secrets
         uses: ./cru-github-actions/actions/gcp-secrets
         with:
           project: cru-shared-artifacts
