@@ -19314,7 +19314,7 @@ var init_isValidHostLabel = __esm({
 
 // node_modules/@smithy/core/dist-es/submodules/transport/isValidHostname.js
 function isValidHostname(hostname) {
-  const hostPattern = /^[a-z0-9][a-z0-9\.\-]*[a-z0-9]$/;
+  const hostPattern = /^[a-z0-9][a-z0-9.-]*[a-z0-9]$/;
   return hostPattern.test(hostname);
 }
 var init_isValidHostname = __esm({
@@ -19789,7 +19789,7 @@ var init_schemaDeserializationMiddleware = __esm({
           const hint = `Deserialization error: to see the raw response, inspect the hidden field {error}.$response on this object.`;
           try {
             error3.message += "\n  " + hint;
-          } catch (e5) {
+          } catch (ignored) {
             if (!context.logger || context.logger?.constructor?.name === "NoOpLogger") {
               console.warn(hint);
             } else {
@@ -19812,7 +19812,7 @@ var init_schemaDeserializationMiddleware = __esm({
                 cfId: findHeader(/^x-[\w-]+-cf-id$/, headerEntries)
               };
             }
-          } catch (e5) {
+          } catch (ignored) {
           }
         }
         throw error3;
@@ -20007,7 +20007,7 @@ var init_ErrorSchema = __esm({
       ctor;
       symbol = _ErrorSchema.symbol;
     };
-    error2 = (namespace, name, traits, memberNames, memberList, ctor) => Schema.assign(new ErrorSchema(), {
+    error2 = (namespace, name, traits, memberNames, memberList, _ctor) => Schema.assign(new ErrorSchema(), {
       name,
       namespace,
       traits,
@@ -21442,7 +21442,7 @@ var init_v4 = __esm({
 var copyDocumentWithTransform;
 var init_copyDocumentWithTransform = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/copyDocumentWithTransform.js"() {
-    copyDocumentWithTransform = (source, schemaRef, transform = (_) => _) => source;
+    copyDocumentWithTransform = (source, _schemaRef, _transform = (_) => _) => source;
   }
 });
 
@@ -21674,7 +21674,7 @@ var init_parse_utils = __esm({
       return expectByte(value);
     };
     stackTraceWarning = (message) => {
-      return String(new TypeError(message).stack || message).split("\n").slice(0, 5).filter((s) => !s.includes("stackTraceWarning")).join("\n");
+      return String(new TypeError(message).stack || message).split("\n").slice(0, 5).filter((s2) => !s2.includes("stackTraceWarning")).join("\n");
     };
     logger = {
       warn: console.warn
@@ -21721,7 +21721,7 @@ var init_date_utils = __esm({
       const day = parseDateValue(dayStr, "day", 1, 31);
       return buildDate(year2, month, day, { hours, minutes, seconds, fractionalMilliseconds });
     };
-    RFC3339_WITH_OFFSET = new RegExp(/^(\d{4})-(\d{2})-(\d{2})[tT](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(([-+]\d{2}\:\d{2})|[zZ])$/);
+    RFC3339_WITH_OFFSET = new RegExp(/^(\d{4})-(\d{2})-(\d{2})[tT](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(([-+]\d{2}:\d{2})|[zZ])$/);
     parseRfc3339DateTimeWithOffset = (value) => {
       if (value === null || value === void 0) {
         return void 0;
@@ -22261,7 +22261,7 @@ var init_deserializerMiddleware = __esm({
           const hint = `Deserialization error: to see the raw response, inspect the hidden field {error}.$response on this object.`;
           try {
             error3.message += "\n  " + hint;
-          } catch (e5) {
+          } catch (ignored) {
             if (!context.logger || context.logger?.constructor?.name === "NoOpLogger") {
               console.warn(hint);
             } else {
@@ -22284,7 +22284,7 @@ var init_deserializerMiddleware = __esm({
                 cfId: findHeader2(/^x-[\w-]+-cf-id$/, headerEntries)
               };
             }
-          } catch (e5) {
+          } catch (ignored) {
           }
         }
         throw error3;
@@ -22617,7 +22617,7 @@ var init_parseIni = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/parseIni.js"() {
     import_types5 = __toESM(require_dist_cjs());
     init_constants2();
-    prefixKeyRegex = /^([\w-]+)\s(["'])?([\w-@\+\.%:/]+)\2$/;
+    prefixKeyRegex = /^([\w-]+)\s(["'])?([\w-@+.%:/]+)\2$/;
     profileNameBlockList = ["__proto__", "profile __proto__"];
     parseIni = (iniData) => {
       const map3 = {};
@@ -22814,7 +22814,7 @@ function getSelectorName(functionString) {
     constants3.delete("CONFIG_PREFIX_SEPARATOR");
     constants3.delete("ENV");
     return [...constants3].join(", ");
-  } catch (e5) {
+  } catch (ignored) {
     return functionString;
   }
 }
@@ -23450,14 +23450,16 @@ var init_getEndpointUrlConfig = __esm({
         return void 0;
       },
       configFileSelector: (profile, config) => {
-        if (config && profile.services) {
-          const servicesSection = config[["services", profile.services].join(CONFIG_PREFIX_SEPARATOR)];
-          if (servicesSection) {
-            const servicePrefixParts = serviceId.split(" ").map((w) => w.toLowerCase());
-            const endpointUrl2 = servicesSection[[servicePrefixParts.join("_"), CONFIG_ENDPOINT_URL].join(CONFIG_PREFIX_SEPARATOR)];
-            if (endpointUrl2)
-              return endpointUrl2;
+        if (profile.services) {
+          const servicesSectionKey = ["services", profile.services].join(CONFIG_PREFIX_SEPARATOR);
+          if (!config || !config[servicesSectionKey]) {
+            throw new Error(`The services section "${profile.services}" specified in the profile is not present in the shared configuration file.`);
           }
+          const servicesSection = config[servicesSectionKey];
+          const servicePrefixParts = serviceId.split(" ").map((w) => w.toLowerCase());
+          const endpointUrl2 = servicesSection[[servicePrefixParts.join("_"), CONFIG_ENDPOINT_URL].join(CONFIG_PREFIX_SEPARATOR)];
+          if (endpointUrl2)
+            return endpointUrl2;
         }
         const endpointUrl = profile[CONFIG_ENDPOINT_URL];
         if (endpointUrl)
@@ -23469,13 +23471,35 @@ var init_getEndpointUrlConfig = __esm({
   }
 });
 
+// node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/adaptors/getIgnoreConfiguredEndpointUrls.js
+var ENV_IGNORE_CONFIGURED_ENDPOINT_URLS, CONFIG_IGNORE_CONFIGURED_ENDPOINT_URLS, ignoreConfiguredEndpointUrlsConfigSelectors;
+var init_getIgnoreConfiguredEndpointUrls = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/adaptors/getIgnoreConfiguredEndpointUrls.js"() {
+    init_config2();
+    ENV_IGNORE_CONFIGURED_ENDPOINT_URLS = "AWS_IGNORE_CONFIGURED_ENDPOINT_URLS";
+    CONFIG_IGNORE_CONFIGURED_ENDPOINT_URLS = "ignore_configured_endpoint_urls";
+    ignoreConfiguredEndpointUrlsConfigSelectors = {
+      environmentVariableSelector: (env2) => booleanSelector(env2, ENV_IGNORE_CONFIGURED_ENDPOINT_URLS, SelectorType.ENV),
+      configFileSelector: (profile) => booleanSelector(profile, CONFIG_IGNORE_CONFIGURED_ENDPOINT_URLS, SelectorType.CONFIG),
+      default: false
+    };
+  }
+});
+
 // node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/adaptors/getEndpointFromConfig.js
 var getEndpointFromConfig;
 var init_getEndpointFromConfig = __esm({
   "node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/adaptors/getEndpointFromConfig.js"() {
     init_config2();
     init_getEndpointUrlConfig();
-    getEndpointFromConfig = async (serviceId) => loadConfig(getEndpointUrlConfig(serviceId ?? ""))();
+    init_getIgnoreConfiguredEndpointUrls();
+    getEndpointFromConfig = async (serviceId) => {
+      const ignore = await loadConfig(ignoreConfiguredEndpointUrlsConfigSelectors)();
+      if (ignore) {
+        return void 0;
+      }
+      return loadConfig(getEndpointUrlConfig(serviceId ?? ""))();
+    };
   }
 });
 
@@ -23501,7 +23525,7 @@ var init_s3 = __esm({
       }
       return endpointParams;
     };
-    DOMAIN_PATTERN = /^[a-z0-9][a-z0-9\.\-]{1,61}[a-z0-9]$/;
+    DOMAIN_PATTERN = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
     IP_ADDRESS_PATTERN = /(\d+\.){3}\d+/;
     DOTS_PATTERN = /\.\./;
     isDnsCompatibleBucketName = (bucketName) => DOMAIN_PATTERN.test(bucketName) && !IP_ADDRESS_PATTERN.test(bucketName) && !DOTS_PATTERN.test(bucketName);
@@ -23590,7 +23614,7 @@ var init_toEndpointV12 = __esm({
 // node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/adaptors/getEndpointFromInstructions.js
 function bindGetEndpointFromInstructions(getEndpointFromConfig2) {
   return async (commandInput, instructionsSupplier, clientConfig, context) => {
-    if (!clientConfig.isCustomEndpoint) {
+    if (!clientConfig.isCustomEndpoint && !clientConfig.ignoreConfiguredEndpointUrls) {
       let endpointFromConfig;
       if (clientConfig.serviceConfiguredEndpoint) {
         endpointFromConfig = await clientConfig.serviceConfiguredEndpoint();
@@ -23600,6 +23624,7 @@ function bindGetEndpointFromInstructions(getEndpointFromConfig2) {
       if (endpointFromConfig) {
         clientConfig.endpoint = () => Promise.resolve(toEndpointV1(endpointFromConfig));
         clientConfig.isCustomEndpoint = true;
+        context?.logger?.debug?.(`@smithy/core/endpoints - resolved endpoint from config: ${endpointFromConfig}`);
       }
     }
     const endpointParams = await resolveParams(commandInput, instructionsSupplier, clientConfig);
@@ -23755,7 +23780,8 @@ function bindResolveEndpointConfig(getEndpointFromConfig2) {
       tls,
       isCustomEndpoint,
       useDualstackEndpoint: normalizeProvider(useDualstackEndpoint ?? false),
-      useFipsEndpoint: normalizeProvider(useFipsEndpoint ?? false)
+      useFipsEndpoint: normalizeProvider(useFipsEndpoint ?? false),
+      ignoreConfiguredEndpointUrls: !!input.ignoreConfiguredEndpointUrls
     });
     let configuredEndpointPromise = void 0;
     resolvedConfig.serviceConfiguredEndpoint = async () => {
@@ -24043,7 +24069,7 @@ var init_parseURL = __esm({
             return url;
           }
           return new URL(value);
-        } catch (error3) {
+        } catch (ignored) {
           return null;
         }
       })();
@@ -24766,6 +24792,7 @@ var init_ChecksumStream = __esm({
         this.source.on("data", this.onSourceData);
         this.source.on("end", this.onSourceEnd);
         this.source.on("error", this.onSourceError);
+        this.source.on("close", this.onSourceClose);
         this.source.pause();
       }
       onSourceData = (chunk) => {
@@ -24802,10 +24829,19 @@ var init_ChecksumStream = __esm({
       onSourceError = (error3) => {
         this.destroy(error3);
       };
-      _read(size) {
+      onSourceClose = () => {
+        if (!this.destroyed && !this.source.readableEnded) {
+          this.destroy(new Error("Connection lost or stream closed before all data was received."));
+        }
+      };
+      _read(_size) {
         this.source.resume();
       }
       _destroy(error3, callback) {
+        this.source?.removeListener("data", this.onSourceData);
+        this.source?.removeListener("end", this.onSourceEnd);
+        this.source?.removeListener("error", this.onSourceError);
+        this.source?.removeListener("close", this.onSourceClose);
         this.source?.destroy();
         callback(error3);
       }
@@ -25059,9 +25095,9 @@ function merge(buffers, mode, chunk) {
 function flush(buffers, mode) {
   switch (mode) {
     case 0:
-      const s = buffers[0];
+      const s2 = buffers[0];
       buffers[0] = "";
-      return s;
+      return s2;
     case 1:
     case 2:
       return buffers[mode].flush();
@@ -25483,7 +25519,7 @@ var init_sdk_stream_mixin = __esm({
       if (!(stream instanceof import_node_stream7.Readable)) {
         try {
           return sdkStreamMixin(stream);
-        } catch (e5) {
+        } catch (ignored) {
           const name = stream?.__proto__?.constructor?.name || stream;
           throw new Error(`Unexpected stream implementation, expect Stream.Readable instance, got ${name}`);
         }
@@ -25855,9 +25891,9 @@ function compress(state2, block) {
     const tmp = d5;
     d5 = c5;
     c5 = b5;
-    const s = S[(i5 >> 4) * 4 + (i5 & 3)];
+    const s2 = S[(i5 >> 4) * 4 + (i5 & 3)];
     const sum = (a5 + f5 & M) + (x + T[i5] & M) & M;
-    b5 = b5 + ((sum << s | sum >>> 32 - s) >>> 0) & M;
+    b5 = b5 + ((sum << s2 | sum >>> 32 - s2) >>> 0) & M;
     a5 = tmp;
   }
   state2[0] = state2[0] + a5 & M;
@@ -26525,27 +26561,27 @@ var init_HeaderMarshaller = __esm({
       formatHeaderValue(header) {
         switch (header.type) {
           case "boolean":
-            return Uint8Array.from([header.value ? 0 : 1]);
+            return Uint8Array.from([header.value ? HEADER_VALUE_TYPE.boolTrue : HEADER_VALUE_TYPE.boolFalse]);
           case "byte":
-            return Uint8Array.from([2, header.value]);
+            return Uint8Array.from([HEADER_VALUE_TYPE.byte, header.value]);
           case "short":
             const shortView = new DataView(new ArrayBuffer(3));
-            shortView.setUint8(0, 3);
+            shortView.setUint8(0, HEADER_VALUE_TYPE.short);
             shortView.setInt16(1, header.value, false);
             return new Uint8Array(shortView.buffer);
           case "integer":
             const intView = new DataView(new ArrayBuffer(5));
-            intView.setUint8(0, 4);
+            intView.setUint8(0, HEADER_VALUE_TYPE.integer);
             intView.setInt32(1, header.value, false);
             return new Uint8Array(intView.buffer);
           case "long":
             const longBytes = new Uint8Array(9);
-            longBytes[0] = 5;
+            longBytes[0] = HEADER_VALUE_TYPE.long;
             longBytes.set(header.value.bytes, 1);
             return longBytes;
           case "binary":
             const binView = new DataView(new ArrayBuffer(3 + header.value.byteLength));
-            binView.setUint8(0, 6);
+            binView.setUint8(0, HEADER_VALUE_TYPE.byteArray);
             binView.setUint16(1, header.value.byteLength, false);
             const binBytes = new Uint8Array(binView.buffer);
             binBytes.set(header.value, 3);
@@ -26553,14 +26589,14 @@ var init_HeaderMarshaller = __esm({
           case "string":
             const utf8Bytes = this.fromUtf8(header.value);
             const strView = new DataView(new ArrayBuffer(3 + utf8Bytes.byteLength));
-            strView.setUint8(0, 7);
+            strView.setUint8(0, HEADER_VALUE_TYPE.string);
             strView.setUint16(1, utf8Bytes.byteLength, false);
             const strBytes = new Uint8Array(strView.buffer);
             strBytes.set(utf8Bytes, 3);
             return strBytes;
           case "timestamp":
             const tsBytes = new Uint8Array(9);
-            tsBytes[0] = 8;
+            tsBytes[0] = HEADER_VALUE_TYPE.timestamp;
             tsBytes.set(Int64.fromNumber(header.value.valueOf()).bytes, 1);
             return tsBytes;
           case "uuid":
@@ -26568,8 +26604,8 @@ var init_HeaderMarshaller = __esm({
               throw new Error(`Invalid UUID received: ${header.value}`);
             }
             const uuidBytes = new Uint8Array(17);
-            uuidBytes[0] = 9;
-            uuidBytes.set(fromHex(header.value.replace(/\-/g, "")), 1);
+            uuidBytes[0] = HEADER_VALUE_TYPE.uuid;
+            uuidBytes.set(fromHex(header.value.replace(/-/g, "")), 1);
             return uuidBytes;
         }
       }
@@ -26581,46 +26617,46 @@ var init_HeaderMarshaller = __esm({
           const name = this.toUtf8(new Uint8Array(headers.buffer, headers.byteOffset + position, nameLength));
           position += nameLength;
           switch (headers.getUint8(position++)) {
-            case 0:
+            case HEADER_VALUE_TYPE.boolTrue:
               out[name] = {
                 type: BOOLEAN_TAG,
                 value: true
               };
               break;
-            case 1:
+            case HEADER_VALUE_TYPE.boolFalse:
               out[name] = {
                 type: BOOLEAN_TAG,
                 value: false
               };
               break;
-            case 2:
+            case HEADER_VALUE_TYPE.byte:
               out[name] = {
                 type: BYTE_TAG,
                 value: headers.getInt8(position++)
               };
               break;
-            case 3:
+            case HEADER_VALUE_TYPE.short:
               out[name] = {
                 type: SHORT_TAG,
                 value: headers.getInt16(position, false)
               };
               position += 2;
               break;
-            case 4:
+            case HEADER_VALUE_TYPE.integer:
               out[name] = {
                 type: INT_TAG,
                 value: headers.getInt32(position, false)
               };
               position += 4;
               break;
-            case 5:
+            case HEADER_VALUE_TYPE.long:
               out[name] = {
                 type: LONG_TAG,
                 value: new Int64(new Uint8Array(headers.buffer, headers.byteOffset + position, 8))
               };
               position += 8;
               break;
-            case 6:
+            case HEADER_VALUE_TYPE.byteArray:
               const binaryLength = headers.getUint16(position, false);
               position += 2;
               out[name] = {
@@ -26629,7 +26665,7 @@ var init_HeaderMarshaller = __esm({
               };
               position += binaryLength;
               break;
-            case 7:
+            case HEADER_VALUE_TYPE.string:
               const stringLength = headers.getUint16(position, false);
               position += 2;
               out[name] = {
@@ -26638,14 +26674,14 @@ var init_HeaderMarshaller = __esm({
               };
               position += stringLength;
               break;
-            case 8:
+            case HEADER_VALUE_TYPE.timestamp:
               out[name] = {
                 type: TIMESTAMP_TAG,
                 value: new Date(new Int64(new Uint8Array(headers.buffer, headers.byteOffset + position, 8)).valueOf())
               };
               position += 8;
               break;
-            case 9:
+            case HEADER_VALUE_TYPE.uuid:
               const uuidBytes = new Uint8Array(headers.buffer, headers.byteOffset + position, 16);
               position += 16;
               out[name] = {
@@ -28433,7 +28469,7 @@ function contentLengthMiddleware(bodyLengthChecker) {
             ...request.headers,
             [CONTENT_LENGTH_HEADER]: String(length)
           };
-        } catch (error3) {
+        } catch (ignored) {
         }
       }
     }
@@ -28761,7 +28797,7 @@ function bindRetryMiddleware(isStreamingPayload2) {
           }
           try {
             retryToken = await retryStrategy.refreshRetryTokenForRetry(retryToken, retryErrorInfo);
-          } catch (refreshError) {
+          } catch (ignoredRefreshError) {
             if (!lastError.$metadata) {
               lastError.$metadata = {};
             }
@@ -29125,7 +29161,7 @@ var init_StandardRetryStrategy = __esm({
       async getMaxAttempts() {
         try {
           return await this.maxAttemptsProvider();
-        } catch (error3) {
+        } catch (ignored) {
           console.warn(`Max attempts provider could not resolve. Using default of ${DEFAULT_MAX_ATTEMPTS}`);
           return DEFAULT_MAX_ATTEMPTS;
         }
@@ -29301,7 +29337,7 @@ var init_StandardRetryStrategy2 = __esm({
         let maxAttempts;
         try {
           maxAttempts = await this.maxAttemptsProvider();
-        } catch (error3) {
+        } catch (ignored) {
           maxAttempts = DEFAULT_MAX_ATTEMPTS;
         }
         return maxAttempts;
@@ -31139,16 +31175,16 @@ var require_es5 = __commonJS({
             return e7.split(".").length;
           }, e6.compareVersions = function(t2, r6, i6) {
             void 0 === i6 && (i6 = false);
-            var n4 = e6.getVersionPrecision(t2), a5 = e6.getVersionPrecision(r6), o3 = Math.max(n4, a5), s = 0, u = e6.map([t2, r6], (function(t3) {
+            var n4 = e6.getVersionPrecision(t2), a5 = e6.getVersionPrecision(r6), o3 = Math.max(n4, a5), s2 = 0, u = e6.map([t2, r6], (function(t3) {
               var r7 = o3 - e6.getVersionPrecision(t3), i7 = t3 + new Array(r7 + 1).join(".0");
               return e6.map(i7.split("."), (function(e7) {
                 return new Array(20 - e7.length).join("0") + e7;
               })).reverse();
             }));
-            for (i6 && (s = o3 - Math.min(n4, a5)), o3 -= 1; o3 >= s; ) {
+            for (i6 && (s2 = o3 - Math.min(n4, a5)), o3 -= 1; o3 >= s2; ) {
               if (u[0][o3] > u[1][o3]) return 1;
               if (u[0][o3] === u[1][o3]) {
-                if (o3 === s) return 0;
+                if (o3 === s2) return 0;
                 o3 -= 1;
               } else if (u[0][o3] < u[1][o3]) return -1;
             }
@@ -31167,13 +31203,13 @@ var require_es5 = __commonJS({
           }, e6.assign = function(e7) {
             for (var t2, r6, i6 = e7, n4 = arguments.length, a5 = new Array(n4 > 1 ? n4 - 1 : 0), o3 = 1; o3 < n4; o3++) a5[o3 - 1] = arguments[o3];
             if (Object.assign) return Object.assign.apply(Object, [e7].concat(a5));
-            var s = function() {
+            var s2 = function() {
               var e8 = a5[t2];
               "object" == typeof e8 && null !== e8 && Object.keys(e8).forEach((function(t3) {
                 i6[t3] = e8[t3];
               }));
             };
-            for (t2 = 0, r6 = a5.length; t2 < r6; t2 += 1) s();
+            for (t2 = 0, r6 = a5.length; t2 < r6; t2 += 1) s2();
             return e7;
           }, e6.getBrowserAlias = function(e7) {
             return i5.BROWSER_ALIASES_MAP[e7];
@@ -31200,7 +31236,7 @@ var require_es5 = __commonJS({
             i6.enumerable = i6.enumerable || false, i6.configurable = true, "value" in i6 && (i6.writable = true), Object.defineProperty(e6, i6.key, i6);
           }
         }
-        var s = (function() {
+        var s2 = (function() {
           function e6() {
           }
           var t2, r6, i6;
@@ -31219,11 +31255,11 @@ var require_es5 = __commonJS({
             return a5.PLATFORMS_MAP;
           } }], (r6 = null) && o3(t2.prototype, r6), i6 && o3(t2, i6), e6;
         })();
-        t.default = s, e5.exports = t.default;
+        t.default = s2, e5.exports = t.default;
       }, 91: function(e5, t, r5) {
         "use strict";
         t.__esModule = true, t.default = void 0;
-        var i5 = u(r5(92)), n3 = u(r5(93)), a5 = u(r5(94)), o3 = u(r5(95)), s = u(r5(17));
+        var i5 = u(r5(92)), n3 = u(r5(93)), a5 = u(r5(94)), o3 = u(r5(95)), s2 = u(r5(17));
         function u(e6) {
           return e6 && e6.__esModule ? e6 : { default: e6 };
         }
@@ -31257,7 +31293,7 @@ var require_es5 = __commonJS({
           }, t2.parseBrowser = function() {
             var e7 = this;
             this.parsedResult.browser = {};
-            var t3 = s.default.find(i5.default, (function(t4) {
+            var t3 = s2.default.find(i5.default, (function(t4) {
               if ("function" == typeof t4.test) return t4.test(e7);
               if (Array.isArray(t4.test)) return t4.test.some((function(t5) {
                 return e7.test(t5);
@@ -31276,7 +31312,7 @@ var require_es5 = __commonJS({
           }, t2.parseOS = function() {
             var e7 = this;
             this.parsedResult.os = {};
-            var t3 = s.default.find(n3.default, (function(t4) {
+            var t3 = s2.default.find(n3.default, (function(t4) {
               if ("function" == typeof t4.test) return t4.test(e7);
               if (Array.isArray(t4.test)) return t4.test.some((function(t5) {
                 return e7.test(t5);
@@ -31298,7 +31334,7 @@ var require_es5 = __commonJS({
           }, t2.parsePlatform = function() {
             var e7 = this;
             this.parsedResult.platform = {};
-            var t3 = s.default.find(a5.default, (function(t4) {
+            var t3 = s2.default.find(a5.default, (function(t4) {
               if ("function" == typeof t4.test) return t4.test(e7);
               if (Array.isArray(t4.test)) return t4.test.some((function(t5) {
                 return e7.test(t5);
@@ -31313,7 +31349,7 @@ var require_es5 = __commonJS({
           }, t2.parseEngine = function() {
             var e7 = this;
             this.parsedResult.engine = {};
-            var t3 = s.default.find(o3.default, (function(t4) {
+            var t3 = s2.default.find(o3.default, (function(t4) {
               if ("function" == typeof t4.test) return t4.test(e7);
               if (Array.isArray(t4.test)) return t4.test.some((function(t5) {
                 return e7.test(t5);
@@ -31324,21 +31360,21 @@ var require_es5 = __commonJS({
           }, t2.parse = function() {
             return this.parseBrowser(), this.parseOS(), this.parsePlatform(), this.parseEngine(), this;
           }, t2.getResult = function() {
-            return s.default.assign({}, this.parsedResult);
+            return s2.default.assign({}, this.parsedResult);
           }, t2.satisfies = function(e7) {
             var t3 = this, r6 = {}, i6 = 0, n4 = {}, a6 = 0;
             if (Object.keys(e7).forEach((function(t4) {
               var o5 = e7[t4];
               "string" == typeof o5 ? (n4[t4] = o5, a6 += 1) : "object" == typeof o5 && (r6[t4] = o5, i6 += 1);
             })), i6 > 0) {
-              var o4 = Object.keys(r6), u2 = s.default.find(o4, (function(e8) {
+              var o4 = Object.keys(r6), u2 = s2.default.find(o4, (function(e8) {
                 return t3.isOS(e8);
               }));
               if (u2) {
                 var d6 = this.satisfies(r6[u2]);
                 if (void 0 !== d6) return d6;
               }
-              var c5 = s.default.find(o4, (function(e8) {
+              var c5 = s2.default.find(o4, (function(e8) {
                 return t3.isPlatform(e8);
               }));
               if (c5) {
@@ -31347,18 +31383,18 @@ var require_es5 = __commonJS({
               }
             }
             if (a6 > 0) {
-              var l3 = Object.keys(n4), b5 = s.default.find(l3, (function(e8) {
+              var l3 = Object.keys(n4), b5 = s2.default.find(l3, (function(e8) {
                 return t3.isBrowser(e8, true);
               }));
               if (void 0 !== b5) return this.compareVersion(n4[b5]);
             }
           }, t2.isBrowser = function(e7, t3) {
             void 0 === t3 && (t3 = false);
-            var r6 = this.getBrowserName().toLowerCase(), i6 = e7.toLowerCase(), n4 = s.default.getBrowserTypeByAlias(i6);
+            var r6 = this.getBrowserName().toLowerCase(), i6 = e7.toLowerCase(), n4 = s2.default.getBrowserTypeByAlias(i6);
             return t3 && n4 && (i6 = n4.toLowerCase()), i6 === r6;
           }, t2.compareVersion = function(e7) {
             var t3 = [0], r6 = e7, i6 = false, n4 = this.getBrowserVersion();
-            if ("string" == typeof n4) return ">" === e7[0] || "<" === e7[0] ? (r6 = e7.substr(1), "=" === e7[1] ? (i6 = true, r6 = e7.substr(2)) : t3 = [], ">" === e7[0] ? t3.push(1) : t3.push(-1)) : "=" === e7[0] ? r6 = e7.substr(1) : "~" === e7[0] && (i6 = true, r6 = e7.substr(1)), t3.indexOf(s.default.compareVersions(n4, r6, i6)) > -1;
+            if ("string" == typeof n4) return ">" === e7[0] || "<" === e7[0] ? (r6 = e7.substr(1), "=" === e7[1] ? (i6 = true, r6 = e7.substr(2)) : t3 = [], ">" === e7[0] ? t3.push(1) : t3.push(-1)) : "=" === e7[0] ? r6 = e7.substr(1) : "~" === e7[0] && (i6 = true, r6 = e7.substr(1)), t3.indexOf(s2.default.compareVersions(n4, r6, i6)) > -1;
           }, t2.isOS = function(e7) {
             return this.getOSName(true) === String(e7).toLowerCase();
           }, t2.isPlatform = function(e7) {
@@ -32407,27 +32443,27 @@ var require_dist_cjs2 = __commonJS({
       formatHeaderValue(header) {
         switch (header.type) {
           case "boolean":
-            return Uint8Array.from([header.value ? 0 : 1]);
+            return Uint8Array.from([header.value ? HEADER_VALUE_TYPE2.boolTrue : HEADER_VALUE_TYPE2.boolFalse]);
           case "byte":
-            return Uint8Array.from([2, header.value]);
+            return Uint8Array.from([HEADER_VALUE_TYPE2.byte, header.value]);
           case "short":
             const shortView = new DataView(new ArrayBuffer(3));
-            shortView.setUint8(0, 3);
+            shortView.setUint8(0, HEADER_VALUE_TYPE2.short);
             shortView.setInt16(1, header.value, false);
             return new Uint8Array(shortView.buffer);
           case "integer":
             const intView = new DataView(new ArrayBuffer(5));
-            intView.setUint8(0, 4);
+            intView.setUint8(0, HEADER_VALUE_TYPE2.integer);
             intView.setInt32(1, header.value, false);
             return new Uint8Array(intView.buffer);
           case "long":
             const longBytes = new Uint8Array(9);
-            longBytes[0] = 5;
+            longBytes[0] = HEADER_VALUE_TYPE2.long;
             longBytes.set(header.value.bytes, 1);
             return longBytes;
           case "binary":
             const binView = new DataView(new ArrayBuffer(3 + header.value.byteLength));
-            binView.setUint8(0, 6);
+            binView.setUint8(0, HEADER_VALUE_TYPE2.byteArray);
             binView.setUint16(1, header.value.byteLength, false);
             const binBytes = new Uint8Array(binView.buffer);
             binBytes.set(header.value, 3);
@@ -32435,14 +32471,14 @@ var require_dist_cjs2 = __commonJS({
           case "string":
             const utf8Bytes = fromUtf83(header.value);
             const strView = new DataView(new ArrayBuffer(3 + utf8Bytes.byteLength));
-            strView.setUint8(0, 7);
+            strView.setUint8(0, HEADER_VALUE_TYPE2.string);
             strView.setUint16(1, utf8Bytes.byteLength, false);
             const strBytes = new Uint8Array(strView.buffer);
             strBytes.set(utf8Bytes, 3);
             return strBytes;
           case "timestamp":
             const tsBytes = new Uint8Array(9);
-            tsBytes[0] = 8;
+            tsBytes[0] = HEADER_VALUE_TYPE2.timestamp;
             tsBytes.set(Int642.fromNumber(header.value.valueOf()).bytes, 1);
             return tsBytes;
           case "uuid":
@@ -32450,8 +32486,8 @@ var require_dist_cjs2 = __commonJS({
               throw new Error(`Invalid UUID received: ${header.value}`);
             }
             const uuidBytes = new Uint8Array(17);
-            uuidBytes[0] = 9;
-            uuidBytes.set(fromHex2(header.value.replace(/\-/g, "")), 1);
+            uuidBytes[0] = HEADER_VALUE_TYPE2.uuid;
+            uuidBytes.set(fromHex2(header.value.replace(/-/g, "")), 1);
             return uuidBytes;
         }
       }
@@ -32647,7 +32683,7 @@ ${toHex2(hashedRequest)}`;
         }
       }
       formatDate(now) {
-        const longDate = iso8601(now).replace(/[\-:]/g, "");
+        const longDate = iso8601(now).replace(/[-:]/g, "");
         return {
           longDate,
           shortDate: longDate.slice(0, 8)
@@ -34476,10 +34512,12 @@ var init_httpAuthSchemeProvider = __esm({
     defaultSSOOIDCHttpAuthSchemeProvider = (authParameters) => {
       const options = [];
       switch (authParameters.operation) {
-        case "CreateToken": {
-          options.push(createSmithyApiNoAuthHttpAuthOption(authParameters));
-          break;
-        }
+        case "CreateToken":
+          {
+            options.push(createSmithyApiNoAuthHttpAuthOption(authParameters));
+            break;
+          }
+          ;
         default: {
           options.push(createAwsAuthSigv4HttpAuthOption(authParameters));
         }
@@ -34521,55 +34559,18 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.31",
+      version: "3.997.33",
       description: "Nested clients for AWS SDK packages.",
-      main: "./dist-cjs/index.js",
-      module: "./dist-es/index.js",
-      types: "./dist-types/index.d.ts",
-      scripts: {
-        build: "concurrently 'yarn:build:types' 'yarn:build:es' && yarn build:cjs",
-        "build:cjs": "node ../../scripts/compilation/inline",
-        "build:es": "premove dist-es && tsc -p tsconfig.es.json",
-        "build:include:deps": 'yarn g:turbo run build -F="$npm_package_name"',
-        "build:types": "premove dist-types && tsc -p tsconfig.types.json",
-        "build:types:downlevel": "downlevel-dts dist-types dist-types/ts3.4",
-        clean: "premove dist-cjs dist-es dist-types",
-        lint: "node ../../scripts/validation/submodules-linter.js",
-        prebuild: "yarn lint",
-        test: "yarn g:vitest run",
-        "test:watch": "yarn g:vitest watch"
-      },
-      engines: {
-        node: ">=20.0.0"
-      },
-      sideEffects: false,
+      homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
+      license: "Apache-2.0",
       author: {
         name: "AWS SDK for JavaScript Team",
         url: "https://aws.amazon.com/sdk-for-javascript/"
       },
-      license: "Apache-2.0",
-      dependencies: {
-        "@aws-sdk/core": "^3.975.1",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.39",
-        "@aws-sdk/types": "^3.974.0",
-        "@smithy/core": "^3.29.2",
-        "@smithy/fetch-http-handler": "^5.6.4",
-        "@smithy/node-http-handler": "^4.9.4",
-        "@smithy/types": "^4.16.0",
-        tslib: "^2.6.2"
-      },
-      devDependencies: {
-        concurrently: "7.0.0",
-        "downlevel-dts": "0.10.1",
-        premove: "4.0.0",
-        typescript: "~5.8.3"
-      },
-      typesVersions: {
-        "<4.5": {
-          "dist-types/*": [
-            "dist-types/ts3.4/*"
-          ]
-        }
+      repository: {
+        type: "git",
+        url: "https://github.com/aws/aws-sdk-js-v3.git",
+        directory: "packages/nested-clients"
       },
       files: [
         "./cognito-identity.d.ts",
@@ -34584,6 +34585,9 @@ var init_package = __esm({
         "./sts.js",
         "dist-*/**"
       ],
+      sideEffects: false,
+      main: "./dist-cjs/index.js",
+      module: "./dist-es/index.js",
       browser: {
         "./dist-es/submodules/cognito-identity/runtimeConfig": "./dist-es/submodules/cognito-identity/runtimeConfig.browser",
         "./dist-es/submodules/signin/runtimeConfig": "./dist-es/submodules/signin/runtimeConfig.browser",
@@ -34591,13 +34595,18 @@ var init_package = __esm({
         "./dist-es/submodules/sso/runtimeConfig": "./dist-es/submodules/sso/runtimeConfig.browser",
         "./dist-es/submodules/sts/runtimeConfig": "./dist-es/submodules/sts/runtimeConfig.browser"
       },
-      "react-native": {},
-      homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
-      repository: {
-        type: "git",
-        url: "https://github.com/aws/aws-sdk-js-v3.git",
-        directory: "packages/nested-clients"
+      types: "./dist-types/index.d.ts",
+      typesVersions: {
+        "<4.5": {
+          "dist-types/*": [
+            "dist-types/ts3.4/*"
+          ],
+          "*": [
+            "dist-types/ts3.4/submodules/*/index.d.ts"
+          ]
+        }
       },
+      "react-native": {},
       exports: {
         "./package.json": "./package.json",
         "./sso-oidc": {
@@ -34635,6 +34644,38 @@ var init_package = __esm({
           import: "./dist-es/submodules/sso/index.js",
           require: "./dist-cjs/submodules/sso/index.js"
         }
+      },
+      scripts: {
+        build: "concurrently 'yarn:build:types' 'yarn:build:es' && yarn build:cjs",
+        "build:cjs": "node ../../scripts/compilation/inline",
+        "build:es": "premove dist-es && tsc -p tsconfig.es.json",
+        "build:include:deps": 'yarn g:turbo run build -F="$npm_package_name"',
+        "build:types": "premove dist-types && tsc -p tsconfig.types.json",
+        "build:types:downlevel": "downlevel-dts dist-types dist-types/ts3.4",
+        clean: "premove dist-cjs dist-es dist-types",
+        lint: "node ../../scripts/validation/submodules-linter.js",
+        prebuild: "yarn lint",
+        test: "yarn g:vitest run",
+        "test:watch": "yarn g:vitest watch"
+      },
+      dependencies: {
+        "@aws-sdk/core": "^3.975.3",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.41",
+        "@aws-sdk/types": "^3.974.2",
+        "@smithy/core": "^3.29.4",
+        "@smithy/fetch-http-handler": "^5.6.6",
+        "@smithy/node-http-handler": "^4.9.6",
+        "@smithy/types": "^4.16.1",
+        tslib: "^2.6.2"
+      },
+      devDependencies: {
+        concurrently: "7.0.0",
+        "downlevel-dts": "0.10.1",
+        premove: "4.0.0",
+        typescript: "~5.8.3"
+      },
+      engines: {
+        node: ">=20.0.0"
       }
     };
   }
@@ -35755,7 +35796,7 @@ var init_SmithyRpcV2CborProtocol = __esm({
           }
           try {
             request.headers["content-length"] = String(request.body.byteLength);
-          } catch (e5) {
+          } catch (ignored) {
           }
         }
         const { service, operation: operation2 } = getSmithyContext(context);
@@ -35786,7 +35827,7 @@ var init_SmithyRpcV2CborProtocol = __esm({
         let errorSchema;
         try {
           errorSchema = registry.getSchema(errorName);
-        } catch (e5) {
+        } catch (ignored) {
           if (dataObject.Message) {
             dataObject.message = dataObject.Message;
           }
@@ -36419,9 +36460,9 @@ var init_jsonReplacer = __esm({
             return v;
           }
           if (typeof value === "bigint") {
-            const s = value.toString();
-            const v = `${NUMERIC_CONTROL_CHAR + "b" + this.counter++}_` + s;
-            this.values.set(`"${v}"`, s);
+            const s2 = value.toString();
+            const v = `${NUMERIC_CONTROL_CHAR + "b" + this.counter++}_` + s2;
+            this.values.set(`"${v}"`, s2);
             return v;
           }
           return value;
@@ -37068,12 +37109,12 @@ var require_dist_cjs7 = __commonJS({
         }
         throw new Error("@aws-sdk XML parse error: no root element.");
       }
-      isNext(s, caseSensitive = true) {
+      isNext(s2, caseSensitive = true) {
         const p3 = this;
         if (caseSensitive) {
-          return p3.x.startsWith(s, p3.i);
+          return p3.x.startsWith(s2, p3.i);
         }
-        return p3.x.toLowerCase().startsWith(s.toLowerCase(), p3.i);
+        return p3.x.toLowerCase().startsWith(s2.toLowerCase(), p3.i);
       }
       readTo(stop) {
         const p3 = this;
@@ -37239,8 +37280,8 @@ var require_dist_cjs7 = __commonJS({
         }
         throw new Error("@aws-sdk XML parse error: unclosed DOCTYPE.");
       }
-      decodeEntities(s) {
-        return s.replace(/&(?:#x([0-9a-fA-F]{1,6})|#(\d{1,7})|([a-zA-Z][a-zA-Z0-9]{0,30}));/g, (_, hex, dec, named) => {
+      decodeEntities(s2) {
+        return s2.replace(/&(?:#x([0-9a-fA-F]{1,6})|#(\d{1,7})|([a-zA-Z][a-zA-Z0-9]{0,30}));/g, (_, hex, dec, named) => {
           if (hex) {
             return String.fromCharCode(parseInt(hex, 16));
           }
@@ -39290,10 +39331,12 @@ var init_httpAuthSchemeProvider2 = __esm({
     defaultSSOHttpAuthSchemeProvider = (authParameters) => {
       const options = [];
       switch (authParameters.operation) {
-        case "GetRoleCredentials": {
-          options.push(createSmithyApiNoAuthHttpAuthOption2(authParameters));
-          break;
-        }
+        case "GetRoleCredentials":
+          {
+            options.push(createSmithyApiNoAuthHttpAuthOption2(authParameters));
+            break;
+          }
+          ;
         default: {
           options.push(createAwsAuthSigv4HttpAuthOption2(authParameters));
         }
@@ -40529,8 +40572,8 @@ var init_httpAuthSchemeProvider3 = __esm({
           let schemeId;
           if (name === "sigv4a") {
             schemeId = "aws.auth#sigv4a";
-            const sigv4Present = authSchemes.find((s) => {
-              const name2 = s.name.toLowerCase();
+            const sigv4Present = authSchemes.find((s2) => {
+              const name2 = s2.name.toLowerCase();
               return name2 !== "sigv4a" && name2.startsWith("sigv4");
             });
             if (import_signature_v4_multi_region.SignatureV4MultiRegion.sigv4aDependency() === "none" && sigv4Present) {
@@ -41507,10 +41550,12 @@ var init_httpAuthSchemeProvider4 = __esm({
     defaultSigninHttpAuthSchemeProvider = (authParameters) => {
       const options = [];
       switch (authParameters.operation) {
-        case "CreateOAuth2Token": {
-          options.push(createSmithyApiNoAuthHttpAuthOption4(authParameters));
-          break;
-        }
+        case "CreateOAuth2Token":
+          {
+            options.push(createSmithyApiNoAuthHttpAuthOption4(authParameters));
+            break;
+          }
+          ;
         default: {
           options.push(createAwsAuthSigv4HttpAuthOption4(authParameters));
         }
@@ -41547,72 +41592,77 @@ var init_EndpointParameters4 = __esm({
 });
 
 // node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/endpoint/bdd.js
-var p2, a4, b4, c4, d4, e4, f4, g4, h4, i4, j4, k4, l2, m2, n2, o2, _data4, root4, r4, nodes4, bdd4;
+var s, a4, b4, c4, d4, e4, f4, g4, h4, i4, j4, k4, l2, m2, n2, o2, p2, q2, _data4, root4, r4, nodes4, bdd4;
 var init_bdd4 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/endpoint/bdd.js"() {
     init_endpoints();
-    p2 = "ref";
+    s = "ref";
     a4 = -1;
-    b4 = true;
-    c4 = "isSet";
-    d4 = "booleanEquals";
-    e4 = "PartitionResult";
-    f4 = "stringEquals";
-    g4 = "getAttr";
-    h4 = "https://signin.{Region}.{PartitionResult#dualStackDnsSuffix}";
-    i4 = { [p2]: "Endpoint" };
-    j4 = { "fn": g4, "argv": [{ [p2]: e4 }, "name"] };
-    k4 = { [p2]: e4 };
-    l2 = { [p2]: "Region" };
-    m2 = { "authSchemes": [{ "name": "sigv4", "signingName": "signin", "signingRegion": "{Region}" }] };
-    n2 = {};
-    o2 = [l2];
+    b4 = false;
+    c4 = true;
+    d4 = "isSet";
+    e4 = "booleanEquals";
+    f4 = "coalesce";
+    g4 = "PartitionResult";
+    h4 = "stringEquals";
+    i4 = "getAttr";
+    j4 = "https://signin.{Region}.{PartitionResult#dualStackDnsSuffix}";
+    k4 = { [s]: "Endpoint" };
+    l2 = { "fn": i4, "argv": [{ [s]: g4 }, "name"] };
+    m2 = { [s]: "Region" };
+    n2 = { [s]: g4 };
+    o2 = { "authSchemes": [{ "name": "sigv4", "signingName": "signin", "signingRegion": "{Region}" }] };
+    p2 = {};
+    q2 = [m2];
     _data4 = {
       conditions: [
-        [c4, o2],
-        [d4, [{ fn: "coalesce", argv: [{ [p2]: "IsControlPlane" }, false] }, b4]],
-        [c4, [i4]],
-        ["aws.partition", o2, e4],
-        [d4, [{ [p2]: "UseFIPS" }, b4]],
-        [d4, [{ [p2]: "UseDualStack" }, b4]],
-        [f4, [j4, "aws"]],
-        [f4, [j4, "aws-cn"]],
-        [d4, [{ fn: g4, argv: [k4, "supportsDualStack"] }, b4]],
-        [f4, [l2, "us-gov-west-1"]],
-        [f4, [j4, "aws-us-gov"]],
-        [d4, [{ fn: g4, argv: [k4, "supportsFIPS"] }, b4]],
-        [f4, [j4, "aws-iso"]],
-        [f4, [j4, "aws-iso-b"]],
-        [f4, [j4, "aws-iso-f"]],
-        [f4, [j4, "aws-iso-e"]],
-        [f4, [j4, "aws-eusc"]]
+        [d4, q2],
+        [e4, [{ fn: f4, argv: [{ [s]: "IsControlPlane" }, b4] }, c4]],
+        [d4, [k4]],
+        ["aws.partition", q2, g4],
+        [e4, [{ [s]: "UseFIPS" }, c4]],
+        [h4, [l2, "aws"]],
+        [e4, [{ fn: f4, argv: [{ [s]: "IsOAuthEndpoint" }, b4] }, c4]],
+        [e4, [{ [s]: "UseDualStack" }, c4]],
+        [h4, [l2, "aws-cn"]],
+        [h4, [m2, "us-gov-west-1"]],
+        [h4, [l2, "aws-us-gov"]],
+        [e4, [{ fn: i4, argv: [n2, "supportsFIPS"] }, c4]],
+        [h4, [l2, "aws-iso"]],
+        [h4, [l2, "aws-iso-b"]],
+        [h4, [l2, "aws-iso-f"]],
+        [h4, [l2, "aws-iso-e"]],
+        [h4, [l2, "aws-eusc"]],
+        [e4, [{ fn: i4, argv: [n2, "supportsDualStack"] }, c4]]
       ],
       results: [
         [a4],
-        ["https://signin.{Region}.api.aws", m2],
-        ["https://signin.{Region}.api.amazonwebservices.com.cn", m2],
-        [h4, m2],
-        ["https://{Region}.signin.aws.amazon.com", n2],
-        ["https://{Region}.signin.amazonaws.cn", n2],
-        ["https://{Region}.signin.amazonaws-us-gov.com", n2],
-        ["https://{Region}.signin.c2shome.ic.gov", n2],
-        ["https://{Region}.signin.sc2shome.sgov.gov", n2],
-        ["https://{Region}.signin.csphome.hci.ic.gov", n2],
-        ["https://{Region}.signin.csphome.adc-e.uk", n2],
-        ["https://{Region}.signin.amazonaws-eusc.eu", n2],
-        ["https://signin-fips.amazonaws-us-gov.com", n2],
-        ["https://{Region}.signin-fips.amazonaws-us-gov.com", n2],
-        ["https://{Region}.signin.{PartitionResult#dnsSuffix}", n2],
+        ["https://signin.{Region}.api.aws", o2],
+        ["https://signin.{Region}.api.amazonwebservices.com.cn", o2],
+        [j4, o2],
+        [a4, "FIPS endpoints are not supported for OAuth operations. Disable FIPS or use a non-OAuth operation."],
+        ["https://{Region}.oauth.signin.aws", o2],
+        ["https://{Region}.signin.aws.amazon.com", p2],
+        ["https://{Region}.signin.amazonaws.cn", p2],
+        ["https://{Region}.signin.amazonaws-us-gov.com", p2],
+        ["https://{Region}.signin.c2shome.ic.gov", p2],
+        ["https://{Region}.signin.sc2shome.sgov.gov", p2],
+        ["https://{Region}.signin.csphome.hci.ic.gov", p2],
+        ["https://{Region}.signin.csphome.adc-e.uk", p2],
+        ["https://{Region}.signin.amazonaws-eusc.eu", p2],
+        ["https://signin-fips.amazonaws-us-gov.com", p2],
+        ["https://{Region}.signin-fips.amazonaws-us-gov.com", p2],
+        ["https://{Region}.signin.{PartitionResult#dnsSuffix}", p2],
         [a4, "Invalid Configuration: FIPS and custom endpoint are not supported"],
         [a4, "Invalid Configuration: Dualstack and custom endpoint are not supported"],
-        [i4, n2],
-        ["https://signin-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", n2],
+        [k4, p2],
+        ["https://signin-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", p2],
         [a4, "FIPS and DualStack are enabled, but this partition does not support one or both"],
-        ["https://signin-fips.{Region}.{PartitionResult#dnsSuffix}", n2],
+        ["https://signin-fips.{Region}.{PartitionResult#dnsSuffix}", p2],
         [a4, "FIPS is enabled but this partition does not support FIPS"],
-        [h4, n2],
+        [j4, p2],
         [a4, "DualStack is enabled but this partition does not support DualStack"],
-        ["https://signin.{Region}.{PartitionResult#dnsSuffix}", n2],
+        ["https://signin.{Region}.{PartitionResult#dnsSuffix}", p2],
         [a4, "Invalid Configuration: Missing Region"]
       ]
     };
@@ -41623,99 +41673,120 @@ var init_bdd4 = __esm({
       1,
       -1,
       0,
-      4,
-      3,
-      2,
-      30,
-      r4 + 25,
-      1,
-      24,
-      5,
-      2,
-      30,
       6,
       3,
-      7,
-      26,
+      2,
+      36,
       4,
-      18,
-      8,
+      4,
       5,
-      17,
-      9,
+      r4 + 27,
       6,
       r4 + 4,
-      10,
+      r4 + 27,
+      1,
+      29,
       7,
-      r4 + 5,
-      11,
+      2,
+      36,
+      8,
+      3,
+      9,
+      31,
+      4,
+      22,
       10,
-      r4 + 6,
+      5,
+      19,
+      11,
+      7,
+      21,
       12,
-      12,
+      8,
       r4 + 7,
       13,
-      13,
+      10,
       r4 + 8,
       14,
-      14,
+      12,
       r4 + 9,
       15,
-      15,
+      13,
       r4 + 10,
       16,
-      16,
+      14,
       r4 + 11,
+      17,
+      15,
+      r4 + 12,
+      18,
+      16,
+      r4 + 13,
+      r4 + 16,
+      6,
+      r4 + 5,
+      20,
+      7,
+      21,
+      r4 + 6,
+      17,
+      r4 + 24,
+      r4 + 25,
+      6,
+      r4 + 4,
+      23,
+      7,
+      27,
+      24,
+      9,
       r4 + 14,
-      8,
+      25,
+      10,
+      r4 + 15,
+      26,
+      11,
       r4 + 22,
       r4 + 23,
-      5,
-      22,
-      19,
-      9,
-      r4 + 12,
-      20,
-      10,
-      r4 + 13,
-      21,
       11,
+      28,
+      r4 + 21,
+      17,
       r4 + 20,
       r4 + 21,
-      8,
-      23,
-      r4 + 19,
-      11,
-      r4 + 18,
-      r4 + 19,
       2,
-      29,
-      25,
-      3,
-      32,
-      26,
-      4,
-      27,
-      r4 + 25,
-      5,
-      r4 + 25,
-      28,
-      9,
-      r4 + 12,
-      r4 + 25,
-      3,
-      32,
+      35,
       30,
-      4,
-      r4 + 15,
+      3,
+      39,
       31,
-      5,
-      r4 + 16,
-      r4 + 17,
+      4,
+      32,
+      r4 + 27,
       6,
-      r4 + 1,
+      r4 + 4,
       33,
       7,
+      r4 + 27,
+      34,
+      9,
+      r4 + 14,
+      r4 + 27,
+      3,
+      39,
+      36,
+      4,
+      38,
+      37,
+      7,
+      r4 + 18,
+      r4 + 19,
+      6,
+      r4 + 4,
+      r4 + 17,
+      5,
+      r4 + 1,
+      40,
+      8,
       r4 + 2,
       r4 + 3
     ]);
@@ -41732,7 +41803,7 @@ var init_endpointResolver4 = __esm({
     init_bdd4();
     cache4 = new EndpointCache({
       size: 50,
-      params: ["Endpoint", "IsControlPlane", "Region", "UseDualStack", "UseFIPS"]
+      params: ["Endpoint", "IsControlPlane", "IsOAuthEndpoint", "Region", "UseDualStack", "UseFIPS"]
     });
     defaultEndpointResolver4 = (endpointParams, context = {}) => {
       return cache4.get(endpointParams, () => decideEndpoint(bdd4, {
@@ -41823,7 +41894,7 @@ var init_errors4 = __esm({
 });
 
 // node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/schemas/schemas_0.js
-var _ADE2, _AT2, _COAT, _COATR, _COATRB, _COATRBr, _COATRr, _ISE2, _RT2, _TMRE2, _VE, _aKI2, _aT3, _c4, _cI2, _cV2, _co2, _e4, _eI2, _gT2, _h3, _hE4, _iT2, _jN, _m3, _rT2, _rU2, _s4, _sAK2, _sT2, _se2, _tI, _tO, _tT2, n04, _s_registry4, SigninServiceException$, n0_registry4, AccessDeniedException$2, InternalServerException$2, TooManyRequestsError$, ValidationException$, errorTypeRegistries4, RefreshToken2, AccessToken$, CreateOAuth2TokenRequest$, CreateOAuth2TokenRequestBody$, CreateOAuth2TokenResponse$, CreateOAuth2TokenResponseBody$, CreateOAuth2Token$;
+var _ADE2, _AT2, _COAT, _COATR, _COATRB, _COATRBr, _COATRr, _COATWIAM, _COATWIAMR, _COATWIAMRr, _ISE2, _OAAT, _RT2, _TMRE2, _VE, _aKI2, _aT3, _at, _c4, _cI2, _cV2, _co2, _e4, _eI2, _ei, _gT2, _gt, _h3, _hE4, _iT2, _jN, _m3, _r2, _rT2, _rU2, _s4, _sAK2, _sT2, _se2, _tI, _tO, _tT2, _tt, n04, _s_registry4, SigninServiceException$, n0_registry4, AccessDeniedException$2, InternalServerException$2, TooManyRequestsError$, ValidationException$, errorTypeRegistries4, OAuthAccessToken, RefreshToken2, AccessToken$, CreateOAuth2TokenRequest$, CreateOAuth2TokenRequestBody$, CreateOAuth2TokenResponse$, CreateOAuth2TokenResponseBody$, CreateOAuth2TokenWithIAMRequest$, CreateOAuth2TokenWithIAMResponse$, CreateOAuth2Token$, CreateOAuth2TokenWithIAM$;
 var init_schemas_04 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/schemas/schemas_0.js"() {
     init_schema();
@@ -41836,24 +41907,32 @@ var init_schemas_04 = __esm({
     _COATRB = "CreateOAuth2TokenRequestBody";
     _COATRBr = "CreateOAuth2TokenResponseBody";
     _COATRr = "CreateOAuth2TokenResponse";
+    _COATWIAM = "CreateOAuth2TokenWithIAM";
+    _COATWIAMR = "CreateOAuth2TokenWithIAMRequest";
+    _COATWIAMRr = "CreateOAuth2TokenWithIAMResponse";
     _ISE2 = "InternalServerException";
+    _OAAT = "OAuthAccessToken";
     _RT2 = "RefreshToken";
     _TMRE2 = "TooManyRequestsError";
     _VE = "ValidationException";
     _aKI2 = "accessKeyId";
     _aT3 = "accessToken";
+    _at = "access_token";
     _c4 = "client";
     _cI2 = "clientId";
     _cV2 = "codeVerifier";
     _co2 = "code";
     _e4 = "error";
     _eI2 = "expiresIn";
+    _ei = "expires_in";
     _gT2 = "grantType";
+    _gt = "grant_type";
     _h3 = "http";
     _hE4 = "httpError";
     _iT2 = "idToken";
     _jN = "jsonName";
     _m3 = "message";
+    _r2 = "resource";
     _rT2 = "refreshToken";
     _rU2 = "redirectUri";
     _s4 = "smithy.ts.sdk.synthetic.com.amazonaws.signin";
@@ -41863,6 +41942,7 @@ var init_schemas_04 = __esm({
     _tI = "tokenInput";
     _tO = "tokenOutput";
     _tT2 = "tokenType";
+    _tt = "token_type";
     n04 = "com.amazonaws.signin";
     _s_registry4 = TypeRegistry.for(_s4);
     SigninServiceException$ = [-3, _s4, "SigninServiceException", 0, [], []];
@@ -41912,6 +41992,7 @@ var init_schemas_04 = __esm({
       _s_registry4,
       n0_registry4
     ];
+    OAuthAccessToken = [0, n04, _OAAT, 8, 0];
     RefreshToken2 = [0, n04, _RT2, 8, 0];
     AccessToken$ = [
       3,
@@ -41958,6 +42039,24 @@ var init_schemas_04 = __esm({
       [[() => AccessToken$, { [_jN]: _aT3 }], [0, { [_jN]: _tT2 }], [1, { [_jN]: _eI2 }], [() => RefreshToken2, { [_jN]: _rT2 }], [0, { [_jN]: _iT2 }]],
       4
     ];
+    CreateOAuth2TokenWithIAMRequest$ = [
+      3,
+      n04,
+      _COATWIAMR,
+      0,
+      [_gT2, _r2],
+      [[0, { [_jN]: _gt }], 0],
+      2
+    ];
+    CreateOAuth2TokenWithIAMResponse$ = [
+      3,
+      n04,
+      _COATWIAMRr,
+      0,
+      [_aT3, _tT2, _eI2],
+      [[() => OAuthAccessToken, { [_jN]: _at }], [0, { [_jN]: _tt }], [1, { [_jN]: _ei }]],
+      3
+    ];
     CreateOAuth2Token$ = [
       9,
       n04,
@@ -41965,6 +42064,14 @@ var init_schemas_04 = __esm({
       { [_h3]: ["POST", "/v1/token", 200] },
       () => CreateOAuth2TokenRequest$,
       () => CreateOAuth2TokenResponse$
+    ];
+    CreateOAuth2TokenWithIAM$ = [
+      9,
+      n04,
+      _COATWIAM,
+      { [_h3]: ["POST", "/v1/token?x-amz-client-auth-method=iam", 200] },
+      () => CreateOAuth2TokenWithIAMRequest$,
+      () => CreateOAuth2TokenWithIAMResponse$
     ];
   }
 });
@@ -42183,7 +42290,7 @@ var init_SigninClient = __esm({
 });
 
 // node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/commandBuilder.js
-var command4, _ep04, _mw04;
+var command4, _ep04, _ep1, _mw04;
 var init_commandBuilder4 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/commandBuilder.js"() {
     init_client2();
@@ -42192,6 +42299,9 @@ var init_commandBuilder4 = __esm({
     command4 = makeBuilder(commonParams4, "Signin", "SigninClient", getEndpointPlugin);
     _ep04 = {
       IsControlPlane: { type: "staticContextParams", value: false }
+    };
+    _ep1 = {
+      IsOAuthEndpoint: { type: "staticContextParams", value: true }
     };
     _mw04 = (Command3, cs, config, o3) => [];
   }
@@ -42208,15 +42318,28 @@ var init_CreateOAuth2TokenCommand = __esm({
   }
 });
 
+// node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/commands/CreateOAuth2TokenWithIAMCommand.js
+var CreateOAuth2TokenWithIAMCommand;
+var init_CreateOAuth2TokenWithIAMCommand = __esm({
+  "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/commands/CreateOAuth2TokenWithIAMCommand.js"() {
+    init_commandBuilder4();
+    init_schemas_04();
+    CreateOAuth2TokenWithIAMCommand = class extends command4(_ep1, _mw04, "CreateOAuth2TokenWithIAM", CreateOAuth2TokenWithIAM$) {
+    };
+  }
+});
+
 // node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/Signin.js
 var commands4, Signin;
 var init_Signin = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/Signin.js"() {
     init_client2();
     init_CreateOAuth2TokenCommand();
+    init_CreateOAuth2TokenWithIAMCommand();
     init_SigninClient();
     commands4 = {
-      CreateOAuth2TokenCommand
+      CreateOAuth2TokenCommand,
+      CreateOAuth2TokenWithIAMCommand
     };
     Signin = class extends SigninClient {
     };
@@ -42228,6 +42351,7 @@ var init_Signin = __esm({
 var init_commands4 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/commands/index.js"() {
     init_CreateOAuth2TokenCommand();
+    init_CreateOAuth2TokenWithIAMCommand();
   }
 });
 
@@ -42268,6 +42392,10 @@ __export(signin_exports, {
   CreateOAuth2TokenRequestBody$: () => CreateOAuth2TokenRequestBody$,
   CreateOAuth2TokenResponse$: () => CreateOAuth2TokenResponse$,
   CreateOAuth2TokenResponseBody$: () => CreateOAuth2TokenResponseBody$,
+  CreateOAuth2TokenWithIAM$: () => CreateOAuth2TokenWithIAM$,
+  CreateOAuth2TokenWithIAMCommand: () => CreateOAuth2TokenWithIAMCommand,
+  CreateOAuth2TokenWithIAMRequest$: () => CreateOAuth2TokenWithIAMRequest$,
+  CreateOAuth2TokenWithIAMResponse$: () => CreateOAuth2TokenWithIAMResponse$,
   InternalServerException: () => InternalServerException2,
   InternalServerException$: () => InternalServerException$2,
   OAuth2ErrorCode: () => OAuth2ErrorCode,
@@ -42480,11 +42608,11 @@ var require_dist_cjs11 = __commonJS({
         }
         offset++;
         const sLength = derSignature[offset++];
-        let s = derSignature.subarray(offset, offset + sLength);
+        let s2 = derSignature.subarray(offset, offset + sLength);
         r5 = r5[0] === 0 ? r5.subarray(1) : r5;
-        s = s[0] === 0 ? s.subarray(1) : s;
+        s2 = s2[0] === 0 ? s2.subarray(1) : s2;
         const rPadded = Buffer.concat([Buffer.alloc(32 - r5.length), r5]);
-        const sPadded = Buffer.concat([Buffer.alloc(32 - s.length), s]);
+        const sPadded = Buffer.concat([Buffer.alloc(32 - s2.length), s2]);
         return Buffer.concat([rPadded, sPadded]);
       }
       createDPoPInterceptor(middlewareStack) {
@@ -43131,7 +43259,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1085.0";
+    var version = "3.1090.0";
     var packageInfo = {
       version
     };
@@ -49421,6 +49549,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var LastUpdateStatusReasonCode = {
       CapacityProviderScalingLimitExceeded: "CapacityProviderScalingLimitExceeded",
+      DependencyError: "DependencyError",
       DisabledKMSKey: "DisabledKMSKey",
       DisallowedByVpcEncryptionControl: "DisallowedByVpcEncryptionControl",
       EC2RequestLimitExceeded: "EC2RequestLimitExceeded",
@@ -49463,6 +49592,7 @@ var require_dist_cjs16 = __commonJS({
     var StateReasonCode = {
       CapacityProviderScalingLimitExceeded: "CapacityProviderScalingLimitExceeded",
       Creating: "Creating",
+      DependencyError: "DependencyError",
       DisabledKMSKey: "DisabledKMSKey",
       DisallowedByVpcEncryptionControl: "DisallowedByVpcEncryptionControl",
       DrainingDurableExecutions: "DrainingDurableExecutions",
@@ -50262,11 +50392,11 @@ var Command = class {
     return cmdStr;
   }
 };
-function escapeData(s) {
-  return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+function escapeData(s2) {
+  return toCommandValue(s2).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 }
-function escapeProperty(s) {
-  return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
+function escapeProperty(s2) {
+  return toCommandValue(s2).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
 }
 
 // node_modules/@actions/core/lib/core.js
