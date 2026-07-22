@@ -192,17 +192,20 @@ jobs:
           digest: ${{ steps.resolve.outputs.digest }}
           tag: ${{ steps.release.outputs.release }}
 
-      - name: Record deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "production"
-          --version "${{ steps.release.outputs.release }}"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "release:${{ steps.release.outputs.release }}"
+        run: |
+          jq -n \
+            --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:promote",
+                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
 
@@ -291,16 +294,19 @@ jobs:
           digest: ${{ steps.resolve.outputs.digest }}
           tag: ${{ steps.release.outputs.release }}
 
-      - name: Record deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "production"
-          --version "${{ steps.release.outputs.release }}"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "release:${{ steps.release.outputs.release }}"
+        run: |
+          jq -n \
+            --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:promote",
+                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"

@@ -125,17 +125,20 @@ jobs:
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
 
-      - name: Record deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "$ENVIRONMENT"
-          --version "${{ inputs.tag }}"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "tag:${{ inputs.tag }}"
+        run: |
+          jq -n \
+            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":release-candidate"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:release-candidate", "action:deploy",
+                     "revision:${{ inputs.tag }}"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
 
@@ -205,16 +208,19 @@ jobs:
           environment: release-candidate
           image: ${{ steps.resolve.outputs.image }}
 
-      - name: Record deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "$ENVIRONMENT"
-          --version "${{ inputs.tag }}"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "tag:${{ inputs.tag }}"
+        run: |
+          jq -n \
+            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":release-candidate"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:release-candidate", "action:deploy",
+                     "revision:${{ inputs.tag }}"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"

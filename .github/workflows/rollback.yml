@@ -155,17 +155,20 @@ jobs:
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
 
-      - name: Record deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "production"
-          --version "${{ needs.lookup.outputs.release-tag }}"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "rollback:true"
+        run: |
+          jq -n \
+            --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:rollback",
+                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
@@ -228,16 +231,19 @@ jobs:
           environment: production
           image: ${{ steps.resolve.outputs.image }}
 
-      - name: Record deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "production"
-          --version "${{ needs.lookup.outputs.release-tag }}"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "rollback:true"
+        run: |
+          jq -n \
+            --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:rollback",
+                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"

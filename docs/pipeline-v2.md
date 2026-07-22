@@ -614,3 +614,20 @@ per-app label filtering in `gcp-secrets`, scoped IAM), `build-candidate.yml`
 gates the step behind a `build-secrets` input (default `false`). Consequence:
 apps that need BUILD-type secrets cannot migrate to v2 until D2 ships; apps
 without them (hoax) are unaffected.
+
+## Decision (2026-07-22): self-owned deployment telemetry, no DORA product
+
+Cru pays for Datadog CI Visibility on the single cru-deploy repo (one
+committer), which already gives fleet-wide pipeline visibility. Datadog's DORA
+Metrics is a separate per-committer SKU with unclear per-app billing exposure,
+so the pipeline does NOT use `datadog-ci dora deployment` (RETIRED — see the self-owned telemetry decision below). Instead every
+deploy/promote/rollback posts a structured event to the standard Datadog
+Events API (included with the platform): tags `source:cru-pipeline-v2`,
+`service`, `environment`, `action:deploy|promote|rollback`, `revision`, plus
+`candidate:`/`rollback:` context. Events power dashboards, monitors, and
+deploy-correlation overlays.
+
+Deferred (phase 2): a deployments ledger via an app-info service extension
+(POST endpoint -> DynamoDB) as the queryable source of truth for DORA-style
+math (deployment frequency, lead time from the sha- tags, rollback rate) —
+computed by us, billed by no one.
