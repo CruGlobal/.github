@@ -81,16 +81,22 @@ jobs:
       - name: Update CloudRun
         uses: ./cru-github-actions/actions/deploy-cloudrun
 
-      - name: Record Deployment in Datadog
+      - name: Record deployment event in Datadog
         continue-on-error: true
-        run: >-
-          npx @datadog/datadog-ci@5 dora deployment
-          --service "$PROJECT_NAME"
-          --env "$ENVIRONMENT"
-          --version "$ENVIRONMENT-$BUILD_NUMBER"
-          --started-at "$DEPLOY_STARTED_AT"
-          --finished-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          --skip-git
-          --custom-tags "build_number:$BUILD_NUMBER"
+        run: |
+          jq -n \
+            --arg title "Deployed: $PROJECT_NAME $ENVIRONMENT-$BUILD_NUMBER" \
+            --arg text "v1 pipeline deploy (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            --arg env "$ENVIRONMENT" \
+            --arg rev "$ENVIRONMENT-$BUILD_NUMBER" \
+            --arg bn "$BUILD_NUMBER" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":" + $env),
+              tags: ["source:cru-pipeline-v1", ("service:" + $service),
+                     ("environment:" + $env), "action:deploy",
+                     ("revision:" + $rev), ("build_number:" + $bn)]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
       - run: echo "::notice title=Deploy Success::Successfully deployed - $PROJECT_NAME ($ENVIRONMENT-$BUILD_NUMBER)"
