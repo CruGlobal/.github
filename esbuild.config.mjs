@@ -10,7 +10,12 @@ const handlerMap = {
     './src/gcp-secrets.js': 'gcp-secrets',
     './src/secrets.js': 'secrets',
     './src/setup-env.js': 'setup-env',
-    './src/trigger-deploy.js': 'trigger-deploy'
+    './src/trigger-deploy.js': 'trigger-deploy',
+    // pipeline v2
+    './src/resolve-image.js': 'resolve-image',
+    './src/deploy.js': 'deploy',
+    './src/dispatch.js': 'dispatch',
+    './src/tag-image.js': 'tag-image'
 }
 
 // Build each action as a separate bundle with flat output

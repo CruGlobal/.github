@@ -31,7 +31,8 @@
     "@aws-sdk/client-ssm": "^3.1091.0",
     "@google-cloud/run": "^3.3.0",
     "@google-cloud/secret-manager": "^6.2.0",
-    "escape-string-regexp": "^5.0.0"
+    "escape-string-regexp": "^5.0.0",
+    "google-auth-library": "^10.9.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.6",

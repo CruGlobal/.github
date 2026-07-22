@@ -1,0 +1,226 @@
+name: Deploy Candidate
+
+# Deploy a candidate artifact to the release-candidate environment. This path is
+# automated by design (a merged change flows to release-candidate without a human
+# gate), so there is NO authorization step here — unlike promote / rollback.
+#
+# Multi-provider router (D9 pattern at job level): a `lookup` job fetches app-info
+# once and outputs the provider + type + project-id; provider-specific jobs are
+# gated on `needs.lookup.outputs.provider`. Only one provider job runs per app.
+# The release-candidate-<project> concurrency lock lives on each provider job, so
+# whichever one runs holds the lock (they share the group; only one ever runs).
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      project-name:
+        type: string
+        required: true
+        description: Project name (shared-registry repo/image).
+      tag:
+        type: string
+        required: true
+        description: Candidate tag to deploy, e.g. candidate-10012.
+    secrets:
+      datadog-api-key:
+        required: true
+        description: DataDog API key.
+
+jobs:
+  # app-info: per-app metadata from the v1 info service. The service only knows
+  # legacy environment names, so the v2 long name is translated first
+  # (release-candidate -> staging). Provider must be gcp or aws.
+  lookup:
+    name: Look up app info
+    runs-on: ubuntu-latest
+    outputs:
+      provider: ${{ steps.app-info.outputs.provider }}
+      type: ${{ steps.app-info.outputs.type }}
+      project-id: ${{ steps.app-info.outputs.project-id }}
+    steps:
+      - name: Look up app info
+        id: app-info
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: release-candidate
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
+          provider=$(echo "$info" | jq -r '.Provider')
+          type=$(echo "$info" | jq -r '.Type // empty')
+          project_id=$(echo "$info" | jq -r '.ProjectId // empty')
+          case "$provider" in
+            gcp|aws) ;;
+            *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
+          esac
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          echo "type=$type" >> "$GITHUB_OUTPUT"
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
+
+  deploy-candidate-gcp:
+    name: Deploy Candidate to release-candidate (Cloud Run)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'gcp'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-candidate-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      ENVIRONMENT: release-candidate
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # Telemetry must never fail a deploy: pinned CLI major, --no-fail, and
+      # continue-on-error guard against upstream CLI changes and Datadog outages.
+      - name: Tag Datadog pipeline
+        continue-on-error: true
+        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}"
+
+      - name: Configure GCP credentials
+        uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ needs.lookup.outputs.project-id }}.iam.gserviceaccount.com
+
+      - name: Resolve candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          mode: tag
+          tag: ${{ inputs.tag }}
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to release-candidate
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          environment: release-candidate
+          runtime-project: ${{ needs.lookup.outputs.project-id }}
+          image: ${{ steps.resolve.outputs.image }}
+
+      - name: Record deployment event in Datadog
+        continue-on-error: true
+        run: |
+          jq -n \
+            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":release-candidate"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:release-candidate", "action:deploy",
+                     "revision:${{ inputs.tag }}"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+
+      - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
+
+  deploy-candidate-aws:
+    name: Deploy Candidate to release-candidate (ECS)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'aws'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-candidate-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      ENVIRONMENT: release-candidate
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # Fail clearly on AWS types not yet implemented in v2 (lambda / serverless).
+      - name: Guard supported AWS type
+        env:
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          case "$TYPE" in
+            ecs) ;;
+            *) echo "::error::v2 AWS deploys support type 'ecs' only in this pass (got '$TYPE'); lambda/serverless land in a later pass."; exit 1 ;;
+          esac
+
+      - name: Tag Datadog pipeline
+        continue-on-error: true
+        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}"
+
+      # ECS is org-shared in the cruds account (056154071827); one deploy role
+      # (GitHubDeployECS) covers every cluster. Unlike cloudrun, ECS derives
+      # everything from the env nickname + conventions — no runtime-project.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      - name: Resolve candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          mode: tag
+          tag: ${{ inputs.tag }}
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to release-candidate
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          environment: release-candidate
+          image: ${{ steps.resolve.outputs.image }}
+
+      - name: Record deployment event in Datadog
+        continue-on-error: true
+        run: |
+          jq -n \
+            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":release-candidate"),
+              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:release-candidate", "action:deploy",
+                     "revision:${{ inputs.tag }}"]}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+
+      - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
