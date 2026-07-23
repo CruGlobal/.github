@@ -45,11 +45,18 @@ convention Cloud Run uses.
 
 ### Tag families
 
-| Tag                | When            | Purpose                                   |
-| ------------------ | --------------- | ----------------------------------------- |
-| `candidate-<n>`    | at build        | env-neutral build of `main`               |
-| `sha-<gitsha>`     | at build        | git traceability                          |
-| `release-<r>`      | at promote      | promoted release / rollback target        |
+| Tag                       | When       | Purpose                             |
+| ------------------------- | ---------- | ----------------------------------- |
+| `candidate-<date>-<n>`    | at build   | env-neutral build of `main`         |
+| `sha-<gitsha>`            | at build   | git traceability                    |
+| `release-<date>-<n>`      | at promote | promoted release / rollback target  |
+
+`<date>` is the **build** date (`yyyy-mm-dd`, UTC), stamped once when the
+candidate is built (D10): humans get age-at-a-glance in tag listings, dispatch
+inputs, and Slack, while `<n>` (the build number) remains the unique key.
+Promote reuses the candidate's full suffix, so a release always shares its
+candidate's name. Legacy pre-D10 tags (`candidate-<n>` / `release-<n>`) remain
+resolvable everywhere; new builds always carry the date.
 
 ### The deploy invariant
 
@@ -82,7 +89,7 @@ the shared registry.
 | `project-name`    | yes                            | Project name (shared-registry repo and image name)                          |
 | `mode`            | yes                            | `environment` (resolve the RUNNING image) \| `tag` (resolve a tag)          |
 | `environment`     | when `mode=environment`        | Long env name whose running image to resolve                                |
-| `tag`             | when `mode=tag`                | e.g. `candidate-10012`, `release-3` — resolved against the shared registry  |
+| `tag`             | when `mode=tag`                | e.g. `candidate-2026-07-23-10056`, `release-2026-07-20-10041` — resolved against the shared registry  |
 | `runtime-project` | cloudrun + `mode=environment`  | GCP project ID of the app's target-env project                              |
 
 ### Outputs
@@ -256,7 +263,7 @@ the same digest to prod.
 
 ## Action: tag-image
 
-Provider-agnostic **release tagging**. Adds a tag (e.g. `release-10038`) to an
+Provider-agnostic **release tagging**. Adds a tag (e.g. `release-2026-07-20-10038`) to an
 already-pushed digest **without rebuilding or re-pushing layers** — the v2
 replacement for promote's `gcloud artifacts docker tags add` CLI step.
 
@@ -265,7 +272,7 @@ replacement for promote's `gcloud artifacts docker tags add` CLI step.
 | `type`             | yes      | —                     | `ecs` \| `lambda` \| `cloudrun`                 |
 | `project-name`     | yes      | —                     | project name (shared-registry repo/image)        |
 | `digest`           | yes      | —                     | the digest to tag, bare `sha256:...`             |
-| `tag`              | yes      | —                     | tag to add, e.g. `release-10038`                 |
+| `tag`              | yes      | —                     | tag to add, e.g. `release-2026-07-20-10038`                 |
 | `registry-project` | no       | `cru-shared-artifacts`| cloudrun only — GCP project of the registry      |
 
 | Output  | Description                              |
@@ -317,7 +324,7 @@ promote:
 - **build-candidate** routes the same way (a `setup` job then per-`type` build
   jobs); the ECS and Lambda build jobs mirror the Cloud Run one (no-change guard
   via `resolve-image sha-<sha>`, `build-number`, buildx, `./build.sh` pushing
-  `<ecr>/<project>:candidate-<n>` and `:sha-<sha>`, BUILD-secrets gated behind
+  `<ecr>/<project>:candidate-<date>-<n>` and `:sha-<sha>`, BUILD-secrets gated behind
   `build-secrets`). The Lambda job carries two deliberate differences from ECS —
   see "Lambda candidate build differences" below.
 
@@ -367,12 +374,14 @@ app's per-env GCP project ID). Each workflow that needs it inlines a small
 `build-candidate` does **not** hit the info service — it is prod-bound and reads
 the env-scoped `vars.GCP_*` directly (see "Candidate builds are prod-bound").
 
-### Release numbering
+### Release naming
 
-`release-<n>` **reuses the promoted candidate's build number**. Promote reads
-the `candidate-<n>` tag off the digest currently running in release-candidate and
-adds `release-<n>` to that same digest — there is no separate release counter, so
-releases are monotonic and traceable back to their candidate for free.
+`release-<date>-<n>` **reuses the promoted candidate's full suffix** (build
+date + build number). Promote reads the `candidate-*` tag off the digest
+currently running in release-candidate and adds the matching `release-*` tag to
+that same digest — there is no separate release counter, so releases are
+monotonic and traceable back to their candidate for free. (A legacy pre-D10
+candidate yields a matching legacy `release-<n>`.)
 
 **Failure mode:** promote FAILS with a clear message if the running
 release-candidate image carries no `candidate-*` tag (e.g. it was deployed by
@@ -418,14 +427,14 @@ to release-candidate is automated by design.
 ## Workflow: `build-candidate`
 
 Builds an env-neutral image once from the triggering commit and pushes it to the
-shared registry as `candidate-<n>` and `sha-<gitsha>`. Nothing is deployed.
+shared registry as `candidate-<date>-<n>` and `sha-<gitsha>`. Nothing is deployed.
 
 - **Router:** a `setup` job resolves the project name and validates `type`; a
   per-runtime build job runs on the matching `type`. All three (`cloudrun`,
   `ecs`, `lambda`) are implemented.
 - **No-change guard:** each build job first resolves `sha-<gitsha>` with
   `resolve-image` (`continue-on-error`). If it resolves, the existing
-  `candidate-<n>` is reused and every build step is skipped; otherwise the guard
+  the existing `candidate-*` tag is reused and every build step is skipped; otherwise the guard
   "fails" and the build proceeds.
 - **Output coalescing:** job outputs pick the reuse-path step outputs *or* the
   build-path step outputs with `||` (a skipped step's output is empty, so `||`
@@ -436,7 +445,7 @@ shared registry as `candidate-<n>` and `sha-<gitsha>`. Nothing is deployed.
 
 The Lambda build job is the ECS job (prod-bound `<project>-prod-GitHubRole`,
 no-change guard, `build-number`, buildx, ECR login, gated BUILD secrets,
-`./build.sh` pushing `<ecr>/<project>:candidate-<n>` + `:sha-<gitsha>`) with **two
+`./build.sh` pushing `<ecr>/<project>:candidate-<date>-<n>` + `:sha-<gitsha>`) with **two
 deliberate differences**, both commented in the workflow:
 
 1. **`--provenance=false`** in `DOCKER_ARGS`. Lambda cannot run an image whose
@@ -463,7 +472,7 @@ ECS job.
 | -------------- | --------------------------------------------- |
 | `project-name` | resolved project name                         |
 | `build-number` | candidate build number `<n>`                  |
-| `candidate`    | candidate tag (`candidate-<n>`)               |
+| `candidate`    | candidate tag (`candidate-<date>-<n>`)        |
 | `image`        | full digest reference of the candidate        |
 | `digest`       | `sha256:...` digest                           |
 
@@ -475,11 +484,25 @@ Deploys a candidate artifact to `release-candidate`. No authz gate.
 | -------------- | -------- | ------- | ------------------------------------ |
 | `workflow-ref` | no       | `main`  | ref of `CruGlobal/.github`           |
 | `project-name` | yes      | —       | project name                         |
-| `tag`          | yes      | —       | candidate tag, e.g. `candidate-10012`|
+| `tag`          | yes      | —       | candidate tag, e.g. `candidate-2026-07-23-10056`|
+| `force`        | no       | `false` | redeploy even when release-candidate already runs this digest |
 
 | Secret           | Required | Description     |
 | ---------------- | -------- | --------------- |
 | `datadog-api-key`| yes      | DataDog API key |
+
+**Idempotent by default:** after resolving the candidate, the workflow reads
+what release-candidate is currently running; if the digests match (and `force`
+is unset) the deploy, Datadog event, and notice are skipped. This makes
+scheduled app workflows safe to dispatch unconditionally — a quiet night is a
+true no-op. `force` exists for deliberate same-digest redeploys (e.g. picking
+up an applied Terraform task-definition template on ECS).
+
+**Cadence is the app workflow's choice.** Per-merge (`on: push` to `main` —
+the pilots) and nightly-if-changed (`on: schedule` + `workflow_dispatch`, the
+RFC's illustrated default) both work with no changes here: the build's
+no-change guard reuses the existing candidate when `main` hasn't moved, and
+this workflow's no-op guard skips the redeploy.
 
 Flow: app-info (`release-candidate`) → Datadog pipeline tag → GCP auth as the
 release-candidate `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`
@@ -501,10 +524,10 @@ Promotes the release-candidate artifact to production (production lock).
 
 Flow: authz → app-info for **both** `release-candidate` and `production` (two
 `ProjectId`s) → GCP auth as the **rc** `cru-deploy` SA → `resolve-image` (mode
-`environment`, capture digest + its `candidate-<n>`, fail if absent) → re-auth as
+`environment`, capture digest + its `candidate-*` tag, fail if absent) → re-auth as
 the **prod** `cru-deploy` SA → `deploy` (cloudrun, `production`) →
-`gcloud artifacts docker tags add <image_base>@<digest> <image_base>:release-<n>`
-→ `dora deployment` (env `production`, version `release-<n>`).
+`gcloud artifacts docker tags add <image_base>@<digest> <image_base>:release-<date>-<n>`
+→ `dora deployment` (env `production`, version `release-<date>-<n>`).
 
 ### Releases are permanent
 
@@ -521,14 +544,14 @@ Redeploys a previously promoted release to production (production lock).
 | -------------- | -------- | ------- | ---------------------------------------- |
 | `workflow-ref` | no       | `main`  | ref of `CruGlobal/.github`               |
 | `project-name` | yes      | —       | project name                             |
-| `release`      | yes      | —       | `release-10012` **or** bare `10012`      |
+| `release`      | yes      | —       | `release-2026-07-20-10041` (the `release-` prefix is optional); legacy `release-<n>` / bare `<n>` still resolve |
 
 | Secret           | Required | Description                                 |
 | ---------------- | -------- | ------------------------------------------- |
 | `datadog-api-key`| yes      | DataDog API key                             |
 | `authz-token`    | yes      | token for the collaborator-permission check |
 
-Flow: authz → app-info (`production`) → normalize `release` to `release-<n>` →
+Flow: authz → app-info (`production`) → normalize `release` to a full tag →
 GCP auth as the prod `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`
 (cloudrun, `production`) → `dora deployment` with `--custom-tags "rollback:true"`.
 
@@ -559,7 +582,7 @@ actions page.
 | -------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
 | app **prod** build SA (`github-actions@<prod-project>`) | **AR writer** on the app's `cru-shared-artifacts/<app>` repo | `build-candidate` pushes `candidate-*`/`sha-*` |
 | each env's `cru-deploy@<env-project>` SA     | **AR reader** on `cru-shared-artifacts/<app>`  | `resolve-image` reads tags/digests             |
-| **prod** `cru-deploy@<prod-project>` SA      | **AR writer** on `cru-shared-artifacts/<app>`  | `promote` adds the `release-<n>` tag           |
+| **prod** `cru-deploy@<prod-project>` SA      | **AR writer** on `cru-shared-artifacts/<app>`  | `promote` adds the `release-*` tag           |
 | `cru-deploy` control repo                    | `authz-token` secret (pilot: `CRU_DEVOPS_GITHUB_TOKEN`) | promote/rollback collaborator-permission check |
 | `cru-deploy` control repo                    | `vars.GCP_WORKLOAD_IDENTITY_PROVIDER` + WIF trust so each env's `cru-deploy` SA is impersonable | GCP auth in deploy-candidate/promote/rollback |
 
@@ -574,7 +597,7 @@ is needed.
 | app **prod** build role (`<project>-prod-GitHubRole`) | ECR **push** on the app's ECR repo + DynamoDB `UpdateItem` on `ECSBuildNumbers` | `build-candidate` (ECS **and Lambda**) pushes `candidate-*`/`sha-*` and increments the build counter (Lambda reuses the same build-number counter) |
 | `GitHubDeployECS` (`arn:aws:iam::056154071827:role/GitHubDeployECS`) | ECS deploy (`ecs:*TaskDefinition`, `ecs:UpdateService`), EventBridge (`events:*Targets`), SSM read, ECR `DescribeImages`/`BatchGetImage` | AWS `deploy-candidate`/`promote`/`rollback` resolve + deploy for **ecs** |
 | `GitHubDeployLambda` (`arn:aws:iam::056154071827:role/GitHubDeployLambda`) | Lambda `ListFunctions`/`GetFunction`/`GetFunctionConfiguration`/`UpdateFunctionCode`, ECR `DescribeImages`/`BatchGetImage` | AWS `deploy-candidate`/`promote`/`rollback` resolve + deploy for **lambda** |
-| `GitHubDeployECS` / `GitHubDeployLambda`       | **`ecr:PutImage`** on each app's ECR repo                                       | `promote` stamps `release-<n>` via the tag-image manifest re-tag (shared ECR path for ecs + lambda) |
+| `GitHubDeployECS` / `GitHubDeployLambda`       | **`ecr:PutImage`** on each app's ECR repo                                       | `promote` stamps `release-*` via the tag-image manifest re-tag (shared ECR path for ecs + lambda) |
 
 > **Terraform follow-ups (aws/ecs/app + aws/lambda/app modules, separate PR):**
 > 1. Add a dedicated **`<project>-<env>-GitHubRole`** for builds and **remove

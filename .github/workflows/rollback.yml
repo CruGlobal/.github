@@ -90,18 +90,21 @@ jobs:
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
-      # Accept either "release-10012" or a bare "10012" and normalize to a tag.
+      # Accept "release-2026-07-23-10056" or the same without the "release-"
+      # prefix; legacy pre-D10 tags ("release-10012" or bare "10012") still work.
+      # A bare build number only resolves for legacy releases — dated releases
+      # must be named in full (copy the tag from the promote run or Slack).
       - name: Normalize release tag
         id: release
         env:
           RELEASE: ${{ inputs.release }}
         run: |
-          number="${RELEASE#release-}"
-          if ! echo "$number" | grep -qE '^[0-9]+$'; then
-            echo "::error::invalid release '$RELEASE'; expected 'release-<n>' or a bare '<n>'"
+          suffix="${RELEASE#release-}"
+          if ! echo "$suffix" | grep -qE '^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$'; then
+            echo "::error::invalid release '$RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional)"
             exit 1
           fi
-          echo "tag=release-$number" >> "$GITHUB_OUTPUT"
+          echo "tag=release-$suffix" >> "$GITHUB_OUTPUT"
 
   rollback-gcp:
     name: Roll production back (Cloud Run)

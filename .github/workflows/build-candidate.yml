@@ -1,8 +1,8 @@
 name: Build Candidate
 
 # Pipeline v2 "build once" entrypoint. Builds an env-neutral image from the
-# triggering commit and pushes it to the shared registry tagged candidate-<n>
-# (and sha-<gitsha> for traceability). Nothing is deployed here — every
+# triggering commit and pushes it to the shared registry tagged candidate-<yyyy-mm-dd>-<n>
+# (build date + build number; and sha-<gitsha> for traceability). Nothing is deployed here — every
 # environment later deploys this exact artifact by digest.
 
 on:
@@ -40,7 +40,7 @@ on:
         description: Build number of the candidate.
         value: ${{ jobs.build-cloudrun.outputs.build-number || jobs.build-ecs.outputs.build-number || jobs.build-lambda.outputs.build-number }}
       candidate:
-        description: Candidate tag (candidate-<n>).
+        description: Candidate tag (candidate-<yyyy-mm-dd>-<n>).
         value: ${{ jobs.build-cloudrun.outputs.candidate || jobs.build-ecs.outputs.candidate || jobs.build-lambda.outputs.candidate }}
       image:
         description: Full digest reference of the candidate image.
@@ -139,13 +139,13 @@ jobs:
         env:
           TAGS: ${{ steps.guard.outputs.tags }}
         run: |
-          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
             echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
             exit 1
           fi
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-          echo "build-number=${candidate#candidate-}" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate##*-}" >> "$GITHUB_OUTPUT"
           echo "::notice title=No-change build::reusing $candidate (git sha already built)"
 
       - name: Increment build number
@@ -156,7 +156,11 @@ jobs:
       - name: Compute candidate tag
         if: steps.guard.outcome != 'success'
         id: built
-        run: echo "candidate=candidate-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+        # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
+        # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
+        # number remains the unique key. Promote reuses the full suffix, so
+        # release-<yyyy-mm-dd>-<n> names the same artifact.
+        run: echo "candidate=candidate-$(date -u +%F)-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.guard.outcome != 'success'
@@ -194,7 +198,7 @@ jobs:
         env:
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
-            --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:candidate-${{ steps.build-number.outputs.build-number }}
+            --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --push
 
@@ -276,13 +280,13 @@ jobs:
         env:
           TAGS: ${{ steps.guard.outputs.tags }}
         run: |
-          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
             echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
             exit 1
           fi
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-          echo "build-number=${candidate#candidate-}" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate##*-}" >> "$GITHUB_OUTPUT"
           echo "::notice title=No-change build::reusing $candidate (git sha already built)"
 
       - name: Increment build number
@@ -293,7 +297,11 @@ jobs:
       - name: Compute candidate tag
         if: steps.guard.outcome != 'success'
         id: built
-        run: echo "candidate=candidate-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+        # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
+        # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
+        # number remains the unique key. Promote reuses the full suffix, so
+        # release-<yyyy-mm-dd>-<n> names the same artifact.
+        run: echo "candidate=candidate-$(date -u +%F)-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.guard.outcome != 'success'
@@ -329,7 +337,7 @@ jobs:
         env:
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
-            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:candidate-${{ steps.build-number.outputs.build-number }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --push
 
@@ -410,13 +418,13 @@ jobs:
         env:
           TAGS: ${{ steps.guard.outputs.tags }}
         run: |
-          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
             echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
             exit 1
           fi
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-          echo "build-number=${candidate#candidate-}" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate##*-}" >> "$GITHUB_OUTPUT"
           echo "::notice title=No-change build::reusing $candidate (git sha already built)"
 
       - name: Increment build number
@@ -427,7 +435,11 @@ jobs:
       - name: Compute candidate tag
         if: steps.guard.outcome != 'success'
         id: built
-        run: echo "candidate=candidate-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+        # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
+        # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
+        # number remains the unique key. Promote reuses the full suffix, so
+        # release-<yyyy-mm-dd>-<n> names the same artifact.
+        run: echo "candidate=candidate-$(date -u +%F)-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.guard.outcome != 'success'
@@ -476,7 +488,7 @@ jobs:
           #    runtime, and BUILD_NUMBER is unused.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
-            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:candidate-${{ steps.build-number.outputs.build-number }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --provenance=false
             --push

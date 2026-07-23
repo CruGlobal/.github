@@ -2,9 +2,10 @@ name: Promote
 
 # Promote the artifact currently running in release-candidate to production.
 # "Build once, promote the artifact": the exact digest running in release-
-# candidate is deployed to production and tagged release-<n>, where <n> is the
-# candidate's build number (no separate release counter — releases are traceable
-# to their candidate for free).
+# candidate is deployed to production and tagged release-<yyyy-mm-dd>-<n> — the
+# candidate tag's full suffix, build date + build number (no separate release
+# counter — releases are traceable to their candidate for free; pre-D10
+# candidates without a date yield release-<n>).
 #
 # Multi-provider router (D9 pattern at job level): a `lookup` job runs the authz
 # gate + both app-info fetches (release-candidate and production) and outputs the
@@ -154,14 +155,14 @@ jobs:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
         run: |
-          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
-            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate-<n> tag; cannot derive a release number. Deploy a candidate via deploy-candidate first."
+            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate tag; cannot derive a release name. Deploy a candidate via deploy-candidate first."
             exit 1
           fi
-          number="${candidate#candidate-}"
+          suffix="${candidate#candidate-}"
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-          echo "release=release-$number" >> "$GITHUB_OUTPUT"
+          echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
 
       - name: Configure GCP credentials (production SA)
         uses: google-github-actions/auth@v3
@@ -266,14 +267,14 @@ jobs:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
         run: |
-          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-[0-9]+$' | head -n1 || true)
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
-            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate-<n> tag; cannot derive a release number. Deploy a candidate via deploy-candidate first."
+            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate tag; cannot derive a release name. Deploy a candidate via deploy-candidate first."
             exit 1
           fi
-          number="${candidate#candidate-}"
+          suffix="${candidate#candidate-}"
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-          echo "release=release-$number" >> "$GITHUB_OUTPUT"
+          echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
 
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"

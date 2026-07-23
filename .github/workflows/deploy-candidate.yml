@@ -25,7 +25,17 @@ on:
       tag:
         type: string
         required: true
-        description: Candidate tag to deploy, e.g. candidate-10012.
+        description: Candidate tag to deploy, e.g. candidate-2026-07-23-10056.
+      force:
+        type: boolean
+        required: false
+        default: false
+        description: >-
+          Deploy even when release-candidate already runs this exact digest.
+          Without it the deploy no-ops when nothing would change — which makes
+          scheduled (nightly-cadence) app workflows safe to dispatch
+          unconditionally. Force a same-digest redeploy to pick up out-of-band
+          changes (e.g. an applied Terraform task-definition template).
     secrets:
       datadog-api-key:
         required: true
@@ -113,10 +123,40 @@ jobs:
           mode: tag
           tag: ${{ inputs.tag }}
 
+      # Idempotency: if release-candidate already runs this exact digest, the
+      # deploy is a no-op (unless force). continue-on-error — a fresh env with no
+      # deployed image resolves nothing, which simply means "not deployed yet".
+      - name: Check image currently on release-candidate
+        uses: ./cru-github-actions/actions/resolve-image
+        id: current
+        continue-on-error: true
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          mode: environment
+          environment: release-candidate
+          runtime-project: ${{ needs.lookup.outputs.project-id }}
+
+      - name: No-op guard (already deployed)
+        id: noop
+        env:
+          WANT: ${{ steps.resolve.outputs.digest }}
+          HAVE: ${{ steps.current.outputs.digest }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Already deployed::release-candidate already runs ${{ inputs.tag }} ($WANT); skipping (set force to redeploy)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Record deploy start
+        if: steps.noop.outputs.skip != 'true'
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Deploy to release-candidate
+        if: steps.noop.outputs.skip != 'true'
         uses: ./cru-github-actions/actions/deploy
         with:
           type: cloudrun
@@ -126,6 +166,7 @@ jobs:
           image: ${{ steps.resolve.outputs.image }}
 
       - name: Record deployment event in Datadog
+        if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
         run: |
           jq -n \
@@ -140,7 +181,8 @@ jobs:
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
-      - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
+      - if: steps.noop.outputs.skip != 'true'
+        run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
 
   deploy-candidate-aws:
     name: Deploy Candidate to release-candidate (AWS)
@@ -198,10 +240,39 @@ jobs:
           mode: tag
           tag: ${{ inputs.tag }}
 
+      # Idempotency: if release-candidate already runs this exact digest, the
+      # deploy is a no-op (unless force). continue-on-error — a fresh env still on
+      # the scratch placeholder resolves nothing, which means "not deployed yet".
+      - name: Check image currently on release-candidate
+        uses: ./cru-github-actions/actions/resolve-image
+        id: current
+        continue-on-error: true
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          mode: environment
+          environment: release-candidate
+
+      - name: No-op guard (already deployed)
+        id: noop
+        env:
+          WANT: ${{ steps.resolve.outputs.digest }}
+          HAVE: ${{ steps.current.outputs.digest }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Already deployed::release-candidate already runs ${{ inputs.tag }} ($WANT); skipping (set force to redeploy)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Record deploy start
+        if: steps.noop.outputs.skip != 'true'
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Deploy to release-candidate
+        if: steps.noop.outputs.skip != 'true'
         uses: ./cru-github-actions/actions/deploy
         with:
           type: ${{ needs.lookup.outputs.type }}
@@ -210,6 +281,7 @@ jobs:
           image: ${{ steps.resolve.outputs.image }}
 
       - name: Record deployment event in Datadog
+        if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
         run: |
           jq -n \
@@ -224,4 +296,5 @@ jobs:
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
 
-      - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
+      - if: steps.noop.outputs.skip != 'true'
+        run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
