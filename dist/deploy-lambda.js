@@ -49037,7 +49037,7 @@ var require_dist_cjs16 = __commonJS({
       const serviceDefaults = { minDelay: 1, maxDelay: 300 };
       return createWaiter2({ ...serviceDefaults, ...params }, input, checkState$1);
     };
-    var waitUntilFunctionUpdatedV2 = async (params, input) => {
+    var waitUntilFunctionUpdatedV22 = async (params, input) => {
       const serviceDefaults = { minDelay: 1, maxDelay: 300 };
       const result = await createWaiter2({ ...serviceDefaults, ...params }, input, checkState$1);
       return checkExceptions2(result);
@@ -49196,7 +49196,7 @@ var require_dist_cjs16 = __commonJS({
     var waiters = {
       waitUntilFunctionActiveV2,
       waitUntilFunctionExists,
-      waitUntilFunctionUpdatedV2,
+      waitUntilFunctionUpdatedV2: waitUntilFunctionUpdatedV22,
       waitUntilFunctionActive,
       waitUntilFunctionUpdated,
       waitUntilPublishedVersionActive
@@ -50193,7 +50193,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.waitUntilFunctionActiveV2 = waitUntilFunctionActiveV2;
     exports2.waitUntilFunctionExists = waitUntilFunctionExists;
     exports2.waitUntilFunctionUpdated = waitUntilFunctionUpdated;
-    exports2.waitUntilFunctionUpdatedV2 = waitUntilFunctionUpdatedV2;
+    exports2.waitUntilFunctionUpdatedV2 = waitUntilFunctionUpdatedV22;
     exports2.waitUntilPublishedVersionActive = waitUntilPublishedVersionActive;
   }
 });
