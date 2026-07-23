@@ -8,8 +8,8 @@ environment.
 
 This document covers:
 
-- **Pass 1** — the `resolve-image` and `deploy` actions (Cloud Run implemented;
-  ECS and Lambda stubbed).
+- **Pass 1** — the `resolve-image` and `deploy` actions (Cloud Run, ECS, and
+  Lambda all implemented).
 - **Pass 2** — the four reusable workflows (`build-candidate`,
   `deploy-candidate`, `promote`, `rollback`) and the generic `dispatch` action
   that wire those actions into the promotion flow.
@@ -120,11 +120,11 @@ Deploys a pre-built, digest-pinned image to a target environment.
 | -------- | ------------- | ----------- | --------------- |
 | cloudrun | implemented   | implemented | implemented     |
 | ecs      | implemented   | implemented | implemented     |
-| lambda   | stub (throws) | stub (throws) | stub (fails)  |
+| lambda   | implemented   | implemented | implemented     |
 
-Both actions use a router that dispatches on `type`. The Lambda stubs throw a
-clear "lands in a later v2 pass" error, so Lambda gets filled in later without
-any change to the action interfaces.
+Both actions use a router that dispatches on `type`. All three runtimes are now
+implemented against the same `{ image, digest, tags }` / `{ deployedImage,
+services }` contracts.
 
 ### Cloud Run implementation notes
 
@@ -202,6 +202,58 @@ named services with either the legacy long name or the nickname.
   v1's retry config (`maxAttempts: 5`, standard mode), now policy for all v2
   remote calls after the pilot 503.
 
+### Lambda implementation notes
+
+Lambda shares the ECS action contracts and the same org-shared ECR registry /
+per-app repo (keyed on the **project name**). Like ECS it takes **no
+`runtime-project`** — everything derives from the env nickname + naming
+conventions (functions are named `<project>-<nick>*`, resolved via v1's
+`lambdaListFunctionNames` prefix filter). All functions are **image (container)**
+functions.
+
+- **tag -> digest**: identical to ECS — ECR `DescribeImages` by `imageTag`
+  returns the `imageDigest` plus every tag on it; the full ref is
+  `056154071827.dkr.ecr.us-east-1.amazonaws.com/<project>@<digest>`.
+- **environment -> digest**: lists the app's `<project>-<nick>*` functions,
+  `GetFunction`s each, and returns the first that is an **Image** function whose
+  `Code.ResolvedImageUri` is in the app's ECR repo. A function's
+  `ResolvedImageUri` is **always a digest ref**, so — unlike ECS — there is no
+  tag-ref branch to resolve. Functions still on the shared **`scratch`**
+  placeholder (`<registry>/scratch@…`) have never been deployed and are skipped
+  (the same skip ECS applies to its `scratch` placeholder).
+- **deploy — v1's RATIFIED selection semantics**: update **every**
+  `<project>-<nick>*` function that is an Image function AND whose currently
+  resolved image is either the app's ECR repo **OR** the shared `scratch` repo,
+  calling `UpdateFunctionCode` with the digest-pinned `image`. Non-image /
+  other-repo functions are logged and skipped. The **scratch match is
+  load-bearing**: Terraform (aws/lambda/app module) boots NEW functions on
+  `scratch:latest`, and the deploy is what flips them to the real image on their
+  first deploy. Prod may run several functions (e.g. one per tenant); all are
+  updated to the same digest.
+- **deploy waits for completion (v2 hardening over v1)**: `UpdateFunctionCode` is
+  **async** — it returns before the new image is live (`LastUpdateStatus:
+  InProgress`). v2 therefore blocks on `waitUntilFunctionUpdatedV2` (max ~300s
+  per function, `LastUpdateStatus: Failed` → error) after each update. The pilot
+  hit a read-back race where promote/rollback verified the running digest before
+  the function had actually switched images; deploy must not return until every
+  function runs the new image. (v1 slept 5s between updates instead; the wait
+  subsumes that spacing.)
+- **digest invariant**: `deploy-lambda` calls `assertDigestRef(image)` up front,
+  so a tag ref fails before any AWS call — same as ECS / Cloud Run.
+- **the wait helper** (`lambdaWaitForFunctionUpdated`, `src/aws.js`) is built with
+  the same `maxAttempts: 5` retry config as the other Lambda helpers.
+
+**Dry-run release-candidate gate (tenant-target apps).** The Lambda pilot
+(`okta-api-keepalive`) uses release-candidate as a **`DRY_RUN=true` surface**: the
+rc function runs the candidate image on its normal cron with side effects
+disabled, so a bad candidate is caught before it can touch tenants. Promote then
+ships **that exact digest** to the production functions (which run for real).
+`DRY_RUN` is a per-env function env var owned by Terraform (aws/lambda/app), not
+baked into the image — the candidate is env-neutral and the same digest runs in
+both environments. This is the recommended pattern for any app whose production
+functions fan out to multiple tenants: candidate → dry-run rc on cron → promote
+the same digest to prod.
+
 ## Action: tag-image
 
 Provider-agnostic **release tagging**. Adds a tag (e.g. `release-10038`) to an
@@ -239,18 +291,22 @@ one provider job runs per app (an app is one provider).
 ```
 promote:
   lookup ─┬─(provider==gcp)→ promote-gcp   # WIF auth, cloudrun resolve→deploy→tag-image(cloudrun)→dora
-          └─(provider==aws)→ promote-aws   # configure-aws-credentials, ecs resolve→deploy→tag-image(ecs)→dora
+          └─(provider==aws)→ promote-aws   # configure-aws-credentials (ECS/Lambda role), resolve→deploy→tag-image→event
 ```
 
 - **GCP jobs keep today's flow exactly** — WIF auth as the env `cru-deploy` SA,
   `resolve-image`/`deploy` with `type: cloudrun` and `runtime-project` — with one
   change: the `gcloud` release-tag step is replaced by `actions/tag-image`.
-- **AWS jobs** `configure-aws-credentials@v6` assuming
-  `arn:aws:iam::056154071827:role/GitHubDeployECS` (region `us-east-1`), then the
-  same `resolve → deploy → tag-image → dora` sequence with `type` from app-info.
-  The rc + prod ECS clusters share the cruds account, so — unlike GCP's per-env
-  SA re-auth — one credential covers the whole promote. A guard step fails
-  clearly for AWS types not yet supported (`lambda`, `serverless`).
+- **AWS jobs** `configure-aws-credentials@v6` assuming a **type-keyed** deploy
+  role (region `us-east-1`): `arn:aws:iam::056154071827:role/GitHubDeployLambda`
+  for `type == lambda`, else `…/GitHubDeployECS`. Both are cru-deploy-scoped and
+  live in the cruds account. Then the same `resolve → deploy → tag-image → event`
+  sequence with `type` from app-info. The rc + prod ECS clusters / Lambda
+  functions share the cruds account, so — unlike GCP's per-env SA re-auth — one
+  credential covers the whole promote. A guard step accepts `ecs` and `lambda`
+  and fails clearly for AWS types not yet supported (`serverless`). `tag-image`
+  routes `ecs` and `lambda` down the same ECR manifest re-tag path, so the
+  release-tag step needs `ecr:PutImage` on whichever deploy role was assumed.
 - **Authorization** (promote/rollback) runs in the `lookup` job, which every
   provider job `needs`, so it **always** passes before any provider job mutates
   production — provider-agnostic by construction.
@@ -259,10 +315,11 @@ promote:
   the same group, and only one ever runs, so whichever runs holds the lock;
   promote and rollback still **share** `production-<project>`.
 - **build-candidate** routes the same way (a `setup` job then per-`type` build
-  jobs); the ECS build job mirrors the Cloud Run one (no-change guard via
-  `resolve-image sha-<sha>`, `build-number`, buildx, `./build.sh` pushing
+  jobs); the ECS and Lambda build jobs mirror the Cloud Run one (no-change guard
+  via `resolve-image sha-<sha>`, `build-number`, buildx, `./build.sh` pushing
   `<ecr>/<project>:candidate-<n>` and `:sha-<sha>`, BUILD-secrets gated behind
-  `build-secrets`). Lambda stays a stub.
+  `build-secrets`). The Lambda job carries two deliberate differences from ECS —
+  see "Lambda candidate build differences" below.
 
 # Pass 2: reusable workflows
 
@@ -298,8 +355,10 @@ app's per-env GCP project ID). Each workflow that needs it inlines a small
   | `production`        | `production`                     |
   | `preview`           | `lab`                            |
 
-- **cloudrun only in this pass.** If `Provider != "gcp"` the step fails with
-  *"only cloudrun apps are supported in this v2 pass"*.
+- **`gcp` and `aws` providers.** The lookup step fails for any other
+  `Provider`. AWS apps route by `Type`: `ecs` and `lambda` are supported;
+  the provider job's "Guard supported AWS type" step fails clearly for
+  anything else (`serverless`).
 
 `ProjectId` is used two ways: as the `runtime-project` input to
 `resolve-image`/`deploy`, and to build the deploy identity
@@ -362,9 +421,9 @@ Builds an env-neutral image once from the triggering commit and pushes it to the
 shared registry as `candidate-<n>` and `sha-<gitsha>`. Nothing is deployed.
 
 - **Router:** a `setup` job resolves the project name and validates `type`; a
-  per-runtime build job runs on the matching `type`. Only `cloudrun` is
-  implemented (`ecs`/`lambda` jobs fail with *"…land in a later v2 pass"*).
-- **No-change guard:** the cloudrun job first resolves `sha-<gitsha>` with
+  per-runtime build job runs on the matching `type`. All three (`cloudrun`,
+  `ecs`, `lambda`) are implemented.
+- **No-change guard:** each build job first resolves `sha-<gitsha>` with
   `resolve-image` (`continue-on-error`). If it resolves, the existing
   `candidate-<n>` is reused and every build step is skipped; otherwise the guard
   "fails" and the build proceeds.
@@ -372,6 +431,27 @@ shared registry as `candidate-<n>` and `sha-<gitsha>`. Nothing is deployed.
   build-path step outputs with `||` (a skipped step's output is empty, so `||`
   selects whichever path ran); the workflow outputs coalesce across the three
   runtime jobs the same way.
+
+### Lambda candidate build differences
+
+The Lambda build job is the ECS job (prod-bound `<project>-prod-GitHubRole`,
+no-change guard, `build-number`, buildx, ECR login, gated BUILD secrets,
+`./build.sh` pushing `<ecr>/<project>:candidate-<n>` + `:sha-<gitsha>`) with **two
+deliberate differences**, both commented in the workflow:
+
+1. **`--provenance=false`** in `DOCKER_ARGS`. Lambda cannot run an image whose
+   top-level manifest is an OCI image index / attestation manifest — exactly what
+   buildx emits by default (provenance attestations produce a manifest list);
+   `UpdateFunctionCode` rejects such images. The flag forces a single image
+   manifest. v1's `build-lambda.yml` carries the same flag for the same reason.
+2. **No `--build-arg PROJECT_NAME/ENVIRONMENT/BUILD_NUMBER`** (v1 passed these).
+   v2 candidates are **env-neutral**: the aws/lambda/app Terraform module injects
+   `PROJECT_NAME` and `ENVIRONMENT` as function env vars at runtime, and
+   `BUILD_NUMBER` is unused. Baking an environment into the image would break
+   build-once/promote.
+
+No buildx cache and no docker-network (v2 build jobs use neither), matching the
+ECS job.
 
 | Input          | Required | Default     | Description                                   |
 | -------------- | -------- | ----------- | --------------------------------------------- |
@@ -491,17 +571,22 @@ is needed.
 
 | Identity                                      | Needs                                                                          | Why                                                        |
 | --------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| app **prod** ECS build role (`<project>-prod-GitHubRole`) | ECR **push** on the app's ECR repo + DynamoDB `UpdateItem` on `ECSBuildNumbers` | `build-candidate` (ECS) pushes `candidate-*`/`sha-*` and increments the build counter |
-| `GitHubDeployECS` (`arn:aws:iam::056154071827:role/GitHubDeployECS`) | ECS deploy (`ecs:*TaskDefinition`, `ecs:UpdateService`), EventBridge (`events:*Targets`), SSM read, ECR `DescribeImages`/`BatchGetImage` | AWS `deploy-candidate`/`promote`/`rollback` resolve + deploy |
-| `GitHubDeployECS`                              | **`ecr:PutImage`** on each app's ECR repo                                       | `promote` (ECS) stamps `release-<n>` via the tag-image manifest re-tag |
+| app **prod** build role (`<project>-prod-GitHubRole`) | ECR **push** on the app's ECR repo + DynamoDB `UpdateItem` on `ECSBuildNumbers` | `build-candidate` (ECS **and Lambda**) pushes `candidate-*`/`sha-*` and increments the build counter (Lambda reuses the same build-number counter) |
+| `GitHubDeployECS` (`arn:aws:iam::056154071827:role/GitHubDeployECS`) | ECS deploy (`ecs:*TaskDefinition`, `ecs:UpdateService`), EventBridge (`events:*Targets`), SSM read, ECR `DescribeImages`/`BatchGetImage` | AWS `deploy-candidate`/`promote`/`rollback` resolve + deploy for **ecs** |
+| `GitHubDeployLambda` (`arn:aws:iam::056154071827:role/GitHubDeployLambda`) | Lambda `ListFunctions`/`GetFunction`/`GetFunctionConfiguration`/`UpdateFunctionCode`, ECR `DescribeImages`/`BatchGetImage` | AWS `deploy-candidate`/`promote`/`rollback` resolve + deploy for **lambda** |
+| `GitHubDeployECS` / `GitHubDeployLambda`       | **`ecr:PutImage`** on each app's ECR repo                                       | `promote` stamps `release-<n>` via the tag-image manifest re-tag (shared ECR path for ecs + lambda) |
 
-> **Terraform follow-ups (aws/ecs/app module, separate PR):**
+> **Terraform follow-ups (aws/ecs/app + aws/lambda/app modules, separate PR):**
 > 1. Add a dedicated **`<project>-<env>-GitHubRole`** for builds and **remove
 >    GitHub trust from `TaskRole`** — ending v1's dual-purpose role. Candidates
->    are prod-bound, so the ECS build identity is `<project>-prod-GitHubRole`.
-> 2. Add **`ecr:PutImage`** to `GitHubDeployECS` — without it the `promote` ECS
->    release-tag step (`actions/tag-image`) fails. `BatchGetImage` +
->    `DescribeImages` are read-side and typically already granted.
+>    are prod-bound, so the build identity is `<project>-prod-GitHubRole`.
+> 2. Add **`ecr:PutImage`** to `GitHubDeployECS` **and `GitHubDeployLambda`** —
+>    without it the `promote` release-tag step (`actions/tag-image`) fails.
+>    `BatchGetImage` + `DescribeImages` are read-side and typically already
+>    granted.
+> 3. `GitHubDeployLambda` already exists (cru-deploy-scoped, like the ECS role);
+>    confirm it grants `GetFunctionConfiguration` (the completion-wait poll) and
+>    `UpdateFunctionCode` across every app's `<project>-<nick>*` functions.
 
 ## Pass 3 sketch: `cru-deploy` wrapper workflows
 

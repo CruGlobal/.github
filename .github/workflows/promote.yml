@@ -210,7 +210,7 @@ jobs:
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
 
   promote-aws:
-    name: Promote release-candidate to production (ECS)
+    name: Promote release-candidate to production (AWS)
     needs: lookup
     if: needs.lookup.outputs.provider == 'aws'
     runs-on: ubuntu-latest
@@ -237,17 +237,19 @@ jobs:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs) ;;
-            *) echo "::error::v2 AWS deploys support type 'ecs' only in this pass (got '$TYPE'); lambda/serverless land in a later pass."; exit 1 ;;
+            ecs|lambda) ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
           esac
 
-      # One deploy role (GitHubDeployECS) covers the rc + prod clusters, which
-      # share the cruds account (056154071827) — no per-env re-auth needed.
+      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda) covers the
+      # rc + prod clusters/functions, which share the cruds account (056154071827)
+      # — no per-env re-auth needed. The chosen role also holds ecr:PutImage for
+      # the release-<n> tag-image step below.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
       - name: Resolve running release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
@@ -284,8 +286,9 @@ jobs:
           environment: production
           image: ${{ steps.resolve.outputs.image }}
 
-      # Tag the promoted digest release-<n> in ECR (manifest re-tag). Requires
-      # ecr:PutImage on GitHubDeployECS — see the tag-image comment / docs.
+      # Tag the promoted digest release-<n> in ECR (manifest re-tag; the ECR path
+      # is shared by ecs and lambda). Requires ecr:PutImage on the deploy role
+      # (GitHubDeployECS / GitHubDeployLambda) — see the tag-image comment / docs.
       - name: Tag digest as release
         uses: ./cru-github-actions/actions/tag-image
         with:

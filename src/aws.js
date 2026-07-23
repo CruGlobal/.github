@@ -35,7 +35,8 @@ import {
   LambdaClient,
   GetFunctionCommand,
   UpdateFunctionCodeCommand,
-  paginateListFunctions
+  paginateListFunctions,
+  waitUntilFunctionUpdatedV2
 } from '@aws-sdk/client-lambda'
 
 const tagReducer = (previousValue, currentValue) => {
@@ -195,4 +196,18 @@ export async function lambdaUpdateFunctionCode(functionName, imageUri) {
     ImageUri: imageUri
   })
   return await client.send(command)
+}
+
+// Block until a function's in-flight code/config update completes. UpdateFunction
+// Code returns before the image is actually live (LastUpdateStatus 'InProgress'),
+// so v2 waits here before returning — otherwise a subsequent resolve/verify can
+// read the OLD digest (the race the Lambda pilot hit). Polls GetFunction
+// Configuration and rejects on a 'Failed' terminal state. Added for v2; v1's
+// deploy-lambda did not wait (it slept 5s between updates instead).
+export async function lambdaWaitForFunctionUpdated(functionName, maxWaitTime = 300) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  return await waitUntilFunctionUpdatedV2(
+    { client, maxWaitTime },
+    { FunctionName: functionName }
+  )
 }

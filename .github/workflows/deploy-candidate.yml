@@ -143,7 +143,7 @@ jobs:
       - run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
 
   deploy-candidate-aws:
-    name: Deploy Candidate to release-candidate (ECS)
+    name: Deploy Candidate to release-candidate (AWS)
     needs: lookup
     if: needs.lookup.outputs.provider == 'aws'
     runs-on: ubuntu-latest
@@ -165,28 +165,29 @@ jobs:
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
 
-      # Fail clearly on AWS types not yet implemented in v2 (lambda / serverless).
+      # Fail clearly on AWS types not yet implemented in v2 (serverless).
       - name: Guard supported AWS type
         env:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs) ;;
-            *) echo "::error::v2 AWS deploys support type 'ecs' only in this pass (got '$TYPE'); lambda/serverless land in a later pass."; exit 1 ;;
+            ecs|lambda) ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
           esac
 
       - name: Tag Datadog pipeline
         continue-on-error: true
         run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}"
 
-      # ECS is org-shared in the cruds account (056154071827); one deploy role
-      # (GitHubDeployECS) covers every cluster. Unlike cloudrun, ECS derives
+      # ECS/Lambda are org-shared in the cruds account (056154071827); one deploy
+      # role per type (GitHubDeployECS / GitHubDeployLambda, both cru-deploy-
+      # scoped) covers every cluster/function. Unlike cloudrun, AWS derives
       # everything from the env nickname + conventions — no runtime-project.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image

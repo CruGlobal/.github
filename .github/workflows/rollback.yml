@@ -173,7 +173,7 @@ jobs:
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
   rollback-aws:
-    name: Roll production back (ECS)
+    name: Roll production back (AWS)
     needs: lookup
     if: needs.lookup.outputs.provider == 'aws'
     runs-on: ubuntu-latest
@@ -201,15 +201,17 @@ jobs:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs) ;;
-            *) echo "::error::v2 AWS deploys support type 'ecs' only in this pass (got '$TYPE'); lambda/serverless land in a later pass."; exit 1 ;;
+            ecs|lambda) ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
           esac
 
+      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda), both
+      # cru-deploy-scoped and covering the cruds account (056154071827).
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
       - name: Resolve release image
         uses: ./cru-github-actions/actions/resolve-image
