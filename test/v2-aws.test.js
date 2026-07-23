@@ -63,6 +63,66 @@ describe('ecrResolveDigest', () => {
   })
 })
 
+describe('ecrResolveDigest D10 bare-number fallback', () => {
+  // First call (exact tag) rejects; scan pages return the repo's tags; final
+  // call resolves the discovered dated tag.
+  it('finds a dated release from a bare build number', async () => {
+    sendMock
+      .mockRejectedValueOnce(new Error('ImageNotFoundException'))
+      .mockResolvedValueOnce({
+        imageDetails: [
+          { imageDigest: 'sha256:aaa', imageTags: ['candidate-2026-07-23-10056', 'release-2026-07-23-10056'] }
+        ],
+        nextToken: 'page2'
+      })
+      .mockResolvedValueOnce({
+        imageDetails: [{ imageDigest: 'sha256:bbb', imageTags: ['candidate-2026-07-23-10057'] }]
+      })
+      .mockResolvedValueOnce({
+        imageDetails: [{ imageDigest: 'sha256:aaa', imageTags: ['candidate-2026-07-23-10056', 'release-2026-07-23-10056'] }]
+      })
+
+    const result = await ecrResolveDigest('okta-api-keypalive', 'release-10056')
+
+    expect(result.digest).toBe('sha256:aaa')
+    expect(result.tags).toContain('release-2026-07-23-10056')
+    // the scan pages carried maxResults, the final resolve used the dated tag
+    expect(sendMock.mock.calls[1][0].input.maxResults).toBe(1000)
+    expect(sendMock.mock.calls[3][0].input.imageIds).toEqual([{ imageTag: 'release-2026-07-23-10056' }])
+  })
+
+  it('rethrows the original error when nothing matches the bare number', async () => {
+    sendMock
+      .mockRejectedValueOnce(new Error('ImageNotFoundException'))
+      .mockResolvedValueOnce({ imageDetails: [{ imageDigest: 'sha256:bbb', imageTags: ['release-2026-07-23-10057'] }] })
+
+    await expect(ecrResolveDigest('okta-api-keypalive', 'release-10056'))
+      .rejects.toThrow(/ImageNotFoundException/)
+  })
+
+  it('does not fall back for non-release tags', async () => {
+    sendMock.mockRejectedValueOnce(new Error('ImageNotFoundException'))
+
+    await expect(ecrResolveDigest('okta-api-keypalive', 'candidate-10056'))
+      .rejects.toThrow(/ImageNotFoundException/)
+    expect(sendMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('never guesses between ambiguous dated matches', async () => {
+    sendMock
+      .mockRejectedValueOnce(new Error('ImageNotFoundException'))
+      .mockResolvedValueOnce({
+        imageDetails: [
+          { imageDigest: 'sha256:aaa', imageTags: ['release-2026-07-23-10056'] },
+          { imageDigest: 'sha256:bbb', imageTags: ['release-2026-07-24-10056'] }
+        ]
+      })
+
+    await expect(ecrResolveDigest('okta-api-keypalive', 'release-10056'))
+      .rejects.toThrow(/ImageNotFoundException/)
+  })
+})
+
 describe('ecrTagsForDigest', () => {
   it('returns the tags currently on a digest', async () => {
     sendMock.mockResolvedValue({ imageDetails: [{ imageDigest: 'sha256:aaa', imageTags: ['release-3'] }] })

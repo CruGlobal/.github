@@ -46,10 +46,24 @@ function ecrClient () {
   return new ECRClient({ region: REGION, ...RETRY_CONFIG })
 }
 
-// Resolve an ECR tag (candidate-<n>, sha-<gitsha>, release-<n>) to its digest,
-// and report every tag currently on that digest. Throws if the tag is absent.
+// Resolve an ECR tag (candidate-*, sha-<gitsha>, release-*) to its digest, and
+// report every tag currently on that digest. Throws if the tag is absent — with
+// one D10 fallback: a bare-build-number release (`release-<n>`) that doesn't
+// exist as a tag falls back to a suffix search for the dated form
+// `release-<yyyy-mm-dd>-<n>`. Humans say "rollback to 10056"; the tag says
+// release-2026-07-23-10056.
 export async function ecrResolveDigest (projectName, tag) {
   const client = ecrClient()
+  try {
+    return await ecrDescribeTag(client, projectName, tag)
+  } catch (error) {
+    const dated = await ecrFindDatedReleaseTag(client, projectName, tag).catch(() => undefined)
+    if (!dated) throw error
+    return ecrDescribeTag(client, projectName, dated)
+  }
+}
+
+async function ecrDescribeTag (client, projectName, tag) {
   const response = await client.send(new DescribeImagesCommand({
     repositoryName: ecrRepo(projectName),
     imageIds: [{ imageTag: tag }]
@@ -59,6 +73,34 @@ export async function ecrResolveDigest (projectName, tag) {
     throw new Error(`Tag "${tag}" not found in ECR repository ${ecrRepo(projectName)}`)
   }
   return { digest: detail.imageDigest, tags: detail.imageTags ?? [] }
+}
+
+// D10 fallback: find the dated release tag carrying a bare build number.
+// Returns undefined unless `tag` is release-<n> and EXACTLY one matching
+// release-<yyyy-mm-dd>-<n> exists (0 = nothing to find; >1 can't happen with a
+// shared build counter, but ambiguity must never guess). Paginated repo scan —
+// only runs on the miss path.
+async function ecrFindDatedReleaseTag (client, projectName, tag) {
+  const bare = tag.match(/^release-(\d+)$/)
+  if (!bare) return undefined
+  const pattern = new RegExp(`^release-\\d{4}-\\d{2}-\\d{2}-${bare[1]}$`)
+  const matches = new Set()
+  let nextToken
+  do {
+    const response = await client.send(new DescribeImagesCommand({
+      repositoryName: ecrRepo(projectName),
+      maxResults: 1000,
+      ...(nextToken ? { nextToken } : {})
+    }))
+    for (const detail of response.imageDetails ?? []) {
+      for (const t of detail.imageTags ?? []) {
+        if (pattern.test(t)) matches.add(t)
+      }
+    }
+    nextToken = response.nextToken
+  } while (nextToken)
+  if (matches.size !== 1) return undefined
+  return [...matches][0]
 }
 
 // Tags currently pointing at a digest in the app's ECR repo. Returns [] when the

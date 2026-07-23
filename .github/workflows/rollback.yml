@@ -90,10 +90,9 @@ jobs:
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
-      # Accept "release-2026-07-23-10056" or the same without the "release-"
-      # prefix; legacy pre-D10 tags ("release-10012" or bare "10012") still work.
-      # A bare build number only resolves for legacy releases — dated releases
-      # must be named in full (copy the tag from the promote run or Slack).
+      # Accept "release-2026-07-23-10056", the same without the "release-"
+      # prefix, or just the build number: resolve-image finds a dated release by
+      # its bare number (suffix match), and legacy pre-D10 tags resolve directly.
       - name: Normalize release tag
         id: release
         env:

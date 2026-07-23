@@ -99,7 +99,18 @@ export async function listDockerImages (project, repository, location = SHARED_L
 // tags currently on that digest. Throws if the tag is not present.
 export async function resolveTag (projectName, tag) {
   const images = await listDockerImages(SHARED_PROJECT, sharedRegistryRepo(projectName))
-  const match = images.find(image => (image.tags ?? []).includes(tag))
+  let match = images.find(image => (image.tags ?? []).includes(tag))
+  if (!match) {
+    // D10 fallback: a bare-build-number release (`release-<n>`) may exist as
+    // the dated form release-<yyyy-mm-dd>-<n> — humans say "rollback to
+    // 10056". Only a single unambiguous match is accepted.
+    const bare = tag.match(/^release-(\d+)$/)
+    if (bare) {
+      const pattern = new RegExp(`^release-\\d{4}-\\d{2}-\\d{2}-${bare[1]}$`)
+      const dated = images.filter(image => (image.tags ?? []).some(t => pattern.test(t)))
+      if (dated.length === 1) match = dated[0]
+    }
+  }
   if (!match) {
     throw new Error(
       `Tag "${tag}" not found in ${SHARED_PROJECT}/${sharedRegistryRepo(projectName)}`

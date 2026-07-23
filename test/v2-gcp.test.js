@@ -165,6 +165,35 @@ describe('Artifact Registry resolution (mocked client)', () => {
     })
   })
 
+  it('resolveTag finds a dated release from a bare build number (D10 fallback)', async () => {
+    requestMock.mockResolvedValue({
+      data: {
+        dockerImages: [
+          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:ddd`, tags: ['candidate-2026-07-23-10056', 'release-2026-07-23-10056'] },
+          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:eee`, tags: ['candidate-2026-07-23-10057'] }
+        ]
+      }
+    })
+
+    const result = await resolveTag('hoax', 'release-10056')
+
+    expect(result.digest).toBe('sha256:ddd')
+    expect(result.tags).toContain('release-2026-07-23-10056')
+  })
+
+  it('resolveTag never guesses between ambiguous dated matches', async () => {
+    requestMock.mockResolvedValue({
+      data: {
+        dockerImages: [
+          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:ddd`, tags: ['release-2026-07-23-10056'] },
+          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:eee`, tags: ['release-2026-07-24-10056'] }
+        ]
+      }
+    })
+
+    await expect(resolveTag('hoax', 'release-10056')).rejects.toThrow(/not found/)
+  })
+
   it('resolveTag throws when the tag is not present', async () => {
     requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
     await expect(resolveTag('hoax', 'candidate-99999')).rejects.toThrow(/not found/)

@@ -544,7 +544,7 @@ Redeploys a previously promoted release to production (production lock).
 | -------------- | -------- | ------- | ---------------------------------------- |
 | `workflow-ref` | no       | `main`  | ref of `CruGlobal/.github`               |
 | `project-name` | yes      | —       | project name                             |
-| `release`      | yes      | —       | `release-2026-07-20-10041` (the `release-` prefix is optional); legacy `release-<n>` / bare `<n>` still resolve |
+| `release`      | yes      | —       | `release-2026-07-20-10041` (the `release-` prefix is optional) — or just the build number: a bare `<n>` resolves the dated release by suffix (and legacy pre-D10 tags directly) |
 
 | Secret           | Required | Description                                 |
 | ---------------- | -------- | ------------------------------------------- |
