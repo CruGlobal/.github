@@ -324,8 +324,8 @@ promote:
 - **build-candidate** routes the same way (a `setup` job then per-`type` build
   jobs); the ECS and Lambda build jobs mirror the Cloud Run one (no-change guard
   via `resolve-image sha-<sha>`, `build-number`, buildx, `./build.sh` pushing
-  `<ecr>/<project>:candidate-<date>-<n>` and `:sha-<sha>`, BUILD-secrets gated behind
-  `build-secrets`). The Lambda job carries two deliberate differences from ECS —
+  `<ecr>/<project>:candidate-<date>-<n>` and `:sha-<sha>`, `BUILD_*` repo secrets
+  exported). The Lambda job carries two deliberate differences from ECS —
   see "Lambda candidate build differences" below.
 
 # Pass 2: reusable workflows
@@ -444,7 +444,7 @@ shared registry as `candidate-<date>-<n>` and `sha-<gitsha>`. Nothing is deploye
 ### Lambda candidate build differences
 
 The Lambda build job is the ECS job (prod-bound `<project>-prod-GitHubRole`,
-no-change guard, `build-number`, buildx, ECR login, gated BUILD secrets,
+no-change guard, `build-number`, buildx, ECR login, `BUILD_*` secret export,
 `./build.sh` pushing `<ecr>/<project>:candidate-<date>-<n>` + `:sha-<gitsha>`) with **two
 deliberate differences**, both commented in the workflow:
 
@@ -710,18 +710,30 @@ jobs:
    repo) will use `CRU_DEVOPS_GITHUB_TOKEN` for the pilot. **TODO:** move to a
    dedicated GitHub App.
 
-## Pilot finding (2026-07-21): BUILD secrets gated pending D2 provisioning
+## Decision (D2, ratified 2026-07-23): BUILD secrets are GitHub repo secrets
 
-The first hoax candidate build failed at `Import build secrets`: the
-`cru-shared-artifacts` project does not have the Secret Manager API enabled,
-and — the deeper issue — the shared BUILD-secrets store isn't designed yet for
-multi-app use: the `gcp-secrets` action filters only by `param_type`, so in a
-shared project it would import every app's BUILD secrets, and build SAs would
-need cross-app Secret Manager read. Until the D2 store lands (API enablement,
-per-app label filtering in `gcp-secrets`, scoped IAM), `build-candidate.yml`
-gates the step behind a `build-secrets` input (default `false`). Consequence:
-apps that need BUILD-type secrets cannot migrate to v2 until D2 ships; apps
-without them (hoax) are unaffected.
+BUILD-time secrets live in the app repo as Actions secrets named `BUILD_<NAME>`.
+The repo is the isolation boundary — exactly matching the build's repo-scoped
+OIDC identity — and one mechanism serves all three runtimes (the earlier plan,
+a shared Secret Manager store, needed API enablement, per-app label filtering,
+name-prefix IAM conditions, and still left GCP and AWS apps on different
+mechanisms). BUILD secrets are app-level, not env-level: v1's per-env copies
+were an artifact of per-env builds.
+
+Mechanics: the app workflow passes `secrets: inherit` to `build-candidate`;
+each build job serializes the secrets context, exports ONLY `BUILD_*` keys
+(prefix stripped: `BUILD_NPM_TOKEN` → `NPM_TOKEN`) into the build environment,
+and no-ops when none exist — there is no gate input. The prefix filter is
+load-bearing: `inherit` exposes org secrets to the workflow, and nothing
+outside `BUILD_*` may reach `build.sh`. Values remain Actions-masked in logs.
+
+Writes need repo admin: DevOps sets them (`gh secret set BUILD_X --repo ...`)
+until `cru secret` learns a brokered write path via the planned GitHub App
+(the same App replacing `CRU_DEVOPS_GITHUB_TOKEN`, same push-access authz as
+D5). Explicitly out of scope for `cru app secrets`, which stays runtime-only:
+build secrets are part of the build, which is GitHub. The 2026-07-21 pilot
+finding (Secret Manager API missing on `cru-shared-artifacts`, no multi-app
+scoping in `gcp-secrets`) is MOOT — that store is not being built.
 
 ## Decision (2026-07-22): self-owned deployment telemetry, no DORA product
 

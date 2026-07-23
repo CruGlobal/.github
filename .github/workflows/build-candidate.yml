@@ -22,16 +22,6 @@ on:
         required: false
         default: ''
         description: Project name (shared-registry repo/image). Defaults to the repository name.
-      build-secrets:
-        type: boolean
-        required: false
-        default: false
-        description: >-
-          Import BUILD-type secrets from the shared store (cru-shared-artifacts
-          Secret Manager) into the build environment. Off by default until the
-          D2 shared BUILD-secrets store is provisioned (Secret Manager API,
-          per-app label filtering, and IAM grants); apps with BUILD secrets
-          cannot migrate to v2 before that lands.
     outputs:
       project-name:
         description: Project name (defaults to the repository name).
@@ -175,14 +165,35 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
-      # Gated behind inputs.build-secrets until the D2 shared BUILD-secrets
-      # store is provisioned (Secret Manager API + per-app filtering + IAM).
-      - name: Import build secrets
-        if: steps.guard.outcome != 'success' && inputs.build-secrets
-        uses: ./cru-github-actions/actions/gcp-secrets
-        with:
-          project: cru-shared-artifacts
-          type: BUILD
+      # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
+      # 2026-07-23): the repo is the isolation boundary, matching the build's
+      # repo-scoped OIDC identity, and one mechanism serves all three runtimes.
+      # Requires `secrets: inherit` on the app workflow's call; without it the
+      # secrets context is empty and this step no-ops. The prefix is the export
+      # filter -- inherit exposes org secrets (e.g. CRU_DEPLOY_GITHUB_TOKEN) to
+      # this workflow, and ONLY BUILD_* may reach build.sh's environment. The
+      # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
+      # masked in logs (they are Actions secrets).
+      - name: Export BUILD_* repo secrets
+        if: steps.guard.outcome != 'success'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          keys=$(jq -r 'keys[] | select(startswith("BUILD_"))' <<<"$SECRETS_JSON")
+          if [ -z "$keys" ]; then
+            echo "No BUILD_* repo secrets; build environment unchanged."
+            exit 0
+          fi
+          for key in $keys; do
+            name="${key#BUILD_}"
+            delim="__CRU_BUILD_SECRET_${RANDOM}${RANDOM}__"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              jq -r --arg k "$key" '.[$k]' <<<"$SECRETS_JSON"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+            echo "exported $key -> $name"
+          done
 
       - name: Checkout project
         if: steps.guard.outcome != 'success'
@@ -312,16 +323,35 @@ jobs:
         if: steps.guard.outcome != 'success'
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Gated behind inputs.build-secrets, same D2 gating as the cloudrun job. ECS
-      # BUILD secrets come from the app's per-app SSM path (/ecs/<project>/prod/),
-      # imported prod-bound to match the candidate's identity.
-      - name: Import build secrets
-        if: steps.guard.outcome != 'success' && inputs.build-secrets
-        uses: ./cru-github-actions/actions/secrets
-        with:
-          project-name: ${{ needs.setup.outputs.project-name }}
-          environment: production
-          type: BUILD
+      # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
+      # 2026-07-23): the repo is the isolation boundary, matching the build's
+      # repo-scoped OIDC identity, and one mechanism serves all three runtimes.
+      # Requires `secrets: inherit` on the app workflow's call; without it the
+      # secrets context is empty and this step no-ops. The prefix is the export
+      # filter -- inherit exposes org secrets (e.g. CRU_DEPLOY_GITHUB_TOKEN) to
+      # this workflow, and ONLY BUILD_* may reach build.sh's environment. The
+      # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
+      # masked in logs (they are Actions secrets).
+      - name: Export BUILD_* repo secrets
+        if: steps.guard.outcome != 'success'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          keys=$(jq -r 'keys[] | select(startswith("BUILD_"))' <<<"$SECRETS_JSON")
+          if [ -z "$keys" ]; then
+            echo "No BUILD_* repo secrets; build environment unchanged."
+            exit 0
+          fi
+          for key in $keys; do
+            name="${key#BUILD_}"
+            delim="__CRU_BUILD_SECRET_${RANDOM}${RANDOM}__"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              jq -r --arg k "$key" '.[$k]' <<<"$SECRETS_JSON"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+            echo "exported $key -> $name"
+          done
 
       - name: Checkout project
         if: steps.guard.outcome != 'success'
@@ -450,16 +480,35 @@ jobs:
         if: steps.guard.outcome != 'success'
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Gated behind inputs.build-secrets, same D2 gating as the ECS job. Lambda
-      # BUILD secrets come from the app's per-app SSM path (/ecs/<project>/prod/),
-      # imported prod-bound to match the candidate's identity.
-      - name: Import build secrets
-        if: steps.guard.outcome != 'success' && inputs.build-secrets
-        uses: ./cru-github-actions/actions/secrets
-        with:
-          project-name: ${{ needs.setup.outputs.project-name }}
-          environment: production
-          type: BUILD
+      # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
+      # 2026-07-23): the repo is the isolation boundary, matching the build's
+      # repo-scoped OIDC identity, and one mechanism serves all three runtimes.
+      # Requires `secrets: inherit` on the app workflow's call; without it the
+      # secrets context is empty and this step no-ops. The prefix is the export
+      # filter -- inherit exposes org secrets (e.g. CRU_DEPLOY_GITHUB_TOKEN) to
+      # this workflow, and ONLY BUILD_* may reach build.sh's environment. The
+      # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
+      # masked in logs (they are Actions secrets).
+      - name: Export BUILD_* repo secrets
+        if: steps.guard.outcome != 'success'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          keys=$(jq -r 'keys[] | select(startswith("BUILD_"))' <<<"$SECRETS_JSON")
+          if [ -z "$keys" ]; then
+            echo "No BUILD_* repo secrets; build environment unchanged."
+            exit 0
+          fi
+          for key in $keys; do
+            name="${key#BUILD_}"
+            delim="__CRU_BUILD_SECRET_${RANDOM}${RANDOM}__"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              jq -r --arg k "$key" '.[$k]' <<<"$SECRETS_JSON"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+            echo "exported $key -> $name"
+          done
 
       - name: Checkout project
         if: steps.guard.outcome != 'success'
