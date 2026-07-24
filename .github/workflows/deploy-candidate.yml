@@ -193,6 +193,59 @@ jobs:
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
 
+      # The deployments-ledger write grant lives on the existing deploy roles
+      # (ratified: no dedicated ledger role). GCP jobs carry no AWS creds, so
+      # assume a deploy role here solely to append the ledger event -- ECS is
+      # chosen arbitrarily; the trust is cru-deploy-repo-scoped, not runtime-
+      # scoped. Placed AFTER all GCP deploy/tag-image steps so its AWS
+      # credential env vars can't interfere; configure-aws-credentials next to
+      # an earlier google-github-actions/auth is fine (different env vars).
+      - name: Configure AWS credentials for ledger
+        if: steps.noop.outputs.skip != 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
+      # deployments ledger -- the fleet dashboard / DORA data spine). Same
+      # policy as all telemetry: NEVER fails the deploy.
+      - name: Record deployment in ledger
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ inputs.tag }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment release-candidate \
+              --arg action deploy \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg provider gcp \
+              --arg type cloudrun \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::candidate deploy event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
 
@@ -319,6 +372,46 @@ jobs:
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
+
+      # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
+      # deployments ledger -- the fleet dashboard / DORA data spine). Same
+      # policy as all telemetry: NEVER fails the deploy.
+      - name: Record deployment in ledger
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ inputs.tag }}
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment release-candidate \
+              --arg action deploy \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg provider aws \
+              --arg type "$TYPE" \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::candidate deploy event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"

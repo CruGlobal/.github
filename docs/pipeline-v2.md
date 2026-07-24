@@ -803,3 +803,52 @@ Deferred (phase 2): a deployments ledger via an app-info service extension
 (POST endpoint -> DynamoDB) as the queryable source of truth for DORA-style
 math (deployment frequency, lead time from the `sha-` tags, rollback rate) —
 computed by us, billed by no one.
+
+### Deployments ledger
+
+The phase-2 ledger now lands in pipeline-v2 as the durable, queryable record of
+every deploy/promote/rollback — the fleet dashboard / DORA data spine. It is
+defined next to `CruApplicationInfo` in cru-terraform (`aws/lambda/cru-app-info`).
+One design change from the sketch above: writes go **directly to DynamoDB** from
+the deploy workflows (no POST endpoint), reusing the existing deploy roles rather
+than standing up a separate emit service.
+
+**Table `CruDeploymentLedger`** — `PAY_PER_REQUEST`, PITR + deletion protection,
+**no TTL** (rows are permanent, matching releases-are-permanent):
+
+| Attribute   | Role         | Notes |
+| ----------- | ------------ | ----- |
+| `Project`   | hash key     | app / project name |
+| `EventAt`   | range key    | ISO8601 UTC millis + `#<run-id>-<attempt>` uniqueness suffix; lexicographically time-sortable |
+| `EventDate` | GSI hash key | `yyyy-mm-dd` |
+| `Environment`, `Action`, `Source`, `Revision`, `Digest`, `Sha`, `Actor`, `RunId`, `RunUrl`, `Provider`, `Type` | schema-on-write payload | `Sha` is omitted cleanly when the resolved digest carries no `sha-` tag |
+
+GSI `EventDate-EventAt-index` (hash `EventDate`, range `EventAt`, projection
+`ALL`) is the fleet-wide-feed / DORA date-range access path.
+
+**Writers.** Each provider job of `deploy-candidate`, `promote`, and `rollback`
+appends one event with `aws dynamodb put-item`, immediately after the Datadog
+event step (`Action` = `deploy` | `promote` | `rollback`; `Source` =
+`cru-pipeline-v2`). The grant is a single `dynamodb:PutItem` statement added
+inline to the existing `GitHubDeployECS` / `GitHubDeployLambda` roles — **no
+dedicated ledger role** (mirroring how `ecr:PutImage` was added for release
+tagging). GCP (Cloud Run) jobs hold no AWS creds, so they assume one of those
+roles (ECS, chosen arbitrarily — the trust is cru-deploy-repo-scoped, not
+runtime-scoped) via a `configure-aws-credentials` step placed **after** all GCP
+steps so its credential env vars can't interfere with the deploy.
+
+**Never fails the deploy.** Same policy as all telemetry: the step is
+`continue-on-error: true` with a trailing
+`|| echo "::warning title=Ledger write failed::… (non-blocking)"`.
+
+**Read path.** `GET /deployments` on the app-info API (same Lambda / API Gateway
+as `/info`): requires `project`, optional `environment` filter, optional `limit`
+(default 20, clamped 1..100). Returns `{Items, Count}` newest-first (`Query` on
+`Project`, `ScanIndexForward: false`).
+
+**Sequencing.** The cru-terraform table + role grant must apply **before** these
+workflow changes go live; until then the ledger steps emit benign `::warning`
+annotations (missing table/grant) and deploys are unaffected.
+
+**v1 deferred to wave-2.** Only pipeline-v2 deploys write to the ledger; v1
+workflows are unchanged and will be wired in a later wave.
