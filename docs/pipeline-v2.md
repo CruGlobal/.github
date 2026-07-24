@@ -542,11 +542,13 @@ scheduled app workflows safe to dispatch unconditionally — a quiet night is a
 true no-op. `force` exists for deliberate same-digest redeploys (e.g. picking
 up an applied Terraform task-definition template on ECS).
 
-**Cadence is the app workflow's choice.** Per-merge (`on: push` to `main` —
-the pilots) and nightly-if-changed (`on: schedule` + `workflow_dispatch`, the
-RFC's illustrated default) both work with no changes here: the build's
+**Cadence is the app workflow's choice — nightly-if-changed is the DEFAULT
+for onboarding apps** (ratified 2026-07-24; all three pilots run it with
+staggered ~noon-UTC crons). `on: schedule` + `workflow_dispatch`: the build's
 no-change guard reuses the existing candidate when `main` hasn't moved, and
-this workflow's no-op guard skips the redeploy.
+this workflow's no-op guard skips the redeploy — a quiet night is a true
+no-op. Per-merge (`on: push` to `main`) remains supported for apps that want
+a candidate per merge; no reusable-workflow changes either way.
 
 Flow: app-info (`release-candidate`) → Datadog pipeline tag → GCP auth as the
 release-candidate `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`
