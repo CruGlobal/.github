@@ -61,7 +61,15 @@ async function resolveRunningImage (projectName, runtimeProject) {
   }
 
   // Running a tag ref: resolve it to the digest the tag currently points at.
-  const { tag } = parseImageRef(runningImage)
+  const { name, tag } = parseImageRef(runningImage)
+  if (name !== repo) {
+    // Pre-v2 deployment: a tag-pinned image in another registry (the app's old
+    // per-project registry) — every app's state on its first v2 deploy after
+    // v1. Its tag means nothing in the shared registry, so there is no digest
+    // to compare against; report "no comparable deployment" instead of failing.
+    core.info(`running image ${runningImage} is a pre-v2 tag ref outside the shared registry; nothing to compare`)
+    return { image: runningImage, digest: '', tags: [] }
+  }
   core.info(`running image is a tag ref (${tag}); resolving to a digest`)
   const resolved = await resolveTag(projectName, tag)
   return resolved

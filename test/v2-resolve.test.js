@@ -98,6 +98,27 @@ describe('resolveCloudRun mode=environment', () => {
     })
   })
 
+  it('reports no comparable digest for a pre-v2 tag ref outside the shared registry', async () => {
+    const preV2 = `${HOST}/hoax-stage-1234/container/hoax:staging-10108`
+    gcp.cloudrunListServices.mockResolvedValue([
+      {
+        name: 'projects/p/locations/us-central1/services/hoax-web',
+        template: { containers: [{ image: preV2, ports: [{ containerPort: 8080 }] }] }
+      }
+    ])
+
+    const result = await resolveCloudRun({
+      mode: 'environment',
+      projectName: 'hoax',
+      environment: 'production',
+      runtimeProject: 'hoax-stage-1234'
+    })
+
+    expect(result).toEqual({ image: preV2, digest: '', tags: [] })
+    // The old registry's tag must never be looked up in the shared registry.
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
   it('throws when no runtime-project is given', async () => {
     await expect(
       resolveCloudRun({ mode: 'environment', projectName: 'hoax', environment: 'production' })
