@@ -36,6 +36,9 @@ on:
       authz-token:
         required: true
         description: GitHub token used to verify the actor has push access to the app repo.
+      slack-bot-token:
+        required: false
+        description: Slack bot token for pipeline notifications; unset disables posting.
 
 jobs:
   lookup:
@@ -46,6 +49,7 @@ jobs:
       type: ${{ steps.app-info.outputs.type }}
       project-id: ${{ steps.app-info.outputs.project-id }}
       release-tag: ${{ steps.release.outputs.tag }}
+      slack-channel: ${{ steps.app-info.outputs.slack-channel }}
     steps:
       # Authorization runs FIRST, before any provider job mutates production.
       # TODO: replace PAT with a dedicated GitHub App.
@@ -81,6 +85,7 @@ jobs:
           provider=$(echo "$info" | jq -r '.Provider')
           type=$(echo "$info" | jq -r '.Type // empty')
           project_id=$(echo "$info" | jq -r '.ProjectId // empty')
+          slack_channel=$(echo "$info" | jq -r '.SlackChannel // empty')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -88,6 +93,7 @@ jobs:
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
@@ -250,6 +256,37 @@ jobs:
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":rewind: *\($project) rolled back to `\($release)` in production* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
   rollback-aws:
     name: Roll production back (AWS)
     needs: lookup
@@ -391,3 +428,34 @@ jobs:
             || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":rewind: *\($project) rolled back to `\($release)` in production* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }

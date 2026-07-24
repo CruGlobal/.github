@@ -450,6 +450,45 @@ Telemetry must never fail a deploy. Every Datadog step uses:
 Deployment telemetry itself is a structured **Events API** post (see the
 self-owned-telemetry decision below), not a `dora deployment` mark.
 
+### Slack notifications
+
+Each pipeline step that changes what is running posts a Slack message to the
+app's own destination.
+
+- **Config source: `SlackChannel` in app-info, per env.** The same
+  `curl | jq` lookup that reads `Provider`/`ProjectId` also extracts
+  `SlackChannel` (`jq -r '.SlackChannel // empty'`) and exposes it as the
+  `lookup` job's `slack-channel` output. **Presence is the enable switch** —
+  set a value and the app opts in; leave it unset and every notify step
+  no-ops silently. `deploy-candidate` reads it from its single
+  release-candidate lookup; `promote` and `rollback` read it from the
+  **production** lookup, so production results notify the production
+  destination.
+- **Channel *or* user.** The value is passed straight to Slack's
+  `chat.postMessage` `channel` field, which accepts a public/private channel
+  (`#name` or a `C…` id) or a user (`U…`) for a bot DM.
+- **Posting uses a bot token,** supplied as the optional `slack-bot-token`
+  `workflow_call` secret (unset ⇒ posting disabled). The Slack app needs
+  `chat:write` (post to channels it's in), `chat:write.public` (post to public
+  channels without being invited), and `im:write` (open a DM for `U…`
+  destinations).
+- **NEVER fails a deploy.** Same policy as all telemetry: the step is
+  `continue-on-error: true` and shares its siblings' skip-gating; Slack returns
+  HTTP 200 with `ok: false` on errors, so success is tested by
+  `jq -e '.ok'` and any failure (or a failed `curl`) surfaces as a non-blocking
+  `::warning`, never a failed job.
+- **Successes only.** Only a new release-candidate, a completed promote, and a
+  completed rollback notify. Failures stay visible in Actions / Datadog and are
+  deliberately NOT posted to Slack.
+- **Ledger-powered compare link.** The release-candidate message adds a
+  `changes since production` link when possible: a public GET on the
+  deployments ledger (`/deployments?project=<p>&environment=production&limit=1`)
+  yields the currently-in-production `Sha`, and the candidate's git sha comes
+  from the `sha-` tag on the resolved digest; the link is
+  `github.com/CruGlobal/<project>/compare/<prodsha>...<candidatesha>` (repo is
+  assumed to equal the project name — true for the pilots) and is omitted
+  cleanly when either sha is missing or the ledger query fails.
+
 ### Concurrency locks
 
 | Workflow(s)          | Group                              | `cancel-in-progress` |
@@ -543,6 +582,7 @@ Deploys a candidate artifact to `release-candidate`. No authz gate.
 | Secret           | Required | Description     |
 | ---------------- | -------- | --------------- |
 | `datadog-api-key`| yes      | DataDog API key |
+| `slack-bot-token`| no       | Slack bot token for notifications; unset disables posting |
 
 **Idempotent by default:** after resolving the candidate, the workflow reads
 what release-candidate is currently running; if the digests match (and `force`
@@ -576,6 +616,7 @@ Promotes the release-candidate artifact to production (production lock).
 | ---------------- | -------- | ------------------------------------------- |
 | `datadog-api-key`| yes      | DataDog API key                             |
 | `authz-token`    | yes      | token for the collaborator-permission check |
+| `slack-bot-token`| no       | Slack bot token for notifications; unset disables posting |
 
 Flow: authz → app-info for **both** `release-candidate` and `production` (two
 `ProjectId`s) → GCP auth as the **rc** `cru-deploy` SA → `resolve-image` (mode
@@ -605,6 +646,7 @@ Redeploys a previously promoted release to production (production lock).
 | ---------------- | -------- | ------------------------------------------- |
 | `datadog-api-key`| yes      | DataDog API key                             |
 | `authz-token`    | yes      | token for the collaborator-permission check |
+| `slack-bot-token`| no       | Slack bot token for notifications; unset disables posting |
 
 Flow: authz → app-info (`production`) → normalize `release` to a full tag →
 GCP auth as the prod `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`

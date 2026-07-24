@@ -40,6 +40,9 @@ on:
       datadog-api-key:
         required: true
         description: DataDog API key.
+      slack-bot-token:
+        required: false
+        description: Slack bot token for pipeline notifications; unset disables posting.
 
 jobs:
   # app-info: per-app metadata from the v1 info service. The service only knows
@@ -52,6 +55,7 @@ jobs:
       provider: ${{ steps.app-info.outputs.provider }}
       type: ${{ steps.app-info.outputs.type }}
       project-id: ${{ steps.app-info.outputs.project-id }}
+      slack-channel: ${{ steps.app-info.outputs.slack-channel }}
     steps:
       - name: Look up app info
         id: app-info
@@ -69,6 +73,7 @@ jobs:
           provider=$(echo "$info" | jq -r '.Provider')
           type=$(echo "$info" | jq -r '.Type // empty')
           project_id=$(echo "$info" | jq -r '.ProjectId // empty')
+          slack_channel=$(echo "$info" | jq -r '.SlackChannel // empty')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -76,6 +81,7 @@ jobs:
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
   deploy-candidate-gcp:
@@ -248,6 +254,47 @@ jobs:
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
 
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's SlackChannel from app-info (channel #name/C… or
+      # user U…); no-ops silently when the channel OR the bot token is unset.
+      # The "changes since production" compare link is ledger-powered: the latest
+      # production event's Sha (public GET on /deployments) vs this candidate's
+      # sha- tag; omitted when either sha is missing. Compare-link repo is assumed
+      # to equal the project name (true for the v2 pilots).
+      - name: Notify Slack
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          candidate_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          prod_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=${PROJECT_NAME}&environment=production&limit=1" 2>/dev/null | jq -r '.Items[0].Sha // empty' 2>/dev/null || true)
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg tag "${{ inputs.tag }}" \
+            --arg prodsha "$prod_sha" \
+            --arg candidatesha "$candidate_sha" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":package: *\($project) `\($tag)` is on release-candidate*"
+                     + (if $prodsha != "" and $candidatesha != ""
+                        then "\n<https://github.com/CruGlobal/\($project)/compare/\($prodsha)...\($candidatesha)|changes since production>"
+                        else "" end)
+                     + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
   deploy-candidate-aws:
     name: Deploy Candidate to release-candidate (AWS)
     needs: lookup
@@ -413,3 +460,44 @@ jobs:
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's SlackChannel from app-info (channel #name/C… or
+      # user U…); no-ops silently when the channel OR the bot token is unset.
+      # The "changes since production" compare link is ledger-powered: the latest
+      # production event's Sha (public GET on /deployments) vs this candidate's
+      # sha- tag; omitted when either sha is missing. Compare-link repo is assumed
+      # to equal the project name (true for the v2 pilots).
+      - name: Notify Slack
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          candidate_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          prod_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=${PROJECT_NAME}&environment=production&limit=1" 2>/dev/null | jq -r '.Items[0].Sha // empty' 2>/dev/null || true)
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg tag "${{ inputs.tag }}" \
+            --arg prodsha "$prod_sha" \
+            --arg candidatesha "$candidate_sha" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":package: *\($project) `\($tag)` is on release-candidate*"
+                     + (if $prodsha != "" and $candidatesha != ""
+                        then "\n<https://github.com/CruGlobal/\($project)/compare/\($prodsha)...\($candidatesha)|changes since production>"
+                        else "" end)
+                     + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }

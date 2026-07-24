@@ -32,6 +32,9 @@ on:
       authz-token:
         required: true
         description: GitHub token used to verify the actor has push access to the app repo.
+      slack-bot-token:
+        required: false
+        description: Slack bot token for pipeline notifications; unset disables posting.
 
 jobs:
   lookup:
@@ -42,6 +45,7 @@ jobs:
       type: ${{ steps.app-info-rc.outputs.type }}
       rc-project-id: ${{ steps.app-info-rc.outputs.project-id }}
       prod-project-id: ${{ steps.app-info-prod.outputs.project-id }}
+      slack-channel: ${{ steps.app-info-prod.outputs.slack-channel }}
     steps:
       # Authorization runs FIRST, before any provider job mutates production: the
       # human running a production change must have push-level access to the app
@@ -104,7 +108,9 @@ jobs:
           esac
           info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
           project_id=$(echo "$info" | jq -r '.ProjectId // empty')
+          slack_channel=$(echo "$info" | jq -r '.SlackChannel // empty')
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
 
   promote-gcp:
@@ -273,6 +279,37 @@ jobs:
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
 
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":white_check_mark: *\($project) promoted `\($release)` to production* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
   promote-aws:
     name: Promote release-candidate to production (AWS)
     needs: lookup
@@ -428,3 +465,34 @@ jobs:
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":white_check_mark: *\($project) promoted `\($release)` to production* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
