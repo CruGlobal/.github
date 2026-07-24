@@ -221969,7 +221969,11 @@ async function resolveRunningImage(projectName, runtimeProject) {
     const tags = await tagsForDigest(projectName, digest2).catch(() => []);
     return { image: runningImage, digest: digest2, tags };
   }
-  const { tag: tag2 } = parseImageRef(runningImage);
+  const { name, tag: tag2 } = parseImageRef(runningImage);
+  if (name !== repo) {
+    info(`running image ${runningImage} is a pre-v2 tag ref outside the shared registry; nothing to compare`);
+    return { image: runningImage, digest: "", tags: [] };
+  }
   info(`running image is a tag ref (${tag2}); resolving to a digest`);
   const resolved = await resolveTag(projectName, tag2);
   return resolved;
