@@ -24,12 +24,17 @@ const shortName = resource => resource.split('/').pop()
 //      the Datadog agent are preserved) and re-attaching RUNTIME secrets, then
 //      force a new revision.
 //
-// When `version` is set it is injected as DD_VERSION on the app container's env
-// (services AND jobs), so Datadog attributes telemetry from this digest-pinned
-// deploy to the human-readable version tag. Sidecars are untouched.
+// `version` is accepted for router symmetry but DELIBERATELY NOT injected:
+// unlike ECS (where Terraform ignores the whole task_definition and the deploy
+// composes from TF's family template), the Cloud Run service's app-container
+// env is Terraform-managed with ignore_changes on the image ONLY — a
+// pipeline-added DD_VERSION would show as drift on every plan and be removed
+// by every apply. Cloud Run version telemetry rides the deployment events,
+// like Lambda. Sidecars are untouched.
 //
 // Returns { deployedImage, services } (services = short names updated).
 export async function deployCloudRun ({ image, runtimeProject, version }) {
+  void version // see header comment: events carry the version on Cloud Run
   assertDigestRef(image) // defensive; the router validates too
   if (!runtimeProject) {
     throw new Error('runtime-project is required to deploy a cloudrun image')
@@ -49,7 +54,7 @@ export async function deployCloudRun ({ image, runtimeProject, version }) {
   // running services and scheduled jobs untouched.
   const migrateJob = jobs.find(job => shortName(job.name) === DB_MIGRATE_JOB)
   if (migrateJob) {
-    await updateJobImage(migrateJob, image, secrets, version)
+    await updateJobImage(migrateJob, image, secrets)
     core.info(`executing job: ${migrateJob.name}`)
     await runJob(migrateJob.name)
   }
@@ -58,7 +63,7 @@ export async function deployCloudRun ({ image, runtimeProject, version }) {
   // run on their own cron, so they are updated but not executed here.
   for (const job of jobs) {
     if (job === migrateJob) continue
-    await updateJobImage(job, image, secrets, version)
+    await updateJobImage(job, image, secrets)
   }
 
   // Update each Cloud Run service. Refresh only the APP container's image/env
@@ -69,7 +74,7 @@ export async function deployCloudRun ({ image, runtimeProject, version }) {
     const containers = service.template.containers
     const updated = containers.map(container =>
       isAppContainer(container, containers, repo)
-        ? { ...container, image, env: upsertDdVersion(mergeEnvVars(container.env, secrets), version) }
+        ? { ...container, image, env: mergeEnvVars(container.env, secrets) }
         : container
     )
     core.info(`updating service: ${service.name} (${updated.length} container(s))`)
@@ -82,24 +87,14 @@ export async function deployCloudRun ({ image, runtimeProject, version }) {
 
 // Update a Cloud Run job's container image and secrets in place. A job has a
 // single container, so container[0] IS the app container — inject DD_VERSION too.
-async function updateJobImage (job, image, secrets, version) {
+async function updateJobImage (job, image, secrets) {
   const container = job.template.template.containers[0]
   container.image = image
-  container.env = upsertDdVersion(mergeEnvVars(container.env, secrets), version)
+  container.env = mergeEnvVars(container.env, secrets)
   core.info(`updating job: ${job.name}`)
   await updateJob(job)
 }
 
-// Upsert { name: 'DD_VERSION', value: version } onto a Cloud Run container's env.
-// When `version` is unset the env is returned unchanged; otherwise any existing
-// DD_VERSION entry is REPLACED (never duplicated). Returns a new array — the
-// caller has already built `envVars` fresh via mergeEnvVars.
-function upsertDdVersion (envVars, version) {
-  if (!version) return envVars
-  const withoutDdVersion = envVars.filter(env => env.name !== 'DD_VERSION')
-  withoutDdVersion.push({ name: 'DD_VERSION', value: version })
-  return withoutDdVersion
-}
 
 // Persist a container's non-secret ENV vars and (re)add all secret ENV vars as
 // secretKeyRef:latest references.

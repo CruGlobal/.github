@@ -113,7 +113,7 @@ Deploys a pre-built, digest-pinned image to a target environment.
 | `environment`     | yes               | Long env name to deploy to                                          |
 | `image`           | yes               | FULL DIGEST reference (`name@sha256:...`); a tag ref fails the action |
 | `runtime-project` | cloudrun          | GCP project ID of the target-env project                            |
-| `version`         | no                | Human-readable version tag (`candidate-<date>-<n>` / `release-<date>-<n>`) injected as `DD_VERSION` on the app container. **cloudrun + ecs only**; lambda deliberately ignores it (see below) |
+| `version`         | no                | Human-readable version tag (`candidate-<date>-<n>` / `release-<date>-<n>`) injected as `DD_VERSION` on the app container. **ecs only**; cloudrun and lambda deliberately ignore it (see below) |
 
 ### Outputs
 
@@ -129,20 +129,25 @@ in v1 or v2 set `DD_VERSION`. When the optional `version` input is given, deploy
 upserts `{ name: DD_VERSION, value: <version> }` onto the **app container's** env,
 **replacing** any existing entry (never duplicating); sidecars are untouched:
 
-- **cloudrun**: on every service's app container **and** every job's container (a
-  job is single-container, so `containers[0]` is the app), alongside the refreshed
-  image/secrets.
 - **ecs**: into the app container's plain `environment` array in the composed task
   definition (`composeTaskDefinition`, still a pure function; the array is created
   when the template has none). When `version` is unset the `environment` is left
-  exactly as the Terraform template had it (no-op).
+  exactly as the Terraform template had it (no-op). ECS is the ONLY runtime where
+  this is drift-safe: Terraform ignores the service's `task_definition` entirely
+  and the deploy composes each revision from Terraform's own family template.
+- **cloudrun**: **deliberately ignored.** The Cloud Run service's app-container
+  env is Terraform-managed — `ignore_changes` covers the **image only** — so a
+  pipeline-added `DD_VERSION` would appear as drift on every plan and be removed
+  by every apply (the docker_config lesson). There is no ECS-style separate
+  template object to compose from, and `ignore_changes` cannot exempt a single
+  env entry. Cloud Run version telemetry rides the deployment **events**.
 - **lambda**: **deliberately ignored.** A Lambda function's env is Terraform-owned
   — per-tenant config lives there and the aws/lambda/app module does **not**
   `ignore_changes` it — so the pipeline must never call
   `UpdateFunctionConfiguration`; doing so would fight Terraform and could clobber
-  per-tenant config. Lambda version telemetry therefore comes from the deployment
-  **events** only, not `DD_VERSION`. `version` is accepted for a uniform router
-  signature and intentionally unused.
+  per-tenant config. Lambda version telemetry comes from the deployment
+  **events** only. `version` is accepted by both for a uniform router signature
+  and intentionally unused.
 
 The workflows supply `version`: `deploy-candidate` → the candidate `tag`;
 `promote` → the derived `release-*` tag; `rollback` → the **actual** `release-*`

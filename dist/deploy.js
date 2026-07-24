@@ -235164,6 +235164,7 @@ function isAppContainer(container, containers, repo) {
 var DB_MIGRATE_JOB = "db-migrate";
 var shortName = (resource) => resource.split("/").pop();
 async function deployCloudRun({ image, runtimeProject, version }) {
+  void version;
   assertDigestRef(image);
   if (!runtimeProject) {
     throw new Error("runtime-project is required to deploy a cloudrun image");
@@ -235177,19 +235178,19 @@ async function deployCloudRun({ image, runtimeProject, version }) {
   const secrets = await listSecrets(runtimeProject, RUNTIME_PARAM_TYPES);
   const migrateJob = jobs.find((job) => shortName(job.name) === DB_MIGRATE_JOB);
   if (migrateJob) {
-    await updateJobImage(migrateJob, image, secrets, version);
+    await updateJobImage(migrateJob, image, secrets);
     info(`executing job: ${migrateJob.name}`);
     await runJob(migrateJob.name);
   }
   for (const job of jobs) {
     if (job === migrateJob) continue;
-    await updateJobImage(job, image, secrets, version);
+    await updateJobImage(job, image, secrets);
   }
   const updatedServices = [];
   for (const service of services) {
     const containers = service.template.containers;
     const updated = containers.map(
-      (container) => isAppContainer(container, containers, repo) ? { ...container, image, env: upsertDdVersion(mergeEnvVars(container.env, secrets), version) } : container
+      (container) => isAppContainer(container, containers, repo) ? { ...container, image, env: mergeEnvVars(container.env, secrets) } : container
     );
     info(`updating service: ${service.name} (${updated.length} container(s))`);
     await updateService(service.name, updated);
@@ -235197,18 +235198,12 @@ async function deployCloudRun({ image, runtimeProject, version }) {
   }
   return { deployedImage: image, services: updatedServices };
 }
-async function updateJobImage(job, image, secrets, version) {
+async function updateJobImage(job, image, secrets) {
   const container = job.template.template.containers[0];
   container.image = image;
-  container.env = upsertDdVersion(mergeEnvVars(container.env, secrets), version);
+  container.env = mergeEnvVars(container.env, secrets);
   info(`updating job: ${job.name}`);
   await updateJob(job);
-}
-function upsertDdVersion(envVars, version) {
-  if (!version) return envVars;
-  const withoutDdVersion = envVars.filter((env2) => env2.name !== "DD_VERSION");
-  withoutDdVersion.push({ name: "DD_VERSION", value: version });
-  return withoutDdVersion;
 }
 function mergeEnvVars(currentEnv, secrets) {
   const envVars = [];

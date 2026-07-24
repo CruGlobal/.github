@@ -122,7 +122,7 @@ describe('deployCloudRun orchestration', () => {
   })
 })
 
-describe('deployCloudRun DD_VERSION injection', () => {
+describe('deployCloudRun ignores version (Terraform owns Cloud Run env)', () => {
   beforeEach(() => {
     gcp.listSecrets.mockResolvedValue(SECRETS)
     gcp.updateService.mockResolvedValue({})
@@ -130,48 +130,35 @@ describe('deployCloudRun DD_VERSION injection', () => {
     gcp.runJob.mockResolvedValue({})
   })
 
-  it('appends DD_VERSION to the app container env (services AND jobs) when version is set; sidecar untouched', async () => {
+  // Unlike ECS (task_definition wholly ignored by Terraform), the Cloud Run
+  // service's app-container env is Terraform-managed with ignore_changes on
+  // the image only -- an injected DD_VERSION would drift on every plan and be
+  // removed by every apply. Version telemetry rides the deployment events.
+  it('never injects DD_VERSION, even when version is set', async () => {
     gcp.cloudrunListServices.mockResolvedValue([service()])
     gcp.cloudrunListJobs.mockResolvedValue(jobs())
 
     await deployCloudRun({ image: IMAGE, runtimeProject: 'p', version: 'release-2026-07-23-10057' })
 
     const [, containers] = gcp.updateService.mock.calls[0]
-    // secrets first (from mergeEnvVars), DD_VERSION appended last
-    expect(containers[0].env).toEqual([
-      { name: 'FOO', value: 'bar' },
-      { name: 'DATABASE_URL', valueSource: { secretKeyRef: { secret: 'projects/p/secrets/DATABASE_URL', version: 'latest' } } },
-      { name: 'DD_VERSION', value: 'release-2026-07-23-10057' }
-    ])
+    expect(containers[0].env.some(e => e.name === 'DD_VERSION')).toBe(false)
     // datadog sidecar is not the app container -> unchanged
     expect(containers[1]).toEqual({ name: 'datadog', image: 'gcr.io/datadoghq/agent:latest' })
-    // jobs (single-container = app container) get DD_VERSION too
-    expect(gcp.updateJob).toHaveBeenCalledTimes(2)
     for (const [job] of gcp.updateJob.mock.calls) {
-      expect(job.template.template.containers[0].env).toContainEqual({ name: 'DD_VERSION', value: 'release-2026-07-23-10057' })
+      expect(job.template.template.containers[0].env.some(e => e.name === 'DD_VERSION')).toBe(false)
     }
   })
 
-  it('replaces an existing DD_VERSION entry without duplicating', async () => {
+  it('preserves a pre-existing DD_VERSION env entry untouched (it belongs to Terraform)', async () => {
     const svc = service()
-    svc.template.containers[0].env = [{ name: 'DD_VERSION', value: 'release-old' }, { name: 'FOO', value: 'bar' }]
+    svc.template.containers[0].env = [{ name: 'DD_VERSION', value: 'tf-owned' }, { name: 'FOO', value: 'bar' }]
     gcp.cloudrunListServices.mockResolvedValue([svc])
     gcp.cloudrunListJobs.mockResolvedValue([])
 
     await deployCloudRun({ image: IMAGE, runtimeProject: 'p', version: 'release-new' })
 
     const [, containers] = gcp.updateService.mock.calls[0]
-    expect(containers[0].env.filter(e => e.name === 'DD_VERSION')).toEqual([{ name: 'DD_VERSION', value: 'release-new' }])
+    expect(containers[0].env).toContainEqual({ name: 'DD_VERSION', value: 'tf-owned' })
     expect(containers[0].env).toContainEqual({ name: 'FOO', value: 'bar' })
-  })
-
-  it('leaves env unchanged (no DD_VERSION) when version is omitted', async () => {
-    gcp.cloudrunListServices.mockResolvedValue([service()])
-    gcp.cloudrunListJobs.mockResolvedValue([])
-
-    await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
-
-    const [, containers] = gcp.updateService.mock.calls[0]
-    expect(containers[0].env.some(e => e.name === 'DD_VERSION')).toBe(false)
   })
 })
