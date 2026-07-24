@@ -64,6 +64,25 @@ export function findAppContainer (containers, repo) {
   )
 }
 
+// gaxios retry options for the Artifact Registry REST calls. The AWS SDK clients
+// already retry (maxAttempts 5, standard mode); the GCP REST path did NOT, and a
+// transient Artifact Registry 503 failed a pilot rollback at the resolve step
+// (pre-mutation — the rerun succeeded). google-auth-library's client.request
+// wraps gaxios and passes these options straight through, so setting them here
+// gives the REST calls the same 5-attempt tolerance. GET (list/read) and POST
+// (tag create) are retried on 429 + any 5xx. The POST tag-create retry is SAFE:
+// an alreadyExists on a retried create is already treated as success by addTag's
+// 409 handler (create-or-move is idempotent).
+const GAXIOS_RETRY = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ['GET', 'POST'],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+}
+
 // Obtain an authenticated Google API client (ADC / workload-identity on the
 // runner). Split out so tests can mock google-auth-library.
 async function authClient () {
@@ -86,7 +105,8 @@ export async function listDockerImages (project, repository, location = SHARED_L
     const res = await client.request({
       url,
       method: 'GET',
-      params: { pageSize: 1000, ...(pageToken ? { pageToken } : {}) }
+      params: { pageSize: 1000, ...(pageToken ? { pageToken } : {}) },
+      ...GAXIOS_RETRY
     })
     images.push(...(res.data?.dockerImages ?? []))
     pageToken = res.data?.nextPageToken
@@ -157,7 +177,8 @@ export async function addTag (project, repository, packageName, digest, tag) {
       url: `https://artifactregistry.googleapis.com/v1/${parent}/tags`,
       method: 'POST',
       params: { tagId: tag },
-      data: { name: tagName, version }
+      data: { name: tagName, version },
+      ...GAXIOS_RETRY
     })
   } catch (error) {
     const status = error?.response?.status ?? error?.status ?? error?.code
@@ -167,7 +188,8 @@ export async function addTag (project, repository, packageName, digest, tag) {
         url: `https://artifactregistry.googleapis.com/v1/${tagName}`,
         method: 'PATCH',
         params: { updateMask: 'version' },
-        data: { name: tagName, version }
+        data: { name: tagName, version },
+        ...GAXIOS_RETRY
       })
     } else {
       throw error

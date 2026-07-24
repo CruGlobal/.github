@@ -89,6 +89,23 @@ describe('deployLambda wait failure', () => {
   })
 })
 
+describe('deployLambda ignores version', () => {
+  it('accepts a version but never injects it (Lambda env is Terraform-owned)', async () => {
+    aws.lambdaListFunctionNames.mockResolvedValue(['hoax-prod-app'])
+    aws.lambdaGetFunction.mockResolvedValue(imageFn(`${REGISTRY}/hoax@sha256:old`))
+
+    const result = await deployLambda({
+      projectName: 'hoax', environment: 'production', image: IMAGE, version: 'release-2026-07-23-10057'
+    })
+
+    // Only the image is updated — UpdateFunctionCode carries (name, image) and
+    // nothing else; there is no config/env mutation path, so version is inert.
+    expect(aws.lambdaUpdateFunctionCode).toHaveBeenCalledTimes(1)
+    expect(aws.lambdaUpdateFunctionCode).toHaveBeenCalledWith('hoax-prod-app', IMAGE)
+    expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-prod-app'] })
+  })
+})
+
 describe('deployLambda no match', () => {
   it('throws when functions exist but none use the app or scratch image', async () => {
     aws.lambdaListFunctionNames.mockResolvedValue(['hoax-prod-zip', 'hoax-prod-other'])

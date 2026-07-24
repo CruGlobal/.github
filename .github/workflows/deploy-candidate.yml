@@ -105,7 +105,7 @@ jobs:
       # continue-on-error guard against upstream CLI changes and Datadog outages.
       - name: Tag Datadog pipeline
         continue-on-error: true
-        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}"
+        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}" --tags "version:${{ inputs.tag }}" || echo "::warning title=Datadog telemetry failed::pipeline tag for $PROJECT_NAME (release-candidate) not applied (non-blocking)"
 
       - name: Configure GCP credentials
         uses: google-github-actions/auth@v3
@@ -164,22 +164,34 @@ jobs:
           environment: release-candidate
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
+          version: ${{ inputs.tag }}
 
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
             --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
             --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":release-candidate"),
-              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:release-candidate", "action:deploy",
-                     "revision:${{ inputs.tag }}"]}' \
+                     "revision:${{ inputs.tag }}", ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
-              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
@@ -219,7 +231,7 @@ jobs:
 
       - name: Tag Datadog pipeline
         continue-on-error: true
-        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}"
+        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}" --tags "version:${{ inputs.tag }}" || echo "::warning title=Datadog telemetry failed::pipeline tag for $PROJECT_NAME (release-candidate) not applied (non-blocking)"
 
       # ECS/Lambda are org-shared in the cruds account (056154071827); one deploy
       # role per type (GitHubDeployECS / GitHubDeployLambda, both cru-deploy-
@@ -279,22 +291,34 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: release-candidate
           image: ${{ steps.resolve.outputs.image }}
+          version: ${{ inputs.tag }}
 
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
             --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
             --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":release-candidate"),
-              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:release-candidate", "action:deploy",
-                     "revision:${{ inputs.tag }}"]}' \
+                     "revision:${{ inputs.tag }}", ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
-              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"

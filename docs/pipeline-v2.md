@@ -113,6 +113,7 @@ Deploys a pre-built, digest-pinned image to a target environment.
 | `environment`     | yes               | Long env name to deploy to                                          |
 | `image`           | yes               | FULL DIGEST reference (`name@sha256:...`); a tag ref fails the action |
 | `runtime-project` | cloudrun          | GCP project ID of the target-env project                            |
+| `version`         | no                | Human-readable version tag (`candidate-<date>-<n>` / `release-<date>-<n>`) injected as `DD_VERSION` on the app container. **cloudrun + ecs only**; lambda deliberately ignores it (see below) |
 
 ### Outputs
 
@@ -120,6 +121,33 @@ Deploys a pre-built, digest-pinned image to a target environment.
 | ---------------- | ----------------------------------------------- |
 | `deployed-image` | The digest reference that was deployed          |
 | `services`       | Comma-separated names of the services updated   |
+
+### `DD_VERSION` injection (optional `version`)
+
+Digest-pinned deploys otherwise leave Datadog's version telemetry stale — nothing
+in v1 or v2 set `DD_VERSION`. When the optional `version` input is given, deploy
+upserts `{ name: DD_VERSION, value: <version> }` onto the **app container's** env,
+**replacing** any existing entry (never duplicating); sidecars are untouched:
+
+- **cloudrun**: on every service's app container **and** every job's container (a
+  job is single-container, so `containers[0]` is the app), alongside the refreshed
+  image/secrets.
+- **ecs**: into the app container's plain `environment` array in the composed task
+  definition (`composeTaskDefinition`, still a pure function; the array is created
+  when the template has none). When `version` is unset the `environment` is left
+  exactly as the Terraform template had it (no-op).
+- **lambda**: **deliberately ignored.** A Lambda function's env is Terraform-owned
+  — per-tenant config lives there and the aws/lambda/app module does **not**
+  `ignore_changes` it — so the pipeline must never call
+  `UpdateFunctionConfiguration`; doing so would fight Terraform and could clobber
+  per-tenant config. Lambda version telemetry therefore comes from the deployment
+  **events** only, not `DD_VERSION`. `version` is accepted for a uniform router
+  signature and intentionally unused.
+
+The workflows supply `version`: `deploy-candidate` → the candidate `tag`;
+`promote` → the derived `release-*` tag; `rollback` → the **actual** `release-*`
+tag on the resolved digest (a bare-number input can resolve to a dated release, so
+the tag is read back from `resolve`'s tags rather than trusting the input).
 
 ## Implemented vs stubbed
 
@@ -155,6 +183,15 @@ services }` contracts.
   3. update each service, rewriting **only** the app container (sidecars such as
      the Datadog agent are preserved), re-attaching RUNTIME secrets as
      `secretKeyRef:latest`, and forcing a new revision.
+- **transient-failure tolerance**: the AWS SDK clients already retry
+  (`maxAttempts: 5`); the Artifact Registry **REST** calls did not, and a
+  transient AR 503 failed a pilot rollback at the resolve step (pre-mutation — the
+  rerun succeeded). All three `client.request` sites in `src/v2/gcp.js`
+  (`listDockerImages` pagination + the tag create/move POST/PATCH) now pass gaxios
+  retry options (`retry: true`, 5 attempts, 500ms base, `GET`/`POST` on `429` and
+  any `5xx`). google-auth-library's `client.request` wraps gaxios and passes these
+  through. The POST tag-create retry is safe: an `alreadyExists` on a retried
+  create is already treated as success (`addTag`'s 409 → move handler).
 
 ### ECS implementation notes
 
@@ -392,10 +429,17 @@ something other than `deploy-candidate`). Deploy a candidate first.
 Telemetry must never fail a deploy. Every Datadog step uses:
 
 - pinned `npx @datadog/datadog-ci@5`,
-- `continue-on-error: true` on the step,
+- `continue-on-error: true` on the step (the belt),
 - `--no-fail` on `tag` commands,
-- `dora deployment` marks with `--skip-git`, `--env` set to the **v2 long**
-  environment name, and `--custom-tags "rollback:true"` on rollbacks.
+- a trailing `|| echo "::warning title=Datadog telemetry failed::… (non-blocking)"`
+  (the suspenders): `continue-on-error` **swallows** a failed post silently, so
+  every Datadog step also appends a `::warning` annotation so a failure is
+  **visible** on the run summary instead of vanishing. For the multi-line
+  `jq | curl` event posts the warning fires if **any** part of the pipeline fails
+  (the runner shell runs with `pipefail`).
+
+Deployment telemetry itself is a structured **Events API** post (see the
+self-owned-telemetry decision below), not a `dora deployment` mark.
 
 ### Concurrency locks
 
@@ -740,14 +784,22 @@ scoping in `gcp-secrets`) is MOOT — that store is not being built.
 Cru pays for Datadog CI Visibility on the single cru-deploy repo (one
 committer), which already gives fleet-wide pipeline visibility. Datadog's DORA
 Metrics is a separate per-committer SKU with unclear per-app billing exposure,
-so the pipeline does NOT use `datadog-ci dora deployment` (RETIRED — see the self-owned telemetry decision below). Instead every
+so the pipeline does NOT use `datadog-ci dora deployment` (RETIRED). Instead every
 deploy/promote/rollback posts a structured event to the standard Datadog
 Events API (included with the platform): tags `source:cru-pipeline-v2`,
-`service`, `environment`, `action:deploy|promote|rollback`, `revision`, plus
-`candidate:`/`rollback:` context. Events power dashboards, monitors, and
+`service`, `environment`, `action:deploy|promote|rollback`, `revision`,
+`actor:<github.actor>`, plus `candidate:`/`rollback:` context and — when the
+resolved digest carries a `sha-<gitsha>` tag — `sha:<gitsha>` (the `sha-` prefix
+stripped; omitted cleanly when absent). Events power dashboards, monitors, and
 deploy-correlation overlays.
+
+The `actor:` and `sha:` tags were adopted from **flightdeck** (the CTO's
+reference app) — its field-tested event shape attributes every promotion/rollback
+to the human and joins it to a commit. They are the **deployments-ledger
+precursor**: with actor + git sha on every event, the ledger math below can be
+derived without a separate emit path.
 
 Deferred (phase 2): a deployments ledger via an app-info service extension
 (POST endpoint -> DynamoDB) as the queryable source of truth for DORA-style
-math (deployment frequency, lead time from the sha- tags, rollback rate) —
+math (deployment frequency, lead time from the `sha-` tags, rollback rate) —
 computed by us, billed by no one.

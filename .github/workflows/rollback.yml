@@ -145,6 +145,19 @@ jobs:
           mode: tag
           tag: ${{ needs.lookup.outputs.release-tag }}
 
+      # A bare-number input can resolve to a dated release tag (release-<date>-<n>),
+      # so DD_VERSION must reflect the ACTUAL release-* tag on the resolved digest,
+      # not the normalized input. Grep the resolved tags for release-*, falling
+      # back to the normalized input when (unexpectedly) none is present.
+      - name: Determine deployed release tag
+        id: actual-release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          FALLBACK: ${{ needs.lookup.outputs.release-tag }}
+        run: |
+          release=$(echo "$TAGS" | tr ',' '\n' | grep -E '^release-' | head -n1 || true)
+          echo "tag=${release:-$FALLBACK}" >> "$GITHUB_OUTPUT"
+
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
@@ -156,21 +169,34 @@ jobs:
           environment: production
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
+          version: ${{ steps.actual-release.outputs.tag }}
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
             --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
             --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
-              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:rollback",
-                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true"]}' \
+                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
-              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
@@ -224,6 +250,19 @@ jobs:
           mode: tag
           tag: ${{ needs.lookup.outputs.release-tag }}
 
+      # A bare-number input can resolve to a dated release tag (release-<date>-<n>),
+      # so DD_VERSION must reflect the ACTUAL release-* tag on the resolved digest,
+      # not the normalized input. Grep the resolved tags for release-*, falling
+      # back to the normalized input when (unexpectedly) none is present.
+      - name: Determine deployed release tag
+        id: actual-release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          FALLBACK: ${{ needs.lookup.outputs.release-tag }}
+        run: |
+          release=$(echo "$TAGS" | tr ',' '\n' | grep -E '^release-' | head -n1 || true)
+          echo "tag=${release:-$FALLBACK}" >> "$GITHUB_OUTPUT"
+
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
@@ -234,20 +273,33 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
           image: ${{ steps.resolve.outputs.image }}
+          version: ${{ steps.actual-release.outputs.tag }}
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
             --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
             --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
-              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:rollback",
-                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true"]}' \
+                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
-              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"

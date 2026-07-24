@@ -10,20 +10,22 @@ import { deployLambda } from './v2/deploy-lambda'
 // reference fails the action immediately.
 //
 // The router dispatches on `type` (cloudrun implemented; ecs/lambda stubbed).
-async function run () {
+export async function run () {
   try {
     const type = core.getInput('type', { required: true })
     const projectName = core.getInput('project-name', { required: true })
     const environment = core.getInput('environment', { required: true })
     const image = core.getInput('image', { required: true })
     const runtimeProject = core.getInput('runtime-project', { required: false })
+    // Optional human-readable version tag -> DD_VERSION on the app container.
+    const version = core.getInput('version', { required: false })
 
     // Enforce the digest invariant before touching any infrastructure.
     assertDigestRef(image)
     // Validate the long environment name eagerly (throws on an unknown name).
     core.info(`environment ${environment} -> ${environmentNickname(environment)}`)
 
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject })
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, version })
 
     core.info(`deployed image: ${result.deployedImage}`)
     core.info(`updated services: ${JSON.stringify(result.services)}`)
@@ -47,4 +49,6 @@ function dispatch (type, args) {
   }
 }
 
-run()
+// Auto-run as the action entrypoint, but stay import-safe under test (matches
+// tag-image.js — lets the router be exercised without firing on import).
+if (!process.env.VITEST) run()

@@ -181,6 +181,7 @@ jobs:
           environment: production
           runtime-project: ${{ needs.lookup.outputs.prod-project-id }}
           image: ${{ steps.resolve.outputs.image }}
+          version: ${{ steps.release.outputs.release }}
 
       # Tag the promoted digest release-<n> in the shared registry (the prod
       # cru-deploy SA holds AR writer there). Replaces the gcloud CLI tagging step
@@ -195,18 +196,30 @@ jobs:
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
             --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
             --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
-              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:promote",
-                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}"]}' \
+                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
-              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
 
@@ -286,6 +299,7 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
           image: ${{ steps.resolve.outputs.image }}
+          version: ${{ steps.release.outputs.release }}
 
       # Tag the promoted digest release-<n> in ECR (manifest re-tag; the ECR path
       # is shared by ecs and lambda). Requires ecr:PutImage on the deploy role
@@ -300,17 +314,29 @@ jobs:
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
             --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
             --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
-              tags: ["source:cru-pipeline-v2", ("service:" + $service),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:promote",
-                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}"]}' \
+                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
-              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @-
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"

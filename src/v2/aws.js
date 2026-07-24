@@ -199,8 +199,13 @@ const READ_ONLY_TASK_DEF_KEYS = [
 // sidecar container passes through verbatim. Tags from the template are carried
 // over (AWS rejects an empty `tags` array, so the key is only set when present).
 //
+// When `version` is set, DD_VERSION is upserted into the app container's plain
+// `environment` array so Datadog attributes telemetry to the human-readable
+// version tag. When unset, `environment` is left exactly as the template had it
+// (no-op) — the pipeline touches only image, secrets, and (when given) DD_VERSION.
+//
 // Pure function (no SDK calls) so the compose semantics are unit-testable.
-export function composeTaskDefinition (taskDefinition, { projectName, image, secrets, tags = [] }) {
+export function composeTaskDefinition (taskDefinition, { projectName, image, secrets, version, tags = [] }) {
   const taskDef = {}
   if (tags.length > 0) {
     taskDef.tags = tags
@@ -210,11 +215,23 @@ export function composeTaskDefinition (taskDefinition, { projectName, image, sec
     taskDef[key] = value
   }
 
-  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(container =>
-    isEcsAppContainer(container, projectName)
-      ? { ...container, image, secrets }
-      : container
-  )
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(container => {
+    if (!isEcsAppContainer(container, projectName)) return container
+    const appContainer = { ...container, image, secrets }
+    if (version) {
+      appContainer.environment = upsertEnvVersion(container.environment, version)
+    }
+    return appContainer
+  })
 
   return taskDef
+}
+
+// Upsert { name: 'DD_VERSION', value: version } into an ECS container's plain
+// `environment` array (the [{name,value}] shape; SSM-backed vars live in
+// `secrets`). Replaces an existing DD_VERSION entry (never duplicates) and
+// creates the array when the template has none. Pure: returns a new array.
+function upsertEnvVersion (environment, version) {
+  const rest = (environment ?? []).filter(entry => entry.name !== 'DD_VERSION')
+  return [...rest, { name: 'DD_VERSION', value: version }]
 }

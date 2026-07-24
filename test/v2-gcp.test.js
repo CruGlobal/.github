@@ -12,6 +12,7 @@ vi.mock('google-auth-library', () => ({
 import {
   SHARED_LOCATION,
   SHARED_PROJECT,
+  addTag,
   assertDigestRef,
   findAppContainer,
   isAppContainer,
@@ -203,5 +204,39 @@ describe('Artifact Registry resolution (mocked client)', () => {
     requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
     expect(await tagsForDigest('hoax', 'sha256:aaa')).toEqual(['candidate-10012', 'sha-abc123'])
     expect(await tagsForDigest('hoax', 'sha256:missing')).toEqual([])
+  })
+})
+
+describe('Artifact Registry transient-5xx retries (gaxios passthrough)', () => {
+  const EXPECTED_RETRY = {
+    retry: true,
+    retryConfig: {
+      retry: 5,
+      retryDelay: 500,
+      httpMethodsToRetry: ['GET', 'POST'],
+      statusCodesToRetry: [[429, 429], [500, 599]]
+    }
+  }
+
+  beforeEach(() => {
+    requestMock.mockReset()
+  })
+
+  it('listDockerImages requests with gaxios retry options', async () => {
+    requestMock.mockResolvedValue({ data: { dockerImages: [] } })
+
+    await listDockerImages(SHARED_PROJECT, 'hoax')
+
+    const opts = requestMock.mock.calls[0][0]
+    expect(opts).toMatchObject(EXPECTED_RETRY)
+  })
+
+  it('addTag POST tag-create requests with gaxios retry options (retried create is idempotent)', async () => {
+    requestMock.mockResolvedValue({})
+
+    await addTag(SHARED_PROJECT, 'hoax', 'hoax', 'sha256:aaa', 'release-1')
+
+    const post = requestMock.mock.calls.find(c => c[0].method === 'POST')[0]
+    expect(post).toMatchObject(EXPECTED_RETRY)
   })
 })

@@ -24,8 +24,12 @@ const shortName = resource => resource.split('/').pop()
 //      the Datadog agent are preserved) and re-attaching RUNTIME secrets, then
 //      force a new revision.
 //
+// When `version` is set it is injected as DD_VERSION on the app container's env
+// (services AND jobs), so Datadog attributes telemetry from this digest-pinned
+// deploy to the human-readable version tag. Sidecars are untouched.
+//
 // Returns { deployedImage, services } (services = short names updated).
-export async function deployCloudRun ({ image, runtimeProject }) {
+export async function deployCloudRun ({ image, runtimeProject, version }) {
   assertDigestRef(image) // defensive; the router validates too
   if (!runtimeProject) {
     throw new Error('runtime-project is required to deploy a cloudrun image')
@@ -45,7 +49,7 @@ export async function deployCloudRun ({ image, runtimeProject }) {
   // running services and scheduled jobs untouched.
   const migrateJob = jobs.find(job => shortName(job.name) === DB_MIGRATE_JOB)
   if (migrateJob) {
-    await updateJobImage(migrateJob, image, secrets)
+    await updateJobImage(migrateJob, image, secrets, version)
     core.info(`executing job: ${migrateJob.name}`)
     await runJob(migrateJob.name)
   }
@@ -54,7 +58,7 @@ export async function deployCloudRun ({ image, runtimeProject }) {
   // run on their own cron, so they are updated but not executed here.
   for (const job of jobs) {
     if (job === migrateJob) continue
-    await updateJobImage(job, image, secrets)
+    await updateJobImage(job, image, secrets, version)
   }
 
   // Update each Cloud Run service. Refresh only the APP container's image/env
@@ -65,7 +69,7 @@ export async function deployCloudRun ({ image, runtimeProject }) {
     const containers = service.template.containers
     const updated = containers.map(container =>
       isAppContainer(container, containers, repo)
-        ? { ...container, image, env: mergeEnvVars(container.env, secrets) }
+        ? { ...container, image, env: upsertDdVersion(mergeEnvVars(container.env, secrets), version) }
         : container
     )
     core.info(`updating service: ${service.name} (${updated.length} container(s))`)
@@ -76,13 +80,25 @@ export async function deployCloudRun ({ image, runtimeProject }) {
   return { deployedImage: image, services: updatedServices }
 }
 
-// Update a Cloud Run job's container image and secrets in place.
-async function updateJobImage (job, image, secrets) {
+// Update a Cloud Run job's container image and secrets in place. A job has a
+// single container, so container[0] IS the app container — inject DD_VERSION too.
+async function updateJobImage (job, image, secrets, version) {
   const container = job.template.template.containers[0]
   container.image = image
-  container.env = mergeEnvVars(container.env, secrets)
+  container.env = upsertDdVersion(mergeEnvVars(container.env, secrets), version)
   core.info(`updating job: ${job.name}`)
   await updateJob(job)
+}
+
+// Upsert { name: 'DD_VERSION', value: version } onto a Cloud Run container's env.
+// When `version` is unset the env is returned unchanged; otherwise any existing
+// DD_VERSION entry is REPLACED (never duplicated). Returns a new array — the
+// caller has already built `envVars` fresh via mergeEnvVars.
+function upsertDdVersion (envVars, version) {
+  if (!version) return envVars
+  const withoutDdVersion = envVars.filter(env => env.name !== 'DD_VERSION')
+  withoutDdVersion.push({ name: 'DD_VERSION', value: version })
+  return withoutDdVersion
 }
 
 // Persist a container's non-secret ENV vars and (re)add all secret ENV vars as
