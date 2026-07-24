@@ -201036,7 +201036,7 @@ var require_dist_cjs16 = __commonJS({
         Object.setPrototypeOf(this, _AccessDeniedException.prototype);
       }
     };
-    var ClientException = class _ClientException extends ECSServiceException {
+    var ClientException2 = class _ClientException extends ECSServiceException {
       name = "ClientException";
       $fault = "client";
       constructor(opts) {
@@ -202557,7 +202557,7 @@ var require_dist_cjs16 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(ClientException$, ClientException);
+    n0_registry5.registerError(ClientException$, ClientException2);
     var ClusterContainsCapacityProviderException$ = [
       -3,
       n05,
@@ -207270,7 +207270,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var DescribeTaskDefinitionCommand2 = class extends command5(_ep05, _mw05, "DescribeTaskDefinition", DescribeTaskDefinition$) {
     };
-    var DescribeTasksCommand = class extends command5(_ep05, _mw05, "DescribeTasks", DescribeTasks$) {
+    var DescribeTasksCommand2 = class extends command5(_ep05, _mw05, "DescribeTasks", DescribeTasks$) {
     };
     var DescribeTaskSetsCommand = class extends command5(_ep05, _mw05, "DescribeTaskSets", DescribeTaskSets$) {
     };
@@ -207322,7 +207322,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var RegisterTaskDefinitionCommand2 = class extends command5(_ep05, _mw05, "RegisterTaskDefinition", RegisterTaskDefinition$) {
     };
-    var RunTaskCommand = class extends command5(_ep05, _mw05, "RunTask", RunTask$) {
+    var RunTaskCommand2 = class extends command5(_ep05, _mw05, "RunTask", RunTask$) {
     };
     var StartTaskCommand = class extends command5(_ep05, _mw05, "StartTask", StartTask$) {
     };
@@ -207757,7 +207757,7 @@ var require_dist_cjs16 = __commonJS({
     var checkState$1 = async (client, input) => {
       let reason;
       try {
-        let result = await client.send(new DescribeTasksCommand(input));
+        let result = await client.send(new DescribeTasksCommand2(input));
         reason = result;
         try {
           const returnComparator = () => {
@@ -207823,7 +207823,7 @@ var require_dist_cjs16 = __commonJS({
     var checkState = async (client, input) => {
       let reason;
       try {
-        let result = await client.send(new DescribeTasksCommand(input));
+        let result = await client.send(new DescribeTasksCommand2(input));
         reason = result;
         try {
           const returnComparator = () => {
@@ -207851,7 +207851,7 @@ var require_dist_cjs16 = __commonJS({
       const serviceDefaults = { minDelay: 6, maxDelay: 600 };
       return createWaiter2({ ...serviceDefaults, ...params }, input, checkState);
     };
-    var waitUntilTasksStopped = async (params, input) => {
+    var waitUntilTasksStopped2 = async (params, input) => {
       const serviceDefaults = { minDelay: 6, maxDelay: 600 };
       const result = await createWaiter2({ ...serviceDefaults, ...params }, input, checkState);
       return checkExceptions2(result);
@@ -207888,7 +207888,7 @@ var require_dist_cjs16 = __commonJS({
       DescribeServiceRevisionsCommand,
       DescribeServicesCommand: DescribeServicesCommand2,
       DescribeTaskDefinitionCommand: DescribeTaskDefinitionCommand2,
-      DescribeTasksCommand,
+      DescribeTasksCommand: DescribeTasksCommand2,
       DescribeTaskSetsCommand,
       DiscoverPollEndpointCommand,
       ExecuteCommandCommand,
@@ -207914,7 +207914,7 @@ var require_dist_cjs16 = __commonJS({
       RegisterContainerInstanceCommand,
       RegisterDaemonTaskDefinitionCommand,
       RegisterTaskDefinitionCommand: RegisterTaskDefinitionCommand2,
-      RunTaskCommand,
+      RunTaskCommand: RunTaskCommand2,
       StartTaskCommand,
       StopServiceDeploymentCommand,
       StopTaskCommand,
@@ -207955,7 +207955,7 @@ var require_dist_cjs16 = __commonJS({
       waitUntilServicesInactive,
       waitUntilServicesStable,
       waitUntilTasksRunning,
-      waitUntilTasksStopped
+      waitUntilTasksStopped: waitUntilTasksStopped2
     };
     var ECS = class extends ECSClient2 {
     };
@@ -208559,7 +208559,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.CapacityProviderUpdateStatus = CapacityProviderUpdateStatus;
     exports2.CapacityReservationPreference = CapacityReservationPreference;
     exports2.CapacityReservationRequest$ = CapacityReservationRequest$;
-    exports2.ClientException = ClientException;
+    exports2.ClientException = ClientException2;
     exports2.ClientException$ = ClientException$;
     exports2.Cluster$ = Cluster$;
     exports2.ClusterConfiguration$ = ClusterConfiguration$;
@@ -208775,7 +208775,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DescribeTaskSetsRequest$ = DescribeTaskSetsRequest$;
     exports2.DescribeTaskSetsResponse$ = DescribeTaskSetsResponse$;
     exports2.DescribeTasks$ = DescribeTasks$;
-    exports2.DescribeTasksCommand = DescribeTasksCommand;
+    exports2.DescribeTasksCommand = DescribeTasksCommand2;
     exports2.DescribeTasksRequest$ = DescribeTasksRequest$;
     exports2.DescribeTasksResponse$ = DescribeTasksResponse$;
     exports2.DesiredStatus = DesiredStatus;
@@ -209014,7 +209014,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.ResourceType = ResourceType;
     exports2.Rollback$ = Rollback$;
     exports2.RunTask$ = RunTask$;
-    exports2.RunTaskCommand = RunTaskCommand;
+    exports2.RunTaskCommand = RunTaskCommand2;
     exports2.RunTaskRequest$ = RunTaskRequest$;
     exports2.RunTaskResponse$ = RunTaskResponse$;
     exports2.RuntimePlatform$ = RuntimePlatform$;
@@ -209219,7 +209219,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.waitUntilServicesInactive = waitUntilServicesInactive;
     exports2.waitUntilServicesStable = waitUntilServicesStable;
     exports2.waitUntilTasksRunning = waitUntilTasksRunning;
-    exports2.waitUntilTasksStopped = waitUntilTasksStopped;
+    exports2.waitUntilTasksStopped = waitUntilTasksStopped2;
   }
 });
 
@@ -234940,6 +234940,31 @@ async function ecsUpdateService(service, cluster, taskDefinition) {
   const response = await client.send(new import_client_ecs.UpdateServiceCommand({ service, cluster, taskDefinition }));
   return response.service;
 }
+async function ecsDescribeServices(serviceArns, cluster) {
+  const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
+  const response = await client.send(new import_client_ecs.DescribeServicesCommand({ cluster, services: serviceArns }));
+  return response.services ?? [];
+}
+async function ecsRunTask({ cluster, taskDefinition, count = 1, startedBy, networkConfiguration, launchType, capacityProviderStrategy }) {
+  const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
+  return client.send(new import_client_ecs.RunTaskCommand({
+    cluster,
+    taskDefinition,
+    count,
+    startedBy,
+    networkConfiguration,
+    launchType,
+    capacityProviderStrategy
+  }));
+}
+async function ecsDescribeTasks(cluster, tasks) {
+  const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
+  return client.send(new import_client_ecs.DescribeTasksCommand({ cluster, tasks }));
+}
+async function ecsWaitUntilTasksStopped(cluster, tasks, maxWaitTime = 900) {
+  const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
+  return (0, import_client_ecs.waitUntilTasksStopped)({ client, maxWaitTime }, { cluster, tasks });
+}
 async function ssmParameters(prefix, decrypt = true) {
   const client = new import_client_ssm.SSMClient({ region: "us-east-1", ...RETRY_CONFIG });
   const params = [];
@@ -235228,6 +235253,9 @@ function mergeEnvVars(currentEnv, secrets) {
   return envVars;
 }
 
+// src/v2/deploy-ecs.js
+var import_client_ecs2 = __toESM(require_dist_cjs16());
+
 // node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
   if (typeof string !== "string") {
@@ -235277,6 +235305,7 @@ function composeTaskDefinition(taskDefinition, { projectName, image, secrets, ta
 }
 
 // src/v2/deploy-ecs.js
+var DB_MIGRATE_CONTAINER = "db-migrate";
 async function deployEcs({ projectName, environment, image }) {
   assertDigestRef(image);
   const nickname = environmentNickname(environment);
@@ -235284,14 +235313,88 @@ async function deployEcs({ projectName, environment, image }) {
   const cluster = ecsCluster(nickname);
   info(`deploying image: ${image} (env ${environment} -> nickname ${nickname}, cluster ${cluster})`);
   const secrets = await runtimeSecrets(projectName, nickname);
-  const services = await updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets });
-  await updateScheduledTasks({ projectName, nickname, image, secrets });
-  return { deployedImage: image, services };
-}
-async function updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets }) {
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
   info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
+  await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns });
+  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns });
+  await updateScheduledTasks({ projectName, nickname, image, secrets });
+  return { deployedImage: image, services };
+}
+async function runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns }) {
+  const family = `${projectName}-${nickname}-db-migrate`;
+  try {
+    await ecsDescribeTaskDefinition(family);
+  } catch (error3) {
+    if (error3 instanceof import_client_ecs2.ClientException) {
+      info("no db-migrate task definition family \u2014 skipping migrations");
+      return;
+    }
+    throw error3;
+  }
+  const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
+  const runConfig = await migrationRunConfig({ projectName, nickname, cluster, serviceArns });
+  info(`running database migrations: ${taskDefinitionArn} in cluster ${cluster}`);
+  const run2 = await ecsRunTask({ cluster, taskDefinition: taskDefinitionArn, count: 1, startedBy: "cru-pipeline-v2", ...runConfig });
+  const taskArn = run2.tasks?.[0]?.taskArn;
+  if (!taskArn) {
+    const reason = run2.failures?.[0]?.reason ?? "RunTask returned no task";
+    throw new Error(`Failed to start db-migrate task in cluster ${cluster}: ${reason}`);
+  }
+  const waited = await ecsWaitUntilTasksStopped(cluster, [taskArn]);
+  if (waited.state !== "SUCCESS") {
+    throw new Error(`db-migrate task ${taskArn} did not stop cleanly (waiter state ${waited.state})`);
+  }
+  const described = await ecsDescribeTasks(cluster, [taskArn]);
+  const task = described.tasks?.[0];
+  const container = task?.containers?.find((c5) => c5.name === DB_MIGRATE_CONTAINER);
+  if (container?.exitCode !== 0) {
+    const detail = task?.stoppedReason ?? container?.reason ?? `exit code ${container?.exitCode ?? "unknown"}`;
+    throw new Error(`Database migrations failed (task ${taskArn}): ${detail}`);
+  }
+  info(`database migrations succeeded: ${taskArn} (exit 0)`);
+}
+async function migrationRunConfig({ projectName, nickname, cluster, serviceArns }) {
+  if (serviceArns.length > 0) {
+    const [service] = await ecsDescribeServices([serviceArns[0]], cluster);
+    if (service?.networkConfiguration) {
+      return runConfigOf(service.networkConfiguration, service.launchType, service.capacityProviderStrategy);
+    }
+  }
+  const target = await firstScheduledTaskTarget(projectName, nickname);
+  const ecsParams = target?.EcsParameters;
+  if (ecsParams?.NetworkConfiguration) {
+    return runConfigOf(
+      ecsNetworkConfigFromEventBridge(ecsParams.NetworkConfiguration),
+      ecsParams.LaunchType,
+      ecsParams.CapacityProviderStrategy
+    );
+  }
+  throw new Error("db-migrate family exists but no service or scheduled task to borrow run configuration from");
+}
+function runConfigOf(networkConfiguration, launchType, capacityProviderStrategy) {
+  return capacityProviderStrategy?.length ? { networkConfiguration, capacityProviderStrategy } : { networkConfiguration, launchType };
+}
+async function firstScheduledTaskTarget(projectName, nickname) {
+  const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`);
+  for (const rule of rules) {
+    const targets = await eventBridgeListTargets(rule.Name);
+    if (targets.length > 0) return targets[0];
+  }
+  return void 0;
+}
+function ecsNetworkConfigFromEventBridge(networkConfiguration) {
+  const vpc = networkConfiguration?.awsvpcConfiguration;
+  if (!vpc) return void 0;
+  return {
+    awsvpcConfiguration: {
+      subnets: vpc.Subnets,
+      securityGroups: vpc.SecurityGroups,
+      assignPublicIp: vpc.AssignPublicIp
+    }
+  };
+}
+async function updateServices({ projectName, cluster, image, secrets, serviceArns }) {
   const current = await ecsServiceTaskDefinitions(serviceArns, cluster);
   const updated = [];
   for (const serviceArn of serviceArns) {

@@ -200904,7 +200904,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var DescribeTaskDefinitionCommand2 = class extends command5(_ep05, _mw05, "DescribeTaskDefinition", DescribeTaskDefinition$) {
     };
-    var DescribeTasksCommand = class extends command5(_ep05, _mw05, "DescribeTasks", DescribeTasks$) {
+    var DescribeTasksCommand2 = class extends command5(_ep05, _mw05, "DescribeTasks", DescribeTasks$) {
     };
     var DescribeTaskSetsCommand = class extends command5(_ep05, _mw05, "DescribeTaskSets", DescribeTaskSets$) {
     };
@@ -200956,7 +200956,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var RegisterTaskDefinitionCommand2 = class extends command5(_ep05, _mw05, "RegisterTaskDefinition", RegisterTaskDefinition$) {
     };
-    var RunTaskCommand = class extends command5(_ep05, _mw05, "RunTask", RunTask$) {
+    var RunTaskCommand2 = class extends command5(_ep05, _mw05, "RunTask", RunTask$) {
     };
     var StartTaskCommand = class extends command5(_ep05, _mw05, "StartTask", StartTask$) {
     };
@@ -201391,7 +201391,7 @@ var require_dist_cjs16 = __commonJS({
     var checkState$1 = async (client, input) => {
       let reason;
       try {
-        let result = await client.send(new DescribeTasksCommand(input));
+        let result = await client.send(new DescribeTasksCommand2(input));
         reason = result;
         try {
           const returnComparator = () => {
@@ -201457,7 +201457,7 @@ var require_dist_cjs16 = __commonJS({
     var checkState = async (client, input) => {
       let reason;
       try {
-        let result = await client.send(new DescribeTasksCommand(input));
+        let result = await client.send(new DescribeTasksCommand2(input));
         reason = result;
         try {
           const returnComparator = () => {
@@ -201485,7 +201485,7 @@ var require_dist_cjs16 = __commonJS({
       const serviceDefaults = { minDelay: 6, maxDelay: 600 };
       return createWaiter2({ ...serviceDefaults, ...params }, input, checkState);
     };
-    var waitUntilTasksStopped = async (params, input) => {
+    var waitUntilTasksStopped2 = async (params, input) => {
       const serviceDefaults = { minDelay: 6, maxDelay: 600 };
       const result = await createWaiter2({ ...serviceDefaults, ...params }, input, checkState);
       return checkExceptions2(result);
@@ -201522,7 +201522,7 @@ var require_dist_cjs16 = __commonJS({
       DescribeServiceRevisionsCommand,
       DescribeServicesCommand: DescribeServicesCommand2,
       DescribeTaskDefinitionCommand: DescribeTaskDefinitionCommand2,
-      DescribeTasksCommand,
+      DescribeTasksCommand: DescribeTasksCommand2,
       DescribeTaskSetsCommand,
       DiscoverPollEndpointCommand,
       ExecuteCommandCommand,
@@ -201548,7 +201548,7 @@ var require_dist_cjs16 = __commonJS({
       RegisterContainerInstanceCommand,
       RegisterDaemonTaskDefinitionCommand,
       RegisterTaskDefinitionCommand: RegisterTaskDefinitionCommand2,
-      RunTaskCommand,
+      RunTaskCommand: RunTaskCommand2,
       StartTaskCommand,
       StopServiceDeploymentCommand,
       StopTaskCommand,
@@ -201589,7 +201589,7 @@ var require_dist_cjs16 = __commonJS({
       waitUntilServicesInactive,
       waitUntilServicesStable,
       waitUntilTasksRunning,
-      waitUntilTasksStopped
+      waitUntilTasksStopped: waitUntilTasksStopped2
     };
     var ECS = class extends ECSClient2 {
     };
@@ -202409,7 +202409,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DescribeTaskSetsRequest$ = DescribeTaskSetsRequest$;
     exports2.DescribeTaskSetsResponse$ = DescribeTaskSetsResponse$;
     exports2.DescribeTasks$ = DescribeTasks$;
-    exports2.DescribeTasksCommand = DescribeTasksCommand;
+    exports2.DescribeTasksCommand = DescribeTasksCommand2;
     exports2.DescribeTasksRequest$ = DescribeTasksRequest$;
     exports2.DescribeTasksResponse$ = DescribeTasksResponse$;
     exports2.DesiredStatus = DesiredStatus;
@@ -202648,7 +202648,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.ResourceType = ResourceType;
     exports2.Rollback$ = Rollback$;
     exports2.RunTask$ = RunTask$;
-    exports2.RunTaskCommand = RunTaskCommand;
+    exports2.RunTaskCommand = RunTaskCommand2;
     exports2.RunTaskRequest$ = RunTaskRequest$;
     exports2.RunTaskResponse$ = RunTaskResponse$;
     exports2.RuntimePlatform$ = RuntimePlatform$;
@@ -202853,7 +202853,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.waitUntilServicesInactive = waitUntilServicesInactive;
     exports2.waitUntilServicesStable = waitUntilServicesStable;
     exports2.waitUntilTasksRunning = waitUntilTasksRunning;
-    exports2.waitUntilTasksStopped = waitUntilTasksStopped;
+    exports2.waitUntilTasksStopped = waitUntilTasksStopped2;
   }
 });
 
