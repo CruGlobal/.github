@@ -20,13 +20,6 @@ inputs:
   runtime-project:
     description: GCP project ID of the target environment project. Required for cloudrun.
     required: false
-  version:
-    description: >-
-      Human-readable version tag being deployed (e.g. candidate-2026-07-23-10057
-      or release-2026-07-23-10057), injected as DD_VERSION on the app container so
-      Datadog attributes telemetry from a digest-pinned deploy to the version.
-      Optional; Lambda deliberately ignores it (function env is Terraform-owned).
-    required: false
 outputs:
   deployed-image:
     description: The digest reference that was deployed.

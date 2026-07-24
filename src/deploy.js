@@ -17,15 +17,13 @@ export async function run () {
     const environment = core.getInput('environment', { required: true })
     const image = core.getInput('image', { required: true })
     const runtimeProject = core.getInput('runtime-project', { required: false })
-    // Optional human-readable version tag -> DD_VERSION on the app container.
-    const version = core.getInput('version', { required: false })
 
     // Enforce the digest invariant before touching any infrastructure.
     assertDigestRef(image)
     // Validate the long environment name eagerly (throws on an unknown name).
     core.info(`environment ${environment} -> ${environmentNickname(environment)}`)
 
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject, version })
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject })
 
     core.info(`deployed image: ${result.deployedImage}`)
     core.info(`updated services: ${JSON.stringify(result.services)}`)

@@ -34,17 +34,13 @@ const MAX_WAIT_SECONDS = 300
 // conventions, so runtime-project (a GCP-only input) is ignored here.
 //
 // Returns { deployedImage, services } (services = updated function names).
-export async function deployLambda ({ projectName, environment, image, version }) {
+export async function deployLambda ({ projectName, environment, image }) {
   assertDigestRef(image) // defensive; the router validates too
 
   // DD_VERSION is DELIBERATELY NOT injected for Lambda. A function's env is
   // Terraform-owned — per-tenant config lives there and the aws/lambda/app module
   // does NOT ignore_changes it — so the pipeline must never call
   // UpdateFunctionConfiguration; doing so would fight Terraform and could clobber
-  // per-tenant config. Lambda version telemetry therefore comes from the
-  // deployment events only, not DD_VERSION. `version` is accepted so the router
-  // signature is uniform across runtimes, and is intentionally unused here.
-  void version
 
   const nickname = environmentNickname(environment)
   const appRepoPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@`

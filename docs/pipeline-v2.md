@@ -113,7 +113,6 @@ Deploys a pre-built, digest-pinned image to a target environment.
 | `environment`     | yes               | Long env name to deploy to                                          |
 | `image`           | yes               | FULL DIGEST reference (`name@sha256:...`); a tag ref fails the action |
 | `runtime-project` | cloudrun          | GCP project ID of the target-env project                            |
-| `version`         | no                | Human-readable version tag (`candidate-<date>-<n>` / `release-<date>-<n>`) injected as `DD_VERSION` on the app container. **ecs only**; cloudrun and lambda deliberately ignore it (see below) |
 
 ### Outputs
 
@@ -122,37 +121,42 @@ Deploys a pre-built, digest-pinned image to a target environment.
 | `deployed-image` | The digest reference that was deployed          |
 | `services`       | Comma-separated names of the services updated   |
 
-### `DD_VERSION` injection (optional `version`)
+### `DD_VERSION`: baked at build, never injected at deploy
 
-Digest-pinned deploys otherwise leave Datadog's version telemetry stale — nothing
-in v1 or v2 set `DD_VERSION`. When the optional `version` input is given, deploy
-upserts `{ name: DD_VERSION, value: <version> }` onto the **app container's** env,
-**replacing** any existing entry (never duplicating); sidecars are untouched:
+Digest-pinned deploys otherwise leave Datadog's version telemetry stale. The
+answer is a **build-arg**: every candidate build passes
+`--build-arg VERSION=<yyyy-mm-dd>-<n>` (the tag family's bare suffix — identical
+for the candidate and its future release under D10's full-suffix reuse). Apps opt
+in with two Dockerfile lines, placed at the END of the Dockerfile so they cost no
+build cache:
 
-- **ecs**: into the app container's plain `environment` array in the composed task
-  definition (`composeTaskDefinition`, still a pure function; the array is created
-  when the template has none). When `version` is unset the `environment` is left
-  exactly as the Terraform template had it (no-op). ECS is the ONLY runtime where
-  this is drift-safe: Terraform ignores the service's `task_definition` entirely
-  and the deploy composes each revision from Terraform's own family template.
-- **cloudrun**: **deliberately ignored.** The Cloud Run service's app-container
-  env is Terraform-managed — `ignore_changes` covers the **image only** — so a
-  pipeline-added `DD_VERSION` would appear as drift on every plan and be removed
-  by every apply (the docker_config lesson). There is no ECS-style separate
-  template object to compose from, and `ignore_changes` cannot exempt a single
-  env entry. Cloud Run version telemetry rides the deployment **events**.
-- **lambda**: **deliberately ignored.** A Lambda function's env is Terraform-owned
-  — per-tenant config lives there and the aws/lambda/app module does **not**
-  `ignore_changes` it — so the pipeline must never call
-  `UpdateFunctionConfiguration`; doing so would fight Terraform and could clobber
-  per-tenant config. Lambda version telemetry comes from the deployment
-  **events** only. `version` is accepted by both for a uniform router signature
-  and intentionally unused.
+```dockerfile
+ARG VERSION="dev"
+ENV DD_VERSION=${VERSION}
+```
 
-The workflows supply `version`: `deploy-candidate` → the candidate `tag`;
-`promote` → the derived `release-*` tag; `rollback` → the **actual** `release-*`
-tag on the resolved digest (a bare-number input can resolve to a dated release, so
-the tag is read back from `resolve`'s tags rather than trusting the input).
+Why baked instead of deploy-time injection (the original design, reverted):
+
+- **One true version per build, in every environment.** Injection reported
+  `candidate-X` on release-candidate and `release-X` in production — a "version
+  change" on promote when the bytes never changed. The baked suffix is the build's
+  identity, like the `sha-` tag.
+- **Zero Terraform drift, all three runtimes.** Image ENV is invisible to
+  Terraform's env management. Deploy-time injection was only drift-safe on ECS
+  (task_definition wholly ignored); on Cloud Run the app container's env is
+  Terraform-managed (`ignore_changes` covers the image only), and on Lambda the
+  function env is Terraform-owned tenant config — injection would flap or fight.
+  Function-config env overlays image ENV per-name, and nothing sets `DD_VERSION`
+  there, so the baked value shines through everywhere — **including Lambda**.
+- **Graceful degradation.** An app without the `ARG` just logs an unused
+  build-arg warning and has no `DD_VERSION`, exactly as today.
+- The no-change guard composes correctly: a reused candidate keeps its original
+  baked version — which is that artifact's identity.
+
+The deployment **events** (and ledger rows) continue to carry the full revision
+tag (`candidate-*` / `release-*`) per event — the deploy-time record of *what was
+deployed where*; `DD_VERSION` is the runtime record of *what is running*.
+
 
 ## Implemented vs stubbed
 

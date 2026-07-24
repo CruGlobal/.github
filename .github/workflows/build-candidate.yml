@@ -149,8 +149,12 @@ jobs:
         # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
         # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
         # number remains the unique key. Promote reuses the full suffix, so
-        # release-<yyyy-mm-dd>-<n> names the same artifact.
-        run: echo "candidate=candidate-$(date -u +%F)-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+        # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
+        # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        run: |
+          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
+          echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.guard.outcome != 'success'
@@ -207,8 +211,13 @@ jobs:
         working-directory: project
         run: ./build.sh
         env:
+          # VERSION is the candidate tag's bare suffix (<yyyy-mm-dd>-<n>) -- identical
+          # for the future release tag (D10 full-suffix reuse), so a Dockerfile that
+          # bakes `ARG VERSION` -> `ENV DD_VERSION` reports one true version in every
+          # environment. Apps without the ARG just log an unused-build-arg warning.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            --build-arg VERSION=${{ steps.built.outputs.version }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --push
@@ -311,8 +320,12 @@ jobs:
         # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
         # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
         # number remains the unique key. Promote reuses the full suffix, so
-        # release-<yyyy-mm-dd>-<n> names the same artifact.
-        run: echo "candidate=candidate-$(date -u +%F)-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+        # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
+        # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        run: |
+          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
+          echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.guard.outcome != 'success'
@@ -365,8 +378,10 @@ jobs:
         working-directory: project
         run: ./build.sh
         env:
+          # VERSION: see the Cloud Run job's comment -- one build identity, baked.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            --build-arg VERSION=${{ steps.built.outputs.version }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --push
@@ -468,8 +483,12 @@ jobs:
         # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
         # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
         # number remains the unique key. Promote reuses the full suffix, so
-        # release-<yyyy-mm-dd>-<n> names the same artifact.
-        run: echo "candidate=candidate-$(date -u +%F)-${{ steps.build-number.outputs.build-number }}" >> "$GITHUB_OUTPUT"
+        # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
+        # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        run: |
+          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
+          echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.guard.outcome != 'success'
@@ -535,8 +554,10 @@ jobs:
           #    these). v2 candidates are ENV-NEUTRAL: the aws/lambda/app Terraform
           #    module injects PROJECT_NAME and ENVIRONMENT as function env vars at
           #    runtime, and BUILD_NUMBER is unused.
+          # VERSION: see the Cloud Run job's comment -- one build identity, baked.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            --build-arg VERSION=${{ steps.built.outputs.version }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --provenance=false

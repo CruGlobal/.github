@@ -181,7 +181,6 @@ jobs:
           environment: production
           runtime-project: ${{ needs.lookup.outputs.prod-project-id }}
           image: ${{ steps.resolve.outputs.image }}
-          version: ${{ steps.release.outputs.release }}
 
       # Tag the promoted digest release-<n> in the shared registry (the prod
       # cru-deploy SA holds AR writer there). Replaces the gcloud CLI tagging step
@@ -350,7 +349,6 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
           image: ${{ steps.resolve.outputs.image }}
-          version: ${{ steps.release.outputs.release }}
 
       # Tag the promoted digest release-<n> in ECR (manifest re-tag; the ECR path
       # is shared by ecs and lambda). Requires ecr:PutImage on the deploy role

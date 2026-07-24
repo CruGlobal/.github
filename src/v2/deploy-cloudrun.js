@@ -24,17 +24,15 @@ const shortName = resource => resource.split('/').pop()
 //      the Datadog agent are preserved) and re-attaching RUNTIME secrets, then
 //      force a new revision.
 //
-// `version` is accepted for router symmetry but DELIBERATELY NOT injected:
-// unlike ECS (where Terraform ignores the whole task_definition and the deploy
-// composes from TF's family template), the Cloud Run service's app-container
-// env is Terraform-managed with ignore_changes on the image ONLY — a
-// pipeline-added DD_VERSION would show as drift on every plan and be removed
-// by every apply. Cloud Run version telemetry rides the deployment events,
-// like Lambda. Sidecars are untouched.
+// DD_VERSION is BAKED into the image at build time (`--build-arg VERSION` ->
+// Dockerfile `ENV DD_VERSION`), never injected at deploy: the service's
+// app-container env is Terraform-managed (ignore_changes covers the image
+// only), so a deploy-added env var would drift on every plan. Baked image ENV
+// is invisible to Terraform and identical in every environment — one true
+// version per build. Sidecars are untouched.
 //
 // Returns { deployedImage, services } (services = short names updated).
-export async function deployCloudRun ({ image, runtimeProject, version }) {
-  void version // see header comment: events carry the version on Cloud Run
+export async function deployCloudRun ({ image, runtimeProject }) {
   assertDigestRef(image) // defensive; the router validates too
   if (!runtimeProject) {
     throw new Error('runtime-project is required to deploy a cloudrun image')

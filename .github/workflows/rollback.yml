@@ -169,7 +169,6 @@ jobs:
           environment: production
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
-          version: ${{ steps.actual-release.outputs.tag }}
 
       - name: Record deployment event in Datadog
         continue-on-error: true
@@ -324,7 +323,6 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
           image: ${{ steps.resolve.outputs.image }}
-          version: ${{ steps.actual-release.outputs.tag }}
 
       - name: Record deployment event in Datadog
         continue-on-error: true

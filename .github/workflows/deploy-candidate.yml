@@ -164,7 +164,6 @@ jobs:
           environment: release-candidate
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
-          version: ${{ inputs.tag }}
 
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
@@ -344,7 +343,6 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: release-candidate
           image: ${{ steps.resolve.outputs.image }}
-          version: ${{ inputs.tag }}
 
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'

@@ -235163,8 +235163,7 @@ function isAppContainer(container, containers, repo) {
 // src/v2/deploy-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
 var shortName = (resource) => resource.split("/").pop();
-async function deployCloudRun({ image, runtimeProject, version }) {
-  void version;
+async function deployCloudRun({ image, runtimeProject }) {
   assertDigestRef(image);
   if (!runtimeProject) {
     throw new Error("runtime-project is required to deploy a cloudrun image");
@@ -235262,7 +235261,7 @@ var READ_ONLY_TASK_DEF_KEYS = [
   "registeredBy",
   "deregisteredAt"
 ];
-function composeTaskDefinition(taskDefinition, { projectName, image, secrets, version, tags = [] }) {
+function composeTaskDefinition(taskDefinition, { projectName, image, secrets, tags = [] }) {
   const taskDef = {};
   if (tags.length > 0) {
     taskDef.tags = tags;
@@ -235271,34 +235270,25 @@ function composeTaskDefinition(taskDefinition, { projectName, image, secrets, ve
     if (READ_ONLY_TASK_DEF_KEYS.includes(key)) continue;
     taskDef[key] = value;
   }
-  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map((container) => {
-    if (!isEcsAppContainer(container, projectName)) return container;
-    const appContainer = { ...container, image, secrets };
-    if (version) {
-      appContainer.environment = upsertEnvVersion(container.environment, version);
-    }
-    return appContainer;
-  });
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(
+    (container) => isEcsAppContainer(container, projectName) ? { ...container, image, secrets } : container
+  );
   return taskDef;
-}
-function upsertEnvVersion(environment, version) {
-  const rest = (environment ?? []).filter((entry) => entry.name !== "DD_VERSION");
-  return [...rest, { name: "DD_VERSION", value: version }];
 }
 
 // src/v2/deploy-ecs.js
-async function deployEcs({ projectName, environment, image, version }) {
+async function deployEcs({ projectName, environment, image }) {
   assertDigestRef(image);
   const nickname = environmentNickname(environment);
   const legacyEnv = legacyEnvironment(environment);
   const cluster = ecsCluster(nickname);
   info(`deploying image: ${image} (env ${environment} -> nickname ${nickname}, cluster ${cluster})`);
   const secrets = await runtimeSecrets(projectName, nickname);
-  const services = await updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets, version });
-  await updateScheduledTasks({ projectName, nickname, image, secrets, version });
+  const services = await updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets });
+  await updateScheduledTasks({ projectName, nickname, image, secrets });
   return { deployedImage: image, services };
 }
-async function updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets, version }) {
+async function updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets }) {
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
   info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
@@ -235309,14 +235299,14 @@ async function updateServices({ projectName, legacyEnv, nickname, cluster, image
     if (!family) {
       throw new Error(`Could not determine the task-definition family for service ${shortName2(serviceArn)}`);
     }
-    const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets, version });
+    const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
     info(`updating ECS service ${shortName2(serviceArn)} -> ${taskDefinitionArn}`);
     await ecsUpdateService(serviceArn, cluster, taskDefinitionArn);
     updated.push(shortName2(serviceArn));
   }
   return updated;
 }
-async function updateScheduledTasks({ projectName, nickname, image, secrets, version }) {
+async function updateScheduledTasks({ projectName, nickname, image, secrets }) {
   const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`);
   for (const rule of rules) {
     const targets = await eventBridgeListTargets(rule.Name);
@@ -235326,18 +235316,17 @@ async function updateScheduledTasks({ projectName, nickname, image, secrets, ver
       if (!family) {
         throw new Error(`Scheduled-task target ${target.Id} on rule ${rule.Name} has no task-definition ARN`);
       }
-      target.EcsParameters.TaskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets, version });
+      target.EcsParameters.TaskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
       await eventBridgeUpdateTarget(rule.Name, target);
     }
   }
 }
-async function registerFromFamilyLatest(family, { projectName, image, secrets, version }) {
+async function registerFromFamilyLatest(family, { projectName, image, secrets }) {
   const latest = await ecsDescribeTaskDefinition(family);
   const taskDef = composeTaskDefinition(latest.taskDefinition, {
     projectName,
     image,
     secrets,
-    version,
     tags: latest.tags ?? []
   });
   return ecsRegisterTaskDefinition(taskDef);
@@ -235352,9 +235341,8 @@ function shortName2(arn) {
 
 // src/v2/deploy-lambda.js
 var MAX_WAIT_SECONDS = 300;
-async function deployLambda({ projectName, environment, image, version }) {
+async function deployLambda({ projectName, environment, image }) {
   assertDigestRef(image);
-  void version;
   const nickname = environmentNickname(environment);
   const appRepoPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@`;
   const scratchPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/scratch@`;
@@ -235394,10 +235382,9 @@ async function run() {
     const environment = getInput("environment", { required: true });
     const image = getInput("image", { required: true });
     const runtimeProject = getInput("runtime-project", { required: false });
-    const version = getInput("version", { required: false });
     assertDigestRef(image);
     info(`environment ${environment} -> ${environmentNickname(environment)}`);
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject, version });
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject });
     info(`deployed image: ${result.deployedImage}`);
     info(`updated services: ${JSON.stringify(result.services)}`);
     setOutput("deployed-image", result.deployedImage);

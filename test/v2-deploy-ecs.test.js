@@ -117,30 +117,6 @@ describe('deployEcs compose-from-family-latest semantics', () => {
   })
 })
 
-describe('deployEcs DD_VERSION injection', () => {
-  beforeEach(() => {
-    aws.ecsListServices.mockResolvedValue([SERVICE_ARN])
-    aws.ecsServiceTaskDefinitions.mockResolvedValue({ [SERVICE_ARN]: { family: 'hoax-prod-web' } })
-    aws.ecsDescribeTaskDefinition.mockImplementation(family => Promise.resolve(familyLatest(family)))
-    aws.eventBridgeListRules.mockResolvedValue([])
-    aws.eventBridgeListTargets.mockResolvedValue([])
-  })
-
-  it('threads version into the registered task def app container environment, sidecar untouched', async () => {
-    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, version: 'release-2026-07-23-10057' })
-
-    const registered = aws.ecsRegisterTaskDefinition.mock.calls[0][0]
-    expect(registered.containerDefinitions[0].environment).toEqual([{ name: 'DD_VERSION', value: 'release-2026-07-23-10057' }])
-    expect(registered.containerDefinitions[1]).toEqual({ name: 'fluentbit', image: 'amazon/aws-for-fluent-bit:latest' })
-  })
-
-  it('adds no environment key when version is omitted', async () => {
-    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE })
-
-    const registered = aws.ecsRegisterTaskDefinition.mock.calls[0][0]
-    expect(registered.containerDefinitions[0]).not.toHaveProperty('environment')
-  })
-})
 
 describe('deployEcs scheduled tasks', () => {
   beforeEach(() => {
