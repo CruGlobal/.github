@@ -234355,6 +234355,13 @@ var require_dist_cjs19 = __commonJS({
   }
 });
 
+// src/deploy.js
+var deploy_exports = {};
+__export(deploy_exports, {
+  run: () => run
+});
+module.exports = __toCommonJS(deploy_exports);
+
 // node_modules/@actions/core/lib/command.js
 var os = __toESM(require("os"), 1);
 
@@ -235156,7 +235163,7 @@ function isAppContainer(container, containers, repo) {
 // src/v2/deploy-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
 var shortName = (resource) => resource.split("/").pop();
-async function deployCloudRun({ image, runtimeProject }) {
+async function deployCloudRun({ image, runtimeProject, version }) {
   assertDigestRef(image);
   if (!runtimeProject) {
     throw new Error("runtime-project is required to deploy a cloudrun image");
@@ -235170,19 +235177,19 @@ async function deployCloudRun({ image, runtimeProject }) {
   const secrets = await listSecrets(runtimeProject, RUNTIME_PARAM_TYPES);
   const migrateJob = jobs.find((job) => shortName(job.name) === DB_MIGRATE_JOB);
   if (migrateJob) {
-    await updateJobImage(migrateJob, image, secrets);
+    await updateJobImage(migrateJob, image, secrets, version);
     info(`executing job: ${migrateJob.name}`);
     await runJob(migrateJob.name);
   }
   for (const job of jobs) {
     if (job === migrateJob) continue;
-    await updateJobImage(job, image, secrets);
+    await updateJobImage(job, image, secrets, version);
   }
   const updatedServices = [];
   for (const service of services) {
     const containers = service.template.containers;
     const updated = containers.map(
-      (container) => isAppContainer(container, containers, repo) ? { ...container, image, env: mergeEnvVars(container.env, secrets) } : container
+      (container) => isAppContainer(container, containers, repo) ? { ...container, image, env: upsertDdVersion(mergeEnvVars(container.env, secrets), version) } : container
     );
     info(`updating service: ${service.name} (${updated.length} container(s))`);
     await updateService(service.name, updated);
@@ -235190,12 +235197,18 @@ async function deployCloudRun({ image, runtimeProject }) {
   }
   return { deployedImage: image, services: updatedServices };
 }
-async function updateJobImage(job, image, secrets) {
+async function updateJobImage(job, image, secrets, version) {
   const container = job.template.template.containers[0];
   container.image = image;
-  container.env = mergeEnvVars(container.env, secrets);
+  container.env = upsertDdVersion(mergeEnvVars(container.env, secrets), version);
   info(`updating job: ${job.name}`);
   await updateJob(job);
+}
+function upsertDdVersion(envVars, version) {
+  if (!version) return envVars;
+  const withoutDdVersion = envVars.filter((env2) => env2.name !== "DD_VERSION");
+  withoutDdVersion.push({ name: "DD_VERSION", value: version });
+  return withoutDdVersion;
 }
 function mergeEnvVars(currentEnv, secrets) {
   const envVars = [];
@@ -235254,7 +235267,7 @@ var READ_ONLY_TASK_DEF_KEYS = [
   "registeredBy",
   "deregisteredAt"
 ];
-function composeTaskDefinition(taskDefinition, { projectName, image, secrets, tags = [] }) {
+function composeTaskDefinition(taskDefinition, { projectName, image, secrets, version, tags = [] }) {
   const taskDef = {};
   if (tags.length > 0) {
     taskDef.tags = tags;
@@ -235263,25 +235276,34 @@ function composeTaskDefinition(taskDefinition, { projectName, image, secrets, ta
     if (READ_ONLY_TASK_DEF_KEYS.includes(key)) continue;
     taskDef[key] = value;
   }
-  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(
-    (container) => isEcsAppContainer(container, projectName) ? { ...container, image, secrets } : container
-  );
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map((container) => {
+    if (!isEcsAppContainer(container, projectName)) return container;
+    const appContainer = { ...container, image, secrets };
+    if (version) {
+      appContainer.environment = upsertEnvVersion(container.environment, version);
+    }
+    return appContainer;
+  });
   return taskDef;
+}
+function upsertEnvVersion(environment, version) {
+  const rest = (environment ?? []).filter((entry) => entry.name !== "DD_VERSION");
+  return [...rest, { name: "DD_VERSION", value: version }];
 }
 
 // src/v2/deploy-ecs.js
-async function deployEcs({ projectName, environment, image }) {
+async function deployEcs({ projectName, environment, image, version }) {
   assertDigestRef(image);
   const nickname = environmentNickname(environment);
   const legacyEnv = legacyEnvironment(environment);
   const cluster = ecsCluster(nickname);
   info(`deploying image: ${image} (env ${environment} -> nickname ${nickname}, cluster ${cluster})`);
   const secrets = await runtimeSecrets(projectName, nickname);
-  const services = await updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets });
-  await updateScheduledTasks({ projectName, nickname, image, secrets });
+  const services = await updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets, version });
+  await updateScheduledTasks({ projectName, nickname, image, secrets, version });
   return { deployedImage: image, services };
 }
-async function updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets }) {
+async function updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets, version }) {
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
   info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
@@ -235292,14 +235314,14 @@ async function updateServices({ projectName, legacyEnv, nickname, cluster, image
     if (!family) {
       throw new Error(`Could not determine the task-definition family for service ${shortName2(serviceArn)}`);
     }
-    const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
+    const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets, version });
     info(`updating ECS service ${shortName2(serviceArn)} -> ${taskDefinitionArn}`);
     await ecsUpdateService(serviceArn, cluster, taskDefinitionArn);
     updated.push(shortName2(serviceArn));
   }
   return updated;
 }
-async function updateScheduledTasks({ projectName, nickname, image, secrets }) {
+async function updateScheduledTasks({ projectName, nickname, image, secrets, version }) {
   const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`);
   for (const rule of rules) {
     const targets = await eventBridgeListTargets(rule.Name);
@@ -235309,17 +235331,18 @@ async function updateScheduledTasks({ projectName, nickname, image, secrets }) {
       if (!family) {
         throw new Error(`Scheduled-task target ${target.Id} on rule ${rule.Name} has no task-definition ARN`);
       }
-      target.EcsParameters.TaskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
+      target.EcsParameters.TaskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets, version });
       await eventBridgeUpdateTarget(rule.Name, target);
     }
   }
 }
-async function registerFromFamilyLatest(family, { projectName, image, secrets }) {
+async function registerFromFamilyLatest(family, { projectName, image, secrets, version }) {
   const latest = await ecsDescribeTaskDefinition(family);
   const taskDef = composeTaskDefinition(latest.taskDefinition, {
     projectName,
     image,
     secrets,
+    version,
     tags: latest.tags ?? []
   });
   return ecsRegisterTaskDefinition(taskDef);
@@ -235334,8 +235357,9 @@ function shortName2(arn) {
 
 // src/v2/deploy-lambda.js
 var MAX_WAIT_SECONDS = 300;
-async function deployLambda({ projectName, environment, image }) {
+async function deployLambda({ projectName, environment, image, version }) {
   assertDigestRef(image);
+  void version;
   const nickname = environmentNickname(environment);
   const appRepoPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@`;
   const scratchPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/scratch@`;
@@ -235375,9 +235399,10 @@ async function run() {
     const environment = getInput("environment", { required: true });
     const image = getInput("image", { required: true });
     const runtimeProject = getInput("runtime-project", { required: false });
+    const version = getInput("version", { required: false });
     assertDigestRef(image);
     info(`environment ${environment} -> ${environmentNickname(environment)}`);
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject });
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, version });
     info(`deployed image: ${result.deployedImage}`);
     info(`updated services: ${JSON.stringify(result.services)}`);
     setOutput("deployed-image", result.deployedImage);
@@ -235398,7 +235423,11 @@ function dispatch(type, args) {
       throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`);
   }
 }
-run();
+if (!process.env.VITEST) run();
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  run
+});
 /*! Bundled license information:
 
 undici/lib/web/fetch/body.js:

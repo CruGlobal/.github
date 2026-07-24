@@ -206250,6 +206250,15 @@ var SHARED_LOCATION = DEFAULT_REGION;
 function sharedRegistryRepo(projectName) {
   return projectName;
 }
+var GAXIOS_RETRY = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ["GET", "POST"],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+};
 async function authClient() {
   const auth = new import_google_auth_library.GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
   return auth.getClient();
@@ -206264,7 +206273,8 @@ async function addTag(project, repository, packageName, digest2, tag2) {
       url: `https://artifactregistry.googleapis.com/v1/${parent}/tags`,
       method: "POST",
       params: { tagId: tag2 },
-      data: { name: tagName, version }
+      data: { name: tagName, version },
+      ...GAXIOS_RETRY
     });
   } catch (error3) {
     const status = error3?.response?.status ?? error3?.status ?? error3?.code;
@@ -206273,7 +206283,8 @@ async function addTag(project, repository, packageName, digest2, tag2) {
         url: `https://artifactregistry.googleapis.com/v1/${tagName}`,
         method: "PATCH",
         params: { updateMask: "version" },
-        data: { name: tagName, version }
+        data: { name: tagName, version },
+        ...GAXIOS_RETRY
       });
     } else {
       throw error3;

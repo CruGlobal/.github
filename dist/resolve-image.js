@@ -221875,6 +221875,15 @@ function findAppContainer(containers, repo) {
   if (containers.length === 1) return containers[0];
   return containers.find((c5) => c5.image != null && parseImageRef(c5.image).name === repo) ?? containers.find((c5) => (c5.ports?.length ?? 0) > 0) ?? null;
 }
+var GAXIOS_RETRY = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ["GET", "POST"],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+};
 async function authClient() {
   const auth = new import_google_auth_library.GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
   return auth.getClient();
@@ -221888,7 +221897,8 @@ async function listDockerImages(project, repository, location = SHARED_LOCATION)
     const res = await client.request({
       url,
       method: "GET",
-      params: { pageSize: 1e3, ...pageToken ? { pageToken } : {} }
+      params: { pageSize: 1e3, ...pageToken ? { pageToken } : {} },
+      ...GAXIOS_RETRY
     });
     images.push(...res.data?.dockerImages ?? []);
     pageToken = res.data?.nextPageToken;
