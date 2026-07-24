@@ -1,9 +1,14 @@
 import * as core from '@actions/core'
+import { ClientException } from '@aws-sdk/client-ecs'
 import {
   ecsListServices,
   ecsServiceTaskDefinitions,
+  ecsDescribeServices,
   ecsDescribeTaskDefinition,
   ecsRegisterTaskDefinition,
+  ecsRunTask,
+  ecsDescribeTasks,
+  ecsWaitUntilTasksStopped,
   ecsUpdateService,
   eventBridgeListRules,
   eventBridgeListTargets,
@@ -13,6 +18,8 @@ import { ecsCluster, runtimeSecrets } from '../ecs-config'
 import { environmentNickname, legacyEnvironment } from './env'
 import { composeTaskDefinition, ecsServiceRegExp } from './aws'
 import { assertDigestRef } from './image-ref'
+
+const DB_MIGRATE_CONTAINER = 'db-migrate'
 
 // Deploy a pre-built, digest-pinned image to a target environment's ECS.
 //
@@ -41,17 +48,146 @@ export async function deployEcs ({ projectName, environment, image }) {
   // container on the new revision, exactly as v1 does.
   const secrets = await runtimeSecrets(projectName, nickname)
 
-  const services = await updateServices({ projectName, legacyEnv, nickname, cluster, image, secrets })
+  // The matching service list is needed twice — the migration phase borrows a
+  // service's run configuration and updateServices re-points each one — so fetch
+  // it ONCE here and thread it through both.
+  const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname)
+  const serviceArns = await ecsListServices(regexp, cluster)
+  core.info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName))}`)
+
+  // Pre-deploy migration phase — runs to completion BEFORE any service is
+  // updated, so a failure fails the deploy with the running services untouched.
+  await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns })
+
+  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns })
   await updateScheduledTasks({ projectName, nickname, image, secrets })
 
   return { deployedImage: image, services }
 }
 
-async function updateServices ({ projectName, legacyEnv, nickname, cluster, image, secrets }) {
-  const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname)
-  const serviceArns = await ecsListServices(regexp, cluster)
-  core.info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName))}`)
+// Run database migrations to completion as a discrete pre-deploy step, mirroring
+// the Cloud Run db-migrate job. This REPLACES the retired sidecar model, in which
+// the app container's dependsOn on a db-migrate container used condition=START
+// with essential=false: the app raced the migration (serving against the
+// un-migrated schema) and a failed migration never blocked the app. Here the
+// migration is its own task that must finish cleanly first; on any failure we
+// throw and updateServices never runs.
+//
+// Convention-driven, exactly like services and scheduled tasks: the presence of
+// the `<project>-<nick>-db-migrate` task-definition family (created by the
+// aws/ecs/app module only when the app opts in) is the switch. No family -> the
+// app hasn't opted in -> skip. DescribeTaskDefinition on a missing family throws
+// ClientException ("Unable to describe task definition"); every other error is a
+// real fault and propagates.
+//
+// This phase runs on EVERY ECS deploy — rc deploys, promote, and rollback — since
+// deployEcs is shared. That is intended: migrations are applied once per deploy
+// (not once per task launch, the old sidecar's other bug), and a rollback's older
+// image simply no-ops against already-applied migrations, matching Cloud Run.
+async function runDatabaseMigrations ({ projectName, nickname, cluster, image, secrets, serviceArns }) {
+  const family = `${projectName}-${nickname}-db-migrate`
 
+  try {
+    await ecsDescribeTaskDefinition(family)
+  } catch (error) {
+    if (error instanceof ClientException) {
+      core.info('no db-migrate task definition family — skipping migrations')
+      return
+    }
+    throw error
+  }
+
+  // Compose from the family's latest revision (Terraform's template) with the
+  // release digest and refreshed RUNTIME secrets — identical semantics to the
+  // service and scheduled-task registrations.
+  const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets })
+  const runConfig = await migrationRunConfig({ projectName, nickname, cluster, serviceArns })
+
+  core.info(`running database migrations: ${taskDefinitionArn} in cluster ${cluster}`)
+  const run = await ecsRunTask({ cluster, taskDefinition: taskDefinitionArn, count: 1, startedBy: 'cru-pipeline-v2', ...runConfig })
+  const taskArn = run.tasks?.[0]?.taskArn
+  if (!taskArn) {
+    const reason = run.failures?.[0]?.reason ?? 'RunTask returned no task'
+    throw new Error(`Failed to start db-migrate task in cluster ${cluster}: ${reason}`)
+  }
+
+  // Reaching STOPPED is not success on its own (a failed migration also stops);
+  // the waiter throws on timeout, and we then require exitCode 0 below.
+  const waited = await ecsWaitUntilTasksStopped(cluster, [taskArn])
+  if (waited.state !== 'SUCCESS') {
+    throw new Error(`db-migrate task ${taskArn} did not stop cleanly (waiter state ${waited.state})`)
+  }
+
+  const described = await ecsDescribeTasks(cluster, [taskArn])
+  const task = described.tasks?.[0]
+  const container = task?.containers?.find(c => c.name === DB_MIGRATE_CONTAINER)
+  if (container?.exitCode !== 0) {
+    const detail = task?.stoppedReason ?? container?.reason ?? `exit code ${container?.exitCode ?? 'unknown'}`
+    throw new Error(`Database migrations failed (task ${taskArn}): ${detail}`)
+  }
+  core.info(`database migrations succeeded: ${taskArn} (exit 0)`)
+}
+
+// Borrow the db-migrate task's run configuration from the app's own
+// infrastructure so migrations run on the same network / launch footing as the
+// app. Prefer a matching service; for a jobs-only app (no services) fall back to
+// the EventBridge scheduled-task target. If neither exists there is nothing to
+// borrow from — throw rather than guess a network configuration.
+async function migrationRunConfig ({ projectName, nickname, cluster, serviceArns }) {
+  if (serviceArns.length > 0) {
+    const [service] = await ecsDescribeServices([serviceArns[0]], cluster)
+    if (service?.networkConfiguration) {
+      return runConfigOf(service.networkConfiguration, service.launchType, service.capacityProviderStrategy)
+    }
+  }
+
+  const target = await firstScheduledTaskTarget(projectName, nickname)
+  const ecsParams = target?.EcsParameters
+  if (ecsParams?.NetworkConfiguration) {
+    return runConfigOf(
+      ecsNetworkConfigFromEventBridge(ecsParams.NetworkConfiguration),
+      ecsParams.LaunchType,
+      ecsParams.CapacityProviderStrategy
+    )
+  }
+
+  throw new Error('db-migrate family exists but no service or scheduled task to borrow run configuration from')
+}
+
+// RunTask accepts launchType OR capacityProviderStrategy, never both; a capacity
+// provider strategy (when the borrowed config has one) wins.
+function runConfigOf (networkConfiguration, launchType, capacityProviderStrategy) {
+  return capacityProviderStrategy?.length
+    ? { networkConfiguration, capacityProviderStrategy }
+    : { networkConfiguration, launchType }
+}
+
+// The first EventBridge scheduled-task target for the app (jobs-only fallback).
+async function firstScheduledTaskTarget (projectName, nickname) {
+  const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`)
+  for (const rule of rules) {
+    const targets = await eventBridgeListTargets(rule.Name)
+    if (targets.length > 0) return targets[0]
+  }
+  return undefined
+}
+
+// An EventBridge target's NetworkConfiguration uses PascalCase awsvpc keys
+// (Subnets/SecurityGroups/AssignPublicIp); RunTask expects camelCase. Convert so
+// the jobs-only fallback produces a valid RunTask networkConfiguration.
+function ecsNetworkConfigFromEventBridge (networkConfiguration) {
+  const vpc = networkConfiguration?.awsvpcConfiguration
+  if (!vpc) return undefined
+  return {
+    awsvpcConfiguration: {
+      subnets: vpc.Subnets,
+      securityGroups: vpc.SecurityGroups,
+      assignPublicIp: vpc.AssignPublicIp
+    }
+  }
+}
+
+async function updateServices ({ projectName, cluster, image, secrets, serviceArns }) {
   // The service's current task def only tells us which FAMILY to compose from;
   // we then register from that family's latest revision, not this one.
   const current = await ecsServiceTaskDefinitions(serviceArns, cluster)

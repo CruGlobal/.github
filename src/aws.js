@@ -3,9 +3,12 @@ import {
   paginateListServices,
   DescribeServicesCommand,
   DescribeTaskDefinitionCommand,
+  DescribeTasksCommand,
   RegisterTaskDefinitionCommand,
+  RunTaskCommand,
   TaskDefinitionField,
-  UpdateServiceCommand
+  UpdateServiceCommand,
+  waitUntilTasksStopped
 } from '@aws-sdk/client-ecs'
 
 import {
@@ -88,6 +91,45 @@ export async function ecsUpdateService (service, cluster, taskDefinition) {
   const client = new ECSClient({...RETRY_CONFIG})
   const response = await client.send(new UpdateServiceCommand({ service, cluster, taskDefinition }))
   return response.service
+}
+
+// Full DescribeServices records (not just their task defs — see
+// ecsServiceTaskDefinitions above). The pre-deploy migration phase reads a
+// service's networkConfiguration / launchType / capacityProviderStrategy off
+// this to run the db-migrate task on the same footing as the app.
+export async function ecsDescribeServices (serviceArns, cluster) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  const response = await client.send(new DescribeServicesCommand({ cluster, services: serviceArns }))
+  return response.services ?? []
+}
+
+// Launch a one-off ECS task (used to run db-migrate to completion before a
+// deploy touches any service). Returns the raw RunTask response so the caller
+// can read tasks[].taskArn and failures[].
+export async function ecsRunTask ({ cluster, taskDefinition, count = 1, startedBy, networkConfiguration, launchType, capacityProviderStrategy }) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  return client.send(new RunTaskCommand({
+    cluster,
+    taskDefinition,
+    count,
+    startedBy,
+    networkConfiguration,
+    launchType,
+    capacityProviderStrategy
+  }))
+}
+
+export async function ecsDescribeTasks (cluster, tasks) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  return client.send(new DescribeTasksCommand({ cluster, tasks }))
+}
+
+// Block until the given tasks reach STOPPED (or the wait times out — the SDK
+// waiter throws on TIMEOUT/FAILURE). Reaching STOPPED is not success on its own:
+// the caller still inspects the container exit code. maxWaitTime is seconds.
+export async function ecsWaitUntilTasksStopped (cluster, tasks, maxWaitTime = 900) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  return waitUntilTasksStopped({ client, maxWaitTime }, { cluster, tasks })
 }
 
 export async function ssmParameters (prefix, decrypt = true) {

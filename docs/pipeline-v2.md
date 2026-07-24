@@ -218,6 +218,42 @@ named services with either the legacy long name or the nickname.
   app container's image off the service's **current** task definition, and
   normalizes it to a digest ref — resolving via ECR if it is a tag ref. The
   `scratch` placeholder (a service never deployed) is skipped.
+- **deploy — pre-deploy database migrations (before any service is touched):**
+  first, `DescribeTaskDefinition` on the convention family
+  `<project>-<nick>-db-migrate`. Presence of that family (created by the
+  aws/ecs/app module only when the app opts into `database_migrations`) is the
+  switch — no family (the SDK throws `ClientException`) means the app hasn't opted
+  in, so the phase logs and is skipped. When present, the deploy composes a
+  revision from the family's latest (release digest + refreshed RUNTIME secrets,
+  identical to the service path), then **runs it to completion** via `RunTask`
+  (count 1, `startedBy: cru-pipeline-v2`) and `waitUntilTasksStopped` (900s). The
+  migration's **run configuration is borrowed from the app's own infrastructure**
+  — the first matching service's `networkConfiguration` + launch type /
+  capacity-provider strategy, or, for a jobs-only app, the EventBridge
+  scheduled-task target's network configuration (its PascalCase awsvpc keys are
+  converted to RunTask's camelCase); if neither exists the deploy throws rather
+  than guess. After the task stops, the `db-migrate` container's **exit code must
+  be 0** — a nonzero exit, a `stopCode`/`stoppedReason` failure, or a wait timeout
+  **throws and fails the deploy**. Because this runs **before** `updateServices`,
+  a failed migration leaves the running services **completely untouched**. This
+  mirrors the Cloud Run `db-migrate` job exactly.
+
+  This phase runs for **every** ECS deploy — rc deploys, promote, and rollback —
+  since `deployEcs` is shared. That is intended: migrations are applied **once per
+  deploy** (the old sidecar re-ran them on every task launch/scale-up), and a
+  rollback's older image simply **no-ops against already-applied migrations**,
+  matching Cloud Run.
+
+  **Why pre-deploy, not a sidecar (retired):** the previous ECS model ran
+  migrations as a `db-migrate` sidecar container the app container `dependsOn`'d.
+  That dependency used `condition = "START"` with `essential = false`, which is
+  **verified broken**: `START` only waits for the migrate container to *start*
+  (not finish), so the app raced the migration and could serve against the
+  un-migrated schema, and because the sidecar was non-essential a **failed
+  migration did not block the app or the deploy**. Making the migration a discrete
+  pre-deploy task that must finish cleanly first closes both holes: completion is
+  gated, and failure fails the deploy.
+
 - **deploy — RATIFIED compose-from-family-latest semantics** (deliberately
   different from v1's action, which *copied the service's live revision*):
 
