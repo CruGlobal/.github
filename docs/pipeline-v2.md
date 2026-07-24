@@ -489,6 +489,68 @@ app's own destination.
   assumed to equal the project name — true for the pilots) and is omitted
   cleanly when either sha is missing or the ledger query fails.
 
+### Rollback-safety classification
+
+Ported from **flightdeck** (the CTO's reference app). At **promote** time we ask
+one question about the SQL migrations added between the release currently in
+production and the promoted candidate:
+
+> Can the **previous** image still run against the **new** schema?
+
+- **EXPAND** — every added migration is additive / backward-compatible (new
+  tables, new nullable/defaulted columns, new indexes, new enum values, seed
+  inserts, comments, grants). The old image keeps working, so a rollback (image
+  swap back) stays safe.
+- **CONTRACT** — at least one migration is destructive: drops, renames,
+  tightening constraints (`ADD CONSTRAINT`, `SET NOT NULL`, column type
+  changes), or data migrations (`UPDATE` / `DELETE` / `TRUNCATE`). The old image
+  would break against the new schema, so a rollback would **not** revert cleanly.
+
+**Three-state verdict:** `safe` (all EXPAND) · `unsafe` (any CONTRACT) ·
+`unclassified` (couldn't decide — see bootstrap below).
+
+**Advisory only — never blocks anything.** The classify step is
+`continue-on-error: true` and the action itself never fails; the verdict only
+*informs*. It surfaces in three places:
+
+- **Ledger.** The promote's `CruDeploymentLedger` row gets `RollbackSafe`
+  (`"true"`/`"false"`) when the verdict is decided, plus `RollbackSafeReasons`
+  (a JSON-array string) when there are reasons. `unclassified` writes neither.
+- **Promote Slack message.** A trailing line: `:shield: rollback-safe (migrations
+  additive)`, `:warning: NOT rollback-safe: <first 2 reasons>`, or
+  `rollback safety: unclassified`.
+- **Rollback warning.** `rollback` reads the most recent production ledger row
+  carrying a verdict; if it was `"false"`, it emits a loud `::warning` and a
+  `:warning:` Slack line — the release being rolled back **from** shipped
+  destructive migrations, so the image swap will **not** revert the schema.
+
+**Config: `migrations_path` → `MigrationsPath`.** An app opts in by setting the
+`migrations_path` variable on its app module (`gcp/cloudrun/app`,
+`aws/ecs/app`, `aws/lambda/app`) to the repo-relative directory of its `.sql`
+migrations (e.g. `drizzle`). Terraform writes it into the app's
+`CruApplicationInfo` item as `MigrationsPath`; the **production** app-info lookup
+exposes it to the promote jobs. Unset ⇒ the classifier reports `unclassified`.
+
+**Mechanics.** The classify action diffs `base...head` via the GitHub compare
+API (`base` = the git sha currently in production, from the deployments ledger;
+`head` = the candidate's `sha-<gitsha>` tag), filters to the migrations path,
+fetches each **added** `.sql` file's content at `head`, splits it on drizzle's
+`--> statement-breakpoint` markers and semicolons (comments stripped), and runs
+each statement through an ordered EXPAND/CONTRACT rule table.
+
+**First promote bootstraps to `unclassified`.** With no production baseline yet
+(the ledger has no prior production `Sha`), `base-sha` is empty and the action
+reports `unclassified` — nothing to diff against. The same happens if the
+candidate carries no `sha-` tag or the migrations path is unset.
+
+**Conservative by construction.** Anything the rule table does not positively
+recognise as additive is treated as **unsafe**: unrecognised statements, data
+migrations, and constraint additions all classify CONTRACT. Rewriting applied
+history (a `modified`/`removed`/`renamed` `.sql`) is unsafe, and a non-`.sql`
+migration artifact is `unsupported migration format` (drizzle `meta/`
+bookkeeping and non-SQL dotfiles are ignored). Only plain `.sql` migrations are
+classified today; other migration frameworks land in a later pass.
+
 ### Concurrency locks
 
 | Workflow(s)          | Group                              | `cancel-in-progress` |

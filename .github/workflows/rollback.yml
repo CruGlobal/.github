@@ -164,6 +164,31 @@ jobs:
           release=$(echo "$TAGS" | tr ',' '\n' | grep -E '^release-' | head -n1 || true)
           echo "tag=${release:-$FALLBACK}" >> "$GITHUB_OUTPUT"
 
+      # --- Rollback-safety advisory (read-back; never blocks) --------------
+      # The release we are rolling back FROM may have shipped destructive
+      # migrations; an image swap does NOT revert the schema. Read the most
+      # recent production ledger row carrying a rollback-safety verdict and warn
+      # loudly if it was classified unsafe. Public GET; never fails the rollback.
+      - name: Rollback-safety advisory
+        id: rollback-safety
+        continue-on-error: true
+        run: |
+          items=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
+          safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
+          reasons_json=$(echo "$entry" | jq -r '.RollbackSafeReasons // ""' 2>/dev/null || echo "")
+          reasons=""
+          if [ -n "$reasons_json" ]; then
+            reasons=$(echo "$reasons_json" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "")
+          fi
+          if [ "$safe" = "false" ]; then
+            echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
+            echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
+            echo "slack=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
@@ -268,6 +293,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -278,8 +304,10 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg runurl "$RUN_URL" \
+            --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in production* by \($actor)"
+                     + (if $safety != "" then "\n\($safety)" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -349,6 +377,31 @@ jobs:
         run: |
           release=$(echo "$TAGS" | tr ',' '\n' | grep -E '^release-' | head -n1 || true)
           echo "tag=${release:-$FALLBACK}" >> "$GITHUB_OUTPUT"
+
+      # --- Rollback-safety advisory (read-back; never blocks) --------------
+      # The release we are rolling back FROM may have shipped destructive
+      # migrations; an image swap does NOT revert the schema. Read the most
+      # recent production ledger row carrying a rollback-safety verdict and warn
+      # loudly if it was classified unsafe. Public GET; never fails the rollback.
+      - name: Rollback-safety advisory
+        id: rollback-safety
+        continue-on-error: true
+        run: |
+          items=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
+          safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
+          reasons_json=$(echo "$entry" | jq -r '.RollbackSafeReasons // ""' 2>/dev/null || echo "")
+          reasons=""
+          if [ -n "$reasons_json" ]; then
+            reasons=$(echo "$reasons_json" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "")
+          fi
+          if [ "$safe" = "false" ]; then
+            echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
+            echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
+            echo "slack=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
@@ -441,6 +494,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -451,8 +505,10 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg runurl "$RUN_URL" \
+            --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in production* by \($actor)"
+                     + (if $safety != "" then "\n\($safety)" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \

@@ -46,6 +46,7 @@ jobs:
       rc-project-id: ${{ steps.app-info-rc.outputs.project-id }}
       prod-project-id: ${{ steps.app-info-prod.outputs.project-id }}
       slack-channel: ${{ steps.app-info-prod.outputs.slack-channel }}
+      migrations-path: ${{ steps.app-info-prod.outputs.migrations-path }}
     steps:
       # Authorization runs FIRST, before any provider job mutates production: the
       # human running a production change must have push-level access to the app
@@ -109,8 +110,10 @@ jobs:
           info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
           project_id=$(echo "$info" | jq -r '.ProjectId // empty')
           slack_channel=$(echo "$info" | jq -r '.SlackChannel // empty')
+          migrations_path=$(echo "$info" | jq -r '.MigrationsPath // empty')
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
+          echo "migrations-path=$migrations_path" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
 
   promote-gcp:
@@ -169,6 +172,38 @@ jobs:
           suffix="${candidate#candidate-}"
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
           echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
+
+      # --- Rollback-safety classification (advisory; never blocks) ----------
+      # The git sha currently in production, from the deployments ledger -- the
+      # baseline the candidate's migrations are diffed against. Empty on ANY
+      # failure (|| true), which the classifier treats as `unclassified` (e.g.
+      # the very first promote, before any production baseline exists).
+      - name: Fetch production baseline
+        id: baseline
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+        run: |
+          prev_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
+          echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
+          # The candidate's git sha is the sha-<gitsha> tag on the resolved
+          # digest (the head of the classification diff). Empty -> unclassified.
+          head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      # Classify the migrations added between the production baseline and the
+      # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
+      # The action NEVER fails; continue-on-error is a belt on top of that.
+      # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
+      - name: Classify rollback safety
+        id: rollback-safety
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/classify-rollback-safety
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: CruGlobal/${{ inputs.project-name }}
+          base-sha: ${{ steps.baseline.outputs.prev-sha }}
+          head-sha: ${{ steps.baseline.outputs.head-sha }}
+          migrations-path: ${{ needs.lookup.outputs.migrations-path }}
 
       - name: Configure GCP credentials (production SA)
         uses: google-github-actions/auth@v3
@@ -249,9 +284,14 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
           REVISION: ${{ steps.release.outputs.release }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          ROLLBACK_REASONS: ${{ steps.rollback-safety.outputs.reasons }}
         run: |
           now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Rollback-safety verdict -> RollbackSafe true/false (omitted when unclassified).
+          rollback_safe=""
+          case "$VERDICT" in safe) rollback_safe=true ;; unsafe) rollback_safe=false ;; esac
           aws dynamodb put-item --region us-east-1 \
             --table-name CruDeploymentLedger \
             --item "$(jq -n \
@@ -267,6 +307,8 @@ jobs:
               --arg actor "$ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg rollbacksafe "$rollback_safe" \
+              --arg rollbackreasons "$ROLLBACK_REASONS" \
               --arg provider gcp \
               --arg type cloudrun \
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
@@ -274,7 +316,9 @@ jobs:
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
-                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)
+                + (if $rollbacksafe != "" then {RollbackSafe: {S: $rollbacksafe}} else {} end)
+                + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
@@ -291,18 +335,28 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.release.outputs.release }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          REASONS: ${{ steps.rollback-safety.outputs.reasons }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
           fi
+          # Rollback-safety advisory line appended to the promote message.
+          case "$VERDICT" in
+            safe) safety=":shield: rollback-safe (migrations additive)" ;;
+            unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
+            *) safety="rollback safety: unclassified" ;;
+          esac
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg runurl "$RUN_URL" \
+            --arg safety "$safety" \
             '{channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to production* by \($actor)"
+                     + "\n\($safety)"
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -376,6 +430,38 @@ jobs:
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
           echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
 
+      # --- Rollback-safety classification (advisory; never blocks) ----------
+      # The git sha currently in production, from the deployments ledger -- the
+      # baseline the candidate's migrations are diffed against. Empty on ANY
+      # failure (|| true), which the classifier treats as `unclassified` (e.g.
+      # the very first promote, before any production baseline exists).
+      - name: Fetch production baseline
+        id: baseline
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+        run: |
+          prev_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
+          echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
+          # The candidate's git sha is the sha-<gitsha> tag on the resolved
+          # digest (the head of the classification diff). Empty -> unclassified.
+          head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      # Classify the migrations added between the production baseline and the
+      # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
+      # The action NEVER fails; continue-on-error is a belt on top of that.
+      # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
+      - name: Classify rollback safety
+        id: rollback-safety
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/classify-rollback-safety
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: CruGlobal/${{ inputs.project-name }}
+          base-sha: ${{ steps.baseline.outputs.prev-sha }}
+          head-sha: ${{ steps.baseline.outputs.head-sha }}
+          migrations-path: ${{ needs.lookup.outputs.migrations-path }}
+
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
@@ -436,9 +522,14 @@ jobs:
           ACTOR: ${{ github.actor }}
           REVISION: ${{ steps.release.outputs.release }}
           TYPE: ${{ needs.lookup.outputs.type }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          ROLLBACK_REASONS: ${{ steps.rollback-safety.outputs.reasons }}
         run: |
           now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Rollback-safety verdict -> RollbackSafe true/false (omitted when unclassified).
+          rollback_safe=""
+          case "$VERDICT" in safe) rollback_safe=true ;; unsafe) rollback_safe=false ;; esac
           aws dynamodb put-item --region us-east-1 \
             --table-name CruDeploymentLedger \
             --item "$(jq -n \
@@ -454,6 +545,8 @@ jobs:
               --arg actor "$ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg rollbacksafe "$rollback_safe" \
+              --arg rollbackreasons "$ROLLBACK_REASONS" \
               --arg provider aws \
               --arg type "$TYPE" \
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
@@ -461,7 +554,9 @@ jobs:
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
-                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)
+                + (if $rollbacksafe != "" then {RollbackSafe: {S: $rollbacksafe}} else {} end)
+                + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
@@ -478,18 +573,28 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.release.outputs.release }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          REASONS: ${{ steps.rollback-safety.outputs.reasons }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
           fi
+          # Rollback-safety advisory line appended to the promote message.
+          case "$VERDICT" in
+            safe) safety=":shield: rollback-safe (migrations additive)" ;;
+            unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
+            *) safety="rollback safety: unclassified" ;;
+          esac
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg runurl "$RUN_URL" \
+            --arg safety "$safety" \
             '{channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to production* by \($actor)"
+                     + "\n\($safety)"
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \

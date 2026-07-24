@@ -1,0 +1,37 @@
+name: Classify Rollback Safety
+description: >-
+  Advisory EXPAND/CONTRACT classification of the SQL migrations added between
+  the release currently in production and the promoted candidate. Determines
+  whether the previous image can still run against the new schema. ADVISORY
+  ONLY — this action never fails; it always reports safe | unsafe | unclassified.
+inputs:
+  github-token:
+    description: Token with read access to the app repo (compare + contents APIs).
+    required: true
+  repository:
+    description: owner/repo of the app whose migrations to classify.
+    required: true
+  base-sha:
+    description: >-
+      Git sha of the release currently in production (the rollback target).
+      Empty ⇒ verdict unclassified (no production baseline; e.g. first promote).
+    required: false
+  head-sha:
+    description: >-
+      Git sha of the promoted candidate (head of the migration diff).
+      Empty ⇒ verdict unclassified.
+    required: false
+  migrations-path:
+    description: >-
+      Repo-relative directory of the app's .sql migration files (e.g. drizzle),
+      from the app's CruApplicationInfo MigrationsPath. Empty ⇒ unclassified.
+    required: false
+outputs:
+  verdict:
+    description: safe | unsafe | unclassified.
+  reasons:
+    description: JSON array (string) of human-readable classification reasons.
+
+runs:
+  using: 'node24'
+  main: '../../dist/classify-rollback-safety.js'

@@ -15,7 +15,8 @@ const handlerMap = {
     './src/resolve-image.js': 'resolve-image',
     './src/deploy.js': 'deploy',
     './src/dispatch.js': 'dispatch',
-    './src/tag-image.js': 'tag-image'
+    './src/tag-image.js': 'tag-image',
+    './src/classify-rollback-safety.js': 'classify-rollback-safety'
 }
 
 // Build each action as a separate bundle with flat output
