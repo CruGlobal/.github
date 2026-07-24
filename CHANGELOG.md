@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/CruGlobal/.github/compare/v1.8.0...v1.8.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **deploy:** post standard Datadog events instead of DORA product events ([#429](https://github.com/CruGlobal/.github/issues/429)) ([9ccbe73](https://github.com/CruGlobal/.github/commit/9ccbe73675120ec9361fa69e2e3f24d856a66c79))
+
 ## [1.8.0](https://github.com/CruGlobal/.github/compare/v1.1.0...v1.8.0) (2026-07-15)
 
 
