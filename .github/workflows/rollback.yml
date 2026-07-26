@@ -44,6 +44,10 @@ jobs:
   lookup:
     name: Authorize & look up app info
     runs-on: ubuntu-latest
+    # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
+    # and checks nothing out (the authz step uses the authz-token PAT).
+    permissions:
+      id-token: write
     outputs:
       provider: ${{ steps.app-info.outputs.provider }}
       type: ${{ steps.app-info.outputs.type }}
@@ -69,6 +73,20 @@ jobs:
               ;;
           esac
 
+      # app-info comes straight from the CruApplicationInfo DynamoDB table rather
+      # than the cru-app-info HTTP API -- the pipeline deploys that API itself, so
+      # a rollback (the thing you reach for when production is broken) must not
+      # depend on it being up. GitHubDeployECS regardless of the app's provider:
+      # this runs before the provider/type fan-out, and the role's trust is
+      # cru-deploy-repo-scoped, not runtime-scoped (same reasoning as the ledger
+      # writes below).
+      - name: Configure AWS credentials for app-info
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # The table is keyed by legacy env names, so translate first.
       - name: Look up app info (production)
         id: app-info
         env:
@@ -81,11 +99,19 @@ jobs:
             preview) legacy_env=lab ;;
             *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
           esac
-          info=$(curl -fsSL "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=${PROJECT_NAME}&environment=${legacy_env}")
-          provider=$(echo "$info" | jq -r '.Provider')
-          type=$(echo "$info" | jq -r '.Type // empty')
-          project_id=$(echo "$info" | jq -r '.ProjectId // empty')
-          slack_channel=$(echo "$info" | jq -r '.SlackChannel // empty')
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment "$legacy_env" \
+              '{Project: {S: $project}, Environment: {S: $environment}}')")
+          item=$(echo "$info" | jq -c '.Item // empty')
+          if [ -z "$item" ]; then
+            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before rolling back"
+            exit 1
+          fi
+          provider=$(echo "$item" | jq -r '.Provider.S // empty')
+          type=$(echo "$item" | jq -r '.Type.S // empty')
+          project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
+          slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;

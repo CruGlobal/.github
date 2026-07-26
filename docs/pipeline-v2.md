@@ -425,24 +425,37 @@ uses are version-matched to the caller — the same pattern as the v1 workflows.
 
 ### app-info lookup + environment-name translation
 
-Per-app runtime metadata comes from the v1 info service:
+Per-app runtime metadata comes from the `CruApplicationInfo` DynamoDB table
+(`Project` hash key, `Environment` range key; defined in cru-terraform's
+`aws/lambda/cru-app-info`), read **directly**:
 
 ```
-GET https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/info?project=<project-name>&environment=<legacy-env>
+aws dynamodb get-item --table-name CruApplicationInfo \
+  --key '{"Project": {"S": "<project-name>"}, "Environment": {"S": "<legacy-env>"}}'
 ```
 
-The response JSON includes `Provider` (cloud, e.g. `gcp`) and `ProjectId` (the
-app's per-env GCP project ID). Each workflow that needs it inlines a small
-`curl | jq` step. Two rules:
+Deliberately **not** the `GET /info` endpoint of the cru-app-info API that sits
+in front of the same table: that API is being extracted into an application
+deployed by this very pipeline, so depending on it at deploy time would make
+every deploy — including the one that fixes a broken cru-app-info — contingent
+on it being up. A `GetItem` has no such cycle.
 
-- **The service knows only legacy environment names.** Translate the v2 long
-  name before calling:
+The row includes `Provider` (cloud, e.g. `gcp`) and `ProjectId` (the app's
+per-env GCP project ID). Each workflow that needs it inlines a small
+`get-item | jq` step (jq reads the DynamoDB-typed shape, `.Item.Provider.S`),
+and the job carries `permissions: id-token: write` plus a
+`configure-aws-credentials` step assuming `GitHubDeployECS` — the same role for
+every provider, since the lookup runs before the provider fan-out and the role's
+trust is cru-deploy-repo-scoped. A missing row fails the job. Two rules:
 
-  | v2 long name        | legacy name sent to info service |
-  | ------------------- | -------------------------------- |
-  | `release-candidate` | `staging`                        |
-  | `production`        | `production`                     |
-  | `preview`           | `lab`                            |
+- **The table is keyed by legacy environment names.** Translate the v2 long
+  name before reading:
+
+  | v2 long name        | legacy name used as the range key |
+  | ------------------- | --------------------------------- |
+  | `release-candidate` | `staging`                         |
+  | `production`        | `production`                      |
+  | `preview`           | `lab`                             |
 
 - **`gcp` and `aws` providers.** The lookup step fails for any other
   `Provider`. AWS apps route by `Type`: `ecs` and `lambda` are supported;
