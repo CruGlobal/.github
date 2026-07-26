@@ -62,6 +62,7 @@ jobs:
       type: ${{ steps.app-info.outputs.type }}
       project-id: ${{ steps.app-info.outputs.project-id }}
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
+      app-url: ${{ steps.app-info.outputs.app-url }}
     steps:
       # GitHubDeployECS regardless of the app's provider: this runs before the
       # provider/type fan-out, and the role's trust is cru-deploy-repo-scoped,
@@ -97,6 +98,7 @@ jobs:
           type=$(echo "$item" | jq -r '.Type.S // empty')
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
+          app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -105,6 +107,7 @@ jobs:
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
+          echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
   deploy-candidate-gcp:
@@ -282,6 +285,8 @@ jobs:
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's SlackChannel from app-info (channel #name/C… or
       # user U…); no-ops silently when the channel OR the bot token is unset.
+      # The environment name in the message links to the app's AppUrl (also from
+      # app-info) when it has one, and is plain text when it doesn't.
       # The "changes since production" compare link is ledger-powered: the latest
       # production event's Sha (public GET on /deployments) vs this candidate's
       # sha- tag; omitted when either sha is missing. Compare-link repo is assumed
@@ -292,6 +297,7 @@ jobs:
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
           TAGS: ${{ steps.resolve.outputs.tags }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -304,11 +310,12 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg tag "${{ inputs.tag }}" \
+            --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
             --arg candidatesha "$candidate_sha" \
             --arg runurl "$RUN_URL" \
             '{channel: $channel,
-              text: (":package: *\($project) `\($tag)` is on release-candidate*"
+              text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
                      + (if $prodsha != "" and $candidatesha != ""
                         then "\n<https://github.com/CruGlobal/\($project)/compare/\($prodsha)...\($candidatesha)|changes since production>"
                         else "" end)
@@ -489,6 +496,8 @@ jobs:
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's SlackChannel from app-info (channel #name/C… or
       # user U…); no-ops silently when the channel OR the bot token is unset.
+      # The environment name in the message links to the app's AppUrl (also from
+      # app-info) when it has one, and is plain text when it doesn't.
       # The "changes since production" compare link is ledger-powered: the latest
       # production event's Sha (public GET on /deployments) vs this candidate's
       # sha- tag; omitted when either sha is missing. Compare-link repo is assumed
@@ -499,6 +508,7 @@ jobs:
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
           TAGS: ${{ steps.resolve.outputs.tags }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -511,11 +521,12 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg tag "${{ inputs.tag }}" \
+            --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
             --arg candidatesha "$candidate_sha" \
             --arg runurl "$RUN_URL" \
             '{channel: $channel,
-              text: (":package: *\($project) `\($tag)` is on release-candidate*"
+              text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
                      + (if $prodsha != "" and $candidatesha != ""
                         then "\n<https://github.com/CruGlobal/\($project)/compare/\($prodsha)...\($candidatesha)|changes since production>"
                         else "" end)

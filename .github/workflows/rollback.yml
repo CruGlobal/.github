@@ -54,6 +54,7 @@ jobs:
       project-id: ${{ steps.app-info.outputs.project-id }}
       release-tag: ${{ steps.release.outputs.tag }}
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
+      app-url: ${{ steps.app-info.outputs.app-url }}
     steps:
       # Authorization runs FIRST, before any provider job mutates production.
       # TODO: replace PAT with a dedicated GitHub App.
@@ -112,6 +113,7 @@ jobs:
           type=$(echo "$item" | jq -r '.Type.S // empty')
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
+          app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -120,6 +122,7 @@ jobs:
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
+          echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
@@ -310,12 +313,14 @@ jobs:
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's production SlackChannel from app-info (channel
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
-      # is unset.
+      # is unset. The word "production" links to the app's production AppUrl
+      # (also from app-info) when it has one, and is plain text when it doesn't.
       - name: Notify Slack
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -329,10 +334,11 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg appurl "$APP_URL" \
             --arg runurl "$RUN_URL" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
-              text: (":rewind: *\($project) rolled back to `\($release)` in production* by \($actor)"
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
@@ -511,12 +517,14 @@ jobs:
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's production SlackChannel from app-info (channel
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
-      # is unset.
+      # is unset. The word "production" links to the app's production AppUrl
+      # (also from app-info) when it has one, and is plain text when it doesn't.
       - name: Notify Slack
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -530,10 +538,11 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg appurl "$APP_URL" \
             --arg runurl "$RUN_URL" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
-              text: (":rewind: *\($project) rolled back to `\($release)` in production* by \($actor)"
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \

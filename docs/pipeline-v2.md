@@ -440,8 +440,19 @@ deployed by this very pipeline, so depending on it at deploy time would make
 every deploy — including the one that fixes a broken cru-app-info — contingent
 on it being up. A `GetItem` has no such cycle.
 
-The row includes `Provider` (cloud, e.g. `gcp`) and `ProjectId` (the app's
-per-env GCP project ID). Each workflow that needs it inlines a small
+The attributes the pipeline reads, all written by the app's Terraform module
+(`gcp/cloudrun/app`, `aws/ecs/app`, `aws/lambda/app`):
+
+| attribute        | set by                 | used for                                                        |
+| ---------------- | ---------------------- | --------------------------------------------------------------- |
+| `Provider`       | the module (cloud)     | provider fan-out; `gcp` or `aws`, anything else fails the lookup  |
+| `Type`           | the module             | AWS routing: `ecs` or `lambda`                                    |
+| `ProjectId`      | the module             | `runtime-project` + the deploy identity (GCP)                     |
+| `SlackChannel`   | `slack_channel`        | notification destination; presence is the enable switch           |
+| `MigrationsPath` | `migrations_path`      | rollback-safety classification at promote                         |
+| `AppUrl`         | `app_url` (or derived) | links the environment name in Slack messages; absent ⇒ plain text |
+
+Each workflow that needs it inlines a small
 `get-item | jq` step (jq reads the DynamoDB-typed shape, `.Item.Provider.S`),
 and the job carries `permissions: id-token: write` plus a
 `configure-aws-credentials` step assuming `GitHubDeployECS` — the same role for
@@ -505,8 +516,8 @@ Each pipeline step that changes what is running posts a Slack message to the
 app's own destination.
 
 - **Config source: `SlackChannel` in app-info, per env.** The same
-  `curl | jq` lookup that reads `Provider`/`ProjectId` also extracts
-  `SlackChannel` (`jq -r '.SlackChannel // empty'`) and exposes it as the
+  `get-item | jq` lookup that reads `Provider`/`ProjectId` also extracts
+  `SlackChannel` (`jq -r '.SlackChannel.S // empty'`) and exposes it as the
   `lookup` job's `slack-channel` output. **Presence is the enable switch** —
   set a value and the app opts in; leave it unset and every notify step
   no-ops silently. `deploy-candidate` reads it from its single
@@ -537,6 +548,37 @@ app's own destination.
   `github.com/CruGlobal/<project>/compare/<prodsha>...<candidatesha>` (repo is
   assumed to equal the project name — true for the pilots) and is omitted
   cleanly when either sha is missing or the ledger query fails.
+- **The environment name links to the running app.** Where a message names the
+  environment the change landed in — `stage` in the candidate message,
+  `production` in the promote and rollback messages — that word becomes a Slack
+  link (`<url|stage>`) to the app's `AppUrl` from the same app-info row, and
+  stays plain text when the row has no `AppUrl`. The candidate message says
+  **stage**, not `release-candidate`: the word names the thing a human can go
+  look at, and it matches the hostname the link points to
+  (`app-stage.cru.org`). The link is built inside the `jq -n` payload
+  construction, so there is no shell-quoting hazard and Slack's `<url|text>`
+  angle brackets survive JSON encoding untouched.
+
+  `AppUrl` is written by the app's Terraform module from the DNS name it already
+  manages (`app_url` overrides it; `app_url = ""` suppresses it). CloudRun apps
+  on the shared ALB and ECS apps with a zone get one automatically; Lambda apps
+  never derive one.
+
+Messages, with and without an `AppUrl` (`|` marks the linked span):
+
+```
+deploy-candidate  :package: *myapp `candidate-2026-07-26-1234` is on <https://myapp-stage.cru.org|stage>*
+                  :package: *myapp `candidate-2026-07-26-1234` is on stage*
+
+promote           :white_check_mark: *myapp promoted `release-2026-07-26-1234` to <https://myapp.cru.org|production>* by bzoetewey
+                  :white_check_mark: *myapp promoted `release-2026-07-26-1234` to production* by bzoetewey
+
+rollback          :rewind: *myapp rolled back to `release-2026-07-25-1233` in <https://myapp.cru.org|production>* by bzoetewey
+                  :rewind: *myapp rolled back to `release-2026-07-25-1233` in production* by bzoetewey
+```
+
+The follow-on lines (compare link, promote-dispatch link, rollback-safety
+advisory, run URL) are unchanged.
 
 ### Rollback-safety classification
 
