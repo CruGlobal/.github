@@ -558,10 +558,11 @@ app's own destination.
 
   **Graceful bootstrap.** When the baseline doesn't exist — a first deploy or
   first promote, a rollback with no prior production event (or one naming the same
-  release), or a failed best-effort ledger query — the line falls back to the
-  workflow-run URL it replaced, so it is never a dead link and there is nothing
-  extra to configure. This link supersedes the earlier `changes since production`
-  GitHub compare link: one link per message, not three.
+  release), or a failed best-effort ledger query — the closing line is simply
+  omitted: no link is better than a wrong one, and the run URL is always one
+  click away in the ledger row (`RunUrl`) and the Actions tab. This link
+  supersedes the earlier `changes since production` GitHub compare link: one
+  link per message, not three.
 - **The environment name links to the running app.** Where a message names the
   environment the change landed in — `stage` in the candidate message,
   `production` in the promote and rollback messages — that word becomes a Slack
@@ -609,7 +610,7 @@ rollback          :rewind: *myapp rolled back to `release-2026-07-25-1233` in <h
 
 bootstrap         :package: *myapp `candidate-2026-07-26-1234` is on <https://myapp-stage.cru.org|stage>*
 (no baseline —    Promote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>
- first deploy)    https://github.com/CruGlobal/cru-deploy/actions/runs/1234567890
+ first deploy)    (no changelog line — the closing line is omitted when no baseline exists)
 ```
 
 ### Rollback-safety classification

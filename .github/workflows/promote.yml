@@ -368,7 +368,7 @@ jobs:
       # rollback-safety classifier diffs against), `to` = the new release tag --
       # the page resolves revision names through the ledger, so a tag is as good
       # as a sha. With no baseline yet (first promote) or a failed ledger query
-      # the line falls back to the workflow-run URL, so it is never a dead link.
+      # the line is omitted, so it is never a dead link.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -378,7 +378,6 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.release.outputs.release }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           REASONS: ${{ steps.rollback-safety.outputs.reasons }}
         run: |
@@ -398,7 +397,6 @@ jobs:
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
-            --arg runurl "$RUN_URL" \
             --arg safety "$safety" \
             '{channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
@@ -407,7 +405,7 @@ jobs:
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
                              + "&from=" + $prevsha + "&to=" + $release
                              + "|what'\''s in this release>"
-                        else "\n\($runurl)" end))}')
+                        else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -621,7 +619,7 @@ jobs:
       # rollback-safety classifier diffs against), `to` = the new release tag --
       # the page resolves revision names through the ledger, so a tag is as good
       # as a sha. With no baseline yet (first promote) or a failed ledger query
-      # the line falls back to the workflow-run URL, so it is never a dead link.
+      # the line is omitted, so it is never a dead link.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -631,7 +629,6 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.release.outputs.release }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           REASONS: ${{ steps.rollback-safety.outputs.reasons }}
         run: |
@@ -651,7 +648,6 @@ jobs:
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
-            --arg runurl "$RUN_URL" \
             --arg safety "$safety" \
             '{channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
@@ -660,7 +656,7 @@ jobs:
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
                              + "&from=" + $prevsha + "&to=" + $release
                              + "|what'\''s in this release>"
-                        else "\n\($runurl)" end))}')
+                        else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

@@ -336,7 +336,6 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
@@ -349,7 +348,6 @@ jobs:
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
-            --arg runurl "$RUN_URL" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
@@ -358,7 +356,7 @@ jobs:
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
                              + "&from=" + $release + "&to=" + $previous
                              + "|what this rollback reverts>"
-                        else "\n\($runurl)" end))}')
+                        else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -558,7 +556,6 @@ jobs:
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
@@ -571,7 +568,6 @@ jobs:
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
-            --arg runurl "$RUN_URL" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
@@ -580,7 +576,7 @@ jobs:
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
                              + "&from=" + $release + "&to=" + $previous
                              + "|what this rollback reverts>"
-                        else "\n\($runurl)" end))}')
+                        else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

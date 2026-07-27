@@ -291,8 +291,8 @@ jobs:
       # `from` = the sha currently in production (public GET on /deployments),
       # `to` = this candidate tag -- the page resolves revision names through the
       # ledger, so a tag is as good as a sha. With no production baseline yet
-      # (first deploy) or a failed ledger query the line falls back to the
-      # workflow-run URL, so it is never a dead link.
+      # (first deploy) or a failed ledger query the closing line is simply
+      # omitted -- no link is better than a wrong one.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -300,7 +300,6 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -312,7 +311,6 @@ jobs:
             --arg tag "${{ inputs.tag }}" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
-            --arg runurl "$RUN_URL" \
             '{channel: $channel,
               text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
@@ -320,7 +318,7 @@ jobs:
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
                              + "&from=" + $prodsha + "&to=" + $tag
                              + "|what'\''s in this candidate>"
-                        else "\n\($runurl)" end))}')
+                        else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -502,8 +500,8 @@ jobs:
       # `from` = the sha currently in production (public GET on /deployments),
       # `to` = this candidate tag -- the page resolves revision names through the
       # ledger, so a tag is as good as a sha. With no production baseline yet
-      # (first deploy) or a failed ledger query the line falls back to the
-      # workflow-run URL, so it is never a dead link.
+      # (first deploy) or a failed ledger query the closing line is simply
+      # omitted -- no link is better than a wrong one.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -511,7 +509,6 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -523,7 +520,6 @@ jobs:
             --arg tag "${{ inputs.tag }}" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
-            --arg runurl "$RUN_URL" \
             '{channel: $channel,
               text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
@@ -531,7 +527,7 @@ jobs:
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
                              + "&from=" + $prodsha + "&to=" + $tag
                              + "|what'\''s in this candidate>"
-                        else "\n\($runurl)" end))}')
+                        else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
