@@ -333,7 +333,7 @@ functions.
   the same `maxAttempts: 5` retry config as the other Lambda helpers.
 
 **Dry-run release-candidate gate (tenant-target apps).** The Lambda pilot
-(`okta-api-keepalive`) uses release-candidate as a **`DRY_RUN=true` surface**: the
+(`okta-api-keypalive`) uses release-candidate as a **`DRY_RUN=true` surface**: the
 rc function runs the candidate image on its normal cron with side effects
 disabled, so a bad candidate is caught before it can touch tenants. Promote then
 ships **that exact digest** to the production functions (which run for real).
