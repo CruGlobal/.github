@@ -540,14 +540,28 @@ app's own destination.
 - **Successes only.** Only a new release-candidate, a completed promote, and a
   completed rollback notify. Failures stay visible in Actions / Datadog and are
   deliberately NOT posted to Slack.
-- **Ledger-powered compare link.** The release-candidate message adds a
-  `changes since production` link when possible: a public GET on the
-  deployments ledger (`/deployments?project=<p>&environment=production&limit=1`)
-  yields the currently-in-production `Sha`, and the candidate's git sha comes
-  from the `sha-` tag on the resolved digest; the link is
-  `github.com/CruGlobal/<project>/compare/<prodsha>...<candidatesha>` (repo is
-  assumed to equal the project name — true for the pilots) and is omitted
-  cleanly when either sha is missing or the ledger query fails.
+- **The closing line is a changelog link.** Every message ends with one link into
+  the deploys dashboard's changelog page rather than the raw workflow-run URL:
+  `deploys.cru.org/changelog?project=<p>&from=<ref>&to=<ref>`. Either end may be
+  a pipeline revision name (`release-2026-07-26-1234`) or a raw git sha — the page
+  resolves names through the deployments ledger — so the pipeline passes whichever
+  it already holds, preferring the revision name:
+
+  | message | `from` | `to` | link text |
+  | ------- | ------ | ---- | --------- |
+  | `deploy-candidate` | the `Sha` running in production, from a public GET on the ledger (`/deployments?project=<p>&environment=production&limit=1`) | the candidate tag being deployed | `what's in this candidate` |
+  | `promote` | the production baseline the rollback-safety classifier already fetched (the previous production `Sha`) | the new `release-<…>` tag | `what's in this release` |
+  | `rollback` | the release being rolled back **to** | what production was running: the newest production ledger event's `Revision` (or its `Sha` for rows that predate named revisions), from the same fetch the rollback-safety advisory makes | `what this rollback reverts` |
+
+  **Rollback inverts `from`/`to`** deliberately: the page then shows what
+  production is *losing*, which is the question a rollback raises.
+
+  **Graceful bootstrap.** When the baseline doesn't exist — a first deploy or
+  first promote, a rollback with no prior production event (or one naming the same
+  release), or a failed best-effort ledger query — the line falls back to the
+  workflow-run URL it replaced, so it is never a dead link and there is nothing
+  extra to configure. This link supersedes the earlier `changes since production`
+  GitHub compare link: one link per message, not three.
 - **The environment name links to the running app.** Where a message names the
   environment the change landed in — `stage` in the candidate message,
   `production` in the promote and rollback messages — that word becomes a Slack
@@ -577,8 +591,26 @@ rollback          :rewind: *myapp rolled back to `release-2026-07-25-1233` in <h
                   :rewind: *myapp rolled back to `release-2026-07-25-1233` in production* by bzoetewey
 ```
 
-The follow-on lines (compare link, promote-dispatch link, rollback-safety
-advisory, run URL) are unchanged.
+The follow-on lines are the promote-dispatch link (candidate only), the
+rollback-safety advisory (promote / rollback), and the closing changelog link:
+
+```
+deploy-candidate  :package: *myapp `candidate-2026-07-26-1234` is on <https://myapp-stage.cru.org|stage>*
+                  Promote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>
+                  <https://deploys.cru.org/changelog?project=myapp&from=a1b2c3d&to=candidate-2026-07-26-1234|what's in this candidate>
+
+promote           :white_check_mark: *myapp promoted `release-2026-07-26-1234` to <https://myapp.cru.org|production>* by bzoetewey
+                  :shield: rollback-safe (migrations additive)
+                  <https://deploys.cru.org/changelog?project=myapp&from=a1b2c3d&to=release-2026-07-26-1234|what's in this release>
+
+rollback          :rewind: *myapp rolled back to `release-2026-07-25-1233` in <https://myapp.cru.org|production>* by bzoetewey
+                  :warning: rolling back FROM a release with destructive migrations (…); this rollback does NOT revert the schema
+                  <https://deploys.cru.org/changelog?project=myapp&from=release-2026-07-25-1233&to=release-2026-07-26-1234|what this rollback reverts>
+
+bootstrap         :package: *myapp `candidate-2026-07-26-1234` is on <https://myapp-stage.cru.org|stage>*
+(no baseline —    Promote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>
+ first deploy)    https://github.com/CruGlobal/cru-deploy/actions/runs/1234567890
+```
 
 ### Rollback-safety classification
 

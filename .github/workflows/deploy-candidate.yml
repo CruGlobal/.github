@@ -287,10 +287,12 @@ jobs:
       # user U…); no-ops silently when the channel OR the bot token is unset.
       # The environment name in the message links to the app's AppUrl (also from
       # app-info) when it has one, and is plain text when it doesn't.
-      # The "changes since production" compare link is ledger-powered: the latest
-      # production event's Sha (public GET on /deployments) vs this candidate's
-      # sha- tag; omitted when either sha is missing. Compare-link repo is assumed
-      # to equal the project name (true for the v2 pilots).
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
+      # `from` = the sha currently in production (public GET on /deployments),
+      # `to` = this candidate tag -- the page resolves revision names through the
+      # ledger, so a tag is as good as a sha. With no production baseline yet
+      # (first deploy) or a failed ledger query the line falls back to the
+      # workflow-run URL, so it is never a dead link.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -298,13 +300,11 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
-          TAGS: ${{ steps.resolve.outputs.tags }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
           fi
-          candidate_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           prod_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=${PROJECT_NAME}&environment=production&limit=1" 2>/dev/null | jq -r '.Items[0].Sha // empty' 2>/dev/null || true)
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
@@ -312,15 +312,15 @@ jobs:
             --arg tag "${{ inputs.tag }}" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
-            --arg candidatesha "$candidate_sha" \
             --arg runurl "$RUN_URL" \
             '{channel: $channel,
               text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
-                     + (if $prodsha != "" and $candidatesha != ""
-                        then "\n<https://github.com/CruGlobal/\($project)/compare/\($prodsha)...\($candidatesha)|changes since production>"
-                        else "" end)
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
-                     + "\n\($runurl)")}')
+                     + (if $prodsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prodsha + "&to=" + $tag
+                             + "|what'\''s in this candidate>"
+                        else "\n\($runurl)" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -498,10 +498,12 @@ jobs:
       # user U…); no-ops silently when the channel OR the bot token is unset.
       # The environment name in the message links to the app's AppUrl (also from
       # app-info) when it has one, and is plain text when it doesn't.
-      # The "changes since production" compare link is ledger-powered: the latest
-      # production event's Sha (public GET on /deployments) vs this candidate's
-      # sha- tag; omitted when either sha is missing. Compare-link repo is assumed
-      # to equal the project name (true for the v2 pilots).
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
+      # `from` = the sha currently in production (public GET on /deployments),
+      # `to` = this candidate tag -- the page resolves revision names through the
+      # ledger, so a tag is as good as a sha. With no production baseline yet
+      # (first deploy) or a failed ledger query the line falls back to the
+      # workflow-run URL, so it is never a dead link.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -509,13 +511,11 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
-          TAGS: ${{ steps.resolve.outputs.tags }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
           fi
-          candidate_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           prod_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=${PROJECT_NAME}&environment=production&limit=1" 2>/dev/null | jq -r '.Items[0].Sha // empty' 2>/dev/null || true)
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
@@ -523,15 +523,15 @@ jobs:
             --arg tag "${{ inputs.tag }}" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
-            --arg candidatesha "$candidate_sha" \
             --arg runurl "$RUN_URL" \
             '{channel: $channel,
               text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
-                     + (if $prodsha != "" and $candidatesha != ""
-                        then "\n<https://github.com/CruGlobal/\($project)/compare/\($prodsha)...\($candidatesha)|changes since production>"
-                        else "" end)
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
-                     + "\n\($runurl)")}')
+                     + (if $prodsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prodsha + "&to=" + $tag
+                             + "|what'\''s in this candidate>"
+                        else "\n\($runurl)" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

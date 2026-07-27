@@ -198,11 +198,17 @@ jobs:
       # migrations; an image swap does NOT revert the schema. Read the most
       # recent production ledger row carrying a rollback-safety verdict and warn
       # loudly if it was classified unsafe. Public GET; never fails the rollback.
+      # The same fetch also yields what production runs RIGHT NOW (the newest
+      # event) for the Slack changelog link -- one ledger round trip, two uses.
       - name: Rollback-safety advisory
         id: rollback-safety
         continue-on-error: true
         run: |
           items=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          # The release this rollback takes production OFF -- the `to` end of the
+          # changelog link (revision name preferred, Sha for rows that predate
+          # named revisions). Empty -> the Slack message keeps the run URL.
+          echo "previous-revision=$(echo "$items" | jq -r '.[0].Revision // .[0].Sha // empty')" >> "$GITHUB_OUTPUT"
           entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
           safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
           reasons_json=$(echo "$entry" | jq -r '.RollbackSafeReasons // ""' 2>/dev/null || echo "")
@@ -315,6 +321,12 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed) with
+      # from/to INVERTED relative to deploy-candidate / promote: `from` = the
+      # release we are rolling back TO, `to` = what production was running, so the
+      # page shows what production is LOSING. Falls back to the workflow-run URL
+      # when the ledger yields no prior production event (or names this same
+      # release), so the line is never a dead or empty link.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -323,6 +335,7 @@ jobs:
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
+          PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
         run: |
@@ -335,12 +348,17 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
+            --arg previous "$PREVIOUS" \
             --arg runurl "$RUN_URL" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
                      + (if $safety != "" then "\n\($safety)" else "" end)
-                     + "\n\($runurl)")}')
+                     + (if $previous != "" and $previous != $release
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $release + "&to=" + $previous
+                             + "|what this rollback reverts>"
+                        else "\n\($runurl)" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -415,11 +433,17 @@ jobs:
       # migrations; an image swap does NOT revert the schema. Read the most
       # recent production ledger row carrying a rollback-safety verdict and warn
       # loudly if it was classified unsafe. Public GET; never fails the rollback.
+      # The same fetch also yields what production runs RIGHT NOW (the newest
+      # event) for the Slack changelog link -- one ledger round trip, two uses.
       - name: Rollback-safety advisory
         id: rollback-safety
         continue-on-error: true
         run: |
           items=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          # The release this rollback takes production OFF -- the `to` end of the
+          # changelog link (revision name preferred, Sha for rows that predate
+          # named revisions). Empty -> the Slack message keeps the run URL.
+          echo "previous-revision=$(echo "$items" | jq -r '.[0].Revision // .[0].Sha // empty')" >> "$GITHUB_OUTPUT"
           entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
           safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
           reasons_json=$(echo "$entry" | jq -r '.RollbackSafeReasons // ""' 2>/dev/null || echo "")
@@ -519,6 +543,12 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed) with
+      # from/to INVERTED relative to deploy-candidate / promote: `from` = the
+      # release we are rolling back TO, `to` = what production was running, so the
+      # page shows what production is LOSING. Falls back to the workflow-run URL
+      # when the ledger yields no prior production event (or names this same
+      # release), so the line is never a dead or empty link.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -527,6 +557,7 @@ jobs:
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
+          PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
         run: |
@@ -539,12 +570,17 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
+            --arg previous "$PREVIOUS" \
             --arg runurl "$RUN_URL" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
                      + (if $safety != "" then "\n\($safety)" else "" end)
-                     + "\n\($runurl)")}')
+                     + (if $previous != "" and $previous != $release
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $release + "&to=" + $previous
+                             + "|what this rollback reverts>"
+                        else "\n\($runurl)" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

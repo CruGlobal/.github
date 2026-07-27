@@ -363,6 +363,12 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
+      # `from` = the sha production ran before this promote (the same baseline the
+      # rollback-safety classifier diffs against), `to` = the new release tag --
+      # the page resolves revision names through the ledger, so a tag is as good
+      # as a sha. With no baseline yet (first promote) or a failed ledger query
+      # the line falls back to the workflow-run URL, so it is never a dead link.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -371,6 +377,7 @@ jobs:
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.release.outputs.release }}
+          PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           REASONS: ${{ steps.rollback-safety.outputs.reasons }}
@@ -390,12 +397,17 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
+            --arg prevsha "$PREV_SHA" \
             --arg runurl "$RUN_URL" \
             --arg safety "$safety" \
             '{channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
                      + "\n\($safety)"
-                     + "\n\($runurl)")}')
+                     + (if $prevsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prevsha + "&to=" + $release
+                             + "|what'\''s in this release>"
+                        else "\n\($runurl)" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -604,6 +616,12 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
+      # `from` = the sha production ran before this promote (the same baseline the
+      # rollback-safety classifier diffs against), `to` = the new release tag --
+      # the page resolves revision names through the ledger, so a tag is as good
+      # as a sha. With no baseline yet (first promote) or a failed ledger query
+      # the line falls back to the workflow-run URL, so it is never a dead link.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -612,6 +630,7 @@ jobs:
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           RELEASE: ${{ steps.release.outputs.release }}
+          PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           REASONS: ${{ steps.rollback-safety.outputs.reasons }}
@@ -631,12 +650,17 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg appurl "$APP_URL" \
+            --arg prevsha "$PREV_SHA" \
             --arg runurl "$RUN_URL" \
             --arg safety "$safety" \
             '{channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
                      + "\n\($safety)"
-                     + "\n\($runurl)")}')
+                     + (if $prevsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prevsha + "&to=" + $release
+                             + "|what'\''s in this release>"
+                        else "\n\($runurl)" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
