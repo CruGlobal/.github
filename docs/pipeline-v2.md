@@ -833,9 +833,9 @@ after the nominal time when the shared scheduler is under load. That lateness is
 expected, not a failure; judge a nightly by whether it ran and what it produced,
 not by its start minute.
 
-Flow: app-info (`release-candidate`) → Datadog pipeline tag → GCP auth as the
+Flow: app-info (`release-candidate`) → GCP auth as the
 release-candidate `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`
-(cloudrun, `release-candidate`) → `dora deployment` (env `release-candidate`).
+(cloudrun, `release-candidate`) → deployment event via the Events API (env `release-candidate`).
 
 ## Workflow: `promote`
 
@@ -857,7 +857,7 @@ Flow: authz → app-info for **both** `release-candidate` and `production` (two
 `environment`, capture digest + its `candidate-*` tag, fail if absent) → re-auth as
 the **prod** `cru-deploy` SA → `deploy` (cloudrun, `production`) →
 `gcloud artifacts docker tags add <image_base>@<digest> <image_base>:release-<date>-<n>`
-→ `dora deployment` (env `production`, version `release-<date>-<n>`).
+→ deployment event via the Events API (env `production`, version `release-<date>-<n>`).
 
 ### Releases are permanent
 
@@ -884,7 +884,7 @@ Redeploys a previously promoted release to production (production lock).
 
 Flow: authz → app-info (`production`) → normalize `release` to a full tag →
 GCP auth as the prod `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`
-(cloudrun, `production`) → `dora deployment` with `--custom-tags "rollback:true"`.
+(cloudrun, `production`) → deployment event via the Events API with a `rollback:true` tag.
 
 > Automatic "previous release" selection (roll back to `release-<n-1>` without
 > naming it) lands in a later v2 pass; for now the target release is explicit.

@@ -133,12 +133,6 @@ jobs:
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
 
-      # Telemetry must never fail a deploy: pinned CLI major, --no-fail, and
-      # continue-on-error guard against upstream CLI changes and Datadog outages.
-      - name: Tag Datadog pipeline
-        continue-on-error: true
-        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}" --tags "version:${{ inputs.tag }}" || echo "::warning title=Datadog telemetry failed::pipeline tag for $PROJECT_NAME (release-candidate) not applied (non-blocking)"
-
       - name: Configure GCP credentials
         uses: google-github-actions/auth@v3
         id: auth
@@ -392,10 +386,6 @@ jobs:
             ecs|lambda) ;;
             *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
           esac
-
-      - name: Tag Datadog pipeline
-        continue-on-error: true
-        run: npx @datadog/datadog-ci@5 tag --level pipeline --no-fail --tags "service:$PROJECT_NAME" --tags "environment:$ENVIRONMENT" --tags "tag:${{ inputs.tag }}" --tags "version:${{ inputs.tag }}" || echo "::warning title=Datadog telemetry failed::pipeline tag for $PROJECT_NAME (release-candidate) not applied (non-blocking)"
 
       # ECS/Lambda are org-shared in the cruds account (056154071827); one deploy
       # role per type (GitHubDeployECS / GitHubDeployLambda, both cru-deploy-
