@@ -51,6 +51,7 @@ jobs:
       prod-project-id: ${{ steps.app-info-prod.outputs.project-id }}
       slack-channel: ${{ steps.app-info-prod.outputs.slack-channel }}
       migrations-path: ${{ steps.app-info-prod.outputs.migrations-path }}
+      migrations: ${{ steps.app-info-prod.outputs.migrations }}
       app-url: ${{ steps.app-info-prod.outputs.app-url }}
     steps:
       # Authorization runs FIRST, before any provider job mutates production: the
@@ -144,10 +145,16 @@ jobs:
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           migrations_path=$(echo "$item" | jq -r '.MigrationsPath.S // empty')
+          # Migrations = "none" is the module DECLARING the app has no database
+          # migrations, which an absent MigrationsPath cannot express (that also
+          # covers "has migrations the classifier can't see"). Empty for apps on
+          # module versions that predate the declaration.
+          migrations=$(echo "$item" | jq -r '.Migrations.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "migrations-path=$migrations_path" >> "$GITHUB_OUTPUT"
+          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
 
@@ -227,6 +234,9 @@ jobs:
 
       # Classify the migrations added between the production baseline and the
       # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
+      # An app whose app-info declares `Migrations = "none"` is rollback-safe
+      # without any diff at all -- that declaration is the only thing that
+      # distinguishes "has no migrations" from "has migrations we can't see".
       # The action NEVER fails; continue-on-error is a belt on top of that.
       # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
       - name: Classify rollback safety
@@ -239,6 +249,7 @@ jobs:
           base-sha: ${{ steps.baseline.outputs.prev-sha }}
           head-sha: ${{ steps.baseline.outputs.head-sha }}
           migrations-path: ${{ needs.lookup.outputs.migrations-path }}
+          migrations: ${{ needs.lookup.outputs.migrations }}
 
       - name: Configure GCP credentials (production SA)
         uses: google-github-actions/auth@v3
@@ -386,7 +397,11 @@ jobs:
           fi
           # Rollback-safety advisory line appended to the promote message.
           case "$VERDICT" in
-            safe) safety=":shield: rollback-safe (migrations additive)" ;;
+            # A `safe` verdict carries a reason only when the classifier had
+            # something specific to say (an explicit "no database migrations"
+            # declaration); a diff-classified safe verdict has no reasons and
+            # keeps the default parenthetical.
+            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "migrations additive" end' 2>/dev/null || echo "migrations additive"))" ;;
             unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
             *) safety="rollback safety: unclassified" ;;
           esac
@@ -534,6 +549,9 @@ jobs:
 
       # Classify the migrations added between the production baseline and the
       # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
+      # An app whose app-info declares `Migrations = "none"` is rollback-safe
+      # without any diff at all -- that declaration is the only thing that
+      # distinguishes "has no migrations" from "has migrations we can't see".
       # The action NEVER fails; continue-on-error is a belt on top of that.
       # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
       - name: Classify rollback safety
@@ -546,6 +564,7 @@ jobs:
           base-sha: ${{ steps.baseline.outputs.prev-sha }}
           head-sha: ${{ steps.baseline.outputs.head-sha }}
           migrations-path: ${{ needs.lookup.outputs.migrations-path }}
+          migrations: ${{ needs.lookup.outputs.migrations }}
 
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
@@ -674,7 +693,11 @@ jobs:
           fi
           # Rollback-safety advisory line appended to the promote message.
           case "$VERDICT" in
-            safe) safety=":shield: rollback-safe (migrations additive)" ;;
+            # A `safe` verdict carries a reason only when the classifier had
+            # something specific to say (an explicit "no database migrations"
+            # declaration); a diff-classified safe verdict has no reasons and
+            # keeps the default parenthetical.
+            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "migrations additive" end' 2>/dev/null || echo "migrations additive"))" ;;
             unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
             *) safety="rollback safety: unclassified" ;;
           esac

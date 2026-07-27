@@ -449,7 +449,8 @@ The attributes the pipeline reads, all written by the app's Terraform module
 | `Type`           | the module             | AWS routing: `ecs` or `lambda`                                    |
 | `ProjectId`      | the module             | `runtime-project` + the deploy identity (GCP)                     |
 | `SlackChannel`   | `slack_channel`        | notification destination; presence is the enable switch           |
-| `MigrationsPath` | `migrations_path`      | rollback-safety classification at promote                         |
+| `MigrationsPath` | `database_migrations`  | rollback-safety classification at promote                         |
+| `Migrations`     | the module             | `none` declares the app has NO migrations ⇒ promote reports safe   |
 | `AppUrl`         | `app_url` (or derived) | links the environment name in Slack messages; absent ⇒ plain text |
 
 Each workflow that needs it inlines a small
@@ -671,8 +672,26 @@ production and the promoted candidate:
   changes), or data migrations (`UPDATE` / `DELETE` / `TRUNCATE`). The old image
   would break against the new schema, so a rollback would **not** revert cleanly.
 
-**Three-state verdict:** `safe` (all EXPAND) · `unsafe` (any CONTRACT) ·
-`unclassified` (couldn't decide — see bootstrap below).
+**Three-state verdict:** `safe` · `unsafe` · `unclassified`. How each is reached,
+from the app's `CruApplicationInfo` item:
+
+| app-info                                       | verdict        | reason                                                        |
+| ---------------------------------------------- | -------------- | ------------------------------------------------------------- |
+| `Migrations = "none"`                          | `safe`         | `no database migrations` — decided with **no compare at all** |
+| `MigrationsPath`, every added migration EXPAND | `safe`         | none (nothing to report)                                      |
+| `MigrationsPath`, any migration CONTRACT       | `unsafe`       | one per destructive statement, path-prefixed                  |
+| `MigrationsPath`, no baseline / no `sha-` tag  | `unclassified` | nothing to diff against — see bootstrap below                 |
+| **neither attribute**                          | `unclassified` | migrations may exist, but the classifier cannot see them      |
+
+The last two rows are the reason the declaration exists. An absent
+`MigrationsPath` conflates two situations that deserve opposite answers: an app
+that **has** no migrations (trivially rollback-safe on every promote) and an app
+whose migrations the classifier **cannot see** (genuinely unknown). Absence of
+evidence is not evidence of absence, so the app's Terraform module states it
+positively with `Migrations = "none"`, and the classifier only claims `safe` when
+that declaration is there. A `MigrationsPath` always wins over the declaration —
+the two are mutually exclusive by construction, and a declaration must never
+mask migrations that can actually be read.
 
 **Advisory only — never blocks anything.** The classify step is
 `continue-on-error: true` and the action itself never fails; the verdict only
@@ -682,19 +701,30 @@ production and the promoted candidate:
   (`"true"`/`"false"`) when the verdict is decided, plus `RollbackSafeReasons`
   (a JSON-array string) when there are reasons. `unclassified` writes neither.
 - **Promote Slack message.** A trailing line: `:shield: rollback-safe (migrations
-  additive)`, `:warning: NOT rollback-safe: <first 2 reasons>`, or
-  `rollback safety: unclassified`.
+  additive)`, `:shield: rollback-safe (no database migrations)` for a declared-none
+  app, `:warning: NOT rollback-safe: <first 2 reasons>`, or
+  `rollback safety: unclassified`. The parenthetical is the classifier's own first
+  reason when it supplied one, so a `safe` verdict says *why* it is safe.
 - **Rollback warning.** `rollback` reads the most recent production ledger row
   carrying a verdict; if it was `"false"`, it emits a loud `::warning` and a
   `:warning:` Slack line — the release being rolled back **from** shipped
   destructive migrations, so the image swap will **not** revert the schema.
 
-**Config: `migrations_path` → `MigrationsPath`.** An app opts in by setting the
-`migrations_path` variable on its app module (`gcp/cloudrun/app`,
-`aws/ecs/app`, `aws/lambda/app`) to the repo-relative directory of its `.sql`
-migrations (e.g. `drizzle`). Terraform writes it into the app's
-`CruApplicationInfo` item as `MigrationsPath`; the **production** app-info lookup
-exposes it to the promote jobs. Unset ⇒ the classifier reports `unclassified`.
+**Config — both attributes come from the app module, no per-app wiring needed.**
+The **production** app-info lookup reads `MigrationsPath` and `Migrations` and
+exposes them to both promote jobs.
+
+- **`MigrationsPath`** — an app with migrations opts in by setting
+  `database_migrations.path` on `gcp/cloudrun/app` or `aws/ecs/app` to the
+  repo-relative directory of its `.sql` migrations (e.g. `drizzle`).
+- **`Migrations = "none"`** — written automatically when the module can prove
+  there are no migrations: `database_migrations.enabled = false` with no `path`
+  on `gcp/cloudrun/app` / `aws/ecs/app`, and **unconditionally** on
+  `aws/lambda/app`, where it is structurally true — that module has no
+  `database_migrations` variable and the v2 lambda deploy runs nothing before
+  publishing a new function version, so there is nothing the pipeline *could*
+  run. `database_migrations.enabled = true` with no `path` writes neither
+  attribute: that is the deliberately-`unclassified` can't-see case.
 
 **Mechanics.** The classify action diffs `base...head` via the GitHub compare
 API (`base` = the git sha currently in production, from the deployments ledger;
@@ -706,7 +736,9 @@ each statement through an ordered EXPAND/CONTRACT rule table.
 **First promote bootstraps to `unclassified`.** With no production baseline yet
 (the ledger has no prior production `Sha`), `base-sha` is empty and the action
 reports `unclassified` — nothing to diff against. The same happens if the
-candidate carries no `sha-` tag or the migrations path is unset.
+candidate carries no `sha-` tag or the migrations path is unset. A declared-none
+app is the exception: it needs no baseline and no diff, so even its **first**
+promote reports `safe`.
 
 **Conservative by construction.** Anything the rule table does not positively
 recognise as additive is treated as **unsafe**: unrecognised statements, data

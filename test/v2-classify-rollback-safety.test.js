@@ -68,6 +68,97 @@ describe('classify-rollback-safety — short-circuits (advisory, never fails)', 
     await run()
     expect(verdict()).toBe('unclassified')
   })
+
+  it('neither migrations-path nor a Migrations declaration → unclassified', async () => {
+    inputs['migrations-path'] = ''
+    inputs.migrations = ''
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['no migrations path configured'])
+  })
+})
+
+// An explicit `Migrations = "none"` on the app's CruApplicationInfo item is the
+// module DECLARING the app has no database migrations — the only thing that
+// distinguishes it from "has migrations the classifier can't see", which an
+// absent MigrationsPath also covers.
+describe('classify-rollback-safety — declared no migrations', () => {
+  beforeEach(() => {
+    inputs['migrations-path'] = ''
+    inputs.migrations = 'none'
+  })
+
+  it('migrations=none → safe with the declared reason, no compare call', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(verdict()).toBe('safe')
+    expect(reasons()).toEqual(['no database migrations'])
+    // Short-circuits before any diff work: no compare, no contents fetch.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(noticeMock).toHaveBeenCalled()
+    expect(warningMock).not.toHaveBeenCalled()
+  })
+
+  it('short-circuits ahead of the baseline checks (first promote is safe too)', async () => {
+    inputs['base-sha'] = ''
+    inputs['head-sha'] = ''
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(verdict()).toBe('safe')
+    expect(reasons()).toEqual(['no database migrations'])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('matches the declaration case-insensitively', async () => {
+    inputs.migrations = 'None'
+    vi.stubGlobal('fetch', vi.fn())
+    await run()
+    expect(verdict()).toBe('safe')
+  })
+
+  it('any other Migrations value is not a declaration → unclassified', async () => {
+    inputs.migrations = 'drizzle'
+    vi.stubGlobal('fetch', vi.fn())
+    await run()
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['no migrations path configured'])
+  })
+
+  // The modules make the two attributes mutually exclusive, so this should never
+  // happen; if it does, the real path wins — a declaration must never be able to
+  // mask migrations the classifier can actually read.
+  it('migrations-path takes precedence over the declaration (destructive stays unsafe)', async () => {
+    inputs['migrations-path'] = 'drizzle'
+    const fetchMock = vi.fn(async (url) =>
+      url.includes('/compare/')
+        ? compareFiles([{ filename: 'drizzle/0002_drop.sql', status: 'added' }])
+        : rawContent('DROP TABLE users;'))
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(verdict()).toBe('unsafe')
+    expect(reasons()[0]).toMatch(/drizzle\/0002_drop\.sql/)
+    // The diff really ran: compare + one contents fetch.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('migrations-path takes precedence even when the diff classifies safe', async () => {
+    inputs['migrations-path'] = 'drizzle'
+    const fetchMock = vi.fn(async (url) =>
+      url.includes('/compare/')
+        ? compareFiles([{ filename: 'drizzle/0001_init.sql', status: 'added' }])
+        : rawContent('CREATE TABLE users (id int);'))
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(verdict()).toBe('safe')
+    // Classified from the diff, NOT declared: no declaration reason attached.
+    expect(reasons()).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('classify-rollback-safety — classification', () => {

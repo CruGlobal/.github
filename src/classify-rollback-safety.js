@@ -92,6 +92,26 @@ export async function run () {
     const baseSha = core.getInput('base-sha')
     const headSha = core.getInput('head-sha')
     const migrationsPath = core.getInput('migrations-path')
+    const migrations = core.getInput('migrations')
+
+    // An explicit `Migrations = "none"` on the app's CruApplicationInfo item is
+    // the app's Terraform module declaring it HAS no database migrations —
+    // something an absent MigrationsPath cannot express, since that also covers
+    // "has migrations we can't see" (migrations enabled with no path). A
+    // declared-none app is trivially rollback-safe: there is no schema change
+    // for the previous image to break against.
+    //
+    // Short-circuits BEFORE any baseline/diff work: no compare API call, no
+    // contents fetch, and no dependence on a production baseline existing (a
+    // migration-less app's FIRST promote is rollback-safe too).
+    //
+    // PRECEDENCE: a real migrations path wins. The modules make the two
+    // attributes mutually exclusive, so they should never both arrive; if they
+    // somehow do, classifying the path is the conservative answer — a
+    // declaration must never mask migrations we can actually read.
+    if (!migrationsPath && migrations.toLowerCase() === 'none') {
+      return finish('safe', ['no database migrations'])
+    }
 
     if (!migrationsPath) return finish('unclassified', ['no migrations path configured'])
     if (!baseSha) return finish('unclassified', ['no production baseline'])

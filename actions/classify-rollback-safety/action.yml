@@ -24,7 +24,15 @@ inputs:
   migrations-path:
     description: >-
       Repo-relative directory of the app's .sql migration files (e.g. drizzle),
-      from the app's CruApplicationInfo MigrationsPath. Empty ⇒ unclassified.
+      from the app's CruApplicationInfo MigrationsPath. Empty ⇒ unclassified,
+      unless `migrations` declares none.
+    required: false
+  migrations:
+    description: >-
+      The app's CruApplicationInfo Migrations declaration. "none" means the app
+      HAS no database migrations ⇒ verdict safe, decided without any compare
+      (an absent migrations-path cannot say this: it also covers "has migrations
+      we cannot see"). A non-empty migrations-path takes precedence.
     required: false
 outputs:
   verdict:
