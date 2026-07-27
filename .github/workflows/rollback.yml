@@ -363,6 +363,39 @@ jobs:
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
           echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
 
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl link
+      # (a failed rollback means production is still on the bad release) and no
+      # changelog link -- the run URL is the reader's next step, so it is the
+      # whole second line. References no earlier step's output at all, so it
+      # renders whichever step failed.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) rollback in production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
   rollback-aws:
     name: Roll production back (AWS)
     needs: lookup
@@ -577,6 +610,39 @@ jobs:
                              + "&from=" + $release + "&to=" + $previous
                              + "|what this rollback reverts>"
                         else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl link
+      # (a failed rollback means production is still on the bad release) and no
+      # changelog link -- the run URL is the reader's next step, so it is the
+      # whole second line. References no earlier step's output at all, so it
+      # renders whichever step failed.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) rollback in production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

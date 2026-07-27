@@ -412,6 +412,43 @@ jobs:
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
           echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
 
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl
+      # link (a failed promote means production did NOT change) and no changelog
+      # link -- the run URL is the reader's next step, so it is the whole second
+      # line. A promote can fail BEFORE the release name is derived (e.g. at
+      # image resolution), in which case steps.release.outputs.release is empty
+      # and the message names "the release-candidate image" instead: the only
+      # step output referenced, and it degrades rather than breaks.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release || '' }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
   promote-aws:
     name: Promote release-candidate to production (AWS)
     needs: lookup
@@ -657,6 +694,43 @@ jobs:
                              + "&from=" + $prevsha + "&to=" + $release
                              + "|what'\''s in this release>"
                         else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl
+      # link (a failed promote means production did NOT change) and no changelog
+      # link -- the run URL is the reader's next step, so it is the whole second
+      # line. A promote can fail BEFORE the release name is derived (e.g. at
+      # image resolution), in which case steps.release.outputs.release is empty
+      # and the message names "the release-candidate image" instead: the only
+      # step output referenced, and it degrades rather than breaks.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release || '' }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

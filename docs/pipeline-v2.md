@@ -513,7 +513,7 @@ self-owned-telemetry decision below), not a `dora deployment` mark.
 ### Slack notifications
 
 Each pipeline step that changes what is running posts a Slack message to the
-app's own destination.
+app's own destination — and so does each one that tried and **failed**.
 
 - **Config source: `SlackChannel` in app-info, per env.** The same
   `get-item | jq` lookup that reads `Provider`/`ProjectId` also extracts
@@ -537,11 +537,32 @@ app's own destination.
   HTTP 200 with `ok: false` on errors, so success is tested by
   `jq -e '.ok'` and any failure (or a failed `curl`) surfaces as a non-blocking
   `::warning`, never a failed job.
-- **Successes only.** Only a new release-candidate, a completed promote, and a
-  completed rollback notify. Failures stay visible in Actions / Datadog and are
-  deliberately NOT posted to Slack.
-- **The closing line is a changelog link.** Every message ends with one link into
-  the deploys dashboard's changelog page rather than the raw workflow-run URL:
+- **Failures notify too — plainly.** Every provider job ends with a second
+  `Notify Slack (failure)` step gated on `if: failure()` (plus
+  `continue-on-error: true`: a notification must never change a run's outcome, in
+  either direction). It exists because a failed cru-deploy run is otherwise
+  invisible — the app-repo dispatch does not propagate the result, so the app
+  repo stays green and only someone watching cru-deploy's Actions tab would
+  notice. (Two days of failed weekend nightly deploys, notified to no one, is
+  what bought this step.) The message is deliberately **minimal**: `:x:`, what
+  failed, and the workflow-run URL as the whole second line — no `AppUrl` link
+  (the env link celebrates something now running; a failure has nothing to go
+  look at) and no changelog link. It tracks the **job's** outcome, so any red
+  provider job announces itself. Every value it prints comes from a workflow
+  input or the `lookup` job — never from a step that may not have run — with the
+  single exception of promote's release name, which degrades to `the
+  release-candidate image` when the run died before it was derived. A **no-op**
+  candidate deploy does not notify: with `skip=true` the remaining steps are
+  *skipped*, not failed, so `failure()` stays false (and a failed
+  `continue-on-error` step never trips it either).
+- **When `lookup` itself fails, nothing is posted.** `SlackChannel` is read *by*
+  `lookup`, so a failure in authorization, the app-info read, or release-tag
+  normalization leaves no destination to notify — accepted rather than papered
+  over with a hardcoded fallback channel; the fallback for those is the
+  cru-deploy Actions tab.
+- **The closing line is a changelog link.** Every *success* message ends with one
+  link into the deploys dashboard's changelog page rather than the raw
+  workflow-run URL (failure messages invert this — see above):
   `deploys.cru.org/changelog?project=<p>&from=<ref>&to=<ref>`. Either end may be
   a pipeline revision name (`release-2026-07-26-1234`) or a raw git sha — the page
   resolves names through the deployments ledger — so the pipeline passes whichever
@@ -611,6 +632,26 @@ rollback          :rewind: *myapp rolled back to `release-2026-07-25-1233` in <h
 bootstrap         :package: *myapp `candidate-2026-07-26-1234` is on <https://myapp-stage.cru.org|stage>*
 (no baseline —    Promote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>
  first deploy)    (no changelog line — the closing line is omitted when no baseline exists)
+```
+
+Failure messages — two lines, nothing linked except the run, whichever step died:
+
+```
+deploy-candidate  :x: *myapp `candidate-2026-07-26-1234` deploy to stage FAILED*
+                  https://github.com/CruGlobal/cru-deploy/actions/runs/16428899123
+
+promote           :x: *myapp promote `release-2026-07-26-1234` to production FAILED* by bzoetewey
+                  https://github.com/CruGlobal/cru-deploy/actions/runs/16428899123
+
+promote           :x: *myapp promote the release-candidate image to production FAILED* by bzoetewey
+(died before the  https://github.com/CruGlobal/cru-deploy/actions/runs/16428899123
+ release name)
+
+rollback          :x: *myapp rollback in production FAILED* by bzoetewey
+                  https://github.com/CruGlobal/cru-deploy/actions/runs/16428899123
+
+lookup failed     (nothing — SlackChannel is read by the job that failed; the
+                   cru-deploy Actions tab is the fallback)
 ```
 
 ### Rollback-safety classification

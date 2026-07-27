@@ -325,6 +325,41 @@ jobs:
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
           echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
 
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # SlackChannel destination, same "channel OR token unset ⇒ silent no-op",
+      # same continue-on-error (a notification must NEVER change a run's
+      # outcome, in either direction). Deliberately plain: no AppUrl link (a
+      # failed deploy has nothing new to go look at) and no changelog link --
+      # the run URL is the reader's next step, so it is the whole second line.
+      # Every value comes from a workflow input or the lookup job, never from an
+      # earlier step's output, so the message renders whichever step failed.
+      # A healthy no-op (skip=true) cannot reach here: its remaining steps are
+      # SKIPPED, not failed, so failure() stays false.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg tag "$TAG" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) `\($tag)` deploy to stage FAILED*"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
   deploy-candidate-aws:
     name: Deploy Candidate to release-candidate (AWS)
     needs: lookup
@@ -528,6 +563,41 @@ jobs:
                              + "&from=" + $prodsha + "&to=" + $tag
                              + "|what'\''s in this candidate>"
                         else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # SlackChannel destination, same "channel OR token unset ⇒ silent no-op",
+      # same continue-on-error (a notification must NEVER change a run's
+      # outcome, in either direction). Deliberately plain: no AppUrl link (a
+      # failed deploy has nothing new to go look at) and no changelog link --
+      # the run URL is the reader's next step, so it is the whole second line.
+      # Every value comes from a workflow input or the lookup job, never from an
+      # earlier step's output, so the message renders whichever step failed.
+      # A healthy no-op (skip=true) cannot reach here: its remaining steps are
+      # SKIPPED, not failed, so failure() stays false.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg tag "$TAG" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) `\($tag)` deploy to stage FAILED*"
+                     + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
