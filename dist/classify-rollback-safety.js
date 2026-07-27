@@ -19416,6 +19416,10 @@ async function run() {
     const baseSha = getInput("base-sha");
     const headSha = getInput("head-sha");
     const migrationsPath = getInput("migrations-path");
+    const migrations = getInput("migrations");
+    if (!migrationsPath && migrations.toLowerCase() === "none") {
+      return finish("safe", ["no database migrations"]);
+    }
     if (!migrationsPath) return finish("unclassified", ["no migrations path configured"]);
     if (!baseSha) return finish("unclassified", ["no production baseline"]);
     if (!headSha) return finish("unclassified", ["no candidate sha to classify"]);
