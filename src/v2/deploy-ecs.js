@@ -131,19 +131,28 @@ async function runDatabaseMigrations ({ projectName, nickname, cluster, image, s
 // Borrow the db-migrate task's run configuration from the app's own
 // infrastructure so migrations run on the same network / launch footing as the
 // app. Prefer a matching service; for a jobs-only app (no services) fall back to
-// the EventBridge scheduled-task target. If neither exists there is nothing to
-// borrow from — throw rather than guess a network configuration.
+// the EventBridge scheduled-task target. Only when NEITHER exists is there
+// nothing to borrow from — throw rather than guess.
+//
+// The ABSENCE of a networkConfiguration is itself a valid borrowed config, not a
+// miss: an awsvpc service (Fargate, or EC2 with a VPC attachment) describes one,
+// while an EC2 capacity-provider service in bridge mode — ECS's default, and
+// what most legacy Cru apps run — has none at all. Passing a network config to a
+// bridge task definition is rejected just as surely as omitting one from an
+// awsvpc task definition, so we borrow whatever the app has, and the module
+// derives the db-migrate task def's network mode the same way (see
+// local.db_migrate_awsvpc in cru-terraform-modules aws/ecs/app/ecs.tf).
 async function migrationRunConfig ({ projectName, nickname, cluster, serviceArns }) {
   if (serviceArns.length > 0) {
     const [service] = await ecsDescribeServices([serviceArns[0]], cluster)
-    if (service?.networkConfiguration) {
+    if (service) {
       return runConfigOf(service.networkConfiguration, service.launchType, service.capacityProviderStrategy)
     }
   }
 
   const target = await firstScheduledTaskTarget(projectName, nickname)
   const ecsParams = target?.EcsParameters
-  if (ecsParams?.NetworkConfiguration) {
+  if (ecsParams) {
     return runConfigOf(
       ecsNetworkConfigFromEventBridge(ecsParams.NetworkConfiguration),
       ecsParams.LaunchType,
@@ -155,11 +164,15 @@ async function migrationRunConfig ({ projectName, nickname, cluster, serviceArns
 }
 
 // RunTask accepts launchType OR capacityProviderStrategy, never both; a capacity
-// provider strategy (when the borrowed config has one) wins.
+// provider strategy (when the borrowed config has one) wins. networkConfiguration
+// is omitted ENTIRELY for a bridge-mode source — RunTask rejects the parameter on
+// a task definition that isn't awsvpc, so an explicit null/undefined key is not
+// the same thing as no key.
 function runConfigOf (networkConfiguration, launchType, capacityProviderStrategy) {
+  const network = networkConfiguration ? { networkConfiguration } : {}
   return capacityProviderStrategy?.length
-    ? { networkConfiguration, capacityProviderStrategy }
-    : { networkConfiguration, launchType }
+    ? { ...network, capacityProviderStrategy }
+    : { ...network, launchType }
 }
 
 // The first EventBridge scheduled-task target for the app (jobs-only fallback).

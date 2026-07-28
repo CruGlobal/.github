@@ -177,6 +177,13 @@ describe('deployEcs pre-deploy database migrations', () => {
   const NETWORK_CONFIG = {
     awsvpcConfiguration: { subnets: ['subnet-1'], securityGroups: ['sg-1'], assignPublicIp: 'DISABLED' }
   }
+  // The shape of a legacy EC2 capacity-provider service (ararat's real one):
+  // launchType null, capacityProviderStrategy set, and NO networkConfiguration
+  // at all because the task definition runs in bridge mode.
+  const CAPACITY_PROVIDER_STRATEGY = [
+    { capacityProvider: 'cp-ecs-stage-app-a', weight: 1, base: 1 },
+    { capacityProvider: 'cp-ecs-stage-app-b', weight: 1, base: 0 }
+  ]
 
   // The db-migrate family: a single container (named db-migrate) starting from
   // the scratch placeholder, so composeTaskDefinition swaps its image + secrets.
@@ -257,6 +264,48 @@ describe('deployEcs pre-deploy database migrations', () => {
     expect(result.services).toEqual(['hoax-production-web'])
   })
 
+  // A bridge-mode service is a valid thing to borrow from, not a miss: most
+  // legacy Cru ECS apps run EC2 capacity-provider services whose task defs use
+  // ECS's default bridge network mode, so DescribeServices reports no
+  // networkConfiguration and RunTask must not be given one.
+  it('borrows a bridge service capacity provider strategy and sends NO network configuration', async () => {
+    aws.ecsDescribeServices.mockResolvedValue([
+      { launchType: null, capacityProviderStrategy: CAPACITY_PROVIDER_STRATEGY, networkConfiguration: undefined }
+    ])
+
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE })
+
+    expect(aws.ecsRunTask).toHaveBeenCalledWith({
+      cluster: 'prod',
+      taskDefinition: MIGRATE_ARN,
+      count: 1,
+      startedBy: 'cru-pipeline-v2',
+      capacityProviderStrategy: CAPACITY_PROVIDER_STRATEGY
+    })
+    // RunTask rejects networkConfiguration on a non-awsvpc task definition, so
+    // the key must be ABSENT — toHaveBeenCalledWith alone would tolerate a
+    // present-but-undefined one.
+    expect(aws.ecsRunTask.mock.calls[0][0]).not.toHaveProperty('networkConfiguration')
+    // the service answered, so the scheduled-task fallback was never consulted
+    expect(aws.ecsRunTask.mock.invocationCallOrder[0])
+      .toBeLessThan(aws.eventBridgeListRules.mock.invocationCallOrder[0])
+  })
+
+  it('borrows a bridge service plain launchType when it has no capacity provider strategy', async () => {
+    aws.ecsDescribeServices.mockResolvedValue([{ launchType: 'EC2', capacityProviderStrategy: [] }])
+
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE })
+
+    expect(aws.ecsRunTask).toHaveBeenCalledWith({
+      cluster: 'prod',
+      taskDefinition: MIGRATE_ARN,
+      count: 1,
+      startedBy: 'cru-pipeline-v2',
+      launchType: 'EC2'
+    })
+    expect(aws.ecsRunTask.mock.calls[0][0]).not.toHaveProperty('networkConfiguration')
+  })
+
   it('throws and leaves services untouched when the migration exits nonzero', async () => {
     aws.ecsDescribeTasks.mockResolvedValue({
       tasks: [{ stoppedReason: 'Essential container in task exited', containers: [{ name: 'db-migrate', exitCode: 1, reason: 'boom' }] }]
@@ -308,6 +357,28 @@ describe('deployEcs pre-deploy database migrations', () => {
         awsvpcConfiguration: { subnets: ['subnet-9'], securityGroups: ['sg-9'], assignPublicIp: 'ENABLED' }
       }
     }))
+  })
+
+  it('falls back to a BRIDGE scheduled-task target (no NetworkConfiguration) for a jobs-only app', async () => {
+    aws.ecsListServices.mockResolvedValue([])
+    aws.ecsServiceTaskDefinitions.mockResolvedValue({})
+    aws.eventBridgeListRules.mockResolvedValue([{ Name: 'ecstask-hoax-prod-nightly' }])
+    aws.eventBridgeListTargets.mockResolvedValue([
+      {
+        Id: 'target-1',
+        EcsParameters: {
+          TaskDefinitionArn: 'arn:aws:ecs:us-east-1:1:task-definition/hoax-prod-job:3',
+          // An EC2/bridge target carries a launch type and nothing else.
+          LaunchType: 'EC2'
+        }
+      }
+    ])
+
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE })
+
+    const params = aws.ecsRunTask.mock.calls[0][0]
+    expect(params).toMatchObject({ taskDefinition: MIGRATE_ARN, count: 1, launchType: 'EC2' })
+    expect(params).not.toHaveProperty('networkConfiguration')
   })
 
   it('throws a clear error when there is no service or scheduled task to borrow run config from', async () => {
