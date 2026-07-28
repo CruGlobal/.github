@@ -1,9 +1,10 @@
 name: Classify Rollback Safety
 description: >-
-  Advisory EXPAND/CONTRACT classification of the SQL migrations added between
-  the release currently in production and the promoted candidate. Determines
-  whether the previous image can still run against the new schema. ADVISORY
-  ONLY — this action never fails; it always reports safe | unsafe | unclassified.
+  Advisory EXPAND/CONTRACT classification of the migrations added between the
+  release currently in production and the promoted candidate — plain .sql files
+  and Rails .rb migrations. Determines whether the previous image can still run
+  against the new schema. ADVISORY ONLY — this action never fails; it always
+  reports safe | unsafe | unclassified.
 inputs:
   github-token:
     description: Token with read access to the app repo (compare + contents APIs).
@@ -23,9 +24,10 @@ inputs:
     required: false
   migrations-path:
     description: >-
-      Repo-relative directory of the app's .sql migration files (e.g. drizzle),
-      from the app's CruApplicationInfo MigrationsPath. Empty ⇒ unclassified,
-      unless `migrations` declares none.
+      Repo-relative directory of the app's migration files — plain .sql (e.g.
+      drizzle) or Rails .rb (e.g. db/migrate) — from the app's
+      CruApplicationInfo MigrationsPath. Empty ⇒ unclassified, unless
+      `migrations` declares none.
     required: false
   migrations:
     description: >-

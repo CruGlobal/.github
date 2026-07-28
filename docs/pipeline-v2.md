@@ -658,7 +658,7 @@ lookup failed     (nothing — SlackChannel is read by the job that failed; the
 ### Rollback-safety classification
 
 Ported from **flightdeck** (the CTO's reference app). At **promote** time we ask
-one question about the SQL migrations added between the release currently in
+one question about the migrations added between the release currently in
 production and the promoted candidate:
 
 > Can the **previous** image still run against the **new** schema?
@@ -671,6 +671,9 @@ production and the promoted candidate:
   tightening constraints (`ADD CONSTRAINT`, `SET NOT NULL`, column type
   changes), or data migrations (`UPDATE` / `DELETE` / `TRUNCATE`). The old image
   would break against the new schema, so a rollback would **not** revert cleanly.
+
+Two migration formats are classified: plain **`.sql`** files (drizzle et al.) and
+**Rails `.rb`** migrations (`db/migrate/*.rb`). Both feed the same verdict.
 
 **Three-state verdict:** `safe` · `unsafe` · `unclassified`. How each is reached,
 from the app's `CruApplicationInfo` item:
@@ -716,7 +719,8 @@ exposes them to both promote jobs.
 
 - **`MigrationsPath`** — an app with migrations opts in by setting
   `database_migrations.path` on `gcp/cloudrun/app` or `aws/ecs/app` to the
-  repo-relative directory of its `.sql` migrations (e.g. `drizzle`).
+  repo-relative directory of its migration files (e.g. `drizzle` for a `.sql`
+  app, `db/migrate` for a Rails app).
 - **`Migrations = "none"`** — written automatically when the module can prove
   there are no migrations: `database_migrations.enabled = false` with no `path`
   on `gcp/cloudrun/app` / `aws/ecs/app`, and **unconditionally** on
@@ -729,9 +733,65 @@ exposes them to both promote jobs.
 **Mechanics.** The classify action diffs `base...head` via the GitHub compare
 API (`base` = the git sha currently in production, from the deployments ledger;
 `head` = the candidate's `sha-<gitsha>` tag), filters to the migrations path,
-fetches each **added** `.sql` file's content at `head`, splits it on drizzle's
-`--> statement-breakpoint` markers and semicolons (comments stripped), and runs
-each statement through an ordered EXPAND/CONTRACT rule table.
+fetches each **added** `.sql` / `.rb` file's content at `head`, and runs it
+through the rule table for its format:
+
+- **`.sql`** — split on drizzle's `--> statement-breakpoint` markers and
+  semicolons (comments stripped), then each statement through an ordered
+  EXPAND/CONTRACT regex table keyed on the statement head.
+- **`.rb`** — line-oriented heuristics (Node has no Ruby parser): strip `#`
+  comments, swallow heredoc bodies, join continuation lines into logical
+  statements, take each statement's **leading method call** and look it up in the
+  Rails table below.
+
+**The Rails ruleset.** Only `def change` and `def up` bodies are considered —
+`def down` is ignored, because a rollback redeploys the old image and never runs
+the down migration. Bodies are located by indentation (`def` … same-indent
+`end`); if any `def` cannot be resolved the whole file's calls are classified
+instead, which is the conservative direction. Calls on a block variable
+(`t.string` inside `create_table`, `dir.up` inside `reversible`) are not
+classified separately — the enclosing call carries the verdict.
+
+| Rails call                                 | verdict   | why                                                                |
+| ------------------------------------------ | --------- | ------------------------------------------------------------------ |
+| `create_table`                             | EXPAND    | a table the previous image does not know about                     |
+| `create_join_table`                        | EXPAND    | same                                                               |
+| `add_column`                               | EXPAND    | additive — **unless** `null: false` with no `default:`             |
+| `add_reference` / `add_belongs_to`         | EXPAND    | same, including the `null: false` caveat                           |
+| `add_timestamps`                           | CONTRACT  | adds NOT NULL columns; EXPAND only with `default:` or `null: true` |
+| `add_index`                                | EXPAND    | mirrors SQL `CREATE [UNIQUE] INDEX`                                |
+| `enable_extension`                         | EXPAND    | mirrors SQL `CREATE EXTENSION`                                     |
+| `remove_index`                             | EXPAND    | old code queries still return the same rows, only slower           |
+| `remove_column` / `remove_columns`         | CONTRACT  | the previous image still selects it                                |
+| `remove_reference` / `remove_belongs_to`   | CONTRACT  | same                                                               |
+| `drop_table` / `drop_join_table`           | CONTRACT  | the previous image still depends on it                             |
+| `rename_column` / `rename_table`           | CONTRACT  | the previous image references the old name                         |
+| `change_column`                            | CONTRACT  | the previous image reads/writes the old type                       |
+| `change_column_null`                       | CONTRACT  | tightening rejects the old image null writes (see below)           |
+| `change_column_default`                    | CONTRACT  | the previous image INSERTs silently take the new default           |
+| `add_check_constraint` / `add_foreign_key` | CONTRACT  | mirrors SQL `ADD CONSTRAINT` — can reject the old image writes     |
+| `reversible`                               | CONTRACT  | which half runs on the way up is invisible to line scanning        |
+| `execute` / `connection.execute`           | *depends* | the embedded SQL, classified with the `.sql` rules — see below     |
+| heredoc SQL (`execute <<~SQL`)             | CONTRACT  | the body is neither Ruby nor an extractable literal                |
+| **anything else**                          | CONTRACT  | conservative default, naming the call                              |
+
+`execute` is classified by **extracting a simple string literal** — a single- or
+double-quoted argument, with or without parentheses — and running it through the
+`.sql` rule table above (so `execute "CREATE INDEX …"` is EXPAND and
+`execute "UPDATE users …"` is CONTRACT). Anything less tractable is CONTRACT with
+a reason saying why: `#{…}` interpolation, concatenation or anything else
+trailing the literal, a bare variable, or a heredoc.
+
+`change_column_null` is deliberately CONTRACT in *both* directions: the SQL table
+already treats a loosening `ALTER COLUMN … DROP NOT NULL` as unsafe (it falls
+through to the conservative default), so the Rails side gives the same answer.
+
+**`safety_assured { … }` does NOT bypass this classifier.** strong_migrations'
+escape hatch answers a *different* question — whether a migration will take a
+blocking lock **while it runs** — and the two tools are complementary, not
+redundant. This classifier asks whether the **previous release's code** survives
+the new schema, so a `safety_assured` wrapper is transparent: its contents are
+classified exactly like any other call.
 
 **First promote bootstraps to `unclassified`.** With no production baseline yet
 (the ledger has no prior production `Sha`), `base-sha` is empty and the action
@@ -740,13 +800,15 @@ candidate carries no `sha-` tag or the migrations path is unset. A declared-none
 app is the exception: it needs no baseline and no diff, so even its **first**
 promote reports `safe`.
 
-**Conservative by construction.** Anything the rule table does not positively
-recognise as additive is treated as **unsafe**: unrecognised statements, data
-migrations, and constraint additions all classify CONTRACT. Rewriting applied
-history (a `modified`/`removed`/`renamed` `.sql`) is unsafe, and a non-`.sql`
-migration artifact is `unsupported migration format` (drizzle `meta/`
-bookkeeping and non-SQL dotfiles are ignored). Only plain `.sql` migrations are
-classified today; other migration frameworks land in a later pass.
+**Conservative by construction.** Anything the rule tables do not positively
+recognise as additive is treated as **unsafe**: unrecognised statements and
+calls, data migrations, and constraint additions all classify CONTRACT. That
+includes additive-but-unlisted Rails calls (`create_enum`, `create_view`, …) —
+they report unsafe until someone adds them, which is a false alarm rather than a
+false all-clear. Rewriting applied history (a `modified`/`removed`/`renamed`
+migration file) is unsafe, and a migration artifact in neither supported format
+is `unsupported migration format` (drizzle `meta/` bookkeeping and dotfiles are
+ignored). Migration frameworks beyond plain `.sql` and Rails land in a later pass.
 
 ### Concurrency locks
 

@@ -190,6 +190,33 @@ describe('classify-rollback-safety — classification', () => {
     expect(warningMock).toHaveBeenCalled()
   })
 
+  it('fetches and classifies an added Rails .rb migration', async () => {
+    inputs['migrations-path'] = 'db/migrate'
+    const fetchMock = vi.fn(async (url) =>
+      url.includes('/compare/')
+        ? compareFiles([{ filename: 'db/migrate/20260101000000_drop_legacy.rb', status: 'added' }])
+        : rawContent('class DropLegacy < ActiveRecord::Migration[7.1]\n  def change\n    drop_table :legacy\n  end\nend\n'))
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(verdict()).toBe('unsafe')
+    expect(reasons()[0]).toMatch(/^db\/migrate\/20260101000000_drop_legacy\.rb: `drop_table`/)
+    // compare + one contents fetch at head-sha.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1][0]).toContain('ref=bbbb')
+  })
+
+  it('an additive Rails .rb migration is safe', async () => {
+    inputs['migrations-path'] = 'db/migrate'
+    const fetchMock = vi.fn(async (url) =>
+      url.includes('/compare/')
+        ? compareFiles([{ filename: 'db/migrate/20260101000000_add_email.rb', status: 'added' }])
+        : rawContent('class AddEmail < ActiveRecord::Migration[7.1]\n  def change\n    add_column :users, :email, :string\n  end\nend\n'))
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(verdict()).toBe('safe')
+    expect(reasons()).toEqual([])
+  })
+
   it('ignores files outside the migrations path (no content fetch)', async () => {
     const fetchMock = vi.fn(async (url) =>
       url.includes('/compare/')

@@ -1,9 +1,10 @@
 import * as core from '@actions/core'
 import { classifyMigrationFiles } from './v2/rollback-safety'
 
-// classify-rollback-safety: advisory EXPAND/CONTRACT classification of the SQL
+// classify-rollback-safety: advisory EXPAND/CONTRACT classification of the
 // migrations added between the release currently in production (base-sha) and
-// the promoted candidate (head-sha).
+// the promoted candidate (head-sha). Plain `.sql` and Rails `.rb` migrations are
+// classified; anything else is reported as an unsupported format (unsafe).
 //
 // ADVISORY ONLY. This action NEVER fails the caller — every path, including
 // every error, resolves to a `verdict` output of safe | unsafe | unclassified
@@ -58,10 +59,11 @@ async function classify ({ token, repository, baseSha, headSha, migrationsPath }
   for (const f of inPath) {
     const path = f.filename
     const status = f.status
-    // Only added .sql files need their full content fetched for statement-level
-    // classification; everything else is decided from path + status alone.
+    // Only added files in a classifiable format (.sql, or a Rails .rb migration)
+    // need their full content fetched for statement-level classification;
+    // everything else is decided from path + status alone.
     let content
-    if (status === 'added' && /\.sql$/i.test(path) && !/(^|\/)meta\//.test(path)) {
+    if (status === 'added' && /\.(sql|rb)$/i.test(path) && !/(^|\/)meta\//.test(path)) {
       content = await fetchContent(repository, path, headSha, token)
     }
     enriched.push({ path, status, content })
