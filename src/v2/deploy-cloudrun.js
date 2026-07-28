@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import { cloudrunListJobs, cloudrunListServices, listSecrets, runJob, updateJob, updateService } from '../gcp'
 import { RUNTIME_PARAM_TYPES } from '../ecs-config'
 import { assertDigestRef, isAppContainer, parseImageRef } from './gcp'
+import { publishSigninPage, signinBucket } from './signin'
 
 // Name of the optional database-migrations Cloud Run job, created by the
 // gcp/cloudrun/app terraform module when `database_migrations` is enabled.
@@ -80,7 +81,35 @@ export async function deployCloudRun ({ image, runtimeProject }) {
     updatedServices.push(shortName(service.name))
   }
 
-  return { deployedImage: image, services: updatedServices }
+  // Publish the IAP friendly sign-in page carried by this image, if the app has
+  // one. Read the bucket off the services as they were BEFORE the update above:
+  // Terraform injects IAP_SIGNIN_BUCKET into the app container, so its presence
+  // is what tells us this environment expects a page (see ./signin.js).
+  //
+  // Runs last, and never fails the deploy. The page is cosmetic, static and
+  // pre-auth — the module README calls a few minutes of staleness a non-outage —
+  // so failing a production promote over it would trade a real problem for a
+  // trivial one. A warning annotation makes the skew visible on the run instead.
+  const signin = { published: false }
+  const bucket = signinBucket(services, repo)
+  if (bucket) {
+    try {
+      Object.assign(signin, await publishSigninPage({ image, bucket }))
+      if (signin.published) {
+        core.info(`published sign-in page: gs://${bucket}/${signin.objectKey} (${signin.bytes} bytes)`)
+      } else {
+        core.warning(
+          `${bucket} expects a sign-in page but ${image} does not carry one; ` +
+          'leaving the existing object in place. Expected in a rollback to a ' +
+          'release built before the image carried the page.'
+        )
+      }
+    } catch (error) {
+      core.warning(`sign-in page not published (deploy unaffected): ${error.message}`)
+    }
+  }
+
+  return { deployedImage: image, services: updatedServices, signin }
 }
 
 // Update a Cloud Run job's container image and secrets in place. A job has a
