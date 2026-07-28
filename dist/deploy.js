@@ -235357,13 +235357,13 @@ async function runDatabaseMigrations({ projectName, nickname, cluster, image, se
 async function migrationRunConfig({ projectName, nickname, cluster, serviceArns }) {
   if (serviceArns.length > 0) {
     const [service] = await ecsDescribeServices([serviceArns[0]], cluster);
-    if (service?.networkConfiguration) {
+    if (service) {
       return runConfigOf(service.networkConfiguration, service.launchType, service.capacityProviderStrategy);
     }
   }
   const target = await firstScheduledTaskTarget(projectName, nickname);
   const ecsParams = target?.EcsParameters;
-  if (ecsParams?.NetworkConfiguration) {
+  if (ecsParams) {
     return runConfigOf(
       ecsNetworkConfigFromEventBridge(ecsParams.NetworkConfiguration),
       ecsParams.LaunchType,
@@ -235373,7 +235373,8 @@ async function migrationRunConfig({ projectName, nickname, cluster, serviceArns 
   throw new Error("db-migrate family exists but no service or scheduled task to borrow run configuration from");
 }
 function runConfigOf(networkConfiguration, launchType, capacityProviderStrategy) {
-  return capacityProviderStrategy?.length ? { networkConfiguration, capacityProviderStrategy } : { networkConfiguration, launchType };
+  const network = networkConfiguration ? { networkConfiguration } : {};
+  return capacityProviderStrategy?.length ? { ...network, capacityProviderStrategy } : { ...network, launchType };
 }
 async function firstScheduledTaskTarget(projectName, nickname) {
   const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`);
