@@ -19318,6 +19318,295 @@ function classifyStatement(statement) {
 function classifySqlStatements(sql) {
   return splitStatements(sql).map(classifyStatement);
 }
+var RUBY_EXPAND = {
+  create_table: "creates a new table (additive)",
+  create_join_table: "creates a new join table (additive)",
+  add_column: "adds a column (additive; nullable or defaulted)",
+  add_index: "adds an index (additive)",
+  add_reference: "adds a reference column (additive; nullable or defaulted)",
+  add_belongs_to: "adds a reference column (additive; nullable or defaulted)",
+  add_timestamps: "adds timestamp columns (additive; nullable or defaulted)",
+  enable_extension: "enables an extension (additive)",
+  // Removing an index takes nothing away that the previous image's correctness
+  // depends on: its queries still return the same rows, only slower. Mirrors the
+  // SQL table's `DROP INDEX` → EXPAND.
+  remove_index: "removes an index (the previous image does not require it)"
+};
+var RUBY_CONTRACT = {
+  remove_column: "drops a column the previous image still selects",
+  remove_columns: "drops columns the previous image still selects",
+  remove_reference: "drops a reference column the previous image still selects",
+  remove_belongs_to: "drops a reference column the previous image still selects",
+  drop_table: "drops a table the previous image still depends on",
+  drop_join_table: "drops a join table the previous image still depends on",
+  rename_column: "renames a column the previous image still references by its old name",
+  rename_table: "renames a table the previous image still references by its old name",
+  change_column: "changes a column type; the previous image reads/writes it with the old type",
+  // Always unsafe, in both directions: tightening rejects the previous image's
+  // null writes, and the SQL table already treats a loosening `DROP NOT NULL` as
+  // unsafe (it falls through to the conservative default). Same answer here.
+  change_column_null: "changes a column NOT NULL constraint; tightening it rejects the previous image's writes",
+  // Leaning unsafe: the previous image's INSERTs omit the column and silently
+  // take whatever default the new schema now supplies.
+  change_column_default: "changes a column default the previous image may still rely on",
+  add_check_constraint: "adds a constraint that can reject the previous image's writes",
+  add_foreign_key: "adds a constraint that can reject the previous image's writes",
+  // A `reversible do |dir|` block hides which half runs on the way up; the
+  // contents cannot be attributed to a direction by line scanning.
+  reversible: "wraps changes in a direction-aware block whose contents cannot be classified"
+};
+var RUBY_NULL_CAVEAT = /* @__PURE__ */ new Set(["add_column", "add_reference", "add_belongs_to"]);
+var RUBY_IGNORED = /* @__PURE__ */ new Set([
+  "def",
+  "class",
+  "module",
+  "require",
+  "require_relative",
+  "private",
+  "public",
+  "protected",
+  "include",
+  "extend",
+  "attr_accessor",
+  "attr_reader",
+  "attr_writer",
+  // A migration-runner flag, not a schema change.
+  "disable_ddl_transaction!",
+  // Narration / logging.
+  "puts",
+  "print",
+  "p",
+  "say",
+  "say_with_time",
+  "announce",
+  "write",
+  "info",
+  "debug",
+  "warn",
+  "error",
+  "raise",
+  "return"
+]);
+var RUBY_TRANSPARENT = /* @__PURE__ */ new Set([
+  "safety_assured",
+  "suppress_messages",
+  "do",
+  "then",
+  "else",
+  "elsif",
+  "begin",
+  "ensure",
+  "rescue",
+  "end",
+  "if",
+  "unless",
+  "while",
+  "until",
+  "case",
+  "when",
+  "in",
+  "and",
+  "or",
+  "not",
+  "yield",
+  "true",
+  "false",
+  "nil",
+  "self"
+]);
+var RUBY_LEADING_CALL = /^([A-Za-z_][A-Za-z0-9_:]*[!?]?(?:\.[A-Za-z_][A-Za-z0-9_]*[!?]?)*)/;
+var RUBY_HEREDOC = /<<[-~]?(['"]?)([A-Z_]+)\1/g;
+var RUBY_CONTINUES = /(,|\\|\(|\[|\+|=|&&|\|\||\.|::)$/;
+function outsideStrings(text, at) {
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (at(ch, i)) return;
+  }
+}
+function stripRubyComment(line) {
+  let cut = -1;
+  outsideStrings(line, (ch, i) => {
+    if (ch !== "#" || line[i + 1] === "{") return false;
+    cut = i;
+    return true;
+  });
+  return cut === -1 ? line : line.slice(0, cut);
+}
+function splitOnSemicolons(text) {
+  const cuts = [];
+  outsideStrings(text, (ch, i) => {
+    if (ch === ";") cuts.push(i);
+    return false;
+  });
+  const parts = [];
+  let start = 0;
+  for (const cut of cuts) {
+    parts.push(text.slice(start, cut));
+    start = cut + 1;
+  }
+  parts.push(text.slice(start));
+  return parts.map((p) => p.trim()).filter((p) => p !== "");
+}
+function indentWidth(line) {
+  return /^[ \t]*/.exec(line)[0].length;
+}
+function rubyCodeLines(source) {
+  const raw = source.split(/\r?\n/);
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    const code = stripRubyComment(raw[i]);
+    const tags = Array.from(code.matchAll(RUBY_HEREDOC), (m) => m[2]);
+    out.push({ code, indent: indentWidth(code), heredoc: tags.length > 0 });
+    while (tags.length > 0 && i + 1 < raw.length) {
+      i++;
+      const at = tags.indexOf(raw[i].trim());
+      if (at !== -1) tags.splice(at, 1);
+    }
+  }
+  return out;
+}
+function rubyDefSpans(lines) {
+  const spans = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s*def\s+(?:self\.)?([a-z_][A-Za-z0-9_]*[!?]?)/.exec(lines[i].code);
+    if (!m) continue;
+    if (splitOnSemicolons(lines[i].code).includes("end")) {
+      spans.push({ name: m[1], start: i, end: i });
+      continue;
+    }
+    let end = -1;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].indent === lines[i].indent && lines[j].code.trim() === "end") {
+        end = j;
+        break;
+      }
+    }
+    if (end === -1) return null;
+    spans.push({ name: m[1], start: i, end });
+  }
+  return spans;
+}
+function rubyStatements(source) {
+  const lines = rubyCodeLines(source);
+  const spans = rubyDefSpans(lines);
+  const isDown = (i) => spans !== null && spans.some((s) => s.name === "down" && i >= s.start && i <= s.end);
+  const joined = [];
+  let current = null;
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i].code.trim();
+    if (text === "") {
+      current = null;
+      continue;
+    }
+    if (current) {
+      current.text += " " + text;
+      current.heredoc = current.heredoc || lines[i].heredoc;
+    } else {
+      current = { text, heredoc: lines[i].heredoc, down: isDown(i) };
+      joined.push(current);
+    }
+    const next = lines[i + 1];
+    const chained = next !== void 0 && next.code.trim().startsWith(".");
+    if (!RUBY_CONTINUES.test(text) && !chained) current = null;
+  }
+  return joined.filter((s) => !s.down).flatMap((s) => splitOnSemicolons(s.text).map((text) => ({ text, heredoc: s.heredoc })));
+}
+function isBlockReceiver(receiver) {
+  if (receiver === "") return false;
+  if (receiver === "connection" || /(^|\.)connection$/.test(receiver)) return false;
+  return /^[a-z_][A-Za-z0-9_]*$/.test(receiver);
+}
+function scanRubyCall(statement) {
+  let rest = statement;
+  for (let guard = 0; guard < 64; guard++) {
+    rest = rest.replace(/^[\s{}();,]+/, "");
+    rest = rest.replace(/^\|[^|]*\|\s*/, "");
+    if (rest === "") return null;
+    const m = RUBY_LEADING_CALL.exec(rest);
+    if (!m) return null;
+    const chain = m[1];
+    const after = rest.slice(chain.length);
+    if (/^:(?!:)/.test(after)) return null;
+    const parts = chain.split(".");
+    const method = parts[parts.length - 1];
+    const receiver = parts.slice(0, -1).join(".");
+    if (RUBY_IGNORED.has(method)) return null;
+    if (receiver === "" && RUBY_TRANSPARENT.has(method)) {
+      rest = after;
+      continue;
+    }
+    return { chain, method, receiver, after };
+  }
+  return null;
+}
+function classifyRubyExecute(args) {
+  const m = /^\s*\(?\s*(['"])((?:\\.|(?!\1)[\s\S])*)\1/.exec(args);
+  if (!m) return { phase: CONTRACT, reason: "`execute` runs raw SQL that cannot be classified" };
+  const literal = m[2];
+  if (literal.includes("#{")) {
+    return { phase: CONTRACT, reason: "`execute` interpolates values into raw SQL that cannot be classified" };
+  }
+  if (!/^[)\s]*$/.test(args.slice(m[0].length))) {
+    return { phase: CONTRACT, reason: "`execute` builds raw SQL that cannot be classified" };
+  }
+  const sql = literal.replace(/\\(['"])/g, "$1");
+  const classified = classifySqlStatements(sql);
+  if (classified.length === 0) {
+    return { phase: CONTRACT, reason: "`execute` runs raw SQL that cannot be classified" };
+  }
+  const bad = classified.find((s) => s.phase === CONTRACT);
+  if (bad) return { phase: CONTRACT, reason: `\`execute\` raw SQL \u2014 ${bad.reason}` };
+  return { phase: EXPAND, reason: `\`execute\` raw SQL \u2014 ${classified[0].reason}` };
+}
+function classifyRubyStatement(statement) {
+  const call = scanRubyCall(statement.text);
+  if (statement.heredoc) {
+    return call === null ? { phase: CONTRACT, reason: "heredoc content that cannot be classified" } : { phase: CONTRACT, reason: `\`${call.method}\` uses heredoc SQL that cannot be classified` };
+  }
+  if (call === null) return null;
+  if (call.method === "execute") return classifyRubyExecute(call.after);
+  if (isBlockReceiver(call.receiver)) return null;
+  const method = call.method;
+  if (method === "add_timestamps") {
+    if (!hasDefaultOption(statement.text) && !/\bnull:\s*true\b|:null\s*=>\s*true\b/.test(statement.text)) {
+      return { phase: CONTRACT, reason: "`add_timestamps` adds required timestamp columns the previous image's INSERTs omit" };
+    }
+  }
+  if (RUBY_NULL_CAVEAT.has(method) && isNotNullWithoutDefault(statement.text)) {
+    return { phase: CONTRACT, reason: `\`${method}\` \u2014 previous image INSERTs omit the new required column` };
+  }
+  if (RUBY_EXPAND[method]) return { phase: EXPAND, reason: `\`${method}\` ${RUBY_EXPAND[method]}` };
+  if (RUBY_CONTRACT[method]) return { phase: CONTRACT, reason: `\`${method}\` ${RUBY_CONTRACT[method]}` };
+  return { phase: CONTRACT, reason: `unrecognized migration call \`${method}\` \u2014 classified unsafe conservatively` };
+}
+function hasDefaultOption(text) {
+  return /\bdefault:\s*|:default\s*=>/.test(text);
+}
+function isNotNullWithoutDefault(text) {
+  return /\bnull:\s*false\b|:null\s*=>\s*false\b/.test(text) && !hasDefaultOption(text);
+}
+function classifyRubyMigration(source) {
+  if (!source) return [];
+  const results = [];
+  for (const statement of rubyStatements(source)) {
+    const hit = classifyRubyStatement(statement);
+    if (hit) results.push({ statement: statement.text, phase: hit.phase, reason: hit.reason });
+  }
+  return results;
+}
 function isMetaPath(path) {
   return /(^|\/)meta\//.test(path);
 }
@@ -19327,17 +19616,21 @@ function isDotfile(path) {
 function isSql(path) {
   return /\.sql$/i.test(path);
 }
+function isRuby(path) {
+  return /\.rb$/i.test(path);
+}
 function classifyMigrationFiles(files) {
   const reasons = [];
   for (const file of files ?? []) {
     const path = file.path;
     if (isMetaPath(path)) continue;
     const sql = isSql(path);
-    if (isDotfile(path) && !sql) continue;
+    const ruby = isRuby(path);
+    if (isDotfile(path) && !sql && !ruby) continue;
     const status = (file.status ?? "").toLowerCase();
-    if (!sql) {
+    if (!sql && !ruby) {
       if (status === "added") {
-        reasons.push(`${path}: unsupported migration format (only .sql is classified)`);
+        reasons.push(`${path}: unsupported migration format (only .sql and Rails .rb are classified)`);
       }
       continue;
     }
@@ -19345,7 +19638,8 @@ function classifyMigrationFiles(files) {
       reasons.push(`${path}: migration history modified (${status || "changed"})`);
       continue;
     }
-    for (const st of classifySqlStatements(file.content ?? "")) {
+    const classified = sql ? classifySqlStatements(file.content ?? "") : classifyRubyMigration(file.content ?? "");
+    for (const st of classified) {
       if (st.phase === CONTRACT) reasons.push(`${path}: ${st.reason}`);
     }
   }
@@ -19390,7 +19684,7 @@ async function classify({ token, repository, baseSha, headSha, migrationsPath })
     const path = f.filename;
     const status = f.status;
     let content;
-    if (status === "added" && /\.sql$/i.test(path) && !/(^|\/)meta\//.test(path)) {
+    if (status === "added" && /\.(sql|rb)$/i.test(path) && !/(^|\/)meta\//.test(path)) {
       content = await fetchContent(repository, path, headSha, token);
     }
     enriched.push({ path, status, content });
