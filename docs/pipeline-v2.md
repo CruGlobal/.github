@@ -914,18 +914,25 @@ up an applied Terraform task-definition template on ECS).
 
 **Cadence is the app workflow's choice — nightly-if-changed is the DEFAULT
 for onboarding apps** (ratified 2026-07-24). Every v2 app runs the nightly at
-**midnight UTC (`0 0 * * *`)** — one shared slot, unstaggered; the earlier
-per-app ~noon-UTC slots are retired. `on: schedule` + `workflow_dispatch`: the
+**05:00 UTC (`0 5 * * *`)** — one shared slot, unstaggered; the earlier
+per-app ~noon-UTC slots are retired, and the original midnight-UTC slot was
+moved to 05:00 UTC on 2026-07-29. `on: schedule` + `workflow_dispatch`: the
 build's no-change guard reuses the existing candidate when `main` hasn't moved,
 and this workflow's no-op guard skips the redeploy — a quiet night is a true
 no-op. Per-merge (`on: push` to `main`) remains supported for apps that want
 a candidate per merge; no reusable-workflow changes either way.
 
-GitHub's scheduled dispatch is best-effort, and top-of-hour crons — `00:00` UTC
-most of all — sit in the busiest queue: a nightly run can start many minutes
-after the nominal time when the shared scheduler is under load. That lateness is
-expected, not a failure; judge a nightly by whether it ran and what it produced,
-not by its start minute.
+05:00 UTC is **midnight EST / 1am EDT**, so the nightly lands in the small hours
+Eastern year-round. The hour of clock-time drift across DST is the deliberate
+wobble of a fixed-UTC cron and is tolerated for a nightly; if a run ever needs
+to land at an exact local time, dispatch it by hand.
+
+The bigger reason for the slot is dispatch lag. GitHub's scheduled dispatch is
+best-effort, and top-of-hour crons queue — `00:00` UTC most of all, the busiest
+cron minute on GitHub, where nightlies routinely started many minutes after the
+nominal time. **05:00 UTC is off-peak, so that lag is minimal.** Some lateness
+is still possible and still expected, not a failure; judge a nightly by whether
+it ran and what it produced, not by its start minute.
 
 Flow: app-info (`release-candidate`) → GCP auth as the
 release-candidate `cru-deploy` SA → `resolve-image` (mode `tag`) → `deploy`
