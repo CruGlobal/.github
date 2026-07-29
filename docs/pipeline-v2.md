@@ -1164,10 +1164,6 @@ jobs:
              "tag": "${{ needs.build.outputs.candidate }}"}
 ```
 
-An adopting app also **deletes `.github/merge-bot.yml`** — that file is what
-*enables* the "On Staging" merge bot, and the bot only ever acted on the
-`staging` branch and the `On Staging` label, neither of which exists under v2.
-
 ## Flagged decisions
 
 1. **Candidate builds are prod-bound.** Candidate images authenticate with the
@@ -1278,3 +1274,490 @@ annotations (missing table/grant) and deploys are unaffected.
 
 **v1 deferred to wave-2.** Only pipeline-v2 deploys write to the ledger; v1
 workflows are unchanged and will be wired in a later wave.
+
+# Onboarding an app to pipeline-v2
+
+Everything above is the design. This part is the procedure: what to change, in
+what order, and which steps have already bitten us. It is written from the
+onboardings that actually happened — **ararat** (ECS, Rails, real migrations, a
+`master` → `main` rename) and **bills** (Cloud Run, TypeScript, raw SQL) — plus
+the earlier pilots (hoax, tachyon-app, okta-api-keypalive, cru-app-info).
+
+Onboarding is **two pull requests**: one in `cru-terraform`, one in the app repo.
+They are mutually dependent — the Terraform PR names required checks that do not
+exist until the app PR merges, and the app PR's first build needs identities only
+Terraform can grant. Read [Sequencing](#sequencing-the-order-that-avoids-a-deadlock)
+before you open either.
+
+> **Branch-name inversion, and it catches everyone.** The Terraform modules ride
+> `?ref=v2-pipeline`. The workflows and actions in this repo are pinned
+> `@pipeline-v2`. Same two words, opposite order, different repos.
+
+The fleet is queryable: the v2 repo module adds a **`pipeline-v2` repository
+topic**, so `gh api "/search/repositories?q=org:CruGlobal+topic:pipeline-v2"`
+lists every onboarded app. Copy the closest one rather than starting from this
+prose.
+
+## Checklist — Terraform (`cru-terraform`)
+
+**Point every v2 module at the v2 ref.** The repo module, the app module, and the
+registry module:
+
+```hcl
+source = "…//github/repo/app?ref=v2-pipeline"                     # posture + ruleset
+source = "…//aws/ecs/app?ref=v2-pipeline"                         # or gcp/cloudrun/app, aws/lambda/app
+source = "…//aws/ecr/repo-with-lifecycle?ref=v2-pipeline"         # or gcp/artifact-registry/repo-with-lifecycle
+```
+
+Databases and other stateful modules stay pinned to a **release tag** — a
+database has no business riding a moving branch ref. The v2 app module is what
+writes the app's `CruApplicationInfo` row, including `PipelineVersion = "2"`,
+which is how the CLI and the dashboard tell a v2 app from a v1 one; nothing else
+needs to set it.
+
+**`required_checks` on the repo module.** The v2 repo module owns the
+default-branch ruleset (`pipeline-v2-default-branch`). `required_checks` takes
+**check names as GitHub reports them** — job names, not workflow filenames:
+
+| app                | `required_checks`                                   |
+| ------------------ | --------------------------------------------------- |
+| ararat             | `["test", "lint", "Validate PR Title"]`             |
+| bills              | `["lint-and-build", "Validate PR Title", "squawk"]` |
+| cru-app-info       | `["lint-and-build", "Validate PR Title"]`           |
+| tachyon-app        | `["test (typecheck + vitest + build)"]`             |
+
+`Validate PR Title` comes from the app-repo PR, so **this ruleset cannot go
+active until that PR merges** — half of the sequencing problem below. Three v2
+defaults arrive with the module: required reviews drop to **0** (required CI plus
+the release-candidate soak are the gates), auto-merge is **on**, and merges are
+**squash-only** with `PR_TITLE` / `PR_BODY` as the commit subject and body. The
+`allow_auto_merge` and `release_please` variables were removed outright — Release
+Please is retired in favour of `release-*` image tags, the deployments ledger, and
+the per-promote GitHub Release.
+
+- If the repo already has a raw ruleset, hand it over with a `moved` block rather
+  than destroying and recreating it:
+  ```hcl
+  moved {
+    from = github_repository_ruleset.default
+    to   = module.github_repo.github_repository_ruleset.default_branch
+  }
+  ```
+- **Unmanaged classic branch protection is invisible to Terraform and will not be
+  removed.** ararat's `master` carried a classic rule (same two checks, plus
+  strict-up-to-date and 1 review) that Terraform could not see: left in place it
+  keeps demanding a review and an up-to-date branch, and **v2 auto-merge never
+  fires**. Retire it in three phases — import it with a mirror config (a
+  state-only no-op), then `removed { destroy = true }` once the ruleset is
+  active, then delete the file.
+- PCI-scope / money-moving repos may keep `required_reviews = 1` under the org
+  exception. bills flagged itself for exactly that review.
+
+**Registry.** ECR is per-app with environment-ordered lifecycle rules — **order
+is load-bearing**, since it sets rule priorities:
+
+```hcl
+module "ecr_repo" {
+  source       = "…//aws/ecr/repo-with-lifecycle?ref=v2-pipeline"
+  identifier   = local.identifier
+  environments = ["production", "staging"]   # order sets lifecycle priorities
+}
+```
+
+The generated policy puts a priority-1 `release-` prefix claim ahead of every
+expiry rule — that is the mechanism behind
+[Releases are permanent](#releases-are-permanent). The `aws_ecr_lifecycle_policy`
+resource is **replaced** rather than updated (policy JSON forces it); that is
+expected, not a red flag. Cloud Run's Artifact Registry is an **app-level**
+resource, not per-env, and readers/writers are granted consumer-side by each
+environment's app module — so **apply the app-level directory before the env
+directories**.
+
+Nothing else needs registry wiring: the Cloud Run module writes each environment's
+`GCP_SERVICE_ACCOUNT` GitHub Actions variable itself, and
+`GCP_WORKLOAD_IDENTITY_PROVIDER` is an org-level variable. ECS and Lambda builds
+derive `<project>-prod-GitHubRole` from the project name.
+
+**`database_migrations` — always write the block explicitly.**
+
+> ### 🔴 Forgetting this block silently stops production migrations
+>
+> On the v1 ECS module the **per-service** `database_migrations` field defaulted to
+> `enabled = true` running `["bundle", "exec", "rake", "db:migrate"]`. Apps like
+> ararat had therefore been migrating on every deploy **for years without ever
+> naming it**. v2 removed that per-service field and flipped the top-level default
+> to `enabled = false` (modules#709). Bumping the module ref without adding the
+> block produces **no error and no plan signal** — just schema drift on the next
+> deploy. Grep the app for migrations before you trust an absent block.
+
+```hcl
+  database_migrations = {
+    enabled = true
+    path    = "db/migrate"      # Rails
+  }
+
+  database_migrations = {
+    enabled = true
+    command = ["node", "migrate.cjs"]
+    path    = "drizzle"          # raw SQL
+  }
+```
+
+`command` defaults to the same `bundle exec rake db:migrate` the v1 sidecar ran,
+so Rails apps normally omit it. **Always set `path`**: it is what writes
+`MigrationsPath` into app-info, which is the directory a promote diffs. Without
+it every promote reports `unclassified` — a placeholder that reads like a gap in
+the pipeline. `path` is the repo-relative directory, and it feeds the classifier
+only; it is not the migration job's working directory. An app with genuinely no
+migrations sets `enabled = false` with no `path`, which writes `Migrations =
+"none"` and earns a positive `safe` verdict instead of permanent
+`unclassified` — see
+[Rollback-safety classification](#rollback-safety-classification).
+
+Expect the module to create a `<app>-<env>-db-migrate` task-definition family (or
+Cloud Run job) and a `/ecs/<app>-<env>/db-migrate` log group. Also expect
+`image = "scratch"` placeholder revisions on every apply — which means **template
+edits land on the next pipeline deploy, not at apply** — and **no diff on the
+running service**. A diff on a live service's `task_definition` is a stop-and-look.
+
+**`slack_channel` in every environment.** `slack_channel = "C0BKP2AGNJW"` (the
+`#pipeline-v2` channel during the pilot). Presence is the enable switch: an
+app-info row without `SlackChannel` gets **no** deploy, promote, rollback, or
+failure notifications at all, silently. ararat nearly shipped that way because
+its prod environment was pinned to a module version predating the attribute.
+
+**`AppUrl` derives — check that it can.** Slack messages link the environment name
+to `AppUrl`, and fall back to plain text when it is absent. The rule per module:
+
+| module            | derives when                                                          |
+| ----------------- | --------------------------------------------------------------------- |
+| `aws/ecs/app`     | `local.dns_name` is non-empty — i.e. `zone_id` or an explicit `dns_name` |
+| `gcp/cloudrun/app`| `local.hostnames` is non-empty — i.e. `load_balancer_strategy = "shared"` |
+| `aws/lambda/app`  | **never** — set `app_url` explicitly                                    |
+
+An explicit `app_url` always wins, and `""` is a deliberate suppression. The link
+follows the hostname, so changing the hostname changes the link.
+
+**Audit the parameters; do not copy prod.** The most expensive surprise in the
+ararat onboarding was its parameter surface, and the arithmetic is worth
+repeating: **36** hand-created prod SSM parameters → Terraform created **17**
+equivalents for stage → **19** left over → the audit found only **3** actually
+required to boot (`APP_HOST`, `SECRET_KEY_BASE`, `GLOBAL_REGISTRY_ACCESS_TOKEN`),
+of which 2 moved into Terraform and 1 stayed CLI-managed. **The other 16 were
+dead** — legacy pre-Okta `CAS_*`, nine v1-agent-era `DATADOG_*` / `DD_ENABLE_*`
+vars, `SIDEKIQ_CREDS` for a gem the app no longer has. Grep the codebase for each
+name before replicating it. And watch for the ones that are environment-specific
+rather than copyable: hostnames, redirect URIs, per-env API tokens, and
+`SECRET_KEY_BASE` (generate a fresh one).
+
+While you are in there, look for **load-bearing parameters that are invisible to
+Terraform**. ararat's `RAILS_ENV` lived only as a hand-created SSM parameter; the
+`ARG RAILS_ENV` in its Dockerfile is build-time only and does not survive into the
+image. A missing `/ecs/ararat/stage/RAILS_ENV` would have silently booted Rails in
+`development` on a public host — eager loading off, `force_ssl` off, dev error
+pages on. Adopt those into the `parameters` map so they stop being invisible.
+
+**Brand-new repos: the immutable OIDC subject.** GitHub is moving OIDC subject
+claims to an ID-qualified form (`repo:<org>@<org_id>/<repo>@<repo_id>`). Repos
+created before the rollout still emit the name-based form; **newer ones emit the
+ID-qualified form and cannot opt out**. The v2 modules trust both, so a new repo
+works — but on an older module ref a newly created repo's very first build fails
+at credential configuration with `Not authorized to perform
+sts:AssumeRoleWithWebIdentity` (modules#711 / #713).
+
+## Checklist — app repo
+
+**`.github/workflows/pipeline-v2.yml`.** Copy it from any onboarded app; the whole
+per-app delta is **the `type:` input** (`ecs` | `cloudrun` | `lambda`) and two
+comment lines. Keep everything else byte-for-byte: `name: Pipeline v2`,
+`workflow_dispatch` + `schedule: cron: '0 5 * * *'` (the single unstaggered fleet
+slot — see [Nightly cadence](#workflow-deploy-candidate)), the `@pipeline-v2`
+pins, `workflow-ref: pipeline-v2`, `permissions: { id-token: write, contents:
+read }` on the build job (a reusable workflow can only *downgrade* the caller's
+permissions, never elevate them), `secrets: inherit` for `BUILD_*` secrets, and
+the `dispatch` handoff to `cru-deploy`'s `deploy-candidate.yml`.
+
+> Every `@pipeline-v2` reference and the `workflow-ref` input get re-pinned to
+> `@v2` at release. **Change them together or not at all** — a mismatched pair
+> runs one branch's workflow against another branch's actions.
+
+**`.github/workflows/conventional-commits.yml`.** Provides the `Validate PR Title`
+check. **The job's `name:` is the required-check context** — renaming the job
+silently drops the gate. Deliberately carries no branch filter, so it triggers on
+`pull_request` types regardless of base branch (which is why it was the only check
+still reporting during ararat's rename deadlock). Two reasons it matters beyond
+tidiness: the title becomes the commit subject on a squash merge, and the
+changelog at `deploys.cru.org/changelog` is read straight from the commit subjects
+between two releases — so a conventional title is what makes a promote's diff
+legible.
+
+**Make Dependabot livable — `.github/dependabot.yml` with grouping, plus
+`.github/workflows/dependabot-auto-merge.yml`.** These are not optional
+housekeeping: the v2 repo module turns on vulnerability alerts unconditionally
+(`github_repository_vulnerability_alerts { enabled = true }`), so onboarding a
+previously-unconfigured repo *starts* the flow of dependency PRs whether or not
+you are ready for it.
+
+**Check what is already there before adding anything.** Repos **born from the
+terrabloks GitHub templates ship `dependabot-auto-merge.yml` automatically** —
+for those, verify it is present and current against the exemplar rather than
+re-creating it, and check whether `dependabot.yml` already carries groups and
+prefixes. An **existing app migrating off v1 will typically need both files added
+by hand**; copy them from a template-born exemplar such as `cru-app-info`. Two
+things make the flow survivable, and both are needed:
+
+- **Grouping**, so review cost stays flat. The fleet standard batches **minor +
+  patch into one weekly PR per ecosystem** and deliberately leaves majors
+  ungrouped so each gets its own PR and a real migration check. Copy
+  `cru-app-info`'s or `bills`' file: `schedule: weekly`,
+  `open-pull-requests-limit` 5 (npm) / 3 (github-actions) / 2 (docker), and a
+  `groups` block with `patterns: ["*"]` and `update-types: ["minor", "patch"]`.
+- **`commit-message` prefixes**, so the titles pass `Validate PR Title`:
+  `prefix: "deps"` for the package ecosystem, `"ci"` for github-actions,
+  `"docker"` for docker, each with `include: "scope"`. Without them **every
+  Dependabot PR fails the required check and cannot merge at all.**
+- **The auto-merge workflow** (present already in template-born repos), so grouped
+  low-risk PRs land without a human. `dependabot/fetch-metadata@v3` gates on
+  `alert-state` (any security advisory) or an `update-type` of `semver-patch` /
+  `semver-minor`, then approves and enables squash auto-merge; majors are never
+  approved. Two details matter: the approval runs as `github-actions[bot]`, a
+  different identity from `dependabot[bot]`, so it satisfies any no-self-approval
+  rule; and for a *grouped* PR `update-type` reflects the **highest** bump in the
+  group, so a group containing a major correctly fails the gate.
+
+Without grouping and auto-merge, enabling Dependabot buries the team — ararat had
+roughly ten open Dependabot PRs on day one, all of them predating the
+`commit-message` prefixes and therefore all failing the new required check. Clear
+or retitle any already-open ones before the check becomes blocking.
+
+**Park the v1 workflow — do not delete it.** Remove the `push:` trigger, keep
+`workflow_dispatch:` and its `auto-deploy` input, and leave a comment saying why:
+
+```yaml
+on:
+  # Parked v1 escape hatch — do not re-add push triggers. This app builds and
+  # deploys through .github/workflows/pipeline-v2.yml; this workflow stays
+  # dispatch-only so the v1 build+deploy path is still reachable by hand.
+  # Restoring the push trigger on main would double-build every merge and push
+  # v1's environment-specific `production-<n>` tags alongside v2's candidates.
+  workflow_dispatch:
+```
+
+The old push→branch mappings are retired with it: stage is now the v2
+release-candidate surface, and where production used to ship by merging a Release
+Please PR, promote supersedes that. Delete `release-please.yml` if present and
+freeze `CHANGELOG.md` and the `package.json` `version` as historical.
+
+**Delete `.github/merge-bot.yml`.** Ratified with Brian, who owns the bot:
+**pipeline-v2 repos must not carry this file.** The nuance cuts both ways — its
+*absence* does not disable the bot (`github-merge-bot` is a GitHub App driven by
+label/comment/push webhooks, and it treats the file as optional overrides), but
+its *presence* is the one thing that could switch the bot back on. The bot only
+ever acted on the `staging` branch and the `On Staging` label, neither of which
+exists under v2. Retiring the App for the repo is a settings change, separate
+from the file.
+
+**Dockerfile: the build-identity pair.** Append at the very **end**, after `CMD`:
+
+```dockerfile
+ARG VERSION="dev"
+ENV DD_VERSION=${VERSION}
+```
+
+Last on purpose — nothing in the build needs the version, so a new build number
+invalidates no earlier layer. `"dev"` covers local builds. `build-candidate`
+passes `--build-arg VERSION=<yyyy-mm-dd>-<n>`, which reaches the build because
+`build.sh` already forwards `$DOCKER_ARGS`; no `build.sh` change is needed. This
+is the **only** build-baked identity value — see
+[`DD_VERSION`: baked at build, never injected at deploy](#dd_version-baked-at-build-never-injected-at-deploy).
+
+Build args are **per-stage**, so a framework that inlines the version at build
+time needs a second declaration in the builder stage. bills declares `ARG
+VERSION` / `ENV VERSION` immediately before `next build` so Next inlines
+`NEXT_PUBLIC_APP_VERSION`, and the runtime stage still ends with the
+`DD_VERSION` pair — footer and traces then agree because both derive from
+`VERSION`.
+
+**Add the authoring-time migration gate.** `strong_migrations` for Rails, a
+`squawk` job plus a committed `.squawk.toml` for raw SQL. Make it a required check
+that **always** produces a run — a PR touching no migrations should log "no
+migration changes" and exit 0, or the required check never reports and nothing
+merges. See [Migration discipline](#migration-discipline-expand-now-contract-later).
+
+**Staging-readiness audit, if the app has never had a stage environment.** The
+same image bytes run on stage and production, so anything the app resolves by
+environment *name* is a potential hole. ararat found two real blockers
+(`config/environments/staging.rb` did not exist; `config/database.yml` had no
+`staging:` key, so the container could not connect at all) and several
+false alarms worth checking rather than assuming: precompiled assets, Redis
+config, and the `ENVIRONMENT` → Datadog `env:` mapping. The house pattern for the
+first is a one-line `require` of `production.rb` — a divergent `staging.rb` would
+mean stage stops rehearsing prod.
+
+**`AGENTS.md` + `CLAUDE.md`.** `AGENTS.md` is the vendor-neutral standard and
+carries the content; `CLAUDE.md` is a **310-byte pointer stub, byte-identical
+across the whole v2 fleet** — copy it, do not symlink it (a symlink is not
+portable across the tools that read it). Cover, at minimum: builds do not run on
+push; a build produces a candidate; promote/rollback live in `cru-deploy` and
+check push permission; `release-*` tags are permanent; Slack destinations; the
+image is environment-agnostic except `DD_VERSION`; the v1 workflow is parked, not
+removed; and a **"Leftovers you can ignore"** section naming the stale `staging`
+branch, the `On Staging` label, and any docs that still describe the v1 flow.
+That last section is the highest-value part — it is what stops the next reader
+(human or agent) from acting on stale references.
+
+## Sequencing: the order that avoids a deadlock
+
+Merging the app PR early is harmless in itself — nothing in it deploys on push,
+since the v2 workflow is cron + dispatch only and v1 is parked. But the *first*
+v2 run fails until Terraform has applied, and two orderings actively wedge the
+repo.
+
+1. **If the repo is on `master`, land the branch-reference PR first** (below).
+2. **Merge the app-repo PR before applying the app-level Terraform.** The new
+   ruleset requires `Validate PR Title`, which does not exist until that PR
+   lands. Apply first and every PR sits unmergeable, waiting on a check that will
+   never report.
+3. **Merge the app-repo PR before applying prod.** modules#693 removes GitHub
+   OIDC trust from the prod ECS TaskRole. v1 builds assume that role to push
+   images, so once prod is applied a v1 build gets `AccessDenied` and **the app
+   cannot build at all** until it is on the v2 workflow.
+4. **Apply in dependency order:** identity/DNS prerequisites → app-level
+   (posture + registry) → stage → prod. Prod last: it is the only plan touching a
+   live service and a live IAM trust.
+5. **Then everyone re-points their clone**, once.
+
+### The rename trap, proven the hard way
+
+The `github/repo/app` module renames a `master` default branch to `main` on apply
+(`rename = true`) and adds a `pipeline-v2-block-legacy-master` ruleset blocking
+`master` from being created or updated, so a stale push cannot bring it back.
+
+**GitHub's rename edits nothing inside the repository.** It retargets open PRs,
+moves rulesets, and installs web redirects — it does not follow the rename into
+workflow files, docs, or anyone's clone.
+
+So a workflow that reports a **required status check** must list *both* branches
+across the transition, and it must be changed **before** the rename:
+
+```yaml
+on:
+  pull_request:
+    branches: [main, master]   # `master` only for the duration of the rename
+  push:
+    branches: [main, master]
+```
+
+Filter on `main` alone and the repo deadlocks: a PR based on `master` never
+triggers the workflow, the required checks never report, and nothing can merge —
+**including the PR that makes this very change.** This is not hypothetical. On
+ararat's first push only `Validate PR Title` reported (it has no branch filter);
+`test` and `lint` did not. Drop `master` in a one-line follow-up after the rename;
+leaving it longer is untidy but harmless, since the guard ruleset means the entry
+can never match again.
+
+The clone re-point, once per developer:
+
+```sh
+git branch -m master main
+git fetch origin
+git branch -u origin/main main
+git remote set-head origin -a
+```
+
+Nothing should name `master` as a *branch* again afterwards. Rails' encrypted
+credentials key (`config/master.key` in `.gitignore` / `.dockerignore`) is not a
+branch reference and stays.
+
+## Migration discipline: expand now, contract later
+
+Two gates read the same migration diff and answer different questions. Neither
+subsumes the other, and the escape hatch on one does nothing to the other:
+
+|          | authoring-time gate (`strong_migrations` / `squawk`) | promote-time gate (rollback-safety classifier) |
+| -------- | --------------------------------------------------- | ---------------------------------------------- |
+| Asks     | will this migration lock or disrupt the **live** database while it runs? | can the **previous image** still run against the new schema? |
+| When     | development time (and the migrate job, as a backstop) | promote time                                   |
+| Teeth    | raises — the migration does not run                 | advisory only — never blocks                   |
+| Escape   | `safety_assured { }` / `SAFETY_ASSURED=1`            | none needed; read the verdict and decide       |
+
+**`safety_assured` satisfies the gem and nothing else.** A `remove_column`
+wrapped in `safety_assured { }` runs happily, and the promote still reports
+`unsafe` — correctly, because rolling back puts an image that still selects that
+column onto a schema without it. Spell this out in the app's `AGENTS.md`; the
+assumption that one gate covers the other is the natural mistake.
+
+**What the classifier rewards is expand/contract.** Ship the additive half first
+and the destructive half separately, after the code that stopped using the old
+shape is *in production*:
+
+1. **Expand.** Add the new column/table/index, nullable or defaulted. Deploy.
+   Both the old and new image run against this schema, so the promote classifies
+   `safe` and a rollback stays a pure image swap.
+2. **Migrate the reads and writes.** Backfill (in its own migration, not
+   alongside a schema change), dual-write, switch reads. Still additive; still
+   rollback-safe.
+3. **Contract.** Only once the release that stopped using the old shape is the
+   one running in production, drop it. This promote classifies `unsafe`, which is
+   accurate and is exactly the moment you want to be told: **rolling back past a
+   contract step does not roll back the schema.**
+
+Two consequences of the pre-deploy migration job worth internalising: it runs on
+**every** deploy — release-candidate, promote, *and* rollback — and a rollback
+therefore re-runs `db:migrate` from the older image, which no-ops against
+already-applied migrations. **The image goes back; the schema does not.** And
+because the job runs to completion *before* any service update, a failed
+migration fails the deploy and leaves the running service **completely
+untouched** — which is why the authoring-time gate's `lock_timeout` is
+load-bearing in production, not just in development. A failed deploy beats a
+migration parked on an `ACCESS EXCLUSIVE` lock with production queries piling up
+behind it.
+
+When adopting `strong_migrations` into an existing app, pin `start_after` to the
+timestamp of the newest **existing** migration (which should equal
+`db/schema.rb`'s `version`) so already-applied migrations are grandfathered.
+Re-judging history produces a wall of findings nobody can act on, and breaks
+`db:migrate` from an empty database — which is how local setup works. Note that a
+test job loading `db/schema.rb` does **not** exercise the checks; developers hit
+them locally and the migrate job is the backstop. Say so in `AGENTS.md`.
+
+## The hotfix lane
+
+There is no hotfix mechanism, deliberately. A hotfix takes **the same path on a
+compressed timeline**:
+
+1. PR the fix to `main` as normal — required checks still gate the merge.
+2. **Dispatch `Pipeline v2` on the app repo** instead of waiting for the nightly.
+   It builds a candidate from the tip of `main` and auto-deploys it to
+   release-candidate.
+3. Verify on release-candidate, then dispatch **Promote (v2)** in `cru-deploy`
+   immediately.
+
+Every property of the normal path is preserved because it *is* the normal path:
+the promoted artifact is the byte-identical digest that was verified on
+release-candidate, the release is tagged and permanent, the ledger and changelog
+record it, and the rollback-safety verdict still gets computed. A separate
+"hotfix pipeline" would have to re-earn all of that, and would be exercised
+precisely when nobody wants to be debugging a pipeline.
+
+Two escape hatches exist alongside it. **Deploy Candidate (v2)** in `cru-deploy`
+takes a `force` input that redeploys even when release-candidate already runs that
+digest — the way to pick up an applied Terraform template change out of band,
+since template edits land on the next deploy rather than at apply. And the parked
+v1 workflow remains dispatchable if the v2 path itself is the thing that is
+broken.
+
+## Required-CI verification: considered and dropped
+
+We considered making `promote` verify that CI had passed on the promoted commit,
+and decided against it: **there is no case where the check could both fire and be
+informative.** The `pipeline-v2-default-branch` ruleset requires a pull request
+and gates the merge on `required_status_checks`, so any commit on the default
+branch — and candidates are only ever built from the default branch — has already
+passed whatever checks that repo defines. A promote-time gate would therefore be
+re-asking a question the ruleset already answered, and re-asking it far too late
+to be useful. The only repos where it *could* fire are those whose ruleset lists
+no required checks at all, and there the gate has nothing to verify: it would
+either pass vacuously or block a promote over the absence of CI that was never
+written. Better to require checks in the ruleset, where the answer arrives while
+the change is still a pull request.
