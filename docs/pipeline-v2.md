@@ -1130,6 +1130,10 @@ jobs:
              "tag": "${{ needs.build.outputs.candidate }}"}
 ```
 
+An adopting app also **deletes `.github/merge-bot.yml`** — that file is what
+*enables* the "On Staging" merge bot, and the bot only ever acted on the
+`staging` branch and the `On Staging` label, neither of which exists under v2.
+
 ## Flagged decisions
 
 1. **Candidate builds are prod-bound.** Candidate images authenticate with the
