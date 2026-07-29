@@ -950,7 +950,7 @@ Promotes the release-candidate artifact to production (production lock).
 | Secret           | Required | Description                                 |
 | ---------------- | -------- | ------------------------------------------- |
 | `datadog-api-key`| yes      | DataDog API key                             |
-| `authz-token`    | yes      | token for the collaborator-permission check |
+| `authz-token`    | yes      | token for the collaborator-permission check, the rollback-safety compare fetch, and the GitHub Release publish (needs `contents:write` on the app repo) |
 | `slack-bot-token`| no       | Slack bot token for notifications; unset disables posting |
 
 Flow: authz → app-info for **both** `release-candidate` and `production` (two
@@ -966,6 +966,39 @@ Every promote creates a **permanent rollback target**: `release-*` tags are kept
 forever and are never expired or deleted. The shared-registry module's KEEP
 cleanup policy on `release-*` enforces this, so `rollback` can always resolve any
 previously promoted release.
+
+### GitHub Release on the app repo
+
+A successful promote also publishes a **GitHub Release on the app repo**, so each
+app's own Releases page — not just the registry and the ledger — records what
+reached production and when. Git tag = the release name, pointing at the promoted
+commit (the `sha-<gitsha>` tag the candidate digest carries, the same sha the
+rollback-safety classifier diffs); title = the release name; marked latest.
+
+The body is deliberately only a **short header** — image digest, promoted-by, run
+link, and a `deploys.cru.org/changelog` link for the range. It does not restate
+the commit list: the changelog page is the canonical rendering of "what's in this
+release" (ledger-backed, so it resolves release names through to shas), and a
+second copy in the release body would only drift from it. The changelog line
+follows the same dead-link rule as the Slack notify — with no baseline sha (first
+promote, or a failed ledger query) the line is omitted rather than emitted broken.
+
+The credential is the existing **`authz-token`**, which is already this workflow's
+app-repo credential (the authz gate and the rollback-safety compare both use it),
+so a release write adds no new credential surface — only a new verb, and one that
+needs `contents:write` on the app repo. The run-scoped `GITHUB_TOKEN` cannot
+substitute: it is scoped to the calling `cru-deploy` repo, not the app repo. The
+narrower long-term home is the org-wide **"Cru Deploy" GitHub App**, which needs
+two things it does not have yet: `Contents` bumped read → write, and its key made
+reachable from `cru-deploy` workflows (today it lives only in SSM
+`/ecs/cru-app-info/*`).
+
+Publishing **never fails a promote**. Production is already updated by the time the
+step runs, so a missing Releases entry is a bookkeeping loss, not an incident:
+`continue-on-error`, plus in-step handling that turns any non-2xx into a warning
+naming the likely fix. Re-running an already-promoted candidate re-POSTs the same
+release name and gets `422 already_exists` — the correct end state, so it degrades
+to a notice rather than a warning.
 
 ## Workflow: `rollback`
 
@@ -1016,6 +1049,7 @@ actions page.
 | each env's `cru-deploy@<env-project>` SA     | **AR reader** on `cru-shared-artifacts/<app>`  | `resolve-image` reads tags/digests             |
 | **prod** `cru-deploy@<prod-project>` SA      | **AR writer** on `cru-shared-artifacts/<app>`  | `promote` adds the `release-*` tag           |
 | `cru-deploy` control repo                    | `authz-token` secret (pilot: `CRU_DEVOPS_GITHUB_TOKEN`) | promote/rollback collaborator-permission check |
+| `authz-token`'s identity                     | **`contents:write`** on every app repo          | `promote` publishes the GitHub Release on the app repo (non-blocking — a 403 warns and moves on) |
 | `cru-deploy` control repo                    | `vars.GCP_WORKLOAD_IDENTITY_PROVIDER` + WIF trust so each env's `cru-deploy` SA is impersonable | GCP auth in deploy-candidate/promote/rollback |
 
 Plain `roles/artifactregistry.writer` (tag create) suffices for the prod
