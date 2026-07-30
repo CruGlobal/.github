@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/CruGlobal/.github/compare/v1.8.1...v1.9.0) (2026-07-30)
+
+
+### Features
+
+* **aem-cloud-build:** add java-version input, default 11 ([#434](https://github.com/CruGlobal/.github/issues/434)) ([f4eccfe](https://github.com/CruGlobal/.github/commit/f4eccfe31cdbc8777ed5f9b59409f073d80a89e2))
+
 ## [1.8.1](https://github.com/CruGlobal/.github/compare/v1.8.0...v1.8.1) (2026-07-22)
 
 
