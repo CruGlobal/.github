@@ -485,6 +485,7 @@ function isRuby (path) {
 // (added | modified | removed | renamed | ...). Returns { verdict, reasons }.
 export function classifyMigrationFiles (files) {
   const reasons = []
+  let classifiedFiles = 0
 
   for (const file of files ?? []) {
     const path = file.path
@@ -515,13 +516,19 @@ export function classifyMigrationFiles (files) {
 
     // A freshly added migration — classify it; every CONTRACT statement / call
     // contributes a path-prefixed reason.
-    const classified = sql
+    classifiedFiles++
+    const statements = sql
       ? classifySqlStatements(file.content ?? '')
       : classifyRubyMigration(file.content ?? '')
-    for (const st of classified) {
+    for (const st of statements) {
       if (st.phase === CONTRACT) reasons.push(`${path}: ${st.reason}`)
     }
   }
 
-  return { verdict: reasons.length === 0 ? 'safe' : 'unsafe', reasons }
+  if (reasons.length > 0) return { verdict: 'unsafe', reasons }
+  // A safe verdict must say WHY: the notifier renders reasons[0], and "ran
+  // only additive migrations" vs "ran no migrations at all" are different
+  // operator situations when deciding whether a rollback is clean.
+  if (classifiedFiles === 0) return { verdict: 'safe', reasons: ['no migration changes in this release'] }
+  return { verdict: 'safe', reasons: [`${classifiedFiles} additive migration${classifiedFiles === 1 ? '' : 's'}`] }
 }

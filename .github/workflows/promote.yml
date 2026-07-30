@@ -476,11 +476,10 @@ jobs:
           fi
           # Rollback-safety advisory line appended to the promote message.
           case "$VERDICT" in
-            # A `safe` verdict carries a reason only when the classifier had
-            # something specific to say (an explicit "no database migrations"
-            # declaration); a diff-classified safe verdict has no reasons and
-            # keeps the default parenthetical.
-            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "migrations additive" end' 2>/dev/null || echo "migrations additive"))" ;;
+            # A `safe` verdict ALWAYS carries a reason ("no database migrations"
+            # declaration, "N additive migration(s)", or "no migration changes
+            # in this release") — the fallback here only covers a jq failure.
+            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "classified safe" end' 2>/dev/null || echo "classified safe"))" ;;
             unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
             *) safety="rollback safety: unclassified" ;;
           esac
@@ -851,11 +850,10 @@ jobs:
           fi
           # Rollback-safety advisory line appended to the promote message.
           case "$VERDICT" in
-            # A `safe` verdict carries a reason only when the classifier had
-            # something specific to say (an explicit "no database migrations"
-            # declaration); a diff-classified safe verdict has no reasons and
-            # keeps the default parenthetical.
-            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "migrations additive" end' 2>/dev/null || echo "migrations additive"))" ;;
+            # A `safe` verdict ALWAYS carries a reason ("no database migrations"
+            # declaration, "N additive migration(s)", or "no migration changes
+            # in this release") — the fallback here only covers a jq failure.
+            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "classified safe" end' 2>/dev/null || echo "classified safe"))" ;;
             unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
             *) safety="rollback safety: unclassified" ;;
           esac

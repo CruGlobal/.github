@@ -155,8 +155,8 @@ describe('classify-rollback-safety — declared no migrations', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(verdict()).toBe('safe')
-    // Classified from the diff, NOT declared: no declaration reason attached.
-    expect(reasons()).toEqual([])
+    // Classified from the diff, NOT declared: a count, not the declaration reason.
+    expect(reasons()).toEqual(['1 additive migration'])
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
@@ -172,7 +172,7 @@ describe('classify-rollback-safety — classification', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(verdict()).toBe('safe')
-    expect(reasons()).toEqual([])
+    expect(reasons()).toEqual(['1 additive migration'])
     // compare + one contents fetch.
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[1][0]).toContain('ref=bbbb')
@@ -214,7 +214,7 @@ describe('classify-rollback-safety — classification', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(verdict()).toBe('safe')
-    expect(reasons()).toEqual([])
+    expect(reasons()).toEqual(['1 additive migration'])
   })
 
   it('ignores files outside the migrations path (no content fetch)', async () => {
@@ -225,6 +225,9 @@ describe('classify-rollback-safety — classification', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(verdict()).toBe('safe')
+    // The ararat release-10078 case: commits in range, none touching the
+    // migrations path — the reason must say "no changes", never "additive".
+    expect(reasons()).toEqual(['no migration changes in this release'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -234,7 +237,9 @@ describe('classify-rollback-safety — classification', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(verdict()).toBe('unsafe')
-    expect(reasons()).toContain('diff truncated at 300 files — classify manually')
+    // ONLY the truncation reason: the would-be safe verdict's explanatory
+    // reason must not ride along under an unsafe verdict.
+    expect(reasons()).toEqual(['diff truncated at 300 files — classify manually'])
   })
 
   it('compare API failure → unclassified with the error as reason (exit success)', async () => {

@@ -71,7 +71,9 @@ async function classify ({ token, repository, baseSha, headSha, migrationsPath }
 
   const { verdict, reasons } = classifyMigrationFiles(enriched)
   if (truncated) {
-    return { verdict: 'unsafe', reasons: ['diff truncated at 300 files — classify manually', ...reasons] }
+    // Keep only unsafe findings: a safe verdict's explanatory reason ("no
+    // migration changes...") would contradict the unsafe verdict this returns.
+    return { verdict: 'unsafe', reasons: ['diff truncated at 300 files — classify manually', ...(verdict === 'unsafe' ? reasons : [])] }
   }
   return { verdict, reasons }
 }

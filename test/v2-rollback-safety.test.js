@@ -531,14 +531,14 @@ describe('classifyRubyMigration — safety_assured does not bypass the classifie
 describe('classifyMigrationFiles', () => {
   const added = (path, content) => ({ path, status: 'added', content })
 
-  it('no migration files → safe with no reasons', () => {
-    expect(classifyMigrationFiles([])).toEqual({ verdict: 'safe', reasons: [] })
-    expect(classifyMigrationFiles(null)).toEqual({ verdict: 'safe', reasons: [] })
+  it('no migration files → safe, with an explicit no-changes reason', () => {
+    expect(classifyMigrationFiles([])).toEqual({ verdict: 'safe', reasons: ['no migration changes in this release'] })
+    expect(classifyMigrationFiles(null)).toEqual({ verdict: 'safe', reasons: ['no migration changes in this release'] })
   })
 
-  it('added .sql with only additive statements → safe', () => {
+  it('added .sql with only additive statements → safe, counted', () => {
     const files = [added('drizzle/0001_init.sql', 'CREATE TABLE users (id int);\n--> statement-breakpoint\nALTER TABLE users ADD COLUMN email text;')]
-    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: [] })
+    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
   })
 
   it('added .sql with a destructive statement → unsafe, reason prefixed with path', () => {
@@ -568,12 +568,12 @@ describe('classifyMigrationFiles', () => {
       { path: 'drizzle/meta/_journal.json', status: 'added', content: '{}' },
       { path: 'drizzle/meta/0001_snapshot.json', status: 'modified', content: '{}' }
     ]
-    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: [] })
+    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: ['no migration changes in this release'] })
   })
 
   it('ignores non-SQL dotfiles', () => {
     const files = [{ path: 'drizzle/.gitkeep', status: 'added', content: '' }]
-    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: [] })
+    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: ['no migration changes in this release'] })
   })
 
   it('accumulates reasons across files and statements', () => {
@@ -593,9 +593,9 @@ describe('classifyMigrationFiles', () => {
 describe('classifyMigrationFiles — Rails .rb migrations', () => {
   const added = (path, content) => ({ path, status: 'added', content })
 
-  it('added .rb with only additive calls → safe', () => {
+  it('added .rb with only additive calls → safe, counted', () => {
     const files = [added('db/migrate/20260101000000_add_email.rb', migration('add_column :users, :email, :string'))]
-    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: [] })
+    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
   })
 
   it('added .rb with a destructive call → unsafe, reason names the file and the call', () => {
@@ -619,7 +619,7 @@ describe('classifyMigrationFiles — Rails .rb migrations', () => {
   })
 
   it('ignores non-classifiable dotfiles under the migrations path', () => {
-    expect(classifyMigrationFiles([added('db/migrate/.keep', '')])).toEqual({ verdict: 'safe', reasons: [] })
+    expect(classifyMigrationFiles([added('db/migrate/.keep', '')])).toEqual({ verdict: 'safe', reasons: ['no migration changes in this release'] })
   })
 
   it('a mixed .sql + .rb diff classifies both and collects every reason', () => {
@@ -639,11 +639,11 @@ describe('classifyMigrationFiles — Rails .rb migrations', () => {
     expect(reasons.some((r) => r.startsWith('db/migrate/20260101000000_ok.rb'))).toBe(false)
   })
 
-  it('an all-additive mixed diff is safe', () => {
+  it('an all-additive mixed diff is safe, with a plural count', () => {
     const files = [
       added('db/migrate/20260101000000_ok.rb', migration('add_index :users, :email')),
       added('drizzle/0001_ok.sql', 'CREATE TABLE t (id int);')
     ]
-    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: [] })
+    expect(classifyMigrationFiles(files)).toEqual({ verdict: 'safe', reasons: ['2 additive migrations'] })
   })
 })

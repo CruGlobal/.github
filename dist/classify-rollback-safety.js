@@ -19621,6 +19621,7 @@ function isRuby(path) {
 }
 function classifyMigrationFiles(files) {
   const reasons = [];
+  let classifiedFiles = 0;
   for (const file of files ?? []) {
     const path = file.path;
     if (isMetaPath(path)) continue;
@@ -19638,12 +19639,15 @@ function classifyMigrationFiles(files) {
       reasons.push(`${path}: migration history modified (${status || "changed"})`);
       continue;
     }
-    const classified = sql ? classifySqlStatements(file.content ?? "") : classifyRubyMigration(file.content ?? "");
-    for (const st of classified) {
+    classifiedFiles++;
+    const statements = sql ? classifySqlStatements(file.content ?? "") : classifyRubyMigration(file.content ?? "");
+    for (const st of statements) {
       if (st.phase === CONTRACT) reasons.push(`${path}: ${st.reason}`);
     }
   }
-  return { verdict: reasons.length === 0 ? "safe" : "unsafe", reasons };
+  if (reasons.length > 0) return { verdict: "unsafe", reasons };
+  if (classifiedFiles === 0) return { verdict: "safe", reasons: ["no migration changes in this release"] };
+  return { verdict: "safe", reasons: [`${classifiedFiles} additive migration${classifiedFiles === 1 ? "" : "s"}`] };
 }
 
 // src/classify-rollback-safety.js
@@ -19691,7 +19695,7 @@ async function classify({ token, repository, baseSha, headSha, migrationsPath })
   }
   const { verdict, reasons } = classifyMigrationFiles(enriched);
   if (truncated) {
-    return { verdict: "unsafe", reasons: ["diff truncated at 300 files \u2014 classify manually", ...reasons] };
+    return { verdict: "unsafe", reasons: ["diff truncated at 300 files \u2014 classify manually", ...verdict === "unsafe" ? reasons : []] };
   }
   return { verdict, reasons };
 }
