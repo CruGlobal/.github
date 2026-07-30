@@ -20259,6 +20259,9 @@ var init_NormalizedSchema = __esm({
         }
         struct2[anno.it] = it;
       }
+      structIteratorCbor() {
+        throw new Error("@smithy/core/schema - structIteratorCbor not loaded.");
+      }
     };
     isMemberSchema = (sc) => Array.isArray(sc) && sc.length === 2;
     isStaticSchema = (sc) => Array.isArray(sc) && sc.length >= 5;
@@ -22187,7 +22190,7 @@ function nv(input) {
 var format, NumericValue;
 var init_NumericValue = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/value/NumericValue.js"() {
-    format = /^-?\d*(\.\d+)?$/;
+    format = /^-?((0|[1-9]\d*)(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
     NumericValue = class _NumericValue {
       string;
       type;
@@ -22195,7 +22198,7 @@ var init_NumericValue = __esm({
         this.string = string;
         this.type = type;
         if (!format.test(string)) {
-          throw new Error(`@smithy/core/serde - NumericValue must only contain [0-9], at most one decimal point ".", and an optional negation prefix "-".`);
+          throw new Error(`@smithy/core/serde - NumericValue string must conform to the Smithy bigDecimal format. Received: "${string}"`);
         }
       }
       toString() {
@@ -27267,6 +27270,7 @@ var init_EventStreamSerdeConfig = __esm({
 var EventStreamSerde;
 var init_EventStreamSerde = __esm({
   "node_modules/@smithy/core/dist-es/submodules/event-streams/EventStreamSerde.js"() {
+    init_schema();
     init_serde();
     EventStreamSerde = class {
       marshaller;
@@ -27274,12 +27278,14 @@ var init_EventStreamSerde = __esm({
       deserializer;
       serdeContext;
       defaultContentType;
-      constructor({ marshaller, serializer, deserializer, serdeContext, defaultContentType }) {
+      compositeErrorRegistry;
+      constructor({ marshaller, serializer, deserializer, serdeContext, defaultContentType, compositeErrorRegistry }) {
         this.marshaller = marshaller;
         this.serializer = serializer;
         this.deserializer = deserializer;
         this.serdeContext = serdeContext;
         this.defaultContentType = defaultContentType;
+        this.compositeErrorRegistry = compositeErrorRegistry;
       }
       async serializeEventStream({ eventStream, requestSchema, initialRequest }) {
         const marshaller = this.marshaller;
@@ -27389,16 +27395,9 @@ var init_EventStreamSerde = __esm({
                   }
                 }
               }
-              if (hasBindings) {
-                return {
-                  [unionMember]: out
-                };
-              }
-              if (body.byteLength === 0) {
-                return {
-                  [unionMember]: {}
-                };
-              }
+              return {
+                [unionMember]: await this.readEventMember(eventStreamSchema, body, hasBindings, out)
+              };
             }
             return {
               [unionMember]: await this.deserializer.read(eventStreamSchema, body)
@@ -27436,6 +27435,29 @@ var init_EventStreamSerde = __esm({
             }
           }
         };
+      }
+      async readEventMember(eventStreamSchema, body, hasBindings, out) {
+        let ErrCtor;
+        const staticStructuralSchema = eventStreamSchema.getSchema();
+        if (Array.isArray(staticStructuralSchema) && staticStructuralSchema[0] === -3) {
+          const namespace = staticStructuralSchema[1];
+          const nsRegistry = TypeRegistry.for(namespace);
+          this.compositeErrorRegistry?.copyFrom(nsRegistry);
+          ErrCtor = (this.compositeErrorRegistry ?? nsRegistry)?.getErrorCtor(staticStructuralSchema);
+        }
+        const dataObject = hasBindings ? out : body.byteLength === 0 ? {} : await this.deserializer.read(eventStreamSchema, body);
+        if (ErrCtor) {
+          const message = dataObject.message ?? dataObject.Message ?? "Unknown";
+          const metadata = {};
+          const $fault = eventStreamSchema.getMergedTraits().error;
+          if ($fault) {
+            metadata.$fault = $fault;
+          }
+          return Object.assign(new ErrCtor({}), metadata, {
+            message
+          }, dataObject);
+        }
+        return dataObject;
       }
       writeEventBody(unionMember, unionSchema, event) {
         const serializer = this.serializer;
@@ -27681,7 +27703,8 @@ var init_HttpProtocol = __esm({
           serializer: this.serializer,
           deserializer: this.deserializer,
           serdeContext: this.serdeContext,
-          defaultContentType: this.getDefaultContentType()
+          defaultContentType: this.getDefaultContentType(),
+          compositeErrorRegistry: this.compositeErrorRegistry
         });
       }
       resolveEventStreamMarshaller(importedProvider) {
@@ -28694,6 +28717,7 @@ var CLOCK_SKEW_ERROR_CODES, THROTTLING_ERROR_CODES, TRANSIENT_ERROR_CODES, TRANS
 var init_constants4 = __esm({
   "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js"() {
     CLOCK_SKEW_ERROR_CODES = [
+      "AccessDeniedException",
       "AuthFailure",
       "InvalidSignatureException",
       "RequestExpired",
@@ -32973,11 +32997,12 @@ var require_dist_cjs3 = __commonJS({
 });
 
 // node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/utils/getDateHeader.js
-var getDateHeader;
+var getDateHeader, getAgeHeader;
 var init_getDateHeader = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/utils/getDateHeader.js"() {
     init_protocols();
     getDateHeader = (response) => HttpResponse.isInstance(response) ? response.headers?.date ?? response.headers?.Date : void 0;
+    getAgeHeader = (response) => HttpResponse.isInstance(response) ? response.headers?.age ?? response.headers?.Age : void 0;
   }
 });
 
@@ -32989,26 +33014,21 @@ var init_getSkewCorrectedDate = __esm({
   }
 });
 
-// node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/utils/isClockSkewed.js
-var isClockSkewed;
-var init_isClockSkewed = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/utils/isClockSkewed.js"() {
-    init_getSkewCorrectedDate();
-    isClockSkewed = (clockTime, systemClockOffset) => Math.abs(getSkewCorrectedDate(systemClockOffset).getTime() - clockTime) >= 3e5;
-  }
-});
-
 // node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/utils/getUpdatedSystemClockOffset.js
 var getUpdatedSystemClockOffset;
 var init_getUpdatedSystemClockOffset = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/utils/getUpdatedSystemClockOffset.js"() {
-    init_isClockSkewed();
-    getUpdatedSystemClockOffset = (clockTime, currentSystemClockOffset) => {
-      const clockTimeInMs = Date.parse(clockTime);
-      if (isClockSkewed(clockTimeInMs, currentSystemClockOffset)) {
-        return clockTimeInMs - Date.now();
+    getUpdatedSystemClockOffset = (clockTime, currentSystemClockOffset, timeRequestSent, ageHeader) => {
+      if (ageHeader !== void 0) {
+        return currentSystemClockOffset;
       }
-      return currentSystemClockOffset;
+      const serverTime = Date.parse(clockTime);
+      const timeResponseReceived = Date.now();
+      if (timeRequestSent !== void 0 && timeResponseReceived - timeRequestSent > 9e5) {
+        return currentSystemClockOffset;
+      }
+      const candidateSkew = timeRequestSent !== void 0 ? serverTime - (timeRequestSent + timeResponseReceived) / 2 : serverTime - timeResponseReceived;
+      return candidateSkew;
     };
   }
 });
@@ -33067,9 +33087,14 @@ var init_AwsSdkSigV4Signer = __esm({
             signingName = second?.signingName ?? signingName;
           }
         }
-        signingProperties._preRequestSystemClockOffset = config.systemClockOffset;
+        const noSkewCorrection = await config.disableClockSkewCorrection?.() === true;
+        signingProperties._disableClockSkewCorrection = noSkewCorrection;
+        if (!noSkewCorrection) {
+          signingProperties._preRequestSystemClockOffset = config.systemClockOffset;
+          signingProperties._requestSentAt = Date.now();
+        }
         const signedRequest = await signer.sign(httpRequest, {
-          signingDate: getSkewCorrectedDate(config.systemClockOffset),
+          signingDate: noSkewCorrection ? /* @__PURE__ */ new Date() : getSkewCorrectedDate(config.systemClockOffset),
           signingRegion,
           signingService: signingName
         });
@@ -33078,27 +33103,36 @@ var init_AwsSdkSigV4Signer = __esm({
       errorHandler(signingProperties) {
         return (error3) => {
           const errorException = error3;
-          const serverTime = errorException.ServerTime ?? getDateHeader(errorException.$response);
-          if (serverTime) {
-            const config = throwSigningPropertyError("config", signingProperties.config);
-            const preRequestOffset = signingProperties._preRequestSystemClockOffset;
-            const newOffset = getUpdatedSystemClockOffset(serverTime, config.systemClockOffset);
-            const isLocalCorrection = newOffset !== config.systemClockOffset;
-            const isConcurrentCorrection = preRequestOffset !== void 0 && preRequestOffset !== newOffset;
-            const clockSkewCorrected = isLocalCorrection || isConcurrentCorrection;
-            if (clockSkewCorrected && errorException.$metadata) {
+          if (!signingProperties._disableClockSkewCorrection) {
+            const serverTime = errorException.ServerTime ?? getDateHeader(errorException.$response);
+            if (serverTime) {
+              const config = throwSigningPropertyError("config", signingProperties.config);
+              const preRequestOffset = signingProperties._preRequestSystemClockOffset;
+              const timeRequestSent = signingProperties._requestSentAt;
+              const ageHeader = getAgeHeader(errorException.$response);
+              const newOffset = getUpdatedSystemClockOffset(serverTime, config.systemClockOffset, timeRequestSent, ageHeader);
               config.systemClockOffset = newOffset;
-              errorException.$metadata.clockSkewCorrected = true;
+              const skewExceedsThreshold = Math.abs(newOffset) >= 24e4;
+              const isLocalCorrection = newOffset !== preRequestOffset;
+              const isConcurrentCorrection = preRequestOffset !== void 0 && preRequestOffset !== newOffset;
+              if (skewExceedsThreshold && (isLocalCorrection || isConcurrentCorrection) && errorException.$metadata) {
+                errorException.$metadata.clockSkewCorrected = true;
+              }
             }
           }
           throw error3;
         };
       }
       successHandler(httpResponse, signingProperties) {
+        if (signingProperties._disableClockSkewCorrection) {
+          return;
+        }
         const dateHeader = getDateHeader(httpResponse);
         if (dateHeader) {
           const config = throwSigningPropertyError("config", signingProperties.config);
-          config.systemClockOffset = getUpdatedSystemClockOffset(dateHeader, config.systemClockOffset);
+          const timeRequestSent = signingProperties._requestSentAt;
+          const ageHeader = getAgeHeader(httpResponse);
+          config.systemClockOffset = getUpdatedSystemClockOffset(dateHeader, config.systemClockOffset, timeRequestSent, ageHeader);
         }
       }
     };
@@ -33121,9 +33155,14 @@ var init_AwsSdkSigV4ASigner = __esm({
         const { config, signer, signingRegion, signingRegionSet, signingName } = await validateSigningProperties(signingProperties);
         const configResolvedSigningRegionSet = await config.sigv4aSigningRegionSet?.();
         const multiRegionOverride = (configResolvedSigningRegionSet ?? signingRegionSet ?? [signingRegion]).join(",");
-        signingProperties._preRequestSystemClockOffset = config.systemClockOffset;
+        const noSkewCorrection = await config.disableClockSkewCorrection?.() === true;
+        signingProperties._disableClockSkewCorrection = noSkewCorrection;
+        if (!noSkewCorrection) {
+          signingProperties._preRequestSystemClockOffset = config.systemClockOffset;
+          signingProperties._requestSentAt = Date.now();
+        }
         const signedRequest = await signer.sign(httpRequest, {
-          signingDate: getSkewCorrectedDate(config.systemClockOffset),
+          signingDate: noSkewCorrection ? /* @__PURE__ */ new Date() : getSkewCorrectedDate(config.systemClockOffset),
           signingRegion: multiRegionOverride,
           signingService: signingName
         });
@@ -33778,13 +33817,13 @@ function bindCallerConfig(config, credentialsProvider) {
   fn.configBound = true;
   return fn;
 }
-var import_signature_v4, resolveAwsSdkSigV4Config, resolveAWSSDKSigV4Config;
+var import_signature_v4, bindResolveAwsSdkSigV4Config;
 var init_resolveAwsSdkSigV4Config = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/resolveAwsSdkSigV4Config.js"() {
     init_client3();
     init_dist_es();
     import_signature_v4 = __toESM(require_dist_cjs4());
-    resolveAwsSdkSigV4Config = (config) => {
+    bindResolveAwsSdkSigV4Config = (defaultDisableClockSkewCorrection) => (config) => {
       let inputCredentials = config.credentials;
       let isUserSupplied = !!config.credentials;
       let resolvedCredentials = void 0;
@@ -33876,11 +33915,11 @@ var init_resolveAwsSdkSigV4Config = __esm({
       const resolvedConfig = Object.assign(config, {
         systemClockOffset,
         signingEscapePath,
-        signer
+        signer,
+        disableClockSkewCorrection: normalizeProvider2(config.disableClockSkewCorrection ?? defaultDisableClockSkewCorrection)
       });
       return resolvedConfig;
     };
-    resolveAWSSDKSigV4Config = resolveAwsSdkSigV4Config;
   }
 });
 
@@ -33892,6 +33931,31 @@ var init_aws_sdk = __esm({
     init_NODE_AUTH_SCHEME_PREFERENCE_OPTIONS();
     init_resolveAwsSdkSigV4AConfig();
     init_resolveAwsSdkSigV4Config();
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/clock-skew-node-config.js
+var ENV_DISABLE_CLOCK_SKEW_CORRECTION, CONFIG_DISABLE_CLOCK_SKEW_CORRECTION, NODE_DISABLE_CLOCK_SKEW_CORRECTION_CONFIG_OPTIONS;
+var init_clock_skew_node_config = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/clock-skew-node-config.js"() {
+    init_config2();
+    ENV_DISABLE_CLOCK_SKEW_CORRECTION = "AWS_DISABLE_CLOCK_SKEW_CORRECTION";
+    CONFIG_DISABLE_CLOCK_SKEW_CORRECTION = "disable_clock_skew_correction";
+    NODE_DISABLE_CLOCK_SKEW_CORRECTION_CONFIG_OPTIONS = {
+      environmentVariableSelector: (env2) => booleanSelector(env2, ENV_DISABLE_CLOCK_SKEW_CORRECTION, SelectorType.ENV),
+      configFileSelector: (profile) => booleanSelector(profile, CONFIG_DISABLE_CLOCK_SKEW_CORRECTION, SelectorType.CONFIG),
+      default: false
+    };
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/clock-skew-defaults.js
+var DEFAULT_DISABLE_CLOCK_SKEW_CORRECTION;
+var init_clock_skew_defaults = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/clock-skew-defaults.js"() {
+    init_config2();
+    init_clock_skew_node_config();
+    DEFAULT_DISABLE_CLOCK_SKEW_CORRECTION = loadConfig(NODE_DISABLE_CLOCK_SKEW_CORRECTION_CONFIG_OPTIONS);
   }
 });
 
@@ -33909,10 +33973,15 @@ __export(httpAuthSchemes_exports, {
   resolveAwsSdkSigV4Config: () => resolveAwsSdkSigV4Config,
   validateSigningProperties: () => validateSigningProperties
 });
+var resolveAwsSdkSigV4Config, resolveAWSSDKSigV4Config;
 var init_httpAuthSchemes2 = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/index.js"() {
     init_aws_sdk();
     init_getBearerTokenEnvKey();
+    init_aws_sdk();
+    init_clock_skew_defaults();
+    resolveAwsSdkSigV4Config = bindResolveAwsSdkSigV4Config(DEFAULT_DISABLE_CLOCK_SKEW_CORRECTION);
+    resolveAWSSDKSigV4Config = resolveAwsSdkSigV4Config;
   }
 });
 
@@ -35350,7 +35419,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.33",
+      version: "3.997.36",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -35450,12 +35519,12 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.975.3",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.41",
+        "@aws-sdk/core": "^3.977.1",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.42",
         "@aws-sdk/types": "^3.974.2",
-        "@smithy/core": "^3.29.4",
-        "@smithy/fetch-http-handler": "^5.6.6",
-        "@smithy/node-http-handler": "^4.9.6",
+        "@smithy/core": "^3.29.8",
+        "@smithy/fetch-http-handler": "^5.6.10",
+        "@smithy/node-http-handler": "^4.9.10",
         "@smithy/types": "^4.16.1",
         tslib: "^2.6.2"
       },
@@ -35634,7 +35703,7 @@ function bytesToFloat16(a5, b5) {
 }
 function decodeMap(at, to) {
   const mapDataLength = decodeCount(at, to);
-  if (mapDataLength < 15) {
+  if (mapDataLength < 25) {
     return decodeMapSmall(at, to, mapDataLength);
   }
   return decodeMapLarge(at, to, mapDataLength);
@@ -36339,27 +36408,15 @@ var init_parseCborBody = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/cbor/CborCodec.js
-var CborCodec, CborShapeSerializer, CborShapeDeserializer;
-var init_CborCodec = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/cbor/CborCodec.js"() {
+// node_modules/@smithy/core/dist-es/submodules/cbor/codec-v1/CborShapeSerializer.js
+var CborShapeSerializer;
+var init_CborShapeSerializer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/cbor/codec-v1/CborShapeSerializer.js"() {
     init_protocols();
     init_schema();
     init_serde();
     init_cbor();
     init_parseCborBody();
-    CborCodec = class extends SerdeContext {
-      createSerializer() {
-        const serializer = new CborShapeSerializer();
-        serializer.setSerdeContext(this.serdeContext);
-        return serializer;
-      }
-      createDeserializer() {
-        const deserializer = new CborShapeDeserializer();
-        deserializer.setSerdeContext(this.serdeContext);
-        return deserializer;
-      }
-    };
     CborShapeSerializer = class extends SerdeContext {
       value;
       write(schema, value) {
@@ -36446,6 +36503,17 @@ var init_CborCodec = __esm({
         return buffer;
       }
     };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/cbor/codec-v1/CborShapeDeserializer.js
+var CborShapeDeserializer;
+var init_CborShapeDeserializer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/cbor/codec-v1/CborShapeDeserializer.js"() {
+    init_protocols();
+    init_schema();
+    init_serde();
+    init_cbor();
     CborShapeDeserializer = class extends SerdeContext {
       read(schema, bytes) {
         const data2 = cbor.deserialize(bytes);
@@ -36543,6 +36611,28 @@ var init_CborCodec = __esm({
         } else {
           return value;
         }
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/cbor/CborCodec.js
+var CborCodec;
+var init_CborCodec = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/cbor/CborCodec.js"() {
+    init_protocols();
+    init_CborShapeSerializer();
+    init_CborShapeDeserializer();
+    CborCodec = class extends SerdeContext {
+      createSerializer() {
+        const serializer = new CborShapeSerializer();
+        serializer.setSerdeContext(this.serdeContext);
+        return serializer;
+      }
+      createDeserializer() {
+        const deserializer = new CborShapeDeserializer();
+        deserializer.setSerdeContext(this.serdeContext);
+        return deserializer;
       }
     };
   }
@@ -36968,11 +37058,17 @@ function jsonReviver(key, value, context) {
   if (context?.source) {
     const numericString = context.source;
     if (typeof value === "number") {
-      if (value > Number.MAX_SAFE_INTEGER || value < Number.MIN_SAFE_INTEGER || numericString !== String(value)) {
-        const isFractional = numericString.includes(".");
-        if (isFractional) {
+      const inSafeRange = value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER;
+      if (!inSafeRange || numericString !== String(value)) {
+        if (inSafeRange && /[eE]/.test(numericString) && String(Number(numericString)) === String(value)) {
+          return value;
+        }
+        if (isFractionalNumeric(numericString)) {
           return new NumericValue(numericString, "bigDecimal");
         } else {
+          if (/[eE]/.test(numericString)) {
+            return BigInt(Number(numericString));
+          }
           return BigInt(numericString);
         }
       }
@@ -36980,9 +37076,68 @@ function jsonReviver(key, value, context) {
   }
   return value;
 }
+function isFractionalNumeric(s2) {
+  const dotIndex = s2.indexOf(".");
+  if (dotIndex === -1) {
+    return false;
+  }
+  const eIndex = s2.search(/[eE]/);
+  if (eIndex === -1) {
+    return true;
+  }
+  const fracDigits = eIndex - dotIndex - 1;
+  const exp = parseInt(s2.slice(eIndex + 1), 10);
+  return exp < fracDigits;
+}
 var init_jsonReviver = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReviver.js"() {
     init_serde();
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/needsReviver.js
+function needsReviver(schema) {
+  const ns = NormalizedSchema.of(schema);
+  const raw = ns.getSchema();
+  if (Array.isArray(raw) && ns.isStructSchema()) {
+    if (REVIVER_SYMBOL in raw) {
+      return raw[REVIVER_SYMBOL];
+    }
+    const result = _check(ns, /* @__PURE__ */ new Set());
+    raw[REVIVER_SYMBOL] = result;
+    return result;
+  }
+  return _check(ns, /* @__PURE__ */ new Set());
+}
+function _check(ns, seen) {
+  const raw = ns.getSchema();
+  if (seen.has(raw)) {
+    return false;
+  }
+  seen.add(raw);
+  if (ns.isBigIntegerSchema() || ns.isBigDecimalSchema()) {
+    return true;
+  }
+  if (ns.isStructSchema()) {
+    for (const [, memberSchema] of ns.structIterator()) {
+      if (_check(memberSchema, seen)) {
+        return true;
+      }
+    }
+  } else if (ns.isListSchema() || ns.isMapSchema()) {
+    if (_check(ns.getValueSchema(), seen)) {
+      return true;
+    }
+  } else if (ns.isDocumentSchema()) {
+    return true;
+  }
+  return false;
+}
+var REVIVER_SYMBOL;
+var init_needsReviver = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/needsReviver.js"() {
+    init_schema();
+    REVIVER_SYMBOL = /* @__PURE__ */ Symbol.for("@aws-sdk/reviver");
   }
 });
 
@@ -36996,26 +37151,67 @@ var init_common = __esm({
   }
 });
 
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/detectBufferParsing.js
+function detectBufferParsing() {
+  if (canParseBuffer === void 0) {
+    try {
+      if (typeof Buffer !== "function") {
+        canParseBuffer = false;
+      } else {
+        const result = JSON.parse(Buffer.from([123, 125]));
+        canParseBuffer = result !== null && typeof result === "object";
+      }
+    } catch {
+      canParseBuffer = false;
+    }
+  }
+  return canParseBuffer;
+}
+var canParseBuffer;
+var init_detectBufferParsing = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/detectBufferParsing.js"() {
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/parseJsonBody.js
-var parseJsonBody, parseJsonErrorBody, findKey, sanitizeErrorCode, loadRestJsonErrorCode, loadJsonRpcErrorCode, loadErrorCode;
+async function parseJsonBody(streamBody, context, schema) {
+  let parsingInput;
+  if (detectBufferParsing() && typeof streamBody?.[Symbol.asyncIterator] === "function") {
+    const buffer = await collectBody(streamBody, context);
+    if (typeof Buffer === "function") {
+      if (Buffer.isBuffer(buffer)) {
+        parsingInput = buffer;
+      } else {
+        parsingInput = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      }
+    }
+  }
+  if (!parsingInput) {
+    parsingInput = await collectBodyString(streamBody, context);
+  }
+  if (parsingInput.length === 0) {
+    return {};
+  }
+  const reviver = schema && needsReviver(schema) ? jsonReviver : void 0;
+  try {
+    return JSON.parse(parsingInput, reviver);
+  } catch (e5) {
+    if (e5?.name === "SyntaxError") {
+      Object.defineProperty(e5, "$responseBodyText", {
+        value: typeof parsingInput === "string" ? parsingInput : parsingInput.toString("utf8")
+      });
+    }
+    throw e5;
+  }
+}
+var parseJsonErrorBody, findKey, sanitizeErrorCode, loadRestJsonErrorCode, loadJsonRpcErrorCode, loadErrorCode;
 var init_parseJsonBody = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/parseJsonBody.js"() {
+    init_protocols();
     init_common();
-    parseJsonBody = (streamBody, context) => collectBodyString(streamBody, context).then((encoded) => {
-      if (encoded.length) {
-        try {
-          return JSON.parse(encoded);
-        } catch (e5) {
-          if (e5?.name === "SyntaxError") {
-            Object.defineProperty(e5, "$responseBodyText", {
-              value: encoded
-            });
-          }
-          throw e5;
-        }
-      }
-      return {};
-    });
+    init_detectBufferParsing();
+    init_jsonReviver();
+    init_needsReviver();
     parseJsonErrorBody = async (errorBody, context) => {
       const value = await parseJsonBody(errorBody, context);
       value.message = value.message ?? value.Message;
@@ -37071,6 +37267,15 @@ var init_parseJsonBody = __esm({
   }
 });
 
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/writeKey.js
+function writeKey(obj) {
+  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
+}
+var init_writeKey = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/writeKey.js"() {
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/JsonShapeDeserializer.js
 var JsonShapeDeserializer;
 var init_JsonShapeDeserializer = __esm({
@@ -37082,7 +37287,9 @@ var init_JsonShapeDeserializer = __esm({
     init_ConfigurableSerdeContext();
     init_UnionSerde();
     init_jsonReviver();
+    init_needsReviver();
     init_parseJsonBody();
+    init_writeKey();
     JsonShapeDeserializer = class extends SerdeContextConfig {
       settings;
       constructor(settings) {
@@ -37090,7 +37297,8 @@ var init_JsonShapeDeserializer = __esm({
         this.settings = settings;
       }
       async read(schema, data2) {
-        return this._read(schema, typeof data2 === "string" ? JSON.parse(data2, jsonReviver) : await parseJsonBody(data2, this.serdeContext));
+        const reviver = needsReviver(schema) ? jsonReviver : void 0;
+        return this._read(schema, typeof data2 === "string" ? JSON.parse(data2, reviver) : await parseJsonBody(data2, this.serdeContext, schema));
       }
       readObject(schema, data2) {
         return this._read(schema, data2);
@@ -37150,6 +37358,9 @@ var init_JsonShapeDeserializer = __esm({
             const mapMember = ns.getValueSchema();
             const out = {};
             for (const _k in value) {
+              if (_k === "__proto__") {
+                writeKey(out);
+              }
               out[_k] = this._read(mapMember, value[_k]);
             }
             return out;
@@ -37208,6 +37419,9 @@ var init_JsonShapeDeserializer = __esm({
           if (isObject) {
             const out = Array.isArray(value) ? [] : {};
             for (const k5 in value) {
+              if (k5 === "__proto__") {
+                writeKey(out);
+              }
               const v = value[k5];
               if (v instanceof NumericValue) {
                 out[k5] = v;
@@ -37288,6 +37502,7 @@ var init_JsonShapeSerializer = __esm({
     init_serde();
     init_ConfigurableSerdeContext();
     init_jsonReplacer();
+    init_writeKey();
     JsonShapeSerializer = class extends SerdeContextConfig {
       settings;
       buffer;
@@ -37349,6 +37564,9 @@ var init_JsonShapeSerializer = __esm({
               const { $unknown } = record;
               if (Array.isArray($unknown)) {
                 const [k5, v] = $unknown;
+                if (k5 === "__proto__") {
+                  writeKey(out);
+                }
                 out[k5] = this._write(15, v);
               }
             } else if (typeof record.__type === "string") {
@@ -37380,6 +37598,9 @@ var init_JsonShapeSerializer = __esm({
             for (const _k in value) {
               const _v = value[_k];
               if (sparse || _v != null) {
+                if (_k === "__proto__") {
+                  writeKey(out);
+                }
                 out[_k] = this._write(mapMember, _v);
               }
             }
@@ -37445,6 +37666,9 @@ var init_JsonShapeSerializer = __esm({
             const out = Array.isArray(value) ? [] : {};
             for (const k5 in value) {
               const v = value[k5];
+              if (k5 === "__proto__") {
+                writeKey(out);
+              }
               if (v instanceof NumericValue) {
                 this.useReplacer = true;
                 out[k5] = v;
@@ -37861,6 +38085,9 @@ var require_dist_cjs9 = __commonJS({
         return xmlText += !hasChildren ? "/>" : `>${this.children.map((c5) => c5.toString()).join("")}</${this.name}>`;
       }
     };
+    function writeKey2(obj) {
+      Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
+    }
     function parseXML3(xml) {
       const state2 = new AwsXmlParser(xml);
       return state2.parse();
@@ -37942,7 +38169,7 @@ var require_dist_cjs9 = __commonJS({
           tag2 += p3.x[p3.i++];
         }
         let hasAttrs = false;
-        const attrs = /* @__PURE__ */ Object.create(null);
+        const attrs = {};
         while (p3.i < p3.z) {
           p3.trim();
           if (">/".includes(p3.x[p3.i])) {
@@ -37958,6 +38185,9 @@ var require_dist_cjs9 = __commonJS({
           }
           ++p3.i;
           p3.trim();
+          if (name === "__proto__") {
+            writeKey2(attrs);
+          }
           attrs[name] = p3.readAttrValue();
           hasAttrs = true;
         }
@@ -37970,7 +38200,6 @@ var require_dist_cjs9 = __commonJS({
             throw new Error("@aws-sdk XML parse error: expected > at the end of self-closing tag.");
           }
           ++p3.i;
-          Object.setPrototypeOf(attrs, Object.prototype);
           return { tag: tag2, value: hasAttrs ? attrs : "" };
         }
         if (p3.x[p3.i] !== ">") {
@@ -38022,7 +38251,7 @@ var require_dist_cjs9 = __commonJS({
           }
           return { tag: tag2, value: text };
         }
-        const obj = /* @__PURE__ */ Object.create(null);
+        const obj = {};
         for (const text of textParts) {
           if (text.trim() === "" && text.includes("\n")) {
             continue;
@@ -38030,6 +38259,9 @@ var require_dist_cjs9 = __commonJS({
           obj["#text"] = "#text" in obj ? obj["#text"] + text : text;
         }
         for (const child of childTags) {
+          if (child.tag === "__proto__") {
+            writeKey2(obj);
+          }
           if (child.tag in obj) {
             if (Array.isArray(obj[child.tag])) {
               obj[child.tag].push(child.value);
@@ -38041,9 +38273,11 @@ var require_dist_cjs9 = __commonJS({
           }
         }
         for (const [k5, v] of Object.entries(attrs)) {
+          if (k5 === "__proto__") {
+            writeKey2(obj);
+          }
           obj[k5] = v;
         }
-        Object.setPrototypeOf(obj, Object.prototype);
         return { tag: tag2, value: obj };
       }
       static ENTITIES = {
@@ -38100,6 +38334,7 @@ var init_XmlShapeDeserializer = __esm({
     init_serde();
     init_ConfigurableSerdeContext();
     init_UnionSerde();
+    init_writeKey();
     XmlShapeDeserializer = class extends SerdeContextConfig {
       settings;
       stringDeserializer;
@@ -38176,6 +38411,9 @@ var init_XmlShapeDeserializer = __esm({
             for (const entry of entries) {
               const key = entry[keyProperty];
               const value2 = entry[valueProperty];
+              if (key === "__proto__") {
+                writeKey(buffer);
+              }
               buffer[key] = this.readSchema(memberNs, value2);
             }
             return buffer;
@@ -48476,7 +48714,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1090.0";
+    var version = "3.1095.0";
     var packageInfo = {
       version
     };
