@@ -225,7 +225,7 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
         run: |
-          prev_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
+          prev_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
           echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
           # The candidate's git sha is the sha-<gitsha> tag on the resolved
           # digest (the head of the classification diff). Empty -> unclassified.
@@ -618,7 +618,7 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
         run: |
-          prev_sha=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
+          prev_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
           echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
           # The candidate's git sha is the sha-<gitsha> tag on the resolved
           # digest (the head of the classification diff). Empty -> unclassified.

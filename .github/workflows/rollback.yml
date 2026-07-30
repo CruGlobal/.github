@@ -204,7 +204,7 @@ jobs:
         id: rollback-safety
         continue-on-error: true
         run: |
-          items=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
           # The release this rollback takes production OFF -- the `to` end of the
           # changelog link (revision name preferred, Sha for rows that predate
           # named revisions). Empty -> the Slack message keeps the run URL.
@@ -470,7 +470,7 @@ jobs:
         id: rollback-safety
         continue-on-error: true
         run: |
-          items=$(curl -fsS "https://93sm7cu7ne.execute-api.us-east-1.amazonaws.com/prod/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
           # The release this rollback takes production OFF -- the `to` end of the
           # changelog link (revision name preferred, Sha for rows that predate
           # named revisions). Empty -> the Slack message keeps the run URL.
