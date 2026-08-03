@@ -17,6 +17,7 @@ import {
   findAppContainer,
   isAppContainer,
   isDigestRef,
+  isPlaceholderImage,
   isTagRef,
   listDockerImages,
   parseImageRef,
@@ -120,6 +121,20 @@ describe('app container heuristics', () => {
     const ingress = { image: 'placeholder:latest', ports: [{ containerPort: 3000 }] }
     const containers = [sidecar, ingress]
     expect(findAppContainer(containers, repo)).toBe(ingress)
+  })
+})
+
+describe('never-deployed placeholder image', () => {
+  it('recognises the Cloud Run hello image, tagged or bare', () => {
+    expect(isPlaceholderImage('us-docker.pkg.dev/cloudrun/container/hello')).toBe(true)
+    expect(isPlaceholderImage('us-docker.pkg.dev/cloudrun/container/hello:latest')).toBe(true)
+    expect(isPlaceholderImage('us-docker.pkg.dev/cloudrun/container/hello@sha256:aaa')).toBe(true)
+  })
+
+  it('does not flag real app images', () => {
+    expect(isPlaceholderImage(`${HOST}/cru-shared-artifacts/hoax/hoax@sha256:aaa`)).toBe(false)
+    expect(isPlaceholderImage('gcr.io/datadoghq/agent:latest')).toBe(false)
+    expect(isPlaceholderImage(null)).toBe(false)
   })
 })
 

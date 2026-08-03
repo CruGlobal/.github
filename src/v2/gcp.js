@@ -64,6 +64,17 @@ export function findAppContainer (containers, repo) {
   )
 }
 
+// Cloud Run's own "hello" placeholder image, e.g.
+// us-docker.pkg.dev/cloudrun/container/hello[:latest]. Terraform boots a NEW
+// service/job on it, so a container still running it has never been deployed
+// and carries no resolvable app image — the Cloud Run equivalent of ECS's and
+// Lambda's `scratch` placeholder.
+const CLOUDRUN_PLACEHOLDER_REPO = 'us-docker.pkg.dev/cloudrun/container/'
+
+export function isPlaceholderImage (image) {
+  return image != null && parseImageRef(image).name.startsWith(CLOUDRUN_PLACEHOLDER_REPO)
+}
+
 // gaxios retry options for the Artifact Registry REST calls. The AWS SDK clients
 // already retry (maxAttempts 5, standard mode); the GCP REST path did NOT, and a
 // transient Artifact Registry 503 failed a pilot rollback at the resolve step

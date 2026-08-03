@@ -1,13 +1,23 @@
 import * as core from '@actions/core'
-import { cloudrunListServices } from '../gcp'
+import { cloudrunListJobs, cloudrunListServices } from '../gcp'
 import {
   findAppContainer,
   isDigestRef,
+  isPlaceholderImage,
   parseImageRef,
   resolveTag,
   sharedRegistryImage,
   tagsForDigest
 } from './gcp'
+
+// The database-migrations job (see src/v2/deploy-cloudrun.js) runs the app
+// image too, but it is refreshed *before* the rest of a deploy and executed;
+// it is never a witness of what is currently serving. Skip it when reading a
+// running image back out of an environment.
+const DB_MIGRATE_JOB = 'db-migrate'
+
+// A job's/service's `name` is a full resource path (projects/.../<kind>/<name>).
+const shortName = resource => resource.split('/').pop()
 
 // Resolve a Cloud Run image to a digest reference in the shared registry.
 //
@@ -41,15 +51,37 @@ async function resolveRunningImage (projectName, runtimeProject) {
   let runningImage
   for (const service of services) {
     const container = findAppContainer(service.template?.containers ?? [], repo)
-    if (container?.image) {
+    if (container?.image && !isPlaceholderImage(container.image)) {
       runningImage = container.image
       core.info(`app container image in ${service.name}: ${runningImage}`)
       break
     }
   }
 
+  // Jobs-only apps (no Cloud Run services at all) still carry the deployed app
+  // image on their jobs — deploy-cloudrun.js updates every job's image. Fall
+  // back to them so such an app can be resolved (and therefore promoted).
+  // Services stay first priority: for a service-ful app nothing changes.
   if (!runningImage) {
-    throw new Error(`Could not find a running app container image in project ${runtimeProject}`)
+    const jobs = await cloudrunListJobs(runtimeProject)
+    core.info(`jobs in ${runtimeProject}: ${JSON.stringify(jobs.map(j => j.name))}`)
+    for (const job of jobs) {
+      if (shortName(job.name) === DB_MIGRATE_JOB) continue
+      const container = findAppContainer(job.template?.template?.containers ?? [], repo)
+      if (container?.image && !isPlaceholderImage(container.image)) {
+        runningImage = container.image
+        core.info(`app container image in ${job.name}: ${runningImage}`)
+        break
+      }
+    }
+  }
+
+  if (!runningImage) {
+    throw new Error(
+      `Could not find a running app container image in project ${runtimeProject} ` +
+      '(checked Cloud Run services and jobs; any job still on the Cloud Run placeholder image ' +
+      'has never been deployed)'
+    )
   }
 
   if (isDigestRef(runningImage)) {
