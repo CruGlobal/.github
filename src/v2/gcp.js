@@ -95,8 +95,11 @@ const GAXIOS_RETRY = {
 }
 
 // Obtain an authenticated Google API client (ADC / workload-identity on the
-// runner). Split out so tests can mock google-auth-library.
-async function authClient () {
+// runner). Split out so tests can mock google-auth-library. Exported for
+// src/v2/oci.js, which talks to a different Google endpoint family (the Docker
+// registry API on *-docker.pkg.dev, and the GCS JSON API) with the same
+// credentials and scope.
+export async function authClient () {
   const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] })
   return auth.getClient()
 }

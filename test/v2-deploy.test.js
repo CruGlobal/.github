@@ -12,7 +12,16 @@ vi.mock('../src/gcp.js', () => ({
   updateService: vi.fn()
 }))
 
+// Stub only the publish call; signinBucket stays real so the detection path
+// (Terraform's IAP_SIGNIN_BUCKET on the app container) is exercised for real.
+// Covered in depth by test/v2-signin.test.js.
+vi.mock('../src/v2/signin.js', async importOriginal => ({
+  ...(await importOriginal()),
+  publishSigninPage: vi.fn()
+}))
+
 import * as gcp from '../src/gcp.js'
+import { publishSigninPage } from '../src/v2/signin.js'
 import { deployCloudRun } from '../src/v2/deploy-cloudrun.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
@@ -43,8 +52,20 @@ function jobs () {
   ]
 }
 
+// A service whose app container carries Terraform's IAP_SIGNIN_BUCKET — the
+// signal that this environment expects a sign-in page.
+function serviceWithSignin () {
+  const svc = service()
+  svc.template.containers[0].env.push({ name: 'IAP_SIGNIN_BUCKET', value: BUCKET })
+  return svc
+}
+
+const BUCKET = 'hoax-stage-1234-iap-signin'
+
 beforeEach(() => {
   for (const fn of Object.values(gcp)) fn.mockReset?.()
+  publishSigninPage.mockReset()
+  publishSigninPage.mockResolvedValue({ published: true, bucket: BUCKET, objectKey: 'signin', bytes: 42 })
 })
 
 describe('deployCloudRun digest invariant', () => {
@@ -93,7 +114,12 @@ describe('deployCloudRun orchestration', () => {
     ])
     expect(containers[1]).toEqual({ name: 'datadog', image: 'gcr.io/datadoghq/agent:latest' })
 
-    expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-web'] })
+    expect(result).toEqual({
+      deployedImage: IMAGE,
+      services: ['hoax-web'],
+      // No IAP_SIGNIN_BUCKET on this service -> nothing to publish.
+      signin: { published: false }
+    })
   })
 
   it('aborts the deploy without touching services when the migrate job fails', async () => {
@@ -119,6 +145,80 @@ describe('deployCloudRun orchestration', () => {
     expect(gcp.updateJob).not.toHaveBeenCalled()
     expect(gcp.updateService).toHaveBeenCalledTimes(1)
     expect(result.services).toEqual(['hoax-web'])
+  })
+})
+
+describe('deployCloudRun publishes the IAP sign-in page', () => {
+  beforeEach(() => {
+    gcp.cloudrunListJobs.mockResolvedValue([])
+    gcp.listSecrets.mockResolvedValue([])
+    gcp.updateService.mockResolvedValue({})
+  })
+
+  it('does nothing for an app with no sign-in bucket', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service()])
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    // Detection is bucket-first precisely so most apps never pay a registry read.
+    expect(publishSigninPage).not.toHaveBeenCalled()
+    expect(result.signin).toEqual({ published: false })
+  })
+
+  it('publishes the page carried by the deployed image', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([serviceWithSignin()])
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET })
+    expect(result.signin).toEqual({ published: true, bucket: BUCKET, objectKey: 'signin', bytes: 42 })
+  })
+
+  it('publishes after the services are updated', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([serviceWithSignin()])
+
+    await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    // The page is the last thing to move: a deploy that fails partway must not
+    // leave a new sign-in page in front of an old app.
+    expect(publishSigninPage.mock.invocationCallOrder[0]).toBeGreaterThan(
+      gcp.updateService.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('reads the bucket from the service as it was before the update', async () => {
+    // The rewritten container drops plain env for secrets, so resolution has to
+    // happen against the pre-update spec.
+    gcp.cloudrunListServices.mockResolvedValue([serviceWithSignin()])
+    gcp.listSecrets.mockResolvedValue(SECRETS)
+
+    await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET })
+  })
+
+  it('does not fail the deploy when the page cannot be published', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([serviceWithSignin()])
+    publishSigninPage.mockRejectedValue(new Error('403 storage.objects.create denied'))
+
+    // A cosmetic, pre-auth page must never take down a production promote.
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(result.deployedImage).toBe(IMAGE)
+    expect(result.services).toEqual(['hoax-web'])
+    expect(result.signin.published).toBe(false)
+  })
+
+  it('does not fail the deploy when the image carries no page', async () => {
+    // The normal case when rolling back to a release built before the image
+    // carried the page.
+    gcp.cloudrunListServices.mockResolvedValue([serviceWithSignin()])
+    publishSigninPage.mockResolvedValue({ published: false, reason: 'no-label' })
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(result.services).toEqual(['hoax-web'])
+    expect(result.signin).toEqual({ published: false, reason: 'no-label' })
   })
 })
 
