@@ -189092,8 +189092,8 @@ var init_AwsQueryProtocol = __esm({
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
         }
-        const shortName = operationSchema.name.split("#")[1] ?? operationSchema.name;
-        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName + "Result" : void 0;
+        const shortName2 = operationSchema.name.split("#")[1] ?? operationSchema.name;
+        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName2 + "Result" : void 0;
         const bytes = await collectBody(response.body, context);
         if (bytes.byteLength > 0) {
           Object.assign(dataObject, await deserializer.read(ns, bytes, awsQueryResultKey));
@@ -221838,6 +221838,11 @@ async function cloudrunListServices(project) {
   const [services] = await client.listServices({ parent: `projects/${project}/locations/${DEFAULT_REGION}` });
   return services;
 }
+async function cloudrunListJobs(project) {
+  const client = new JobsClient();
+  const [jobs] = await client.listJobs({ parent: `projects/${project}/locations/${DEFAULT_REGION}` });
+  return jobs;
+}
 
 // src/v2/gcp.js
 var import_google_auth_library = __toESM(require_src14());
@@ -221874,6 +221879,10 @@ function sharedImageDigest(projectName, digest2) {
 function findAppContainer(containers, repo) {
   if (containers.length === 1) return containers[0];
   return containers.find((c5) => c5.image != null && parseImageRef(c5.image).name === repo) ?? containers.find((c5) => (c5.ports?.length ?? 0) > 0) ?? null;
+}
+var CLOUDRUN_PLACEHOLDER_REPO = "us-docker.pkg.dev/cloudrun/container/";
+function isPlaceholderImage(image) {
+  return image != null && parseImageRef(image).name.startsWith(CLOUDRUN_PLACEHOLDER_REPO);
 }
 var GAXIOS_RETRY = {
   retry: true,
@@ -221935,6 +221944,8 @@ async function tagsForDigest(projectName, digest2) {
 }
 
 // src/v2/resolve-cloudrun.js
+var DB_MIGRATE_JOB = "db-migrate";
+var shortName = (resource) => resource.split("/").pop();
 async function resolveCloudRun({ mode, projectName, tag: tag2, runtimeProject }) {
   if (mode === "tag") {
     info(`resolving tag "${tag2}" for ${projectName} in the shared registry`);
@@ -221955,14 +221966,29 @@ async function resolveRunningImage(projectName, runtimeProject) {
   let runningImage;
   for (const service of services) {
     const container = findAppContainer(service.template?.containers ?? [], repo);
-    if (container?.image) {
+    if (container?.image && !isPlaceholderImage(container.image)) {
       runningImage = container.image;
       info(`app container image in ${service.name}: ${runningImage}`);
       break;
     }
   }
   if (!runningImage) {
-    throw new Error(`Could not find a running app container image in project ${runtimeProject}`);
+    const jobs = await cloudrunListJobs(runtimeProject);
+    info(`jobs in ${runtimeProject}: ${JSON.stringify(jobs.map((j5) => j5.name))}`);
+    for (const job of jobs) {
+      if (shortName(job.name) === DB_MIGRATE_JOB) continue;
+      const container = findAppContainer(job.template?.template?.containers ?? [], repo);
+      if (container?.image && !isPlaceholderImage(container.image)) {
+        runningImage = container.image;
+        info(`app container image in ${job.name}: ${runningImage}`);
+        break;
+      }
+    }
+  }
+  if (!runningImage) {
+    throw new Error(
+      `Could not find a running app container image in project ${runtimeProject} (checked Cloud Run services and jobs; any job still on the Cloud Run placeholder image has never been deployed)`
+    );
   }
   if (isDigestRef(runningImage)) {
     const { digest: digest2 } = parseImageRef(runningImage);
