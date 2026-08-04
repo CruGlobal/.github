@@ -1,0 +1,157 @@
+name: dependabot-auto-merge-security-patch
+
+# Reusable workflow: the STRICT Dependabot auto-merge tier for
+# gem-security repos. Auto-approves and enables auto-merge ONLY when a
+# Dependabot PR is BOTH:
+#
+#   1. driven by an OPEN security advisory (alert-state == OPEN via
+#      fetch-metadata's alert-lookup; FIXED/DISMISSED alerts do not
+#      qualify — for grouped PRs alert-state is undocumented upstream
+#      and in practice reflects a member dependency's alert), AND
+#   2. patch-level (`version-update:semver-patch` — for grouped PRs
+#      this is the HIGHEST bump in the group, so a group containing a
+#      minor or major never qualifies).
+#
+# Everything else — routine version bumps, minor/major security fixes —
+# is left for human review, and the disarm step withdraws any
+# previously-enabled auto-merge if a PR loses eligibility.
+#
+# This is deliberately stricter than dependabot-auto-merge.yml (the
+# fleet default, which merges any-severity security plus patch/minor
+# version bumps). Repos handling gem security updates opt into this
+# variant on an allowlist basis.
+#
+# Allowlisted repos MUST also enforce, via ruleset on the default
+# branch: a required pull request with >= 1 approving review, "Dismiss
+# stale pull request approvals when new commits are pushed", the
+# required status checks, and "Allow auto-merge" on the repo. Review
+# dismissal must not be restricted away from github-actions[bot]. The
+# stale-approval dismissal matters: the disarm step below only runs on
+# Dependabot-triggered events (the job guard skips human-triggered
+# synchronize runs), so without it a human push to an armed Dependabot
+# branch would keep the bot approval and merge unreviewed code.
+#
+# Alert lookup requires more than the default GITHUB_TOKEN: this
+# workflow mints a GitHub App installation token, scoped down to
+# Dependabot-alerts read. The App must be installed on the calling
+# repository with "Dependabot alerts: read" permission, and the App
+# credentials must be available as DEPENDABOT secrets in the caller
+# (Dependabot-triggered runs read the Dependabot secrets context, not
+# the Actions one).
+#
+# If token minting or alert lookup fails, the job FAILS (visibly red) —
+# it never falls back to merging without alert evidence.
+#
+# Example caller (in the app repo, .github/workflows/dependabot-auto-merge.yml):
+#
+#   name: dependabot-auto-merge
+#   on:
+#     pull_request:
+#       types: [opened, reopened, synchronize]
+#   permissions:
+#     contents: write
+#     pull-requests: write
+#   jobs:
+#     auto-merge:
+#       uses: CruGlobal/.github/.github/workflows/dependabot-auto-merge-security-patch.yml@<release tag>
+#       secrets:
+#         AUTOMERGE_APP_ID: ${{ secrets.AUTOMERGE_APP_ID }}
+#         AUTOMERGE_APP_PRIVATE_KEY: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+on:
+  workflow_call:
+    secrets:
+      AUTOMERGE_APP_ID:
+        description: GitHub App ID used to mint the alert-lookup token
+        required: true
+      AUTOMERGE_APP_PRIVATE_KEY:
+        description: Private key for the alert-lookup GitHub App
+        required: true
+
+# Cap only — a called workflow cannot elevate GITHUB_TOKEN; the caller
+# must grant these (see the example caller above).
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Act only on runs Dependabot itself triggered (the only runs where
+    # Dependabot secrets populate), on Dependabot-authored PRs.
+    if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint App token for alert lookup
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+          permission-vulnerability-alerts: read
+
+      - name: Read Dependabot metadata (with alert lookup)
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          alert-lookup: true
+          github-token: ${{ steps.app-token.outputs.token }}
+
+      # Strict conjunctive gate: an OPEN advisory AND patch-level. For
+      # grouped PRs, update-type reflects the highest semver bump in
+      # the group, so mixed groups fail closed into the review tier.
+      - name: Evaluate eligibility
+        id: gate
+        env:
+          ALERT_STATE: ${{ steps.meta.outputs.alert-state }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+        run: |
+          if [ "$ALERT_STATE" = "OPEN" ] \
+             && [ "$UPDATE_TYPE" = "version-update:semver-patch" ]; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "alert-state=$ALERT_STATE"
+          echo "update-type=$UPDATE_TYPE"
+
+      - name: Approve PR
+        if: ${{ steps.gate.outputs.eligible == 'true' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # gh pr review runs as github-actions[bot], a different identity
+        # from dependabot[bot], so the approval satisfies any
+        # "no self-approval" ruleset requirement. Skip if already
+        # approved so Dependabot rebases don't stack approvals.
+        run: |
+          if [ "$(gh pr view "$PR_URL" --json reviewDecision --jq .reviewDecision)" != "APPROVED" ]; then
+            gh pr review --approve "$PR_URL"
+          fi
+
+      - name: Enable squash auto-merge
+        if: ${{ steps.gate.outputs.eligible == 'true' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --squash --auto "$PR_URL"
+
+      # Auto-merge must not be a one-way ratchet: if a PR was armed on a
+      # previous run and no longer qualifies, withdraw the arming and
+      # the bot approval so it waits for a human.
+      - name: Disarm ineligible PR
+        if: ${{ steps.gate.outputs.eligible == 'false' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge --disable-auto "$PR_URL" || true
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id' \
+          | while read -r review_id; do
+              gh api -X PUT \
+                "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${review_id}/dismissals" \
+                -f message="No longer a patch-level security update; auto-merge withdrawn for human review" \
+                -f event="DISMISS"
+            done
