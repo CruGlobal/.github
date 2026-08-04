@@ -12,6 +12,17 @@ name: Promote
 # provider + type + per-env project-ids. Authz lives in `lookup`, which every
 # provider job `needs`, so it ALWAYS passes before any provider job mutates
 # production. Provider jobs are gated on `needs.lookup.outputs.provider`.
+#
+# Stage-less apps (`RcMode` "verify" in app-info) reach production by the same
+# route with ONE substitution: there is no running release-candidate service to
+# read the promotable digest off, so the candidate comes from the DEPLOYMENT
+# LEDGER's release-candidate head -- the row deploy-candidate's verification run
+# writes (CruGlobal/.github#441). Everything after the resolve step is shared:
+# same release-name derivation, same rollback-safety advisory, same production
+# deploy, same release tag, same ledger write. Promoting a stage-less app needs
+# CruGlobal/.github#441 and CruGlobal/cru-terraform-modules#753 applied first --
+# without them nothing writes the ledger row this reads and no app-info item
+# carries `RcMode` at all.
 
 on:
   workflow_call:
@@ -49,6 +60,10 @@ jobs:
       type: ${{ steps.app-info-rc.outputs.type }}
       rc-project-id: ${{ steps.app-info-rc.outputs.project-id }}
       prod-project-id: ${{ steps.app-info-prod.outputs.project-id }}
+      # How this app's release candidate was gated: "deploy" (a real stage
+      # deploy -- the default, and every app that has a stage environment) or
+      # "verify" (stage-less; the candidate exists only in the ledger).
+      rc-mode: ${{ steps.app-info-rc.outputs.rc-mode }}
       slack-channel: ${{ steps.app-info-prod.outputs.slack-channel }}
       migrations-path: ${{ steps.app-info-prod.outputs.migrations-path }}
       migrations: ${{ steps.app-info-prod.outputs.migrations }}
@@ -112,13 +127,35 @@ jobs:
           provider=$(echo "$item" | jq -r '.Provider.S // empty')
           type=$(echo "$item" | jq -r '.Type.S // empty')
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
+          # RcMode absent = "deploy". Terraform omits the attribute on the
+          # default, so every pre-existing app item reads as a stage deploy
+          # without being rewritten. Read from the release-candidate (legacy
+          # `staging`) item, which is where the app's module writes it — for a
+          # stage-less app that item exists ONLY to carry this gate's
+          # configuration (cru-terraform-modules#753); nothing runs there.
+          rc_mode=$(echo "$item" | jq -r '.RcMode.S // "deploy"')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
           esac
+          # Validate the gate here, in the one job that reads app-info and the
+          # one that always runs, so a misconfigured app fails before anything
+          # touches production — same placement and reasoning as
+          # deploy-candidate's lookup.
+          case "$rc_mode" in
+            deploy) ;;
+            verify)
+              if [ "$provider" != "aws" ]; then
+                echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME); stage-less candidate resolution is implemented for the ECR path only."
+                exit 1
+              fi
+              ;;
+            *) echo "::error::unsupported RcMode '$rc_mode' for $PROJECT_NAME (expected deploy or verify)"; exit 1 ;;
+          esac
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       - name: Look up app info (production)
@@ -584,14 +621,91 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
-      - name: Resolve running release-candidate image
+      # --- Stage-less candidate resolution (RcMode "verify" only) -----------
+      # A stage-less app has no running release-candidate service, so "what is
+      # the candidate?" cannot be asked of an environment. It is asked of the
+      # LEDGER instead: deploy-candidate's verification run writes the SAME
+      # Action "deploy" / Environment "release-candidate" row a stage deploy
+      # writes (plus an RcMode "verify" marker), so the ledger's
+      # release-candidate head IS this app's candidate. See CruGlobal/.github#441.
+      #
+      # Newest-first, and specifically the newest row CARRYING A DIGEST — the
+      # same defensive select the rollback-safety advisory uses to skip rows
+      # without its flag, so a digest-less event can never resolve into an empty
+      # tag and silently promote the wrong thing.
+      #
+      # LOAD-BEARING, unlike every other deploys.cru.org read in this file: this
+      # one decides what reaches production, so it FAILS the promote instead of
+      # degrading to a warning. Fail-closed is the right direction — cru-app-info
+      # being unreachable is itself a reason not to be promoting right now. (A
+      # direct dynamodb:Query would not depend on the API at all, matching the
+      # app-info reads above, but the deploy roles hold only PutItem on the
+      # ledger; worth revisiting together if this read proves flaky.)
+      - name: Resolve candidate from ledger (stage-less)
+        id: ledger-candidate
+        if: needs.lookup.outputs.rc-mode == 'verify'
+        run: |
+          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=release-candidate&limit=10" | jq -c '.Items // []') || {
+            echo "::error::could not read the deployment ledger (deploys.cru.org) for $PROJECT_NAME; the app is stage-less, so the ledger is the only record of its release candidate."
+            exit 1
+          }
+          head=$(echo "$items" | jq -c 'map(select(.Digest != null)) | .[0] // empty')
+          if [ -z "$head" ]; then
+            echo "::error::no release-candidate ledger row with a digest for $PROJECT_NAME; verify a candidate via deploy-candidate (stage-less verify mode) before promoting."
+            exit 1
+          fi
+          revision=$(echo "$head" | jq -r '.Revision // empty')
+          digest=$(echo "$head" | jq -r '.Digest // empty')
+          if [ -z "$revision" ]; then
+            echo "::error::$PROJECT_NAME's release-candidate ledger head (digest $digest) carries no Revision, so there is no candidate tag to resolve."
+            exit 1
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Stage-less candidate::$PROJECT_NAME's verified release candidate is $revision ($digest), per the deployment ledger."
+
+      # One resolve step, two modes — so that everything below it is
+      # mode-agnostic. A normal app resolves the image RUNNING in
+      # release-candidate; a stage-less app resolves the candidate TAG the
+      # ledger just named. Both are the same registry round trip and yield the
+      # same `image` / `digest` / `tags` outputs, which is what lets the release
+      # derivation, the rollback-safety baseline, the deploy, the release tag
+      # and the ledger write all stay untouched. For a non-verify app these
+      # expressions evaluate to exactly the previous inputs (mode environment,
+      # environment release-candidate, no tag).
+      #
+      # Each condition is written so the NON-EMPTY value sits on its truthy
+      # side. `a && '' || b` does not mean "empty when a": the empty string is
+      # falsy, so `||` takes over and yields b. Hence the inverted test on
+      # `environment` rather than a matching one.
+      - name: Resolve release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
         with:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}
-          mode: environment
-          environment: release-candidate
+          mode: ${{ needs.lookup.outputs.rc-mode == 'verify' && 'tag' || 'environment' }}
+          environment: ${{ needs.lookup.outputs.rc-mode != 'verify' && 'release-candidate' || '' }}
+          tag: ${{ needs.lookup.outputs.rc-mode == 'verify' && steps.ledger-candidate.outputs.revision || '' }}
+
+      # The bytes that passed the gate must be the bytes that promote. In
+      # environment mode the running service is itself the proof of which digest
+      # was gated. In tag mode the tag is a mutable pointer, so re-resolving it
+      # could in principle land on a digest that was never verified (a rebuilt
+      # candidate reusing the tag). Compare against the digest the ledger
+      # recorded AT VERIFICATION TIME and refuse if they have diverged.
+      - name: Confirm candidate digest is unchanged (stage-less)
+        if: needs.lookup.outputs.rc-mode == 'verify'
+        env:
+          LEDGER_DIGEST: ${{ steps.ledger-candidate.outputs.digest }}
+          RESOLVED_DIGEST: ${{ steps.resolve.outputs.digest }}
+          REVISION: ${{ steps.ledger-candidate.outputs.revision }}
+        run: |
+          if [ "$LEDGER_DIGEST" != "$RESOLVED_DIGEST" ]; then
+            echo "::error title=Candidate digest moved::$PROJECT_NAME's tag $REVISION now resolves to $RESOLVED_DIGEST, but the verified candidate recorded in the ledger was $LEDGER_DIGEST. The tag has been re-pointed since verification; re-verify via deploy-candidate before promoting."
+            exit 1
+          fi
+          echo "::notice title=Candidate digest confirmed::$REVISION still resolves to the verified digest $LEDGER_DIGEST."
 
       - name: Determine release number from candidate
         id: release
