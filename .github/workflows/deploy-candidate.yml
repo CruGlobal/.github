@@ -9,6 +9,13 @@ name: Deploy Candidate
 # gated on `needs.lookup.outputs.provider`. Only one provider job runs per app.
 # The release-candidate-<project> concurrency lock lives on each provider job, so
 # whichever one runs holds the lock (they share the group; only one ever runs).
+#
+# The router has a second axis: `RcMode` from the same app-info item. The default
+# ("deploy", or the attribute absent) takes the provider deploy jobs above. Apps
+# that legitimately cannot have a stage environment carry RcMode "verify" and take
+# `verify-candidate-aws` instead — see "Stage-less apps (verify mode)" in
+# cru-deploy's docs/pipeline-v2.md. Still exactly one job per app: the mode gates
+# are mutually exclusive and share the same concurrency group.
 
 on:
   workflow_call:
@@ -63,6 +70,11 @@ jobs:
       project-id: ${{ steps.app-info.outputs.project-id }}
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
       app-url: ${{ steps.app-info.outputs.app-url }}
+      # Release-candidate gate for this app: "deploy" (stage deploy, the default
+      # and the case for every app that has a stage environment) or "verify"
+      # (stage-less — run VerifyCommand inside the candidate image instead).
+      rc-mode: ${{ steps.app-info.outputs.rc-mode }}
+      verify-command: ${{ steps.app-info.outputs.verify-command }}
     steps:
       # GitHubDeployECS regardless of the app's provider: this runs before the
       # provider/type fan-out, and the role's trust is cru-deploy-repo-scoped,
@@ -99,16 +111,42 @@ jobs:
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
+          # RcMode absent = "deploy". Terraform omits the attribute on the
+          # default, so every pre-existing app item reads as a stage deploy
+          # without being rewritten.
+          rc_mode=$(echo "$item" | jq -r '.RcMode.S // "deploy"')
+          # VerifyCommand is a DynamoDB list of strings; flatten to a compact
+          # JSON array so it survives a job output, and to [] when absent.
+          verify_command=$(echo "$item" | jq -c '[.VerifyCommand.L[]?.S // empty]')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
+          esac
+          # Validate the RC gate here, in the one job that reads app-info, so a
+          # misconfigured app fails before any credential is assumed rather than
+          # silently falling through to "no job matched" (a green, no-op run).
+          case "$rc_mode" in
+            deploy) ;;
+            verify)
+              if [ "$provider" != "aws" ]; then
+                echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME). Stage-less verify pulls the candidate from the app's ECR repo; the shared Artifact Registry path is not implemented."
+                exit 1
+              fi
+              if [ "$(echo "$verify_command" | jq 'length')" -eq 0 ]; then
+                echo "::error::$PROJECT_NAME has RcMode 'verify' but no VerifyCommand in its CruApplicationInfo item; set verify_command in the app's Terraform module."
+                exit 1
+              fi
+              ;;
+            *) echo "::error::unsupported RcMode '$rc_mode' for $PROJECT_NAME (expected deploy or verify)"; exit 1 ;;
           esac
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
-          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
+          echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
+          echo "verify-command=$verify_command" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id rc-mode=$rc_mode"
 
   deploy-candidate-gcp:
     name: Deploy Candidate to release-candidate (Cloud Run)
@@ -357,7 +395,10 @@ jobs:
   deploy-candidate-aws:
     name: Deploy Candidate to release-candidate (AWS)
     needs: lookup
-    if: needs.lookup.outputs.provider == 'aws'
+    # rc-mode gate: stage-less apps take verify-candidate-aws below instead. The
+    # gcp job needs no such gate — verify is aws-only, and `lookup` fails the run
+    # outright on a gcp app that asks for it.
+    if: needs.lookup.outputs.provider == 'aws' && needs.lookup.outputs.rc-mode != 'verify'
     runs-on: ubuntu-latest
     concurrency:
       group: release-candidate-${{ inputs.project-name }}
@@ -587,6 +628,322 @@ jobs:
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
               text: (":x: *\($project) `\($tag)` deploy to stage FAILED*"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+  # Stage-less release-candidate gate (RcMode "verify"). Some apps legitimately
+  # cannot have a stage environment — atlantis is a singleton that holds the
+  # Terraform lock, cru-ses-processor is wired to a single production SES rule
+  # set — so "deploy the candidate to stage" is not available to them, and
+  # without an alternative they have no RC gate at all.
+  #
+  # The alternative is a VERIFICATION RUN: pull the candidate image by digest and
+  # run the app's `VerifyCommand` inside it. Exit 0 means the artifact is sound
+  # enough to be the release candidate, and the run writes the SAME ledger row a
+  # stage deploy writes (Action "deploy", Environment "release-candidate") plus
+  # an `RcMode: "verify"` marker — so nothing downstream needs a new concept.
+  #
+  # What this deliberately does NOT test is environment integration: no IAM role,
+  # no SSM secrets, no VPC, no database. It proves the image starts and its own
+  # code loads, and nothing more. That is the honest trade for these apps —
+  # a boot check is strictly more gate than none, and pretending otherwise would
+  # be worse than the gap.
+  verify-candidate-aws:
+    name: Verify Candidate for release-candidate (stage-less, AWS)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'aws' && needs.lookup.outputs.rc-mode == 'verify'
+    runs-on: ubuntu-latest
+    # Same lock group as the provider deploy jobs: exactly one of the three runs
+    # per app, so whichever it is holds the app's release-candidate lock.
+    concurrency:
+      group: release-candidate-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      ENVIRONMENT: release-candidate
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # Same type guard as the deploy job: `type` still decides which ECR repo
+      # and which deploy role, even though nothing is deployed here.
+      - name: Guard supported AWS type
+        env:
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          case "$TYPE" in
+            ecs|lambda) ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+          esac
+
+      # The EXISTING deploy role, not a new identity: verify mode is a different
+      # use of the same candidate artifact, and the role already reads the app's
+      # ECR repo (DescribeImages/BatchGetImage) and writes the ledger. `docker
+      # pull` additionally needs ecr:GetAuthorizationToken and
+      # ecr:GetDownloadUrlForLayer — see the grants matrix in docs/pipeline-v2.md.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+
+      - name: Resolve candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          mode: tag
+          tag: ${{ inputs.tag }}
+
+      # Idempotency, the verify-mode equivalent of the deploy job's "what is
+      # release-candidate running?" check. There is no running release-candidate
+      # environment to interrogate, so the question is asked of the ledger
+      # instead: has this exact digest already been verified? Same public GET the
+      # Slack step uses (deploys.cru.org, newest-first), and best-effort — ANY
+      # failure leaves HAVE empty, which means "not verified yet" and re-verifies.
+      # That is the safe direction: a redundant 120s container beats a silently
+      # skipped gate. This is what keeps a nightly-cadence dispatch a true no-op
+      # on a quiet night, exactly as it is for a stage deploy.
+      - name: Check digest already verified
+        id: current
+        continue-on-error: true
+        run: |
+          have=$(curl -fsS "https://deploys.cru.org/deployments?project=${PROJECT_NAME}&environment=release-candidate&limit=1" 2>/dev/null | jq -r '.Items[0].Digest // empty' 2>/dev/null || true)
+          echo "digest=$have" >> "$GITHUB_OUTPUT"
+
+      - name: No-op guard (already verified)
+        id: noop
+        env:
+          WANT: ${{ steps.resolve.outputs.digest }}
+          HAVE: ${{ steps.current.outputs.digest }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Already verified::${{ inputs.tag }} ($WANT) is already the verified release candidate; skipping (set force to re-verify)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record verify start
+        if: steps.noop.outputs.skip != 'true'
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Login to Amazon ECR
+        if: steps.noop.outputs.skip != 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # BY DIGEST, never by tag — `resolve` already pinned it, and the v2 deploy
+      # invariant applies just as much to what gets verified as to what gets
+      # deployed: the bytes that pass the gate must be the bytes that promote.
+      - name: Pull the candidate image
+        if: steps.noop.outputs.skip != 'true'
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+        run: docker pull --quiet "$IMAGE"
+
+      # The gate itself. VerifyCommand is an argv list: element 0 is the
+      # entrypoint (--entrypoint takes one binary), the rest are its arguments,
+      # passed as separate argv entries so nothing is re-split by a shell.
+      #
+      # No environment is supplied — no --env, no --env-file, no secrets, no
+      # network configuration. A verify command must be a self-contained check
+      # ("does the binary run", "does my own code load"), and giving it env would
+      # invite it to grow into a half-fidelity integration test that lies about
+      # what it covers.
+      #
+      # 120s, hard. `timeout` TERMs the docker CLI, which proxies the signal into
+      # the container, then KILLs 10s later if it is still there. A verify command
+      # that needs longer is the wrong shape, so the timeout FAILS the run rather
+      # than passing it optimistically.
+      - name: Verify the candidate image
+        if: steps.noop.outputs.skip != 'true'
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          VERIFY_COMMAND: ${{ needs.lookup.outputs.verify-command }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          # One argv element per line, read WITHOUT word-splitting, so an
+          # argument containing spaces survives as one argument.
+          argv=()
+          while IFS= read -r arg; do argv+=("$arg"); done < <(echo "$VERIFY_COMMAND" | jq -r '.[]')
+          entrypoint="${argv[0]}"
+          args=("${argv[@]:1}")
+          printf '::group::verify %s %s\n' "$PROJECT_NAME" "$TAG"
+          printf 'image: %s\n' "$IMAGE"
+          printf 'command:'; printf ' %q' "$entrypoint" "${args[@]}"; printf '\n'
+          status=0
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker run --rm --entrypoint "$entrypoint" "$IMAGE" "${args[@]}" || status=$?
+          echo '::endgroup::'
+          # 124 = timeout fired; 137 = SIGKILL after --kill-after.
+          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+            echo "::error title=Verification timed out::$PROJECT_NAME $TAG did not finish its verify command within 120s. A verify command must be a fast self-check, not a long-running process."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Verification failed::$PROJECT_NAME $TAG exited $status from its verify command; this candidate is NOT release-candidate-ready."
+            exit 1
+          fi
+
+      # Telemetry parity with a stage deploy: the same event, so the fleet's
+      # Datadog deploy timeline and DORA data do not develop a hole where the
+      # stage-less apps are. `rc_mode:verify` is the one added tag, for anyone who
+      # wants to tell the two gates apart. NEVER fails the run.
+      - name: Record deployment event in Datadog
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          jq -n \
+            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg text "Pipeline v2 stage-less verification run (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":release-candidate"),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:release-candidate", "action:deploy",
+                     "rc_mode:verify",
+                     "revision:${{ inputs.tag }}", ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::candidate verify event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
+
+      # The SAME ledger row a stage deploy writes — Action "deploy", Environment
+      # "release-candidate", same Revision/Digest/Sha/Actor/RunId/Provider/Type —
+      # plus `RcMode: "verify"`. That identity is the whole point of the design:
+      # the ledger is what resolves an app's release-candidate head, so promote,
+      # rollback, the CLI and the dashboard keep working on a stage-less app
+      # without learning a new shape. `RcMode` is there so a reader can tell how
+      # the candidate was gated, not so anything has to branch on it.
+      #
+      # Same telemetry policy as everywhere else: NEVER fails the run. The
+      # verification already happened and its verdict is in the run's status; a
+      # missing ledger row is a bookkeeping loss.
+      - name: Record deployment in ledger
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ inputs.tag }}
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment release-candidate \
+              --arg action deploy \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg provider aws \
+              --arg type "$TYPE" \
+              --arg rcmode verify \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}, RcMode: {S: $rcmode}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::candidate verify event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      - if: steps.noop.outputs.skip != 'true'
+        run: echo "::notice title=Candidate Verified::$PROJECT_NAME ${{ inputs.tag }} verified (stage-less) -> release-candidate"
+
+      # Notify Slack (success) — the stage-deploy message's variant, same
+      # :package: emoji (this is still "a new candidate is ready"), same
+      # promote-dispatch and changelog follow-on lines, same never-fails policy.
+      #
+      # Two deliberate differences. The wording says *verified* (stage-less)
+      # rather than "is on stage", because there is no stage and a reader must
+      # not be told there is. And the environment name is NOT a link: the link
+      # exists to send someone to look at the thing now running, and nothing is
+      # running — a stage-less app's AppUrl, if it even has one, points at
+      # PRODUCTION, which would be an actively misleading place to send someone
+      # reading about a candidate.
+      - name: Notify Slack
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          prod_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=${PROJECT_NAME}&environment=production&limit=1" 2>/dev/null | jq -r '.Items[0].Sha // empty' 2>/dev/null || true)
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg tag "${{ inputs.tag }}" \
+            --arg prodsha "$prod_sha" \
+            '{channel: $channel,
+              text: (":package: *\($project) `\($tag)` verified (stage-less) on release-candidate* — promote when ready"
+                     + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
+                     + (if $prodsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prodsha + "&to=" + $tag
+                             + "|what'\''s in this candidate>"
+                        else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) — the mirror of the success notify, and the mirror
+      # of the deploy job's failure notify: :x:, what failed, the run URL as the
+      # whole second line, nothing else. "verification FAILED" rather than
+      # "deploy to stage FAILED" so the reader knows which gate is red — and
+      # knows the candidate is unpromotable, not that stage is broken.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg tag "$TAG" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) `\($tag)` verification FAILED (stage-less)*"
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
