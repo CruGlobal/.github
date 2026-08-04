@@ -1,0 +1,95 @@
+name: Notify Build Failure
+
+# Announce a FAILED candidate build in the app's Slack channel.
+#
+# Why this is a separate workflow, and why it runs here rather than in the app
+# repo: build-candidate runs in the app repo, which holds no Slack credential,
+# and the GitHubDeployECS role that reads the app's SlackChannel out of app-info
+# trusts cru-deploy, not the app repo. So build-candidate's failure job only
+# dispatches (with the org CRU_DEPLOY_GITHUB_TOKEN it already inherits), and
+# cru-deploy's thin `Notify Build Failure (v2)` wrapper calls this workflow with
+# its SLACK_BOT_TOKEN. Nothing is checked out here, so there is no workflow-ref
+# input to keep in step with the `uses:` ref.
+#
+# Not a deploy: this workflow reads one DynamoDB item and posts one message. It
+# never fails the thing it reports on -- every failure mode below is a warning.
+
+on:
+  workflow_call:
+    inputs:
+      project-name:
+        type: string
+        required: true
+        description: Project name (app repo name) whose candidate build failed.
+      run-url:
+        type: string
+        required: true
+        description: URL of the failed build run in the app repo.
+    secrets:
+      slack-bot-token:
+        required: false
+        description: Slack bot token for pipeline notifications; unset disables posting.
+
+jobs:
+  notify:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
+    # and checks nothing out.
+    permissions:
+      id-token: write
+    steps:
+      - name: Configure AWS credentials for app-info
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # Same table and column as the deploy path's lookup, read from the
+      # `production` row: a candidate build belongs to no single environment, and
+      # production is the row every onboarded app is guaranteed to have (an app
+      # can still be waiting on its stage environment). A missing row is a
+      # warning, never an error -- see the header.
+      - name: Look up the app's Slack channel
+        id: app-info
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+        run: |
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" \
+              '{Project: {S: $project}, Environment: {S: "production"}}')") || true
+          item=$(echo "$info" | jq -c '.Item // empty' 2>/dev/null || true)
+          if [ -z "$item" ]; then
+            echo "::warning title=Build failure not announced::no CruApplicationInfo row for project '$PROJECT_NAME' (production); nowhere to post."
+            exit 0
+          fi
+          echo "slack-channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')" >> "$GITHUB_OUTPUT"
+
+      # The mirror of the deploy path's failure notify: same SlackChannel
+      # destination (channel #name/C… or user U…), same "channel OR token unset
+      # ⇒ silent no-op", same deliberately plain two lines -- a failed build has
+      # nothing new to go look at, so the run URL is the whole second line.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ steps.app-info.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          PROJECT_NAME: ${{ inputs.project-name }}
+          RUN_URL: ${{ inputs.run-url }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg runurl "$RUN_URL" \
+            '{channel: $channel,
+              text: (":x: *\($project) candidate build FAILED*"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }

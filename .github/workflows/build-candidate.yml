@@ -46,6 +46,22 @@ jobs:
     outputs:
       project-name: ${{ steps.info.outputs.project-name }}
     steps:
+      # A candidate is promotable by definition: whatever this run builds can be
+      # deployed to release-candidate and promoted to production, and nothing
+      # downstream re-checks where it came from. So the ref is asserted here,
+      # before a build number is burned or an image is pushed. `schedule` can
+      # only ever run on the default branch; this covers workflow_dispatch (and
+      # any push-triggered caller) on a feature ref. Compared against the
+      # repository's OWN default branch rather than the literal `main`, so an
+      # app still on `master` is guarded, not wedged.
+      - name: Assert the calling ref is the default branch
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "::error title=Build Candidate::candidates build from the default branch only -- $GITHUB_REF is not refs/heads/$DEFAULT_BRANCH. Merge the change to $DEFAULT_BRANCH, then dispatch."
+          exit 1
+
       - name: Resolve project name & validate type
         id: info
         run: |
@@ -66,6 +82,17 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # One candidate build per project at a time. The no-change guard below is a
+    # read-then-build check, so without a lock a dispatch racing the 05:00 cron
+    # builds the same git sha twice and burns two build numbers.
+    # cancel-in-progress is false deliberately: let the first build finish, and
+    # the second then finds sha-<gitsha> already pushed and reuses its candidate.
+    # Keyed on the project; project-name is optional on this workflow, so it
+    # falls back to the repository (the group is scoped to the CALLING repository
+    # either way, so both forms name one app).
+    concurrency:
+      group: build-candidate-${{ inputs.project-name || github.repository }}
+      cancel-in-progress: false
     # Candidates are prod-bound: they authenticate with the app's PRODUCTION-env
     # github-actions SA (which holds AR writer on the app's shared-registry repo),
     # so the env-scoped vars.GCP_* below are the production environment's values.
@@ -241,6 +268,11 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # One candidate build per project at a time -- see the Cloud Run job's
+    # comment. Only one runtime job ever runs, so they share the group.
+    concurrency:
+      group: build-candidate-${{ inputs.project-name || github.repository }}
+      cancel-in-progress: false
     # Candidates are prod-bound: they build with the app's PRODUCTION-env
     # GitHubRole (arn:aws:iam::056154071827:role/<project>-prod-GitHubRole). The
     # aws/ecs/app v2 module change grants that role ECR push on the app's repo +
@@ -405,6 +437,11 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # One candidate build per project at a time -- see the Cloud Run job's
+    # comment. Only one runtime job ever runs, so they share the group.
+    concurrency:
+      group: build-candidate-${{ inputs.project-name || github.repository }}
+      cancel-in-progress: false
     # Candidates are prod-bound: they build with the app's PRODUCTION-env
     # GitHubRole (arn:aws:iam::056154071827:role/<project>-prod-GitHubRole), which
     # grants ECR push on the app's repo + the build-number DynamoDB counter — the
@@ -575,3 +612,71 @@ jobs:
 
       - name: Notify success
         run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+
+  # Build-failure notification. Every other v2 Slack message is posted from the
+  # deploy path, which is reached through `needs: build` -- so it only ever runs
+  # on SUCCESS, and a broken nightly is otherwise completely silent. This job
+  # closes that gap without asking app repos to hold a new secret: SLACK_BOT_TOKEN
+  # stays in cru-deploy, and the GitHubDeployECS role that reads the app's
+  # SlackChannel out of app-info trusts cru-deploy rather than the app repo, so
+  # the app repo can neither look the channel up nor post. What it CAN do is
+  # dispatch, with the org CRU_DEPLOY_GITHUB_TOKEN that `secrets: inherit`
+  # already hands this workflow -- so the notification is a dispatch of
+  # cru-deploy's Notify Build Failure (v2), which does the lookup and posts the
+  # :x: + run-URL message (the same shape as the deploy path's failure notify).
+  #
+  # Telemetry policy: a notification NEVER changes a run's outcome, in either
+  # direction. The dispatch is continue-on-error, and a caller that did not pass
+  # `secrets: inherit` (no token) is a warning, not a failure. An app with no
+  # SlackChannel in app-info is a silent no-op on the cru-deploy side, matching
+  # the rest of the fleet.
+  notify-failure:
+    name: Notify build failure
+    needs: [setup, build-cloudrun, build-ecs, build-lambda]
+    # Exactly one runtime job ever runs; the other two are SKIPPED, not failed,
+    # so the explicit per-job results are the honest test. Deliberately does NOT
+    # fire when `setup` fails: a rejected ref or an unknown `type` is a caller
+    # mistake whose error is already the run's output, and the project name would
+    # be unknown anyway.
+    if: >-
+      ${{ !cancelled()
+      && (needs.build-cloudrun.result == 'failure'
+      || needs.build-ecs.result == 'failure'
+      || needs.build-lambda.result == 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # `secrets` is not available in any `if:`, so the token-presence check is a
+      # step of its own rather than a condition on the dispatch.
+      - name: Check for the cru-deploy dispatch token
+        id: token
+        env:
+          DISPATCH_TOKEN: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::warning title=Build failure not announced::CRU_DEPLOY_GITHUB_TOKEN is unset (the caller does not pass 'secrets: inherit'); skipping the Slack notification."
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Cru Actions & Workflows
+        if: steps.token.outputs.present == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # github.repository and github.run_id are the CALLER's, so the run URL
+      # points at the app repo's failed run -- the reader's next step.
+      - name: Announce the failure via cru-deploy
+        if: steps.token.outputs.present == 'true'
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/dispatch
+        with:
+          github-token: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
+          workflow: notify-build-failure.yml
+          inputs-json: >-
+            {"project-name": "${{ needs.setup.outputs.project-name }}",
+             "run-url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
