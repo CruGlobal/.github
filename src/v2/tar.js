@@ -13,6 +13,11 @@
 
 const BLOCK = 512
 
+// Hard cap on a single extracted entry. The sign-in page is an inlined-CSS HTML
+// document — ~100KB in practice — so this is two orders of magnitude of headroom
+// and still bounds what a malformed or hostile image can make us allocate.
+export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
+
 // Header field offsets/lengths (POSIX ustar).
 const NAME = [0, 100]
 const SIZE = [124, 12]
@@ -59,8 +64,10 @@ function padded (size) {
  *
  * Returns its contents as a Buffer, or null when the archive does not contain
  * it (the normal case — the caller scans several layers looking for one file).
+ * Throws when the match is larger than `maxBytes` — nothing we read at this path
+ * should be big, and the caller treats a throw as a warning, not an outage.
  */
-export function findInTar (archive, target) {
+export function findInTar (archive, target, { maxBytes = MAX_ENTRY_BYTES } = {}) {
   const wanted = normalizeTarPath(target)
   let offset = 0
 
@@ -78,6 +85,9 @@ export function findInTar (archive, target) {
     const data = offset + BLOCK
 
     if (REGULAR.has(type) && path === wanted) {
+      if (size > maxBytes) {
+        throw new Error(`Tar entry "${path}" is ${size} bytes, over the ${maxBytes}-byte limit`)
+      }
       // Copy rather than return a view: the caller holds this long after the
       // (much larger) decompressed layer should be collectable.
       return Buffer.from(archive.subarray(data, data + size))

@@ -235204,6 +235204,7 @@ var import_node_zlib2 = require("node:zlib");
 
 // src/v2/tar.js
 var BLOCK2 = 512;
+var MAX_ENTRY_BYTES = 8 * 1024 * 1024;
 var NAME2 = [0, 100];
 var SIZE = [124, 12];
 var TYPE = 156;
@@ -235229,7 +235230,7 @@ function normalizeTarPath(path) {
 function padded(size) {
   return Math.ceil(size / BLOCK2) * BLOCK2;
 }
-function findInTar(archive, target) {
+function findInTar(archive, target, { maxBytes = MAX_ENTRY_BYTES } = {}) {
   const wanted = normalizeTarPath(target);
   let offset = 0;
   while (offset + BLOCK2 <= archive.length) {
@@ -235242,6 +235243,9 @@ function findInTar(archive, target) {
     const path = normalizeTarPath(prefix === "" ? name : `${prefix}/${name}`);
     const data2 = offset + BLOCK2;
     if (REGULAR.has(type) && path === wanted) {
+      if (size > maxBytes) {
+        throw new Error(`Tar entry "${path}" is ${size} bytes, over the ${maxBytes}-byte limit`);
+      }
       return Buffer.from(archive.subarray(data2, data2 + size));
     }
     offset = data2 + padded(size);
@@ -235257,6 +235261,8 @@ var MANIFEST_ACCEPT = [
   "application/vnd.docker.distribution.manifest.list.v2+json"
 ].join(", ");
 var PLATFORM = { os: "linux", architecture: "amd64" };
+var MAX_LAYER_BLOB_BYTES = 256 * 1024 * 1024;
+var MAX_LAYER_BYTES = 1024 * 1024 * 1024;
 var GAXIOS_RETRY = {
   retry: true,
   retryConfig: {
@@ -235312,8 +235318,9 @@ function selectPlatform(index) {
   return candidates[0].digest;
 }
 function decompressLayer(mediaType, blob) {
-  if (mediaType.includes("zstd")) return (0, import_node_zlib2.zstdDecompressSync)(blob);
-  if (mediaType.includes("gzip")) return (0, import_node_zlib2.gunzipSync)(blob);
+  const limit = { maxOutputLength: MAX_LAYER_BYTES };
+  if (mediaType.includes("zstd")) return (0, import_node_zlib2.zstdDecompressSync)(blob, limit);
+  if (mediaType.includes("gzip")) return (0, import_node_zlib2.gunzipSync)(blob, limit);
   return blob;
 }
 function isReadableLayer(mediaType) {
@@ -235340,6 +235347,12 @@ async function openImage(imageRef) {
     async readFile(path) {
       const layers = (manifest.layers ?? []).filter((layer) => isReadableLayer(layer.mediaType));
       for (const [index, layer] of [...layers].reverse().entries()) {
+        if (layer.size > MAX_LAYER_BLOB_BYTES) {
+          info(
+            `skipping layer ${layers.length - index}/${layers.length} (${layer.digest}): ${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
+          );
+          continue;
+        }
         const blob = await registryGet({
           ...target,
           kind: "blobs",

@@ -32,6 +32,18 @@ const MANIFEST_ACCEPT = [
 // skipped.
 const PLATFORM = { os: 'linux', architecture: 'amd64' }
 
+// Byte caps on what one readFile() will pull into memory. Both blob and
+// decompressed layer are held whole (the tar reader wants random access), so
+// without caps a huge or bomb-compressed layer is an OOM on the runner.
+//
+// By construction the file we want lives in a late, tiny COPY layer — the
+// verified bills image found it in an 87KB blob — so skipping anything bigger
+// than the compressed cap costs nothing real and, unlike a post-fetch check,
+// avoids the download. A layer that decompresses past the second cap throws
+// (node:zlib ERR_BUFFER_TOO_LARGE); the caller warns rather than fails.
+export const MAX_LAYER_BLOB_BYTES = 256 * 1024 * 1024
+export const MAX_LAYER_BYTES = 1024 * 1024 * 1024
+
 // Registry reads are pure GETs, so retrying them is unconditionally safe. Same
 // tolerance the Artifact Registry REST calls in ./gcp.js use, and for the same
 // reason: a transient AR 503 must not fail a deploy.
@@ -103,10 +115,12 @@ function selectPlatform (index) {
   return candidates[0].digest
 }
 
-// Decompress a layer blob according to its media type.
+// Decompress a layer blob according to its media type, refusing to expand past
+// MAX_LAYER_BYTES.
 function decompressLayer (mediaType, blob) {
-  if (mediaType.includes('zstd')) return zstdDecompressSync(blob)
-  if (mediaType.includes('gzip')) return gunzipSync(blob)
+  const limit = { maxOutputLength: MAX_LAYER_BYTES }
+  if (mediaType.includes('zstd')) return zstdDecompressSync(blob, limit)
+  if (mediaType.includes('gzip')) return gunzipSync(blob, limit)
   return blob
 }
 
@@ -152,6 +166,13 @@ export async function openImage (imageRef) {
       // later layer resolves to the version the container would actually see.
       const layers = (manifest.layers ?? []).filter(layer => isReadableLayer(layer.mediaType))
       for (const [index, layer] of [...layers].reverse().entries()) {
+        if (layer.size > MAX_LAYER_BLOB_BYTES) {
+          core.info(
+            `skipping layer ${layers.length - index}/${layers.length} (${layer.digest}): ` +
+            `${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
+          )
+          continue
+        }
         const blob = await registryGet({
           ...target,
           kind: 'blobs',

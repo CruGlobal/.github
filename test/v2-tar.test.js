@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findInTar, normalizeTarPath } from '../src/v2/tar.js'
+import { findInTar, MAX_ENTRY_BYTES, normalizeTarPath } from '../src/v2/tar.js'
 import { tarArchive, tarEntry } from './support/tar-fixture.js'
 
 const PAGE = '<!DOCTYPE html><title>Sign in</title>'
@@ -93,6 +93,26 @@ describe('findInTar', () => {
       tarEntry('cru/iap-signin/signin', 'second')
     )
     expect(findInTar(archive, 'cru/iap-signin/signin').toString()).toBe('first')
+  })
+
+  it('rejects a match larger than the byte cap', () => {
+    const archive = tarArchive(tarEntry('cru/iap-signin/signin', Buffer.alloc(2048, 0x61)))
+    expect(() => findInTar(archive, 'cru/iap-signin/signin', { maxBytes: 1024 }))
+      .toThrow(/is 2048 bytes, over the 1024-byte limit/)
+  })
+
+  it('applies the cap only to the match, walking past larger entries', () => {
+    const archive = tarArchive(
+      tarEntry('app/big.bin', Buffer.alloc(4096, 0x7a)),
+      tarEntry('cru/iap-signin/signin', PAGE)
+    )
+    expect(findInTar(archive, 'cru/iap-signin/signin', { maxBytes: 1024 }).toString()).toBe(PAGE)
+  })
+
+  it('defaults to a cap that comfortably fits a real sign-in page', () => {
+    expect(MAX_ENTRY_BYTES).toBeGreaterThan(1024 * 1024)
+    const archive = tarArchive(tarEntry('cru/iap-signin/signin', Buffer.alloc(512 * 1024, 0x61)))
+    expect(findInTar(archive, 'cru/iap-signin/signin').length).toBe(512 * 1024)
   })
 
   it('rejects a malformed size field rather than mis-seeking', () => {

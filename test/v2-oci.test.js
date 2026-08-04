@@ -10,7 +10,8 @@ vi.mock('google-auth-library', () => ({
   }
 }))
 
-import { openImage, parseRegistryRef } from '../src/v2/oci.js'
+import { MAX_LAYER_BLOB_BYTES, openImage, parseRegistryRef } from '../src/v2/oci.js'
+import { MAX_ENTRY_BYTES } from '../src/v2/tar.js'
 import { tarArchive, tarEntry } from './support/tar-fixture.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
@@ -227,5 +228,45 @@ describe('openImage readFile', () => {
     serve({ 'manifests/sha256:top': manifest(), 'blobs/sha256:config': config() })
     const image = await openImage(IMAGE)
     expect(await image.readFile(`/${SIGNIN}`)).toBeNull()
+  })
+})
+
+describe('openImage readFile byte caps', () => {
+  it('skips an oversized layer without downloading it', async () => {
+    const huge = { ...layer('sha256:huge'), size: MAX_LAYER_BLOB_BYTES + 1 }
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:page'), huge] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:page': gzipLayer(tarEntry(SIGNIN, PAGE))
+    })
+    const image = await openImage(IMAGE)
+    // Newest-first would read the huge layer first; the cap skips it and the
+    // page still resolves from the layer underneath.
+    expect((await image.readFile(`/${SIGNIN}`)).toString()).toBe(PAGE)
+    expect(layerFetches()).toEqual([expect.stringContaining('sha256:page')])
+  })
+
+  it('reads a layer whose declared size is within the cap', async () => {
+    const sized = { ...layer('sha256:page'), size: MAX_LAYER_BLOB_BYTES }
+    serve({
+      'manifests/sha256:top': manifest({ layers: [sized] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:page': gzipLayer(tarEntry(SIGNIN, PAGE))
+    })
+    const image = await openImage(IMAGE)
+    expect((await image.readFile(`/${SIGNIN}`)).toString()).toBe(PAGE)
+  })
+
+  // The decompressed-output cap is enforced by node:zlib's maxOutputLength; a
+  // test for it would have to build a >1GiB layer, so it is left untested here.
+
+  it('refuses an entry larger than the per-file cap', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:page')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:page': gzipLayer(tarEntry(SIGNIN, Buffer.alloc(MAX_ENTRY_BYTES + 1, 0x61)))
+    })
+    const image = await openImage(IMAGE)
+    await expect(image.readFile(`/${SIGNIN}`)).rejects.toThrow(/over the .*-byte limit/)
   })
 })
