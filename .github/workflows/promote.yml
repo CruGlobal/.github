@@ -673,6 +673,11 @@ jobs:
       # and the ledger write all stay untouched. For a non-verify app these
       # expressions evaluate to exactly the previous inputs (mode environment,
       # environment release-candidate, no tag).
+      #
+      # Each condition is written so the NON-EMPTY value sits on its truthy
+      # side. `a && '' || b` does not mean "empty when a": the empty string is
+      # falsy, so `||` takes over and yields b. Hence the inverted test on
+      # `environment` rather than a matching one.
       - name: Resolve release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
@@ -680,7 +685,7 @@ jobs:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}
           mode: ${{ needs.lookup.outputs.rc-mode == 'verify' && 'tag' || 'environment' }}
-          environment: ${{ needs.lookup.outputs.rc-mode == 'verify' && '' || 'release-candidate' }}
+          environment: ${{ needs.lookup.outputs.rc-mode != 'verify' && 'release-candidate' || '' }}
           tag: ${{ needs.lookup.outputs.rc-mode == 'verify' && steps.ledger-candidate.outputs.revision || '' }}
 
       # The bytes that passed the gate must be the bytes that promote. In
