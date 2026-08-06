@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/CruGlobal/.github/compare/v1.9.0...v1.10.0) (2026-08-05)
+
+
+### Features
+
+* add dependabot-auto-merge-security-patch reusable workflow ([#437](https://github.com/CruGlobal/.github/issues/437)) ([ccee50b](https://github.com/CruGlobal/.github/commit/ccee50b25e28d00c3949c69cca236e0ab3ad69aa))
+
 ## [1.9.0](https://github.com/CruGlobal/.github/compare/v1.8.1...v1.9.0) (2026-07-30)
 
 
