@@ -2,6 +2,12 @@ name: Java CI with Maven Build AEM repository
 
 on:
   workflow_call:
+    inputs:
+      java-version:
+        description: JDK version used to build (11 or 21)
+        required: false
+        type: string
+        default: '11'
     secrets:
       aem-cloud-artifactory-user:
         description: AEM Cloud Artifactory User 
@@ -18,11 +24,13 @@ jobs:
     # Service containers to run with `runner-job`
     steps:
       - uses: actions/checkout@v7
-      - name: Set up JDK 11
+      - name: Set up JDK ${{ inputs.java-version }}
         uses: actions/setup-java@v5
         with:
-          java-version: 11
-          distribution: 'adopt'
+          java-version: ${{ inputs.java-version }}
+          # AdoptOpenJDK ended at JDK 16 and became Eclipse Temurin, so it can
+          # only serve the legacy 11 default. Anything else resolves to temurin.
+          distribution: ${{ inputs.java-version == '11' && 'adopt' || 'temurin' }}
           overwrite-settings: false
           cache: 'maven'
       - name: Build project
