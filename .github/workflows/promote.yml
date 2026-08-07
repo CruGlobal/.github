@@ -1,0 +1,1031 @@
+name: Promote
+
+# Promote the artifact currently running in release-candidate to production.
+# "Build once, promote the artifact": the exact digest running in release-
+# candidate is deployed to production and tagged release-<yyyy-mm-dd>-<n> — the
+# candidate tag's full suffix, build date + build number (no separate release
+# counter — releases are traceable to their candidate for free; pre-D10
+# candidates without a date yield release-<n>).
+#
+# Multi-provider router (D9 pattern at job level): a `lookup` job runs the authz
+# gate + both app-info fetches (release-candidate and production) and outputs the
+# provider + type + per-env project-ids. Authz lives in `lookup`, which every
+# provider job `needs`, so it ALWAYS passes before any provider job mutates
+# production. Provider jobs are gated on `needs.lookup.outputs.provider`.
+#
+# Stage-less apps (`RcMode` "verify" in app-info) reach production by the same
+# route with ONE substitution: there is no running release-candidate service to
+# read the promotable digest off, so the candidate comes from the DEPLOYMENT
+# LEDGER's release-candidate head -- the row deploy-candidate's verification run
+# writes (CruGlobal/.github#441). Everything after the resolve step is shared:
+# same release-name derivation, same rollback-safety advisory, same production
+# deploy, same release tag, same ledger write. Promoting a stage-less app needs
+# CruGlobal/.github#441 and CruGlobal/cru-terraform-modules#753 applied first --
+# without them nothing writes the ledger row this reads and no app-info item
+# carries `RcMode` at all.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      project-name:
+        type: string
+        required: true
+        description: Project name (shared-registry repo/image).
+    secrets:
+      datadog-api-key:
+        required: true
+        description: DataDog API key.
+      authz-token:
+        required: true
+        description: GitHub token used to verify the actor has push access to the app repo.
+      slack-bot-token:
+        required: false
+        description: Slack bot token for pipeline notifications; unset disables posting.
+
+jobs:
+  lookup:
+    name: Authorize & look up app info
+    runs-on: ubuntu-latest
+    # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
+    # and checks nothing out (the authz step uses the authz-token PAT).
+    permissions:
+      id-token: write
+    outputs:
+      provider: ${{ steps.app-info-rc.outputs.provider }}
+      type: ${{ steps.app-info-rc.outputs.type }}
+      rc-project-id: ${{ steps.app-info-rc.outputs.project-id }}
+      prod-project-id: ${{ steps.app-info-prod.outputs.project-id }}
+      # How this app's release candidate was gated: "deploy" (a real stage
+      # deploy -- the default, and every app that has a stage environment) or
+      # "verify" (stage-less; the candidate exists only in the ledger).
+      rc-mode: ${{ steps.app-info-rc.outputs.rc-mode }}
+      slack-channel: ${{ steps.app-info-prod.outputs.slack-channel }}
+      migrations-path: ${{ steps.app-info-prod.outputs.migrations-path }}
+      migrations: ${{ steps.app-info-prod.outputs.migrations }}
+      app-url: ${{ steps.app-info-prod.outputs.app-url }}
+    steps:
+      # Authorization runs FIRST, before any provider job mutates production: the
+      # human running a production change must have push-level access to the app
+      # repo. TODO: replace PAT with a dedicated GitHub App.
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          ACTOR: ${{ github.actor }}
+          APP_REPO: CruGlobal/${{ inputs.project-name }}
+        run: |
+          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
+          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          case "$permission" in
+            admin|write|maintain) ;;
+            *)
+              echo "::error::$ACTOR is not authorized to promote $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              exit 1
+              ;;
+          esac
+
+      # app-info comes straight from the CruApplicationInfo DynamoDB table rather
+      # than the cru-app-info HTTP API -- the pipeline deploys that API itself, so
+      # a promote must not depend on it being up. GitHubDeployECS regardless of the
+      # app's provider: this runs before the provider/type fan-out, and the role's
+      # trust is cru-deploy-repo-scoped, not runtime-scoped (same reasoning as the
+      # ledger writes below).
+      - name: Configure AWS credentials for app-info
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # app-info for BOTH environments: release-candidate (to read the running
+      # candidate) and production (to deploy into). The table is keyed by legacy
+      # env names, so translate first. Provider must be gcp or aws.
+      - name: Look up app info (release-candidate)
+        id: app-info-rc
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: release-candidate
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment "$legacy_env" \
+              '{Project: {S: $project}, Environment: {S: $environment}}')")
+          item=$(echo "$info" | jq -c '.Item // empty')
+          if [ -z "$item" ]; then
+            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before promoting"
+            exit 1
+          fi
+          provider=$(echo "$item" | jq -r '.Provider.S // empty')
+          type=$(echo "$item" | jq -r '.Type.S // empty')
+          project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
+          # RcMode absent = "deploy". Terraform omits the attribute on the
+          # default, so every pre-existing app item reads as a stage deploy
+          # without being rewritten. Read from the release-candidate (legacy
+          # `staging`) item, which is where the app's module writes it — for a
+          # stage-less app that item exists ONLY to carry this gate's
+          # configuration (cru-terraform-modules#753); nothing runs there.
+          rc_mode=$(echo "$item" | jq -r '.RcMode.S // "deploy"')
+          case "$provider" in
+            gcp|aws) ;;
+            *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
+          esac
+          # Validate the gate here, in the one job that reads app-info and the
+          # one that always runs, so a misconfigured app fails before anything
+          # touches production — same placement and reasoning as
+          # deploy-candidate's lookup.
+          case "$rc_mode" in
+            deploy) ;;
+            verify)
+              if [ "$provider" != "aws" ]; then
+                echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME); stage-less candidate resolution is implemented for the ECR path only."
+                exit 1
+              fi
+              ;;
+            *) echo "::error::unsupported RcMode '$rc_mode' for $PROJECT_NAME (expected deploy or verify)"; exit 1 ;;
+          esac
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          echo "type=$type" >> "$GITHUB_OUTPUT"
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
+
+      - name: Look up app info (production)
+        id: app-info-prod
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: production
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment "$legacy_env" \
+              '{Project: {S: $project}, Environment: {S: $environment}}')")
+          item=$(echo "$info" | jq -c '.Item // empty')
+          if [ -z "$item" ]; then
+            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before promoting"
+            exit 1
+          fi
+          project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
+          slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
+          migrations_path=$(echo "$item" | jq -r '.MigrationsPath.S // empty')
+          # Migrations = "none" is the module DECLARING the app has no database
+          # migrations, which an absent MigrationsPath cannot express (that also
+          # covers "has migrations the classifier can't see"). Empty for apps on
+          # module versions that predate the declaration.
+          migrations=$(echo "$item" | jq -r '.Migrations.S // empty')
+          app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
+          echo "migrations-path=$migrations_path" >> "$GITHUB_OUTPUT"
+          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
+          echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
+
+  promote-gcp:
+    name: Promote release-candidate to production (Cloud Run)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'gcp'
+    runs-on: ubuntu-latest
+    # Shared production lock with rollback: only one production mutation per app
+    # at a time, and never cancelled mid-flight.
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Configure GCP credentials (release-candidate SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ needs.lookup.outputs.rc-project-id }}.iam.gserviceaccount.com
+
+      - name: Resolve running release-candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          mode: environment
+          environment: release-candidate
+          runtime-project: ${{ needs.lookup.outputs.rc-project-id }}
+
+      # Derive the release number from the candidate tag on the running digest.
+      # Fails clearly if the running image was not deployed from a candidate.
+      - name: Determine release number from candidate
+        id: release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate tag; cannot derive a release name. Deploy a candidate via deploy-candidate first."
+            exit 1
+          fi
+          suffix="${candidate#candidate-}"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
+
+      # --- Rollback-safety classification (advisory; never blocks) ----------
+      # The git sha currently in production, from the deployments ledger -- the
+      # baseline the candidate's migrations are diffed against. Empty on ANY
+      # failure (|| true), which the classifier treats as `unclassified` (e.g.
+      # the very first promote, before any production baseline exists).
+      - name: Fetch production baseline
+        id: baseline
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+        run: |
+          prev_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
+          echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
+          # The candidate's git sha is the sha-<gitsha> tag on the resolved
+          # digest (the head of the classification diff). Empty -> unclassified.
+          head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      # Classify the migrations added between the production baseline and the
+      # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
+      # An app whose app-info declares `Migrations = "none"` is rollback-safe
+      # without any diff at all -- that declaration is the only thing that
+      # distinguishes "has no migrations" from "has migrations we can't see".
+      # The action NEVER fails; continue-on-error is a belt on top of that.
+      # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
+      - name: Classify rollback safety
+        id: rollback-safety
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/classify-rollback-safety
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: CruGlobal/${{ inputs.project-name }}
+          base-sha: ${{ steps.baseline.outputs.prev-sha }}
+          head-sha: ${{ steps.baseline.outputs.head-sha }}
+          migrations-path: ${{ needs.lookup.outputs.migrations-path }}
+          migrations: ${{ needs.lookup.outputs.migrations }}
+
+      - name: Configure GCP credentials (production SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ needs.lookup.outputs.prod-project-id }}.iam.gserviceaccount.com
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          runtime-project: ${{ needs.lookup.outputs.prod-project-id }}
+          image: ${{ steps.resolve.outputs.image }}
+
+      # Tag the promoted digest release-<n> in the shared registry (the prod
+      # cru-deploy SA holds AR writer there). Replaces the gcloud CLI tagging step
+      # with the provider-agnostic tag-image action.
+      - name: Tag digest as release
+        uses: ./cru-github-actions/actions/tag-image
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          digest: ${{ steps.resolve.outputs.digest }}
+          tag: ${{ steps.release.outputs.release }}
+
+      # Publish a GitHub Release on the APP repo, so each app's own Releases page
+      # is the human-readable record of what reached production and when: git tag
+      # = the release name, pointing at the promoted commit (the `sha-<gitsha>`
+      # tag the candidate digest carries — the same sha the rollback-safety
+      # classifier diffs), title = the release name, marked latest.
+      #
+      # The body is deliberately a short header — digest, promoted-by, run link,
+      # changelog link for the range. It does NOT restate the commit list:
+      # deploys.cru.org/changelog is the canonical rendering of "what's in this
+      # release" (ledger-backed, so it resolves release names through to shas),
+      # and a second copy here would only drift from it. Same dead-link rule as
+      # the Slack notify — with no baseline sha (first promote, or a failed ledger
+      # query) the changelog line is omitted rather than emitted broken.
+      #
+      # Credential: the existing `authz-token`. It is already this workflow's
+      # app-repo credential — the authz gate reads collaborator permission with
+      # it and the rollback-safety classifier fetches the app repo's compare with
+      # it — so a release write adds no new credential *surface*, only a new verb.
+      # The run-scoped GITHUB_TOKEN cannot substitute: it is scoped to the calling
+      # cru-deploy repo, not the app repo. The narrower long-term home is the
+      # org-wide "Cru Deploy" GitHub App, which needs two things it does not have
+      # yet: Contents bumped read -> write, and its key made reachable from
+      # cru-deploy workflows (today it lives only in SSM /ecs/cru-app-info/*).
+      #
+      # NEVER fails the promote. Production is already updated by the time this
+      # runs, so a missing Releases entry is a bookkeeping loss, not an incident:
+      # continue-on-error, plus in-step handling that turns any non-2xx into a
+      # warning naming the likely fix. A re-run of an already-promoted candidate
+      # re-POSTs the same release name and gets 422 already_exists — that is the
+      # correct end state, so it degrades to a notice instead of a warning.
+      - name: Publish GitHub Release on the app repo
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          APP_REPO: CruGlobal/${{ inputs.project-name }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          COMMIT_SHA: ${{ steps.baseline.outputs.head-sha }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$COMMIT_SHA" ]; then
+            echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
+            exit 0
+          fi
+          # make_latest is a string enum ("true"/"false"/"legacy"), not a boolean.
+          payload=$(jq -n \
+            --arg tag "$RELEASE" \
+            --arg target "$COMMIT_SHA" \
+            --arg digest "$DIGEST" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg project "$PROJECT_NAME" \
+            --arg prevsha "$PREV_SHA" \
+            '{tag_name: $tag, target_commitish: $target, name: $tag,
+              draft: false, prerelease: false, make_latest: "true",
+              body: ("Promoted to production by @\($actor).\n\n"
+                     + "- Image digest: `\($digest)`\n"
+                     + "- Promote run: \($runurl)\n"
+                     + (if $prevsha != ""
+                        then "- [Changes in this release](https://deploys.cru.org/changelog?project="
+                             + $project + "&from=" + $prevsha + "&to=" + $tag + ")\n"
+                        else "" end))}')
+          # gh api puts the JSON body on stdout (success AND error) and its human
+          # summary on stderr, so capture stdout only: stderr stays in the run log
+          # where an operator wants it, and nothing can corrupt the JSON parse.
+          if response=$(printf '%s' "$payload" | gh api -X POST "repos/$APP_REPO/releases" --input -); then
+            echo "::notice title=Release published::$(echo "$response" | jq -r '.html_url // empty')"
+          else
+            case "$response" in
+              *already_exists*)
+                echo "::notice title=Release already published::$RELEASE already exists on $APP_REPO; left as-is"
+                ;;
+              *)
+                echo "::warning title=GitHub Release failed::could not publish $RELEASE on $APP_REPO (non-blocking). A 403/404 here means authz-token lacks contents:write on the app repo — see this step's credential note."
+                ;;
+            esac
+          fi
+
+      - name: Record deployment event in Datadog
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          jq -n \
+            --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:promote",
+                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
+
+      # The deployments-ledger write grant lives on the existing deploy roles
+      # (ratified: no dedicated ledger role). GCP jobs carry no AWS creds, so
+      # assume a deploy role here solely to append the ledger event -- ECS is
+      # chosen arbitrarily; the trust is cru-deploy-repo-scoped, not runtime-
+      # scoped. Placed AFTER all GCP deploy/tag-image steps so its AWS
+      # credential env vars can't interfere; configure-aws-credentials next to
+      # an earlier google-github-actions/auth is fine (different env vars).
+      - name: Configure AWS credentials for ledger
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
+      # deployments ledger -- the fleet dashboard / DORA data spine). Same
+      # policy as all telemetry: NEVER fails the deploy.
+      - name: Record deployment in ledger
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ steps.release.outputs.release }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          ROLLBACK_REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Rollback-safety verdict -> RollbackSafe true/false (omitted when unclassified).
+          rollback_safe=""
+          case "$VERDICT" in safe) rollback_safe=true ;; unsafe) rollback_safe=false ;; esac
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment production \
+              --arg action promote \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg rollbacksafe "$rollback_safe" \
+              --arg rollbackreasons "$ROLLBACK_REASONS" \
+              --arg provider gcp \
+              --arg type cloudrun \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)
+                + (if $rollbacksafe != "" then {RollbackSafe: {S: $rollbacksafe}} else {} end)
+                + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset. The word "production" links to the app's production AppUrl
+      # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
+      # `from` = the sha production ran before this promote (the same baseline the
+      # rollback-safety classifier diffs against), `to` = the new release tag --
+      # the page resolves revision names through the ledger, so a tag is as good
+      # as a sha. With no baseline yet (first promote) or a failed ledger query
+      # the line is omitted, so it is never a dead link.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          # Rollback-safety advisory line appended to the promote message.
+          case "$VERDICT" in
+            # A `safe` verdict ALWAYS carries a reason ("no database migrations"
+            # declaration, "N additive migration(s)", or "no migration changes
+            # in this release") — the fallback here only covers a jq failure.
+            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "classified safe" end' 2>/dev/null || echo "classified safe"))" ;;
+            unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
+            *) safety="rollback safety: unclassified" ;;
+          esac
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg appurl "$APP_URL" \
+            --arg prevsha "$PREV_SHA" \
+            --arg safety "$safety" \
+            '{channel: $channel,
+              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+                     + "\n\($safety)"
+                     + (if $prevsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prevsha + "&to=" + $release
+                             + "|what'\''s in this release>"
+                        else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl
+      # link (a failed promote means production did NOT change) and no changelog
+      # link -- the run URL is the reader's next step, so it is the whole second
+      # line. A promote can fail BEFORE the release name is derived (e.g. at
+      # image resolution), in which case steps.release.outputs.release is empty
+      # and the message names "the release-candidate image" instead: the only
+      # step output referenced, and it degrades rather than breaks.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release || '' }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+  promote-aws:
+    name: Promote release-candidate to production (AWS)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'aws'
+    runs-on: ubuntu-latest
+    # Shared production lock with rollback (same group as promote-gcp).
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Guard supported AWS type
+        env:
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          case "$TYPE" in
+            ecs|lambda) ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+          esac
+
+      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda) covers the
+      # rc + prod clusters/functions, which share the cruds account (056154071827)
+      # — no per-env re-auth needed. The chosen role also holds ecr:PutImage for
+      # the release-<n> tag-image step below.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+
+      # --- Stage-less candidate resolution (RcMode "verify" only) -----------
+      # A stage-less app has no running release-candidate service, so "what is
+      # the candidate?" cannot be asked of an environment. It is asked of the
+      # LEDGER instead: deploy-candidate's verification run writes the SAME
+      # Action "deploy" / Environment "release-candidate" row a stage deploy
+      # writes (plus an RcMode "verify" marker), so the ledger's
+      # release-candidate head IS this app's candidate. See CruGlobal/.github#441.
+      #
+      # Newest-first, and specifically the newest row CARRYING A DIGEST — the
+      # same defensive select the rollback-safety advisory uses to skip rows
+      # without its flag, so a digest-less event can never resolve into an empty
+      # tag and silently promote the wrong thing.
+      #
+      # LOAD-BEARING, unlike every other deploys.cru.org read in this file: this
+      # one decides what reaches production, so it FAILS the promote instead of
+      # degrading to a warning. Fail-closed is the right direction — cru-app-info
+      # being unreachable is itself a reason not to be promoting right now. (A
+      # direct dynamodb:Query would not depend on the API at all, matching the
+      # app-info reads above, but the deploy roles hold only PutItem on the
+      # ledger; worth revisiting together if this read proves flaky.)
+      - name: Resolve candidate from ledger (stage-less)
+        id: ledger-candidate
+        if: needs.lookup.outputs.rc-mode == 'verify'
+        run: |
+          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=release-candidate&limit=10" | jq -c '.Items // []') || {
+            echo "::error::could not read the deployment ledger (deploys.cru.org) for $PROJECT_NAME; the app is stage-less, so the ledger is the only record of its release candidate."
+            exit 1
+          }
+          head=$(echo "$items" | jq -c 'map(select(.Digest != null)) | .[0] // empty')
+          if [ -z "$head" ]; then
+            echo "::error::no release-candidate ledger row with a digest for $PROJECT_NAME; verify a candidate via deploy-candidate (stage-less verify mode) before promoting."
+            exit 1
+          fi
+          revision=$(echo "$head" | jq -r '.Revision // empty')
+          digest=$(echo "$head" | jq -r '.Digest // empty')
+          if [ -z "$revision" ]; then
+            echo "::error::$PROJECT_NAME's release-candidate ledger head (digest $digest) carries no Revision, so there is no candidate tag to resolve."
+            exit 1
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Stage-less candidate::$PROJECT_NAME's verified release candidate is $revision ($digest), per the deployment ledger."
+
+      # One resolve step, two modes — so that everything below it is
+      # mode-agnostic. A normal app resolves the image RUNNING in
+      # release-candidate; a stage-less app resolves the candidate TAG the
+      # ledger just named. Both are the same registry round trip and yield the
+      # same `image` / `digest` / `tags` outputs, which is what lets the release
+      # derivation, the rollback-safety baseline, the deploy, the release tag
+      # and the ledger write all stay untouched. For a non-verify app these
+      # expressions evaluate to exactly the previous inputs (mode environment,
+      # environment release-candidate, no tag).
+      #
+      # Each condition is written so the NON-EMPTY value sits on its truthy
+      # side. `a && '' || b` does not mean "empty when a": the empty string is
+      # falsy, so `||` takes over and yields b. Hence the inverted test on
+      # `environment` rather than a matching one.
+      - name: Resolve release-candidate image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          mode: ${{ needs.lookup.outputs.rc-mode == 'verify' && 'tag' || 'environment' }}
+          environment: ${{ needs.lookup.outputs.rc-mode != 'verify' && 'release-candidate' || '' }}
+          tag: ${{ needs.lookup.outputs.rc-mode == 'verify' && steps.ledger-candidate.outputs.revision || '' }}
+
+      # The bytes that passed the gate must be the bytes that promote. In
+      # environment mode the running service is itself the proof of which digest
+      # was gated. In tag mode the tag is a mutable pointer, so re-resolving it
+      # could in principle land on a digest that was never verified (a rebuilt
+      # candidate reusing the tag). Compare against the digest the ledger
+      # recorded AT VERIFICATION TIME and refuse if they have diverged.
+      - name: Confirm candidate digest is unchanged (stage-less)
+        if: needs.lookup.outputs.rc-mode == 'verify'
+        env:
+          LEDGER_DIGEST: ${{ steps.ledger-candidate.outputs.digest }}
+          RESOLVED_DIGEST: ${{ steps.resolve.outputs.digest }}
+          REVISION: ${{ steps.ledger-candidate.outputs.revision }}
+        run: |
+          if [ "$LEDGER_DIGEST" != "$RESOLVED_DIGEST" ]; then
+            echo "::error title=Candidate digest moved::$PROJECT_NAME's tag $REVISION now resolves to $RESOLVED_DIGEST, but the verified candidate recorded in the ledger was $LEDGER_DIGEST. The tag has been re-pointed since verification; re-verify via deploy-candidate before promoting."
+            exit 1
+          fi
+          echo "::notice title=Candidate digest confirmed::$REVISION still resolves to the verified digest $LEDGER_DIGEST."
+
+      - name: Determine release number from candidate
+        id: release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::the running release-candidate image (digest $DIGEST) has no candidate tag; cannot derive a release name. Deploy a candidate via deploy-candidate first."
+            exit 1
+          fi
+          suffix="${candidate#candidate-}"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
+
+      # --- Rollback-safety classification (advisory; never blocks) ----------
+      # The git sha currently in production, from the deployments ledger -- the
+      # baseline the candidate's migrations are diffed against. Empty on ANY
+      # failure (|| true), which the classifier treats as `unclassified` (e.g.
+      # the very first promote, before any production baseline exists).
+      - name: Fetch production baseline
+        id: baseline
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+        run: |
+          prev_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
+          echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
+          # The candidate's git sha is the sha-<gitsha> tag on the resolved
+          # digest (the head of the classification diff). Empty -> unclassified.
+          head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      # Classify the migrations added between the production baseline and the
+      # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
+      # An app whose app-info declares `Migrations = "none"` is rollback-safe
+      # without any diff at all -- that declaration is the only thing that
+      # distinguishes "has no migrations" from "has migrations we can't see".
+      # The action NEVER fails; continue-on-error is a belt on top of that.
+      # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
+      - name: Classify rollback safety
+        id: rollback-safety
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/classify-rollback-safety
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: CruGlobal/${{ inputs.project-name }}
+          base-sha: ${{ steps.baseline.outputs.prev-sha }}
+          head-sha: ${{ steps.baseline.outputs.head-sha }}
+          migrations-path: ${{ needs.lookup.outputs.migrations-path }}
+          migrations: ${{ needs.lookup.outputs.migrations }}
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          image: ${{ steps.resolve.outputs.image }}
+
+      # Tag the promoted digest release-<n> in ECR (manifest re-tag; the ECR path
+      # is shared by ecs and lambda). Requires ecr:PutImage on the deploy role
+      # (GitHubDeployECS / GitHubDeployLambda) — see the tag-image comment / docs.
+      - name: Tag digest as release
+        uses: ./cru-github-actions/actions/tag-image
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          digest: ${{ steps.resolve.outputs.digest }}
+          tag: ${{ steps.release.outputs.release }}
+
+      # Publish a GitHub Release on the APP repo, so each app's own Releases page
+      # is the human-readable record of what reached production and when: git tag
+      # = the release name, pointing at the promoted commit (the `sha-<gitsha>`
+      # tag the candidate digest carries — the same sha the rollback-safety
+      # classifier diffs), title = the release name, marked latest.
+      #
+      # The body is deliberately a short header — digest, promoted-by, run link,
+      # changelog link for the range. It does NOT restate the commit list:
+      # deploys.cru.org/changelog is the canonical rendering of "what's in this
+      # release" (ledger-backed, so it resolves release names through to shas),
+      # and a second copy here would only drift from it. Same dead-link rule as
+      # the Slack notify — with no baseline sha (first promote, or a failed ledger
+      # query) the changelog line is omitted rather than emitted broken.
+      #
+      # Credential: the existing `authz-token`. It is already this workflow's
+      # app-repo credential — the authz gate reads collaborator permission with
+      # it and the rollback-safety classifier fetches the app repo's compare with
+      # it — so a release write adds no new credential *surface*, only a new verb.
+      # The run-scoped GITHUB_TOKEN cannot substitute: it is scoped to the calling
+      # cru-deploy repo, not the app repo. The narrower long-term home is the
+      # org-wide "Cru Deploy" GitHub App, which needs two things it does not have
+      # yet: Contents bumped read -> write, and its key made reachable from
+      # cru-deploy workflows (today it lives only in SSM /ecs/cru-app-info/*).
+      #
+      # NEVER fails the promote. Production is already updated by the time this
+      # runs, so a missing Releases entry is a bookkeeping loss, not an incident:
+      # continue-on-error, plus in-step handling that turns any non-2xx into a
+      # warning naming the likely fix. A re-run of an already-promoted candidate
+      # re-POSTs the same release name and gets 422 already_exists — that is the
+      # correct end state, so it degrades to a notice instead of a warning.
+      - name: Publish GitHub Release on the app repo
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          APP_REPO: CruGlobal/${{ inputs.project-name }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          COMMIT_SHA: ${{ steps.baseline.outputs.head-sha }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$COMMIT_SHA" ]; then
+            echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
+            exit 0
+          fi
+          # make_latest is a string enum ("true"/"false"/"legacy"), not a boolean.
+          payload=$(jq -n \
+            --arg tag "$RELEASE" \
+            --arg target "$COMMIT_SHA" \
+            --arg digest "$DIGEST" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg project "$PROJECT_NAME" \
+            --arg prevsha "$PREV_SHA" \
+            '{tag_name: $tag, target_commitish: $target, name: $tag,
+              draft: false, prerelease: false, make_latest: "true",
+              body: ("Promoted to production by @\($actor).\n\n"
+                     + "- Image digest: `\($digest)`\n"
+                     + "- Promote run: \($runurl)\n"
+                     + (if $prevsha != ""
+                        then "- [Changes in this release](https://deploys.cru.org/changelog?project="
+                             + $project + "&from=" + $prevsha + "&to=" + $tag + ")\n"
+                        else "" end))}')
+          # gh api puts the JSON body on stdout (success AND error) and its human
+          # summary on stderr, so capture stdout only: stderr stays in the run log
+          # where an operator wants it, and nothing can corrupt the JSON parse.
+          if response=$(printf '%s' "$payload" | gh api -X POST "repos/$APP_REPO/releases" --input -); then
+            echo "::notice title=Release published::$(echo "$response" | jq -r '.html_url // empty')"
+          else
+            case "$response" in
+              *already_exists*)
+                echo "::notice title=Release already published::$RELEASE already exists on $APP_REPO; left as-is"
+                ;;
+              *)
+                echo "::warning title=GitHub Release failed::could not publish $RELEASE on $APP_REPO (non-blocking). A 403/404 here means authz-token lacks contents:write on the app repo — see this step's credential note."
+                ;;
+            esac
+          fi
+
+      - name: Record deployment event in Datadog
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          jq -n \
+            --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:promote",
+                     "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
+
+      # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
+      # deployments ledger -- the fleet dashboard / DORA data spine). Same
+      # policy as all telemetry: NEVER fails the deploy.
+      - name: Record deployment in ledger
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ steps.release.outputs.release }}
+          TYPE: ${{ needs.lookup.outputs.type }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          ROLLBACK_REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Rollback-safety verdict -> RollbackSafe true/false (omitted when unclassified).
+          rollback_safe=""
+          case "$VERDICT" in safe) rollback_safe=true ;; unsafe) rollback_safe=false ;; esac
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment production \
+              --arg action promote \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg rollbacksafe "$rollback_safe" \
+              --arg rollbackreasons "$ROLLBACK_REASONS" \
+              --arg provider aws \
+              --arg type "$TYPE" \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)
+                + (if $rollbacksafe != "" then {RollbackSafe: {S: $rollbacksafe}} else {} end)
+                + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset. The word "production" links to the app's production AppUrl
+      # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
+      # `from` = the sha production ran before this promote (the same baseline the
+      # rollback-safety classifier diffs against), `to` = the new release tag --
+      # the page resolves revision names through the ledger, so a tag is as good
+      # as a sha. With no baseline yet (first promote) or a failed ledger query
+      # the line is omitted, so it is never a dead link.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          # Rollback-safety advisory line appended to the promote message.
+          case "$VERDICT" in
+            # A `safe` verdict ALWAYS carries a reason ("no database migrations"
+            # declaration, "N additive migration(s)", or "no migration changes
+            # in this release") — the fallback here only covers a jq failure.
+            safe) safety=":shield: rollback-safe ($(echo "${REASONS:-[]}" | jq -r 'if length > 0 then .[0] else "classified safe" end' 2>/dev/null || echo "classified safe"))" ;;
+            unsafe) safety=":warning: NOT rollback-safe: $(echo "$REASONS" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "see run logs")" ;;
+            *) safety="rollback safety: unclassified" ;;
+          esac
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg appurl "$APP_URL" \
+            --arg prevsha "$PREV_SHA" \
+            --arg safety "$safety" \
+            '{channel: $channel,
+              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+                     + "\n\($safety)"
+                     + (if $prevsha != ""
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $prevsha + "&to=" + $release
+                             + "|what'\''s in this release>"
+                        else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl
+      # link (a failed promote means production did NOT change) and no changelog
+      # link -- the run URL is the reader's next step, so it is the whole second
+      # line. A promote can fail BEFORE the release name is derived (e.g. at
+      # image resolution), in which case steps.release.outputs.release is empty
+      # and the message names "the release-candidate image" instead: the only
+      # step output referenced, and it degrades rather than breaks.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.release.outputs.release || '' }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }

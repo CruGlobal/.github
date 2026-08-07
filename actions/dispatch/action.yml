@@ -1,0 +1,26 @@
+name: Dispatch Workflow
+description: >-
+  Generic cross-repo workflow_dispatch trigger (pipeline v2). Fires a
+  workflow_dispatch event against any repo/workflow with a JSON inputs payload.
+inputs:
+  github-token:
+    description: GitHub token authorized to create a workflow_dispatch event on the target repo.
+    required: true
+  repo:
+    description: Target repository in "owner/name" form.
+    required: false
+    default: 'CruGlobal/cru-deploy'
+  workflow:
+    description: Workflow file name to dispatch, e.g. promote.yml.
+    required: true
+  ref:
+    description: Branch, tag or commit of the target repo to dispatch against.
+    required: false
+    default: 'main'
+  inputs-json:
+    description: JSON object of workflow inputs to pass through, e.g. '{"project-name":"hoax"}'.
+    required: false
+    default: '{}'
+runs:
+  using: 'node24'
+  main: '../../dist/dispatch.js'

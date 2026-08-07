@@ -1,0 +1,34 @@
+name: Tag Image
+description: >-
+  Provider-agnostic release tagging (pipeline v2). Adds a tag to an
+  already-pushed digest in the shared registry without rebuilding or re-pushing
+  layers. cloudrun uses the Artifact Registry REST API; ecs/lambda re-tag the
+  ECR manifest.
+inputs:
+  type:
+    description: Runtime whose registry to tag in. One of ecs | lambda | cloudrun.
+    required: true
+  project-name:
+    description: Project name (also the shared-registry repo/image name).
+    required: true
+  digest:
+    description: The digest to tag, as a bare sha256:... value.
+    required: true
+  tag:
+    description: Tag to add to the digest, e.g. release-10038.
+    required: true
+  registry-project:
+    description: >-
+      cloudrun only — the GCP project of the Artifact Registry to tag in.
+      Defaults to the shared registry project.
+    required: false
+    default: 'cru-shared-artifacts'
+outputs:
+  image:
+    description: The full digest reference that was tagged.
+  tag:
+    description: The tag that was applied.
+
+runs:
+  using: 'node24'
+  main: '../../dist/tag-image.js'

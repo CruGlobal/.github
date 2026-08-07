@@ -16,7 +16,11 @@ name: Build dist/
 
 on:
   push:
-    branches: [main]
+    # pipeline-v2 is a long-lived v2 branch that carries its own built dist/, so
+    # branch consumers always get freshly built bundles. checkout@v7 checks out
+    # the pushed ref (github.ref) and add-and-commit commits back to that same
+    # branch, so the rebuild lands on whichever branch triggered it.
+    branches: [main, pipeline-v2]
     paths-ignore:
       - 'dist/**'
   workflow_dispatch:

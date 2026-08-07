@@ -1,0 +1,650 @@
+name: Rollback
+
+# Roll production back to a previously promoted release. The release tag is
+# resolved to its digest in the shared registry and redeployed to production.
+#
+# Multi-provider router (D9 pattern at job level): a `lookup` job runs the authz
+# gate, the app-info fetch, and release-tag normalization, and outputs the
+# provider + type + prod project-id + normalized release tag. Authz lives in
+# `lookup`, which every provider job `needs`, so it ALWAYS passes before any
+# provider job mutates production.
+#
+# NOTE: automatic "previous release" selection (roll back to release-<n-1>
+# without naming it) lands in a later v2 pass; for now the target release is an
+# explicit input.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      project-name:
+        type: string
+        required: true
+        description: Project name (shared-registry repo/image).
+      release:
+        type: string
+        required: true
+        description: Release to roll back to, e.g. release-10012 or bare 10012.
+    secrets:
+      datadog-api-key:
+        required: true
+        description: DataDog API key.
+      authz-token:
+        required: true
+        description: GitHub token used to verify the actor has push access to the app repo.
+      slack-bot-token:
+        required: false
+        description: Slack bot token for pipeline notifications; unset disables posting.
+
+jobs:
+  lookup:
+    name: Authorize & look up app info
+    runs-on: ubuntu-latest
+    # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
+    # and checks nothing out (the authz step uses the authz-token PAT).
+    permissions:
+      id-token: write
+    outputs:
+      provider: ${{ steps.app-info.outputs.provider }}
+      type: ${{ steps.app-info.outputs.type }}
+      project-id: ${{ steps.app-info.outputs.project-id }}
+      release-tag: ${{ steps.release.outputs.tag }}
+      slack-channel: ${{ steps.app-info.outputs.slack-channel }}
+      app-url: ${{ steps.app-info.outputs.app-url }}
+    steps:
+      # Authorization runs FIRST, before any provider job mutates production.
+      # TODO: replace PAT with a dedicated GitHub App.
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          ACTOR: ${{ github.actor }}
+          APP_REPO: CruGlobal/${{ inputs.project-name }}
+        run: |
+          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
+          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          case "$permission" in
+            admin|write|maintain) ;;
+            *)
+              echo "::error::$ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              exit 1
+              ;;
+          esac
+
+      # app-info comes straight from the CruApplicationInfo DynamoDB table rather
+      # than the cru-app-info HTTP API -- the pipeline deploys that API itself, so
+      # a rollback (the thing you reach for when production is broken) must not
+      # depend on it being up. GitHubDeployECS regardless of the app's provider:
+      # this runs before the provider/type fan-out, and the role's trust is
+      # cru-deploy-repo-scoped, not runtime-scoped (same reasoning as the ledger
+      # writes below).
+      - name: Configure AWS credentials for app-info
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # The table is keyed by legacy env names, so translate first.
+      - name: Look up app info (production)
+        id: app-info
+        env:
+          PROJECT_NAME: ${{ inputs.project-name }}
+          V2_ENV: production
+        run: |
+          case "$V2_ENV" in
+            release-candidate) legacy_env=staging ;;
+            production) legacy_env=production ;;
+            preview) legacy_env=lab ;;
+            *) echo "::error::unknown v2 environment $V2_ENV"; exit 1 ;;
+          esac
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment "$legacy_env" \
+              '{Project: {S: $project}, Environment: {S: $environment}}')")
+          item=$(echo "$info" | jq -c '.Item // empty')
+          if [ -z "$item" ]; then
+            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before rolling back"
+            exit 1
+          fi
+          provider=$(echo "$item" | jq -r '.Provider.S // empty')
+          type=$(echo "$item" | jq -r '.Type.S // empty')
+          project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
+          slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
+          app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
+          case "$provider" in
+            gcp|aws) ;;
+            *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
+          esac
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          echo "type=$type" >> "$GITHUB_OUTPUT"
+          echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
+          echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
+
+      # Accept "release-2026-07-23-10056", the same without the "release-"
+      # prefix, or just the build number: resolve-image finds a dated release by
+      # its bare number (suffix match), and legacy pre-D10 tags resolve directly.
+      - name: Normalize release tag
+        id: release
+        env:
+          RELEASE: ${{ inputs.release }}
+        run: |
+          suffix="${RELEASE#release-}"
+          if ! echo "$suffix" | grep -qE '^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$'; then
+            echo "::error::invalid release '$RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional)"
+            exit 1
+          fi
+          echo "tag=release-$suffix" >> "$GITHUB_OUTPUT"
+
+  rollback-gcp:
+    name: Roll production back (Cloud Run)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'gcp'
+    runs-on: ubuntu-latest
+    # Shared production lock with promote: only one production mutation per app
+    # at a time, and never cancelled mid-flight.
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      ENVIRONMENT: production
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Configure GCP credentials (production SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: cru-deploy@${{ needs.lookup.outputs.project-id }}.iam.gserviceaccount.com
+
+      - name: Resolve release image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          mode: tag
+          tag: ${{ needs.lookup.outputs.release-tag }}
+
+      # A bare-number input can resolve to a dated release tag (release-<date>-<n>),
+      # so DD_VERSION must reflect the ACTUAL release-* tag on the resolved digest,
+      # not the normalized input. Grep the resolved tags for release-*, falling
+      # back to the normalized input when (unexpectedly) none is present.
+      - name: Determine deployed release tag
+        id: actual-release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          FALLBACK: ${{ needs.lookup.outputs.release-tag }}
+        run: |
+          release=$(echo "$TAGS" | tr ',' '\n' | grep -E '^release-' | head -n1 || true)
+          echo "tag=${release:-$FALLBACK}" >> "$GITHUB_OUTPUT"
+
+      # --- Rollback-safety advisory (read-back; never blocks) --------------
+      # The release we are rolling back FROM may have shipped destructive
+      # migrations; an image swap does NOT revert the schema. Read the most
+      # recent production ledger row carrying a rollback-safety verdict and warn
+      # loudly if it was classified unsafe. Public GET; never fails the rollback.
+      # The same fetch also yields what production runs RIGHT NOW (the newest
+      # event) for the Slack changelog link -- one ledger round trip, two uses.
+      - name: Rollback-safety advisory
+        id: rollback-safety
+        continue-on-error: true
+        run: |
+          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          # The release this rollback takes production OFF -- the `to` end of the
+          # changelog link (revision name preferred, Sha for rows that predate
+          # named revisions). Empty -> the Slack message keeps the run URL.
+          echo "previous-revision=$(echo "$items" | jq -r '.[0].Revision // .[0].Sha // empty')" >> "$GITHUB_OUTPUT"
+          entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
+          safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
+          reasons_json=$(echo "$entry" | jq -r '.RollbackSafeReasons // ""' 2>/dev/null || echo "")
+          reasons=""
+          if [ -n "$reasons_json" ]; then
+            reasons=$(echo "$reasons_json" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "")
+          fi
+          if [ "$safe" = "false" ]; then
+            echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
+            echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
+            echo "slack=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: cloudrun
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          runtime-project: ${{ needs.lookup.outputs.project-id }}
+          image: ${{ steps.resolve.outputs.image }}
+
+      - name: Record deployment event in Datadog
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          jq -n \
+            --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:rollback",
+                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
+
+      # The deployments-ledger write grant lives on the existing deploy roles
+      # (ratified: no dedicated ledger role). GCP jobs carry no AWS creds, so
+      # assume a deploy role here solely to append the ledger event -- ECS is
+      # chosen arbitrarily; the trust is cru-deploy-repo-scoped, not runtime-
+      # scoped. Placed AFTER all GCP deploy/tag-image steps so its AWS
+      # credential env vars can't interfere; configure-aws-credentials next to
+      # an earlier google-github-actions/auth is fine (different env vars).
+      - name: Configure AWS credentials for ledger
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
+      # deployments ledger -- the fleet dashboard / DORA data spine). Same
+      # policy as all telemetry: NEVER fails the deploy.
+      - name: Record deployment in ledger
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ steps.actual-release.outputs.tag }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment production \
+              --arg action rollback \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg provider gcp \
+              --arg type cloudrun \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset. The word "production" links to the app's production AppUrl
+      # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed) with
+      # from/to INVERTED relative to deploy-candidate / promote: `from` = the
+      # release we are rolling back TO, `to` = what production was running, so the
+      # page shows what production is LOSING. Falls back to the workflow-run URL
+      # when the ledger yields no prior production event (or names this same
+      # release), so the line is never a dead or empty link.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
+          PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
+          SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg appurl "$APP_URL" \
+            --arg previous "$PREVIOUS" \
+            --arg safety "$SAFETY_LINE" \
+            '{channel: $channel,
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+                     + (if $safety != "" then "\n\($safety)" else "" end)
+                     + (if $previous != "" and $previous != $release
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $release + "&to=" + $previous
+                             + "|what this rollback reverts>"
+                        else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl link
+      # (a failed rollback means production is still on the bad release) and no
+      # changelog link -- the run URL is the reader's next step, so it is the
+      # whole second line. References no earlier step's output at all, so it
+      # renders whichever step failed.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) rollback in production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+  rollback-aws:
+    name: Roll production back (AWS)
+    needs: lookup
+    if: needs.lookup.outputs.provider == 'aws'
+    runs-on: ubuntu-latest
+    # Shared production lock with promote (same group as rollback-gcp).
+    concurrency:
+      group: production-${{ inputs.project-name }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+      ENVIRONMENT: production
+      DD_API_KEY: ${{ secrets.datadog-api-key }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Guard supported AWS type
+        env:
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          case "$TYPE" in
+            ecs|lambda) ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+          esac
+
+      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda), both
+      # cru-deploy-scoped and covering the cruds account (056154071827).
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+
+      - name: Resolve release image
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          mode: tag
+          tag: ${{ needs.lookup.outputs.release-tag }}
+
+      # A bare-number input can resolve to a dated release tag (release-<date>-<n>),
+      # so DD_VERSION must reflect the ACTUAL release-* tag on the resolved digest,
+      # not the normalized input. Grep the resolved tags for release-*, falling
+      # back to the normalized input when (unexpectedly) none is present.
+      - name: Determine deployed release tag
+        id: actual-release
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          FALLBACK: ${{ needs.lookup.outputs.release-tag }}
+        run: |
+          release=$(echo "$TAGS" | tr ',' '\n' | grep -E '^release-' | head -n1 || true)
+          echo "tag=${release:-$FALLBACK}" >> "$GITHUB_OUTPUT"
+
+      # --- Rollback-safety advisory (read-back; never blocks) --------------
+      # The release we are rolling back FROM may have shipped destructive
+      # migrations; an image swap does NOT revert the schema. Read the most
+      # recent production ledger row carrying a rollback-safety verdict and warn
+      # loudly if it was classified unsafe. Public GET; never fails the rollback.
+      # The same fetch also yields what production runs RIGHT NOW (the newest
+      # event) for the Slack changelog link -- one ledger round trip, two uses.
+      - name: Rollback-safety advisory
+        id: rollback-safety
+        continue-on-error: true
+        run: |
+          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          # The release this rollback takes production OFF -- the `to` end of the
+          # changelog link (revision name preferred, Sha for rows that predate
+          # named revisions). Empty -> the Slack message keeps the run URL.
+          echo "previous-revision=$(echo "$items" | jq -r '.[0].Revision // .[0].Sha // empty')" >> "$GITHUB_OUTPUT"
+          entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
+          safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
+          reasons_json=$(echo "$entry" | jq -r '.RollbackSafeReasons // ""' 2>/dev/null || echo "")
+          reasons=""
+          if [ -n "$reasons_json" ]; then
+            reasons=$(echo "$reasons_json" | jq -r '.[0:2] | join("; ")' 2>/dev/null || echo "")
+          fi
+          if [ "$safe" = "false" ]; then
+            echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
+            echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
+            echo "slack=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record deploy start
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Deploy to production
+        uses: ./cru-github-actions/actions/deploy
+        with:
+          type: ${{ needs.lookup.outputs.type }}
+          project-name: ${{ inputs.project-name }}
+          environment: production
+          image: ${{ steps.resolve.outputs.image }}
+
+      - name: Record deployment event in Datadog
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
+          # events are joinable to commits (deployments-ledger precursor). Omitted
+          # cleanly when the digest carries no sha- tag.
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          jq -n \
+            --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg service "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg gitsha "$gitsha" \
+            '{title: $title, text: $text, alert_type: "info",
+              aggregation_key: ("deploy:" + $service + ":production"),
+              tags: (["source:cru-pipeline-v2", ("service:" + $service),
+                     "environment:production", "action:rollback",
+                     "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
+                     ("actor:" + $actor)]
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+          | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
+            || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
+
+      # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
+      # deployments ledger -- the fleet dashboard / DORA data spine). Same
+      # policy as all telemetry: NEVER fails the deploy.
+      - name: Record deployment in ledger
+        continue-on-error: true
+        env:
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+          ACTOR: ${{ github.actor }}
+          REVISION: ${{ steps.actual-release.outputs.tag }}
+          TYPE: ${{ needs.lookup.outputs.type }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          aws dynamodb put-item --region us-east-1 \
+            --table-name CruDeploymentLedger \
+            --item "$(jq -n \
+              --arg project "$PROJECT_NAME" \
+              --arg eventat "${now}#${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --arg eventdate "${now%%T*}" \
+              --arg environment production \
+              --arg action rollback \
+              --arg source cru-pipeline-v2 \
+              --arg revision "$REVISION" \
+              --arg digest "$DIGEST" \
+              --arg sha "$gitsha" \
+              --arg actor "$ACTOR" \
+              --arg runid "$GITHUB_RUN_ID" \
+              --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg provider aws \
+              --arg type "$TYPE" \
+              '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
+                Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
+                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
+                Type: {S: $type}}
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+            || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
+
+      # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
+      # Destination = the app's production SlackChannel from app-info (channel
+      # #name/C… or user U…); no-ops silently when the channel OR the bot token
+      # is unset. The word "production" links to the app's production AppUrl
+      # (also from app-info) when it has one, and is plain text when it doesn't.
+      # The closing line is a changelog link (deploys.cru.org, ledger-backed) with
+      # from/to INVERTED relative to deploy-candidate / promote: `from` = the
+      # release we are rolling back TO, `to` = what production was running, so the
+      # page shows what production is LOSING. Falls back to the workflow-run URL
+      # when the ledger yields no prior production event (or names this same
+      # release), so the line is never a dead or empty link.
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          APP_URL: ${{ needs.lookup.outputs.app-url }}
+          ACTOR: ${{ github.actor }}
+          RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
+          PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
+          SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg release "$RELEASE" \
+            --arg actor "$ACTOR" \
+            --arg appurl "$APP_URL" \
+            --arg previous "$PREVIOUS" \
+            --arg safety "$SAFETY_LINE" \
+            '{channel: $channel,
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+                     + (if $safety != "" then "\n\($safety)" else "" end)
+                     + (if $previous != "" and $previous != $release
+                        then "\n<https://deploys.cru.org/changelog?project=" + $project
+                             + "&from=" + $release + "&to=" + $previous
+                             + "|what this rollback reverts>"
+                        else "" end))}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }
+
+      # Notify Slack (failure) -- the mirror of the success notify above: same
+      # production SlackChannel destination, same "channel OR token unset ⇒
+      # silent no-op", same continue-on-error (a notification must NEVER change
+      # a run's outcome, in either direction). Deliberately plain: no AppUrl link
+      # (a failed rollback means production is still on the bad release) and no
+      # changelog link -- the run URL is the reader's next step, so it is the
+      # whole second line. References no earlier step's output at all, so it
+      # renders whichever step failed.
+      - name: Notify Slack (failure)
+        if: failure()
+        continue-on-error: true
+        env:
+          SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
+          SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg project "$PROJECT_NAME" \
+            --arg actor "$ACTOR" \
+            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{channel: $channel,
+              text: (":x: *\($project) rollback in production FAILED* by \($actor)"
+                     + "\n\($runurl)")}')
+          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
+          echo "$response" | jq -e '.ok' >/dev/null || { echo "::warning title=Slack notify failed::$(echo "$response" | jq -r '.error // "post failed"') (non-blocking)"; }

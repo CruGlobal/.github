@@ -1,0 +1,682 @@
+name: Build Candidate
+
+# Pipeline v2 "build once" entrypoint. Builds an env-neutral image from the
+# triggering commit and pushes it to the shared registry tagged candidate-<yyyy-mm-dd>-<n>
+# (build date + build number; and sha-<gitsha> for traceability). Nothing is deployed here — every
+# environment later deploys this exact artifact by digest.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      type:
+        type: string
+        required: true
+        description: Runtime to build for. One of ecs | lambda | cloudrun.
+      project-name:
+        type: string
+        required: false
+        default: ''
+        description: Project name (shared-registry repo/image). Defaults to the repository name.
+    outputs:
+      project-name:
+        description: Project name (defaults to the repository name).
+        value: ${{ jobs.setup.outputs.project-name }}
+      build-number:
+        description: Build number of the candidate.
+        value: ${{ jobs.build-cloudrun.outputs.build-number || jobs.build-ecs.outputs.build-number || jobs.build-lambda.outputs.build-number }}
+      candidate:
+        description: Candidate tag (candidate-<yyyy-mm-dd>-<n>).
+        value: ${{ jobs.build-cloudrun.outputs.candidate || jobs.build-ecs.outputs.candidate || jobs.build-lambda.outputs.candidate }}
+      image:
+        description: Full digest reference of the candidate image.
+        value: ${{ jobs.build-cloudrun.outputs.image || jobs.build-ecs.outputs.image || jobs.build-lambda.outputs.image }}
+      digest:
+        description: The sha256:... digest of the candidate image.
+        value: ${{ jobs.build-cloudrun.outputs.digest || jobs.build-ecs.outputs.digest || jobs.build-lambda.outputs.digest }}
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      project-name: ${{ steps.info.outputs.project-name }}
+    steps:
+      # A candidate is promotable by definition: whatever this run builds can be
+      # deployed to release-candidate and promoted to production, and nothing
+      # downstream re-checks where it came from. So the ref is asserted here,
+      # before a build number is burned or an image is pushed. `schedule` can
+      # only ever run on the default branch; this covers workflow_dispatch (and
+      # any push-triggered caller) on a feature ref. Compared against the
+      # repository's OWN default branch rather than the literal `main`, so an
+      # app still on `master` is guarded, not wedged.
+      - name: Assert the calling ref is the default branch
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "::error title=Build Candidate::candidates build from the default branch only -- $GITHUB_REF is not refs/heads/$DEFAULT_BRANCH. Merge the change to $DEFAULT_BRANCH, then dispatch."
+          exit 1
+
+      - name: Resolve project name & validate type
+        id: info
+        run: |
+          case "${{ inputs.type }}" in
+            ecs|lambda|cloudrun) ;;
+            *) echo "::error::unknown type '${{ inputs.type }}'; expected ecs, lambda, or cloudrun"; exit 1 ;;
+          esac
+          project_name="${{ inputs.project-name }}"
+          if [ -z "$project_name" ]; then
+            project_name="${GITHUB_REPOSITORY##*/}"
+          fi
+          echo "project-name=$project_name" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Build Candidate::project=$project_name type=${{ inputs.type }}"
+
+  build-cloudrun:
+    name: Build Candidate (Cloud Run)
+    if: inputs.type == 'cloudrun'
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # One candidate build per project at a time. The no-change guard below is a
+    # read-then-build check, so without a lock a dispatch racing the 05:00 cron
+    # builds the same git sha twice and burns two build numbers.
+    # cancel-in-progress is false deliberately: let the first build finish, and
+    # the second then finds sha-<gitsha> already pushed and reuses its candidate.
+    # Keyed on the project; project-name is optional on this workflow, so it
+    # falls back to the repository (the group is scoped to the CALLING repository
+    # either way, so both forms name one app).
+    concurrency:
+      group: build-candidate-${{ inputs.project-name || github.repository }}
+      cancel-in-progress: false
+    # Candidates are prod-bound: they authenticate with the app's PRODUCTION-env
+    # github-actions SA (which holds AR writer on the app's shared-registry repo),
+    # so the env-scoped vars.GCP_* below are the production environment's values.
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ needs.setup.outputs.project-name }}
+    outputs:
+      build-number: ${{ steps.existing.outputs.build-number || steps.build-number.outputs.build-number }}
+      candidate: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+      image: ${{ steps.guard.outputs.image || steps.resolve.outputs.image }}
+      digest: ${{ steps.guard.outputs.digest || steps.resolve.outputs.digest }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Configure GCP credentials
+        uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Setup AWS build-counter environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: setup-env
+        with:
+          project-name: ${{ needs.setup.outputs.project-name }}
+          environment: production
+          role-suffix: GitHubRole
+
+      - name: Configure AWS credentials (build counter)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
+
+      # No-change guard: if this exact git sha was already built and pushed as a
+      # candidate, reuse it rather than building again. resolve-image fails
+      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      - name: No-change guard (resolve existing sha)
+        uses: ./cru-github-actions/actions/resolve-image
+        id: guard
+        continue-on-error: true
+        with:
+          type: cloudrun
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Reuse existing candidate
+        if: steps.guard.outcome == 'success'
+        id: existing
+        env:
+          TAGS: ${{ steps.guard.outputs.tags }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            exit 1
+          fi
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate##*-}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=No-change build::reusing $candidate (git sha already built)"
+
+      - name: Increment build number
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
+
+      - name: Compute candidate tag
+        if: steps.guard.outcome != 'success'
+        id: built
+        # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
+        # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
+        # number remains the unique key. Promote reuses the full suffix, so
+        # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
+        # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        run: |
+          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
+          echo "version=${suffix}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.guard.outcome != 'success'
+        uses: docker/setup-buildx-action@v4
+        id: buildx
+
+      - name: Login to Artifact Registry
+        if: steps.guard.outcome != 'success'
+        uses: docker/login-action@v4
+        with:
+          registry: us-central1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
+      # 2026-07-23): the repo is the isolation boundary, matching the build's
+      # repo-scoped OIDC identity, and one mechanism serves all three runtimes.
+      # Requires `secrets: inherit` on the app workflow's call; without it the
+      # secrets context is empty and this step no-ops. The prefix is the export
+      # filter -- inherit exposes org secrets (e.g. CRU_DEPLOY_GITHUB_TOKEN) to
+      # this workflow, and ONLY BUILD_* may reach build.sh's environment. The
+      # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
+      # masked in logs (they are Actions secrets).
+      - name: Export BUILD_* repo secrets
+        if: steps.guard.outcome != 'success'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          keys=$(jq -r 'keys[] | select(startswith("BUILD_"))' <<<"$SECRETS_JSON")
+          if [ -z "$keys" ]; then
+            echo "No BUILD_* repo secrets; build environment unchanged."
+            exit 0
+          fi
+          for key in $keys; do
+            name="${key#BUILD_}"
+            delim="__CRU_BUILD_SECRET_${RANDOM}${RANDOM}__"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              jq -r --arg k "$key" '.[$k]' <<<"$SECRETS_JSON"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+            echo "exported $key -> $name"
+          done
+
+      - name: Checkout project
+        if: steps.guard.outcome != 'success'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: project
+
+      - name: Run build.sh
+        if: steps.guard.outcome != 'success'
+        working-directory: project
+        run: ./build.sh
+        env:
+          # VERSION is the candidate tag's bare suffix (<yyyy-mm-dd>-<n>) -- identical
+          # for the future release tag (D10 full-suffix reuse), so a Dockerfile that
+          # bakes `ARG VERSION` -> `ENV DD_VERSION` reports one true version in every
+          # environment. Apps without the ARG just log an unused-build-arg warning.
+          DOCKER_ARGS: |
+            --builder ${{ steps.buildx.outputs.name }}
+            --build-arg VERSION=${{ steps.built.outputs.version }}
+            --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
+            --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
+            --push
+
+      - name: Resolve pushed digest
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: cloudrun
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Notify success
+        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+
+  build-ecs:
+    name: Build Candidate (ECS)
+    if: inputs.type == 'ecs'
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # One candidate build per project at a time -- see the Cloud Run job's
+    # comment. Only one runtime job ever runs, so they share the group.
+    concurrency:
+      group: build-candidate-${{ inputs.project-name || github.repository }}
+      cancel-in-progress: false
+    # Candidates are prod-bound: they build with the app's PRODUCTION-env
+    # GitHubRole (arn:aws:iam::056154071827:role/<project>-prod-GitHubRole). The
+    # aws/ecs/app v2 module change grants that role ECR push on the app's repo +
+    # the build-number DynamoDB counter (v1's dual-purpose TaskRole-as-build-
+    # identity is retired for v2). ECR is org-shared (account 056154071827), so
+    # the candidate-<n>/sha-<gitsha> families land in the app's EXISTING per-app
+    # ECR repo, keyed on the PROJECT NAME (v2 fixes v1's repo-name mismatch).
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ needs.setup.outputs.project-name }}
+    outputs:
+      build-number: ${{ steps.existing.outputs.build-number || steps.build-number.outputs.build-number }}
+      candidate: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+      image: ${{ steps.guard.outputs.image || steps.resolve.outputs.image }}
+      digest: ${{ steps.guard.outputs.digest || steps.resolve.outputs.digest }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup AWS environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: setup-env
+        with:
+          project-name: ${{ needs.setup.outputs.project-name }}
+          environment: production
+          role-suffix: GitHubRole
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
+
+      # No-change guard: if this exact git sha was already built and pushed as a
+      # candidate, reuse it rather than building again. resolve-image fails
+      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      - name: No-change guard (resolve existing sha)
+        uses: ./cru-github-actions/actions/resolve-image
+        id: guard
+        continue-on-error: true
+        with:
+          type: ecs
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Reuse existing candidate
+        if: steps.guard.outcome == 'success'
+        id: existing
+        env:
+          TAGS: ${{ steps.guard.outputs.tags }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            exit 1
+          fi
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate##*-}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=No-change build::reusing $candidate (git sha already built)"
+
+      - name: Increment build number
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
+
+      - name: Compute candidate tag
+        if: steps.guard.outcome != 'success'
+        id: built
+        # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
+        # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
+        # number remains the unique key. Promote reuses the full suffix, so
+        # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
+        # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        run: |
+          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
+          echo "version=${suffix}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.guard.outcome != 'success'
+        uses: docker/setup-buildx-action@v4
+        id: buildx
+
+      - name: Login to Amazon ECR
+        if: steps.guard.outcome != 'success'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
+      # 2026-07-23): the repo is the isolation boundary, matching the build's
+      # repo-scoped OIDC identity, and one mechanism serves all three runtimes.
+      # Requires `secrets: inherit` on the app workflow's call; without it the
+      # secrets context is empty and this step no-ops. The prefix is the export
+      # filter -- inherit exposes org secrets (e.g. CRU_DEPLOY_GITHUB_TOKEN) to
+      # this workflow, and ONLY BUILD_* may reach build.sh's environment. The
+      # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
+      # masked in logs (they are Actions secrets).
+      - name: Export BUILD_* repo secrets
+        if: steps.guard.outcome != 'success'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          keys=$(jq -r 'keys[] | select(startswith("BUILD_"))' <<<"$SECRETS_JSON")
+          if [ -z "$keys" ]; then
+            echo "No BUILD_* repo secrets; build environment unchanged."
+            exit 0
+          fi
+          for key in $keys; do
+            name="${key#BUILD_}"
+            delim="__CRU_BUILD_SECRET_${RANDOM}${RANDOM}__"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              jq -r --arg k "$key" '.[$k]' <<<"$SECRETS_JSON"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+            echo "exported $key -> $name"
+          done
+
+      - name: Checkout project
+        if: steps.guard.outcome != 'success'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: project
+
+      - name: Run build.sh
+        if: steps.guard.outcome != 'success'
+        working-directory: project
+        run: ./build.sh
+        env:
+          # VERSION: see the Cloud Run job's comment -- one build identity, baked.
+          DOCKER_ARGS: |
+            --builder ${{ steps.buildx.outputs.name }}
+            --build-arg VERSION=${{ steps.built.outputs.version }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
+            --push
+
+      - name: Resolve pushed digest
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: ecs
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Notify success
+        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+
+  build-lambda:
+    name: Build Candidate (Lambda)
+    if: inputs.type == 'lambda'
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # One candidate build per project at a time -- see the Cloud Run job's
+    # comment. Only one runtime job ever runs, so they share the group.
+    concurrency:
+      group: build-candidate-${{ inputs.project-name || github.repository }}
+      cancel-in-progress: false
+    # Candidates are prod-bound: they build with the app's PRODUCTION-env
+    # GitHubRole (arn:aws:iam::056154071827:role/<project>-prod-GitHubRole), which
+    # grants ECR push on the app's repo + the build-number DynamoDB counter — the
+    # same identity model as the ECS build job. ECR is org-shared (account
+    # 056154071827), so the candidate-<n>/sha-<gitsha> families land in the app's
+    # EXISTING per-app ECR repo, keyed on the PROJECT NAME.
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ needs.setup.outputs.project-name }}
+    outputs:
+      build-number: ${{ steps.existing.outputs.build-number || steps.build-number.outputs.build-number }}
+      candidate: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+      image: ${{ steps.guard.outputs.image || steps.resolve.outputs.image }}
+      digest: ${{ steps.guard.outputs.digest || steps.resolve.outputs.digest }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Setup AWS environment
+        uses: ./cru-github-actions/actions/setup-env
+        id: setup-env
+        with:
+          project-name: ${{ needs.setup.outputs.project-name }}
+          environment: production
+          role-suffix: GitHubRole
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
+
+      # No-change guard: if this exact git sha was already built and pushed as a
+      # candidate, reuse it rather than building again. resolve-image fails
+      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      - name: No-change guard (resolve existing sha)
+        uses: ./cru-github-actions/actions/resolve-image
+        id: guard
+        continue-on-error: true
+        with:
+          type: lambda
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Reuse existing candidate
+        if: steps.guard.outcome == 'success'
+        id: existing
+        env:
+          TAGS: ${{ steps.guard.outputs.tags }}
+        run: |
+          candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
+          if [ -z "$candidate" ]; then
+            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            exit 1
+          fi
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "build-number=${candidate##*-}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=No-change build::reusing $candidate (git sha already built)"
+
+      - name: Increment build number
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/build-number
+        id: build-number
+
+      - name: Compute candidate tag
+        if: steps.guard.outcome != 'success'
+        id: built
+        # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
+        # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
+        # number remains the unique key. Promote reuses the full suffix, so
+        # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
+        # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        run: |
+          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
+          echo "version=${suffix}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.guard.outcome != 'success'
+        uses: docker/setup-buildx-action@v4
+        id: buildx
+
+      - name: Login to Amazon ECR
+        if: steps.guard.outcome != 'success'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
+      # 2026-07-23): the repo is the isolation boundary, matching the build's
+      # repo-scoped OIDC identity, and one mechanism serves all three runtimes.
+      # Requires `secrets: inherit` on the app workflow's call; without it the
+      # secrets context is empty and this step no-ops. The prefix is the export
+      # filter -- inherit exposes org secrets (e.g. CRU_DEPLOY_GITHUB_TOKEN) to
+      # this workflow, and ONLY BUILD_* may reach build.sh's environment. The
+      # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
+      # masked in logs (they are Actions secrets).
+      - name: Export BUILD_* repo secrets
+        if: steps.guard.outcome != 'success'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          keys=$(jq -r 'keys[] | select(startswith("BUILD_"))' <<<"$SECRETS_JSON")
+          if [ -z "$keys" ]; then
+            echo "No BUILD_* repo secrets; build environment unchanged."
+            exit 0
+          fi
+          for key in $keys; do
+            name="${key#BUILD_}"
+            delim="__CRU_BUILD_SECRET_${RANDOM}${RANDOM}__"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              jq -r --arg k "$key" '.[$k]' <<<"$SECRETS_JSON"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+            echo "exported $key -> $name"
+          done
+
+      - name: Checkout project
+        if: steps.guard.outcome != 'success'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: project
+
+      - name: Run build.sh
+        if: steps.guard.outcome != 'success'
+        working-directory: project
+        run: ./build.sh
+        env:
+          # Two deliberate differences from the ECS build job:
+          #
+          # 1. --provenance=false — Lambda cannot run an image whose top-level
+          #    manifest is an OCI image index / attestation manifest, which is
+          #    exactly what buildx emits by default (provenance attestations);
+          #    UpdateFunctionCode rejects such images. Force a single-arch image
+          #    manifest. v1's build-lambda.yml carries the same flag for the same
+          #    reason.
+          #
+          # 2. NO --build-arg PROJECT_NAME/ENVIRONMENT/BUILD_NUMBER (v1 passed
+          #    these). v2 candidates are ENV-NEUTRAL: the aws/lambda/app Terraform
+          #    module injects PROJECT_NAME and ENVIRONMENT as function env vars at
+          #    runtime, and BUILD_NUMBER is unused.
+          # VERSION: see the Cloud Run job's comment -- one build identity, baked.
+          DOCKER_ARGS: |
+            --builder ${{ steps.buildx.outputs.name }}
+            --build-arg VERSION=${{ steps.built.outputs.version }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
+            --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
+            --provenance=false
+            --push
+
+      - name: Resolve pushed digest
+        if: steps.guard.outcome != 'success'
+        uses: ./cru-github-actions/actions/resolve-image
+        id: resolve
+        with:
+          type: lambda
+          project-name: ${{ needs.setup.outputs.project-name }}
+          mode: tag
+          tag: sha-${{ github.sha }}
+
+      - name: Notify success
+        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+
+  # Build-failure notification. Every other v2 Slack message is posted from the
+  # deploy path, which is reached through `needs: build` -- so it only ever runs
+  # on SUCCESS, and a broken nightly is otherwise completely silent. This job
+  # closes that gap without asking app repos to hold a new secret: SLACK_BOT_TOKEN
+  # stays in cru-deploy, and the GitHubDeployECS role that reads the app's
+  # SlackChannel out of app-info trusts cru-deploy rather than the app repo, so
+  # the app repo can neither look the channel up nor post. What it CAN do is
+  # dispatch, with the org CRU_DEPLOY_GITHUB_TOKEN that `secrets: inherit`
+  # already hands this workflow -- so the notification is a dispatch of
+  # cru-deploy's Notify Build Failure (v2), which does the lookup and posts the
+  # :x: + run-URL message (the same shape as the deploy path's failure notify).
+  #
+  # Telemetry policy: a notification NEVER changes a run's outcome, in either
+  # direction. The dispatch is continue-on-error, and a caller that did not pass
+  # `secrets: inherit` (no token) is a warning, not a failure. An app with no
+  # SlackChannel in app-info is a silent no-op on the cru-deploy side, matching
+  # the rest of the fleet.
+  notify-failure:
+    name: Notify build failure
+    needs: [setup, build-cloudrun, build-ecs, build-lambda]
+    # Exactly one runtime job ever runs; the other two are SKIPPED, not failed,
+    # so the explicit per-job results are the honest test. Deliberately does NOT
+    # fire when `setup` fails: a rejected ref or an unknown `type` is a caller
+    # mistake whose error is already the run's output, and the project name would
+    # be unknown anyway.
+    if: >-
+      ${{ !cancelled()
+      && (needs.build-cloudrun.result == 'failure'
+      || needs.build-ecs.result == 'failure'
+      || needs.build-lambda.result == 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # `secrets` is not available in any `if:`, so the token-presence check is a
+      # step of its own rather than a condition on the dispatch.
+      - name: Check for the cru-deploy dispatch token
+        id: token
+        env:
+          DISPATCH_TOKEN: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::warning title=Build failure not announced::CRU_DEPLOY_GITHUB_TOKEN is unset (the caller does not pass 'secrets: inherit'); skipping the Slack notification."
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Cru Actions & Workflows
+        if: steps.token.outputs.present == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # github.repository and github.run_id are the CALLER's, so the run URL
+      # points at the app repo's failed run -- the reader's next step.
+      - name: Announce the failure via cru-deploy
+        if: steps.token.outputs.present == 'true'
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/dispatch
+        with:
+          github-token: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
+          workflow: notify-build-failure.yml
+          inputs-json: >-
+            {"project-name": "${{ needs.setup.outputs.project-name }}",
+             "run-url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}

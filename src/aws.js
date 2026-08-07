@@ -3,9 +3,12 @@ import {
   paginateListServices,
   DescribeServicesCommand,
   DescribeTaskDefinitionCommand,
+  DescribeTasksCommand,
   RegisterTaskDefinitionCommand,
+  RunTaskCommand,
   TaskDefinitionField,
-  UpdateServiceCommand
+  UpdateServiceCommand,
+  waitUntilTasksStopped
 } from '@aws-sdk/client-ecs'
 
 import {
@@ -35,7 +38,8 @@ import {
   LambdaClient,
   GetFunctionCommand,
   UpdateFunctionCodeCommand,
-  paginateListFunctions
+  paginateListFunctions,
+  waitUntilFunctionUpdatedV2
 } from '@aws-sdk/client-lambda'
 
 const tagReducer = (previousValue, currentValue) => {
@@ -87,6 +91,45 @@ export async function ecsUpdateService (service, cluster, taskDefinition) {
   const client = new ECSClient({...RETRY_CONFIG})
   const response = await client.send(new UpdateServiceCommand({ service, cluster, taskDefinition }))
   return response.service
+}
+
+// Full DescribeServices records (not just their task defs — see
+// ecsServiceTaskDefinitions above). The pre-deploy migration phase reads a
+// service's networkConfiguration / launchType / capacityProviderStrategy off
+// this to run the db-migrate task on the same footing as the app.
+export async function ecsDescribeServices (serviceArns, cluster) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  const response = await client.send(new DescribeServicesCommand({ cluster, services: serviceArns }))
+  return response.services ?? []
+}
+
+// Launch a one-off ECS task (used to run db-migrate to completion before a
+// deploy touches any service). Returns the raw RunTask response so the caller
+// can read tasks[].taskArn and failures[].
+export async function ecsRunTask ({ cluster, taskDefinition, count = 1, startedBy, networkConfiguration, launchType, capacityProviderStrategy }) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  return client.send(new RunTaskCommand({
+    cluster,
+    taskDefinition,
+    count,
+    startedBy,
+    networkConfiguration,
+    launchType,
+    capacityProviderStrategy
+  }))
+}
+
+export async function ecsDescribeTasks (cluster, tasks) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  return client.send(new DescribeTasksCommand({ cluster, tasks }))
+}
+
+// Block until the given tasks reach STOPPED (or the wait times out — the SDK
+// waiter throws on TIMEOUT/FAILURE). Reaching STOPPED is not success on its own:
+// the caller still inspects the container exit code. maxWaitTime is seconds.
+export async function ecsWaitUntilTasksStopped (cluster, tasks, maxWaitTime = 900) {
+  const client = new ECSClient({...RETRY_CONFIG})
+  return waitUntilTasksStopped({ client, maxWaitTime }, { cluster, tasks })
 }
 
 export async function ssmParameters (prefix, decrypt = true) {
@@ -195,4 +238,18 @@ export async function lambdaUpdateFunctionCode(functionName, imageUri) {
     ImageUri: imageUri
   })
   return await client.send(command)
+}
+
+// Block until a function's in-flight code/config update completes. UpdateFunction
+// Code returns before the image is actually live (LastUpdateStatus 'InProgress'),
+// so v2 waits here before returning — otherwise a subsequent resolve/verify can
+// read the OLD digest (the race the Lambda pilot hit). Polls GetFunction
+// Configuration and rejects on a 'Failed' terminal state. Added for v2; v1's
+// deploy-lambda did not wait (it slept 5s between updates instead).
+export async function lambdaWaitForFunctionUpdated(functionName, maxWaitTime = 300) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  return await waitUntilFunctionUpdatedV2(
+    { client, maxWaitTime },
+    { FunctionName: functionName }
+  )
 }
