@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/CruGlobal/.github/compare/v1.10.0...v2.0.0) (2026-08-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* pipeline v2 — build once, promote the artifact ([#427](https://github.com/CruGlobal/.github/issues/427))
+
+### Features
+
+* pipeline v2 — build once, promote the artifact ([#427](https://github.com/CruGlobal/.github/issues/427)) ([06daf1f](https://github.com/CruGlobal/.github/commit/06daf1f1302ced3bb1f88f88c4c9f5493fc59ff0))
+
 ## [1.10.0](https://github.com/CruGlobal/.github/compare/v1.9.0...v1.10.0) (2026-08-05)
 
 
