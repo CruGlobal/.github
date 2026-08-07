@@ -4,10 +4,10 @@ name: dependabot-auto-merge-security-patch
 # gem-security repos. Auto-approves and enables auto-merge ONLY when a
 # Dependabot PR is BOTH:
 #
-#   1. driven by an OPEN security advisory (alert-state == OPEN via
-#      fetch-metadata's alert-lookup; FIXED/DISMISSED alerts do not
-#      qualify — for grouped PRs alert-state is undocumented upstream
-#      and in practice reflects a member dependency's alert), AND
+#   1. driven by at least one OPEN Dependabot alert on an updated
+#      dependency (for grouped PRs: on ANY member of the group, since a
+#      refresh can retain members whose alerts were fixed out-of-band;
+#      FIXED/DISMISSED alerts do not qualify), AND
 #   2. patch-level (`version-update:semver-patch` — for grouped PRs
 #      this is the HIGHEST bump in the group, so a group containing a
 #      minor or major never qualifies).
@@ -33,11 +33,22 @@ name: dependabot-auto-merge-security-patch
 #
 # Alert lookup requires more than the default GITHUB_TOKEN: this
 # workflow mints a GitHub App installation token, scoped down to
-# Dependabot-alerts read. The App must be installed on the calling
+# Dependabot-alerts read, and queries the repo's OPEN alerts directly
+# via the REST API. The App must be installed on the calling
 # repository with "Dependabot alerts: read" permission, and the App
 # credentials must be available as DEPENDABOT secrets in the caller
 # (Dependabot-triggered runs read the Dependabot secrets context, not
 # the Actions one).
+#
+# Why not fetch-metadata's alert-lookup: its getAlert reads only the
+# first 100 vulnerability alerts a repo has EVER had (GraphQL
+# `vulnerabilityAlerts(first: 100)` — no state filter, no pagination),
+# so on any repo with >100 lifetime alerts every open alert sits
+# outside that window and alert-state comes back empty; the gate then
+# fails closed forever and nothing ever auto-merges. Proven live on
+# rails-infrastructure-canary 2026-08-07 (170 lifetime alerts, the
+# first 100 all FIXED; gate run 31213835773 disarmed a 7-gem
+# security-patch group whose members all had OPEN alerts).
 #
 # If token minting or alert lookup fails, the job FAILS (visibly red) —
 # it never falls back to merging without alert evidence.
@@ -89,29 +100,42 @@ jobs:
           private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
           permission-vulnerability-alerts: read
 
-      - name: Read Dependabot metadata (with alert lookup)
+      - name: Read Dependabot metadata
         id: meta
         uses: dependabot/fetch-metadata@v3
-        with:
-          alert-lookup: true
-          github-token: ${{ steps.app-token.outputs.token }}
 
-      # Strict conjunctive gate: an OPEN advisory AND patch-level. For
+      # Count OPEN alerts matching the PR's updated dependencies, in
+      # one server-side-filtered REST query (see the header for why
+      # fetch-metadata's alert-lookup cannot be used). If the query
+      # fails, the job FAILS red — never merge without alert evidence.
+      - name: Count open Dependabot alerts for the updated dependencies
+        id: alerts
+        env:
+          DEPENDENCY_NAMES: ${{ steps.meta.outputs.dependency-names }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          package_list="${DEPENDENCY_NAMES// /}"
+          open_count=$(gh api "repos/${REPO}/dependabot/alerts?state=open&package=${package_list}&per_page=100" --jq 'length')
+          echo "open-count=${open_count}" >> "$GITHUB_OUTPUT"
+          echo "open alerts for [${package_list}]: ${open_count}"
+
+      # Strict conjunctive gate: an OPEN alert AND patch-level. For
       # grouped PRs, update-type reflects the highest semver bump in
       # the group, so mixed groups fail closed into the review tier.
       - name: Evaluate eligibility
         id: gate
         env:
-          ALERT_STATE: ${{ steps.meta.outputs.alert-state }}
+          OPEN_ALERTS: ${{ steps.alerts.outputs.open-count }}
           UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
         run: |
-          if [ "$ALERT_STATE" = "OPEN" ] \
+          if [ "$OPEN_ALERTS" -gt 0 ] \
              && [ "$UPDATE_TYPE" = "version-update:semver-patch" ]; then
             echo "eligible=true" >> "$GITHUB_OUTPUT"
           else
             echo "eligible=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "alert-state=$ALERT_STATE"
+          echo "open-alerts=$OPEN_ALERTS"
           echo "update-type=$UPDATE_TYPE"
 
       - name: Approve PR
