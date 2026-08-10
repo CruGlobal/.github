@@ -232306,13 +232306,6 @@ var GAXIOS_RETRY2 = {
     statusCodesToRetry: [[429, 429], [500, 599]]
   }
 };
-var ApigSpecError = class extends Error {
-  constructor(message, options) {
-    super(message, options);
-    this.name = "ApigSpecError";
-    this.fatal = true;
-  }
-};
 var shortName = (resource) => resource.split("/").pop();
 var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var httpStatus = (error3) => error3?.response?.status ?? error3?.status ?? error3?.code;
@@ -232322,7 +232315,7 @@ function apigSpecKey(labels) {
   const key = raw.trim();
   const invalid = key === "" || key.startsWith("/") || key.includes("\\") || key.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
   if (invalid) {
-    throw new ApigSpecError(
+    throw new Error(
       `Image label ${APIG_LABEL}="${raw}" is not a usable file name \u2014 expected a relative path with no empty, "." or ".." segments (e.g. "openapi.yaml").`
     );
   }
@@ -232346,7 +232339,7 @@ function apigEnv(services, repo) {
         backendService ? null : APIG_BACKEND_SERVICE_ENV,
         backendSa ? null : APIG_BACKEND_SA_ENV
       ].filter(Boolean);
-      throw new ApigSpecError(
+      throw new Error(
         `${APIG_GATEWAY_ENV}="${gatewayId}" is set on ${shortName(service.name)} but ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not. Terraform must inject all three together.`
       );
     }
@@ -232365,7 +232358,7 @@ function renderSpec(template, vars) {
     return String(vars[name]);
   });
   if (unresolved.size > 0) {
-    throw new ApigSpecError(
+    throw new Error(
       `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(", ")}. Each must be a plain-valued env var on the app container (Terraform-injected), or ${BACKEND_VAR}.`
     );
   }
@@ -232374,7 +232367,7 @@ function renderSpec(template, vars) {
 function configIdFor(rendered) {
   return `cfg-${(0, import_node_crypto6.createHash)("sha256").update(rendered).digest("hex").slice(0, 12)}`;
 }
-async function awaitOperation(client, operation2, { label, deadlineMs, pollIntervalMs, fatalOnError = false }) {
+async function awaitOperation(client, operation2, { label, deadlineMs, pollIntervalMs }) {
   const started = Date.now();
   let op2 = operation2;
   while (!op2?.done) {
@@ -232393,8 +232386,7 @@ async function awaitOperation(client, operation2, { label, deadlineMs, pollInter
     op2 = res.data;
   }
   if (op2.error) {
-    const message = `${label} failed: ${op2.error.message ?? JSON.stringify(op2.error)}`;
-    throw fatalOnError ? new ApigSpecError(message) : new Error(message);
+    throw new Error(`${label} failed: ${op2.error.message ?? JSON.stringify(op2.error)}`);
   }
   return op2;
 }
@@ -232486,18 +232478,18 @@ async function publishApiConfig({
   info(`extracting ${source} from ${image}`);
   const template = await oci.readFile(source);
   if (!template) {
-    throw new ApigSpecError(
+    throw new Error(
       `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. The Dockerfile must COPY the spec there.`
     );
   }
   const backend = services.find((service) => shortName(service.name) === backendService);
   if (!backend) {
-    throw new ApigSpecError(
+    throw new Error(
       `${APIG_BACKEND_SERVICE_ENV}="${backendService}" names a Cloud Run service that does not exist in ${runtimeProject} (found: ${services.map((s3) => shortName(s3.name)).join(", ") || "none"}).`
     );
   }
   if (!backend.uri) {
-    throw new ApigSpecError(
+    throw new Error(
       `Cloud Run service "${backendService}" has no uri, so \${${BACKEND_VAR}} cannot be resolved.`
     );
   }
@@ -232513,7 +232505,7 @@ async function publishApiConfig({
   const current = gateway?.apiConfig;
   const match = current?.match(/^(projects\/[^/]+\/locations\/global\/apis\/[^/]+)\/configs\/([^/]+)$/);
   if (!match) {
-    throw new ApigSpecError(
+    throw new Error(
       `Gateway ${gatewayName} has no usable apiConfig (got ${current ?? "none"}). Terraform must create the gateway with a bootstrap config.`
     );
   }
@@ -232556,24 +232548,15 @@ async function publishApiConfig({
       await awaitOperation(client, created.data, {
         label: `api config ${configId} create`,
         deadlineMs: CONFIG_DEADLINE_MS,
-        pollIntervalMs,
-        // The create LRO is where the gateway reports a bad document, and a bad
-        // document is a bug in the image, not a bad day for the API.
-        fatalOnError: true
+        pollIntervalMs
       });
     } catch (error3) {
       if (httpStatus(error3) !== 409) throw error3;
       info(`api gateway config ${configId} was created concurrently; waiting for it`);
       const raced = await resolveExistingConfig(client, configName, { pollIntervalMs });
-      if (raced === "failed") {
-        throw new ApigSpecError(
-          `api config ${configId} was created concurrently and is FAILED; the rendered spec is the same bytes, so this is the gateway rejecting the document.`,
-          { cause: error3 }
-        );
-      }
-      if (raced === "absent") {
+      if (raced !== "active") {
         throw new Error(
-          `api config ${configId} was created concurrently and then deleted; retry the deploy.`,
+          `api config ${configId} was created concurrently but is ${raced === "absent" ? "gone" : "FAILED"}`,
           { cause: error3 }
         );
       }
@@ -232750,21 +232733,15 @@ async function deployCloudRun({ image, runtimeProject }) {
       warning(`sign-in page not published (deploy unaffected): ${error3.message}`);
     }
   }
-  const apig = { published: false };
-  try {
-    Object.assign(apig, await publishApiConfig({ image, services, repo, runtimeProject }));
-    if (apig.published) {
-      info(
-        apig.reason === "unchanged" ? `api gateway config: ${apig.configId} (unchanged)` : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
-      );
-    } else if (apig.reason === "no-label") {
-      warning(
-        `this environment has an API gateway but ${image} carries no OpenAPI spec; leaving the existing api config in place. Expected in a rollback to a release built before the image carried the spec.`
-      );
-    }
-  } catch (error3) {
-    if (error3.fatal) throw error3;
-    warning(`api gateway config not published (deploy unaffected): ${error3.message}`);
+  const apig = await publishApiConfig({ image, services, repo, runtimeProject });
+  if (apig.published) {
+    info(
+      apig.reason === "unchanged" ? `api gateway config: ${apig.configId} (unchanged)` : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
+    );
+  } else if (apig.reason === "no-label") {
+    warning(
+      `this environment has an API gateway but ${image} carries no OpenAPI spec; leaving the existing api config in place. Expected in a rollback to a release built before the image carried the spec.`
+    );
   }
   return { deployedImage: image, services: updatedServices, signin, apig };
 }
