@@ -133,7 +133,9 @@ export async function ecsWaitUntilTasksStopped (cluster, tasks, maxWaitTime = 90
 }
 
 export async function ssmParameters (prefix, decrypt = true) {
-  const client = new SSMClient({ region: 'us-east-1', ...RETRY_CONFIG })
+  // Adaptive retry rate-limits the client once SSM starts throttling, so
+  // contended calls slow down and succeed instead of exhausting retries
+  const client = new SSMClient({ region: 'us-east-1', maxAttempts: 10, retryMode: 'adaptive' })
   const params = []
   for await (const page of paginateGetParametersByPath({ client, pageSize: 10 }, {
     Path: prefix,
