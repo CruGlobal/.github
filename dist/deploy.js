@@ -231879,7 +231879,7 @@ async function ecsWaitUntilTasksStopped(cluster, tasks, maxWaitTime = 900) {
   return (0, import_client_ecs.waitUntilTasksStopped)({ client, maxWaitTime }, { cluster, tasks });
 }
 async function ssmParameters(prefix, decrypt = true) {
-  const client = new import_client_ssm.SSMClient({ region: "us-east-1", ...RETRY_CONFIG });
+  const client = new import_client_ssm.SSMClient({ region: "us-east-1", maxAttempts: 10, retryMode: "adaptive" });
   const params = [];
   for await (const page of (0, import_client_ssm.paginateGetParametersByPath)({ client, pageSize: 10 }, {
     Path: prefix,
@@ -231887,17 +231887,21 @@ async function ssmParameters(prefix, decrypt = true) {
   })) {
     params.push(...page.Parameters);
   }
-  return await Promise.all(params.map(async (param) => {
-    const tags = (await client.send(new import_client_ssm.ListTagsForResourceCommand({
-      ResourceType: "Parameter",
-      ResourceId: param.Name
-    }))).TagList;
-    return {
-      name: param.Name,
-      value: param.Value,
-      tags: tags.reduce(tagReducer, {})
-    };
-  }));
+  const results = [];
+  for (const batch of chunk(params, 5)) {
+    results.push(...await Promise.all(batch.map(async (param) => {
+      const tags = (await client.send(new import_client_ssm.ListTagsForResourceCommand({
+        ResourceType: "Parameter",
+        ResourceId: param.Name
+      }))).TagList;
+      return {
+        name: param.Name,
+        value: param.Value,
+        tags: tags.reduce(tagReducer, {})
+      };
+    })));
+  }
+  return results;
 }
 async function eventBridgeListRules(prefix) {
   const client = new import_client_eventbridge.EventBridgeClient({ ...RETRY_CONFIG });

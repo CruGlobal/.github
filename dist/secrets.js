@@ -1811,10 +1811,10 @@ var require_request = __commonJS({
           channels.create.publish({ request: this });
         }
       }
-      onBodySent(chunk) {
+      onBodySent(chunk2) {
         if (this[kHandler].onBodySent) {
           try {
-            return this[kHandler].onBodySent(chunk);
+            return this[kHandler].onBodySent(chunk2);
           } catch (err) {
             this.abort(err);
           }
@@ -1857,11 +1857,11 @@ var require_request = __commonJS({
           this.abort(err);
         }
       }
-      onData(chunk) {
+      onData(chunk2) {
         assert(!this.aborted);
         assert(!this.completed);
         try {
-          return this[kHandler].onData(chunk);
+          return this[kHandler].onData(chunk2);
         } catch (err) {
           this.abort(err);
           return false;
@@ -4603,15 +4603,15 @@ var require_util2 = __commonJS({
       const bytes = [];
       let byteLength = 0;
       while (true) {
-        const { done, value: chunk } = await reader.read();
+        const { done, value: chunk2 } = await reader.read();
         if (done) {
           return Buffer.concat(bytes, byteLength);
         }
-        if (!isUint8Array(chunk)) {
+        if (!isUint8Array(chunk2)) {
           throw new TypeError("Received non-Uint8Array chunk");
         }
-        bytes.push(chunk);
-        byteLength += chunk.length;
+        bytes.push(chunk2);
+        byteLength += chunk2.length;
       }
     }
     function urlIsLocal(url) {
@@ -4714,18 +4714,18 @@ var require_util2 = __commonJS({
         super();
         this.#zlibOptions = zlibOptions;
       }
-      _transform(chunk, encoding, callback) {
+      _transform(chunk2, encoding, callback) {
         if (!this._inflateStream) {
-          if (chunk.length === 0) {
+          if (chunk2.length === 0) {
             callback();
             return;
           }
-          this._inflateStream = (chunk[0] & 15) === 8 ? zlib2.createInflate(this.#zlibOptions) : zlib2.createInflateRaw(this.#zlibOptions);
+          this._inflateStream = (chunk2[0] & 15) === 8 ? zlib2.createInflate(this.#zlibOptions) : zlib2.createInflateRaw(this.#zlibOptions);
           this._inflateStream.on("data", this.push.bind(this));
           this._inflateStream.on("end", () => this.push(null));
           this._inflateStream.on("error", (err) => this.destroy(err));
         }
-        this._inflateStream.write(chunk, encoding, callback);
+        this._inflateStream.write(chunk2, encoding, callback);
       }
       _final(callback) {
         if (this._inflateStream) {
@@ -5451,29 +5451,29 @@ Content-Disposition: form-data`;
         let hasUnknownSizeValue = false;
         for (const [name, value] of object) {
           if (typeof value === "string") {
-            const chunk2 = textEncoder2.encode(prefix + `; name="${escape(normalizeLinefeeds(name))}"\r
+            const chunk3 = textEncoder2.encode(prefix + `; name="${escape(normalizeLinefeeds(name))}"\r
 \r
 ${normalizeLinefeeds(value)}\r
 `);
-            blobParts.push(chunk2);
-            length += chunk2.byteLength;
+            blobParts.push(chunk3);
+            length += chunk3.byteLength;
           } else {
-            const chunk2 = textEncoder2.encode(`${prefix}; name="${escape(normalizeLinefeeds(name))}"` + (value.name ? `; filename="${escape(value.name)}"` : "") + `\r
+            const chunk3 = textEncoder2.encode(`${prefix}; name="${escape(normalizeLinefeeds(name))}"` + (value.name ? `; filename="${escape(value.name)}"` : "") + `\r
 Content-Type: ${value.type || "application/octet-stream"}\r
 \r
 `);
-            blobParts.push(chunk2, value, rn);
+            blobParts.push(chunk3, value, rn);
             if (typeof value.size === "number") {
-              length += chunk2.byteLength + value.size + rn.byteLength;
+              length += chunk3.byteLength + value.size + rn.byteLength;
             } else {
               hasUnknownSizeValue = true;
             }
           }
         }
-        const chunk = textEncoder2.encode(`--${boundary}--\r
+        const chunk2 = textEncoder2.encode(`--${boundary}--\r
 `);
-        blobParts.push(chunk);
-        length += chunk.byteLength;
+        blobParts.push(chunk2);
+        length += chunk2.byteLength;
         if (hasUnknownSizeValue) {
           length = null;
         }
@@ -5865,11 +5865,11 @@ var require_client_h1 = __commonJS({
       }
       readMore() {
         while (!this.paused && this.ptr) {
-          const chunk = this.socket.read();
-          if (chunk === null) {
+          const chunk2 = this.socket.read();
+          if (chunk2 === null) {
             break;
           }
-          this.execute(chunk);
+          this.execute(chunk2);
         }
       }
       execute(data) {
@@ -6533,12 +6533,12 @@ upgrade: ${upgrade}\r
       assert(contentLength !== 0 || client[kRunning] === 0, "stream body cannot be pipelined");
       let finished = false;
       const writer = new AsyncWriter({ abort, socket, request, contentLength, client, expectsPayload, header });
-      const onData = function(chunk) {
+      const onData = function(chunk2) {
         if (finished) {
           return;
         }
         try {
-          if (!writer.write(chunk) && this.pause) {
+          if (!writer.write(chunk2) && this.pause) {
             this.pause();
           }
         } catch (err) {
@@ -6673,11 +6673,11 @@ upgrade: ${upgrade}\r
       socket.on("close", onDrain).on("drain", onDrain);
       const writer = new AsyncWriter({ abort, socket, request, contentLength, client, expectsPayload, header });
       try {
-        for await (const chunk of body) {
+        for await (const chunk2 of body) {
           if (socket[kError]) {
             throw socket[kError];
           }
-          if (!writer.write(chunk)) {
+          if (!writer.write(chunk2)) {
             await waitForDrain();
           }
         }
@@ -6700,7 +6700,7 @@ upgrade: ${upgrade}\r
         this.abort = abort;
         socket[kWriting] = true;
       }
-      write(chunk) {
+      write(chunk2) {
         const { socket, request, contentLength, client, bytesWritten, expectsPayload, header } = this;
         if (socket[kError]) {
           throw socket[kError];
@@ -6708,7 +6708,7 @@ upgrade: ${upgrade}\r
         if (socket.destroyed) {
           return false;
         }
-        const len = Buffer.byteLength(chunk);
+        const len = Buffer.byteLength(chunk2);
         if (!len) {
           return true;
         }
@@ -6738,9 +6738,9 @@ ${len.toString(16)}\r
 `, "latin1");
         }
         this.bytesWritten += len;
-        const ret = socket.write(chunk);
+        const ret = socket.write(chunk2);
         socket.uncork();
-        request.onBodySent(chunk);
+        request.onBodySent(chunk2);
         if (!ret) {
           if (socket[kParser].timeout && socket[kParser].timeoutType === TIMEOUT_HEADERS) {
             if (socket[kParser].timeout.refresh) {
@@ -7125,8 +7125,8 @@ var require_client_h2 = __commonJS({
         if (request.onHeaders(Number(statusCode), parseH2Headers(realHeaders), stream.resume.bind(stream), "") === false) {
           stream.pause();
         }
-        stream.on("data", (chunk) => {
-          if (request.onData(chunk) === false) {
+        stream.on("data", (chunk2) => {
+          if (request.onData(chunk2) === false) {
             stream.pause();
           }
         });
@@ -7269,8 +7269,8 @@ var require_client_h2 = __commonJS({
         }
       );
       util.addListener(pipe, "data", onPipeData);
-      function onPipeData(chunk) {
-        request.onBodySent(chunk);
+      function onPipeData(chunk2) {
+        request.onBodySent(chunk2);
       }
     }
     async function writeBlob(abort, h2stream, body, client, request, socket, contentLength, expectsPayload) {
@@ -7314,12 +7314,12 @@ var require_client_h2 = __commonJS({
       });
       h2stream.on("close", onDrain).on("drain", onDrain);
       try {
-        for await (const chunk of body) {
+        for await (const chunk2 of body) {
           if (socket[kError]) {
             throw socket[kError];
           }
-          const res = h2stream.write(chunk);
-          request.onBodySent(chunk);
+          const res = h2stream.write(chunk2);
+          request.onBodySent(chunk2);
           if (!res) {
             await waitForDrain();
           }
@@ -7432,10 +7432,10 @@ var require_redirect_handler = __commonJS({
           this.opts.body = null;
         }
       }
-      onData(chunk) {
+      onData(chunk2) {
         if (this.location) {
         } else {
-          return this.handler.onData(chunk);
+          return this.handler.onData(chunk2);
         }
       }
       onComplete(trailers) {
@@ -7447,9 +7447,9 @@ var require_redirect_handler = __commonJS({
           this.handler.onComplete(trailers);
         }
       }
-      onBodySent(chunk) {
+      onBodySent(chunk2) {
         if (this.handler.onBodySent) {
-          this.handler.onBodySent(chunk);
+          this.handler.onBodySent(chunk2);
         }
       }
     };
@@ -9071,8 +9071,8 @@ var require_retry_handler = __commonJS({
           this.abort = abort;
         }
       }
-      onBodySent(chunk) {
-        if (this.handler.onBodySent) return this.handler.onBodySent(chunk);
+      onBodySent(chunk2) {
+        if (this.handler.onBodySent) return this.handler.onBodySent(chunk2);
       }
       static [kRetryHandlerDefaultRetry](err, { state: state2, opts }, cb) {
         const { statusCode, code, headers } = err;
@@ -9228,9 +9228,9 @@ var require_retry_handler = __commonJS({
         this.abort(err);
         return false;
       }
-      onData(chunk) {
-        this.start += chunk.length;
-        return this.handler.onData(chunk);
+      onData(chunk2) {
+        this.start += chunk2.length;
+        return this.handler.onData(chunk2);
       }
       onComplete(rawTrailers) {
         this.retryCount = 0;
@@ -9394,12 +9394,12 @@ var require_readable = __commonJS({
       removeListener(ev, ...args) {
         return this.off(ev, ...args);
       }
-      push(chunk) {
-        if (this[kConsume] && chunk !== null) {
-          consumePush(this[kConsume], chunk);
-          return this[kReading] ? super.push(chunk) : true;
+      push(chunk2) {
+        if (this[kConsume] && chunk2 !== null) {
+          consumePush(this[kConsume], chunk2);
+          return this[kReading] ? super.push(chunk2) : true;
         }
-        return super.push(chunk);
+        return super.push(chunk2);
       }
       // https://fetch.spec.whatwg.org/#dom-body-text
       async text() {
@@ -9465,8 +9465,8 @@ var require_readable = __commonJS({
             } else {
               resolve(null);
             }
-          }).on("error", noop).on("data", function(chunk) {
-            limit -= chunk.length;
+          }).on("error", noop).on("data", function(chunk2) {
+            limit -= chunk2.length;
             if (limit <= 0) {
               this.destroy();
             }
@@ -9528,8 +9528,8 @@ var require_readable = __commonJS({
           consumePush(consume2, state2.buffer[n3]);
         }
       } else {
-        for (const chunk of state2.buffer) {
-          consumePush(consume2, chunk);
+        for (const chunk2 of state2.buffer) {
+          consumePush(consume2, chunk2);
         }
       }
       if (state2.endEmitted) {
@@ -9562,9 +9562,9 @@ var require_readable = __commonJS({
       const buffer = new Uint8Array(Buffer.allocUnsafeSlow(length).buffer);
       let offset = 0;
       for (let i5 = 0; i5 < chunks.length; ++i5) {
-        const chunk = chunks[i5];
-        buffer.set(chunk, offset);
-        offset += chunk.length;
+        const chunk2 = chunks[i5];
+        buffer.set(chunk2, offset);
+        offset += chunk2.length;
       }
       return buffer;
     }
@@ -9587,9 +9587,9 @@ var require_readable = __commonJS({
         stream.destroy(err);
       }
     }
-    function consumePush(consume2, chunk) {
-      consume2.length += chunk.length;
-      consume2.body.push(chunk);
+    function consumePush(consume2, chunk2) {
+      consume2.length += chunk2.length;
+      consume2.body.push(chunk2);
     }
     function consumeFinish(consume2, err) {
       if (consume2.body === null) {
@@ -9625,9 +9625,9 @@ var require_util3 = __commonJS({
       let chunks = [];
       let length = 0;
       try {
-        for await (const chunk of body) {
-          chunks.push(chunk);
-          length += chunk.length;
+        for await (const chunk2 of body) {
+          chunks.push(chunk2);
+          length += chunk2.length;
           if (length > CHUNK_LIMIT) {
             chunks = [];
             length = 0;
@@ -9803,8 +9803,8 @@ var require_api_request = __commonJS({
           }
         }
       }
-      onData(chunk) {
-        return this.res.push(chunk);
+      onData(chunk2) {
+        return this.res.push(chunk2);
       }
       onComplete(trailers) {
         util.parseHeaders(trailers, this.trailers);
@@ -10028,9 +10028,9 @@ var require_api_stream = __commonJS({
         const needDrain = res.writableNeedDrain !== void 0 ? res.writableNeedDrain : res._writableState?.needDrain;
         return needDrain !== true;
       }
-      onData(chunk) {
+      onData(chunk2) {
         const { res } = this;
-        return res ? res.write(chunk) : true;
+        return res ? res.write(chunk2) : true;
       }
       onComplete(trailers) {
         const { res } = this;
@@ -10168,9 +10168,9 @@ var require_api_pipeline = __commonJS({
               body.resume();
             }
           },
-          write: (chunk, encoding, callback) => {
+          write: (chunk2, encoding, callback) => {
             const { req } = this;
-            if (req.push(chunk, encoding) || req._readableState.destroyed) {
+            if (req.push(chunk2, encoding) || req._readableState.destroyed) {
               callback();
             } else {
               req[kResume] = callback;
@@ -10236,9 +10236,9 @@ var require_api_pipeline = __commonJS({
         if (!body || typeof body.on !== "function") {
           throw new InvalidReturnValueError("expected Readable");
         }
-        body.on("data", (chunk) => {
+        body.on("data", (chunk2) => {
           const { ret, body: body2 } = this;
-          if (!ret.push(chunk) && body2.pause) {
+          if (!ret.push(chunk2) && body2.pause) {
             body2.pause();
           }
         }).on("error", (err) => {
@@ -10255,9 +10255,9 @@ var require_api_pipeline = __commonJS({
         });
         this.body = body;
       }
-      onData(chunk) {
+      onData(chunk2) {
         const { res } = this;
-        return res.push(chunk);
+        return res.push(chunk2);
       }
       onComplete(trailers) {
         const { res } = this;
@@ -11135,8 +11135,8 @@ var require_pending_interceptors_formatter = __commonJS({
     module2.exports = class PendingInterceptorsFormatter {
       constructor({ disableColors } = {}) {
         this.transform = new Transform({
-          transform(chunk, _enc, cb) {
-            cb(null, chunk);
+          transform(chunk2, _enc, cb) {
+            cb(null, chunk2);
           }
         });
         this.logger = new Console({
@@ -11473,8 +11473,8 @@ var require_dump = __commonJS({
         err = this.#reason ?? err;
         this.#handler.onError(err);
       }
-      onData(chunk) {
-        this.#size = this.#size + chunk.length;
+      onData(chunk2) {
+        this.#size = this.#size + chunk2.length;
         if (this.#size >= this.#maxSize) {
           this.#dumped = true;
           if (this.#aborted) {
@@ -14395,11 +14395,11 @@ var require_fetch = __commonJS({
               });
               return true;
             },
-            onData(chunk) {
+            onData(chunk2) {
               if (fetchParams.controller.dump) {
                 return;
               }
-              const bytes = chunk;
+              const bytes = chunk2;
               timingInfo.encodedBodySize += bytes.byteLength;
               return this.body.push(bytes);
             },
@@ -14926,8 +14926,8 @@ var require_util4 = __commonJS({
           }
           dataURL += ";base64,";
           const decoder = new StringDecoder("latin1");
-          for (const chunk of bytes) {
-            dataURL += btoa(decoder.write(chunk));
+          for (const chunk2 of bytes) {
+            dataURL += btoa(decoder.write(chunk2));
           }
           dataURL += btoa(decoder.end());
           return dataURL;
@@ -14955,8 +14955,8 @@ var require_util4 = __commonJS({
         case "BinaryString": {
           let binaryString = "";
           const decoder = new StringDecoder("latin1");
-          for (const chunk of bytes) {
-            binaryString += decoder.write(chunk);
+          for (const chunk2 of bytes) {
+            binaryString += decoder.write(chunk2);
           }
           binaryString += decoder.end();
           return binaryString;
@@ -17169,8 +17169,8 @@ var require_connection = __commonJS({
         ws[kReadyState] = states.CLOSING;
       }
     }
-    function onSocketData(chunk) {
-      if (!this.ws[kByteParser].write(chunk)) {
+    function onSocketData(chunk2) {
+      if (!this.ws[kByteParser].write(chunk2)) {
         this.pause();
       }
     }
@@ -17248,7 +17248,7 @@ var require_permessage_deflate = __commonJS({
        * @param {boolean} fin Final fragment flag
        * @param {Function} callback Callback function
        */
-      decompress(chunk, fin, callback) {
+      decompress(chunk2, fin, callback) {
         if (!this.#inflate) {
           let windowBits = Z_DEFAULT_WINDOWBITS;
           if (this.#options.serverMaxWindowBits) {
@@ -17281,7 +17281,7 @@ var require_permessage_deflate = __commonJS({
             callback(err);
           });
         }
-        this.#inflate.write(chunk);
+        this.#inflate.write(chunk2);
         if (fin) {
           this.#inflate.write(tail);
         }
@@ -17360,9 +17360,9 @@ var require_receiver = __commonJS({
        * @param {Buffer} chunk
        * @param {() => void} callback
        */
-      _write(chunk, _, callback) {
-        this.#buffers.push(chunk);
-        this.#byteOffset += chunk.length;
+      _write(chunk2, _, callback) {
+        this.#buffers.push(chunk2);
+        this.#byteOffset += chunk2.length;
         this.#loop = true;
         this.run(callback);
       }
@@ -18230,15 +18230,15 @@ var require_eventsource_stream = __commonJS({
        * @param {Function} callback
        * @returns {void}
        */
-      _transform(chunk, _encoding, callback) {
-        if (chunk.length === 0) {
+      _transform(chunk2, _encoding, callback) {
+        if (chunk2.length === 0) {
           callback();
           return;
         }
         if (this.buffer) {
-          this.buffer = Buffer.concat([this.buffer, chunk]);
+          this.buffer = Buffer.concat([this.buffer, chunk2]);
         } else {
-          this.buffer = chunk;
+          this.buffer = chunk2;
         }
         if (this.checkBOM) {
           switch (this.buffer.length) {
@@ -23182,7 +23182,7 @@ var init_getInstanceMetadataRegion = __esm({
             return;
           }
           const chunks = [];
-          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("data", (chunk2) => chunks.push(chunk2));
           res.on("end", () => {
             resolve(Buffer.concat(chunks));
             req.destroy();
@@ -24877,17 +24877,17 @@ var init_ChecksumStream = __esm({
         this.source.on("close", this.onSourceClose);
         this.source.pause();
       }
-      onSourceData = (chunk) => {
+      onSourceData = (chunk2) => {
         if (this.destroyed) {
           return;
         }
         try {
-          this.checksum.update(chunk);
+          this.checksum.update(chunk2);
         } catch (e5) {
           this.destroy(e5);
           return;
         }
-        if (!this.push(chunk)) {
+        if (!this.push(chunk2)) {
           this.source.pause();
         }
       };
@@ -25033,9 +25033,9 @@ var init_createChecksumStream_browser = __esm({
       const transform = new TransformStream({
         start() {
         },
-        async transform(chunk, controller) {
-          checksum.update(chunk);
-          controller.enqueue(chunk);
+        async transform(chunk2, controller) {
+          checksum.update(chunk2);
+          controller.enqueue(chunk2);
         },
         async flush(controller) {
           const digest2 = await checksum.digest();
@@ -25119,7 +25119,7 @@ function createBufferedReadableStream(upstream, size, logger2) {
   let mode = -1;
   const pull = async (controller) => {
     const { value, done } = await reader.read();
-    const chunk = value;
+    const chunk2 = value;
     if (done) {
       if (mode !== -1) {
         const remainder = flush(buffers, mode);
@@ -25129,7 +25129,7 @@ function createBufferedReadableStream(upstream, size, logger2) {
       }
       controller.close();
     } else {
-      const chunkMode = modeOf(chunk, false);
+      const chunkMode = modeOf(chunk2, false);
       if (mode !== chunkMode) {
         if (mode >= 0) {
           controller.enqueue(flush(buffers, mode));
@@ -25137,16 +25137,16 @@ function createBufferedReadableStream(upstream, size, logger2) {
         mode = chunkMode;
       }
       if (mode === -1) {
-        controller.enqueue(chunk);
+        controller.enqueue(chunk2);
         return;
       }
-      const chunkSize = sizeOf(chunk);
+      const chunkSize = sizeOf(chunk2);
       bytesSeen += chunkSize;
       const bufferSize = sizeOf(buffers[mode]);
       if (chunkSize >= size && bufferSize === 0) {
-        controller.enqueue(chunk);
+        controller.enqueue(chunk2);
       } else {
-        const newSize = merge(buffers, mode, chunk);
+        const newSize = merge(buffers, mode, chunk2);
         if (!streamBufferingLoggedWarning && bytesSeen > size * 2) {
           streamBufferingLoggedWarning = true;
           logger2?.warn(`@smithy/util-stream - stream chunk size ${chunkSize} is below threshold of ${size}, automatically buffering.`);
@@ -25163,14 +25163,14 @@ function createBufferedReadableStream(upstream, size, logger2) {
     pull
   });
 }
-function merge(buffers, mode, chunk) {
+function merge(buffers, mode, chunk2) {
   switch (mode) {
     case 0:
-      buffers[0] += chunk;
+      buffers[0] += chunk2;
       return sizeOf(buffers[0]);
     case 1:
     case 2:
-      buffers[mode].push(chunk);
+      buffers[mode].push(chunk2);
       return sizeOf(buffers[mode]);
   }
 }
@@ -25186,17 +25186,17 @@ function flush(buffers, mode) {
   }
   throw new Error(`@smithy/util-stream - invalid index ${mode} given to flush()`);
 }
-function sizeOf(chunk) {
-  return chunk?.byteLength ?? chunk?.length ?? 0;
+function sizeOf(chunk2) {
+  return chunk2?.byteLength ?? chunk2?.length ?? 0;
 }
-function modeOf(chunk, allowBuffer = true) {
-  if (allowBuffer && typeof Buffer !== "undefined" && chunk instanceof Buffer) {
+function modeOf(chunk2, allowBuffer = true) {
+  if (allowBuffer && typeof Buffer !== "undefined" && chunk2 instanceof Buffer) {
     return 2;
   }
-  if (chunk instanceof Uint8Array) {
+  if (chunk2 instanceof Uint8Array) {
     return 1;
   }
-  if (typeof chunk === "string") {
+  if (typeof chunk2 === "string") {
     return 0;
   }
   return -1;
@@ -25222,8 +25222,8 @@ function createBufferedReadable(upstream, size, logger2) {
     new ByteArrayCollector((size2) => Buffer.from(new Uint8Array(size2)))
   ];
   let mode = -1;
-  upstream.on("data", (chunk) => {
-    const chunkMode = modeOf(chunk, true);
+  upstream.on("data", (chunk2) => {
+    const chunkMode = modeOf(chunk2, true);
     if (mode !== chunkMode) {
       if (mode >= 0) {
         downstream.push(flush(buffers, mode));
@@ -25231,16 +25231,16 @@ function createBufferedReadable(upstream, size, logger2) {
       mode = chunkMode;
     }
     if (mode === -1) {
-      downstream.push(chunk);
+      downstream.push(chunk2);
       return;
     }
-    const chunkSize = sizeOf(chunk);
+    const chunkSize = sizeOf(chunk2);
     bytesSeen += chunkSize;
     const bufferSize = sizeOf(buffers[mode]);
     if (chunkSize >= size && bufferSize === 0) {
-      downstream.push(chunk);
+      downstream.push(chunk2);
     } else {
-      const newSize = merge(buffers, mode, chunk);
+      const newSize = merge(buffers, mode, chunk2);
       if (!streamBufferingLoggedWarning && bytesSeen > size * 2) {
         streamBufferingLoggedWarning = true;
         logger2?.warn(`@smithy/util-stream - stream chunk size ${chunkSize} is below threshold of ${size}, automatically buffering.`);
@@ -25372,14 +25372,14 @@ async function headStream(stream, bytes) {
   reader.releaseLock();
   const collected = new Uint8Array(Math.min(bytes, byteLengthCounter));
   let offset = 0;
-  for (const chunk of chunks) {
-    if (chunk.byteLength > collected.byteLength - offset) {
-      collected.set(chunk.subarray(0, collected.byteLength - offset), offset);
+  for (const chunk2 of chunks) {
+    if (chunk2.byteLength > collected.byteLength - offset) {
+      collected.set(chunk2.subarray(0, collected.byteLength - offset), offset);
       break;
     } else {
-      collected.set(chunk, offset);
+      collected.set(chunk2, offset);
     }
-    offset += chunk.length;
+    offset += chunk2.length;
   }
   return collected;
 }
@@ -25419,9 +25419,9 @@ var init_headStream = __esm({
       buffers = [];
       limit = Infinity;
       bytesBuffered = 0;
-      _write(chunk, encoding, callback) {
-        this.buffers.push(chunk);
-        this.bytesBuffered += chunk.byteLength ?? 0;
+      _write(chunk2, encoding, callback) {
+        this.buffers.push(chunk2);
+        this.bytesBuffered += chunk2.byteLength ?? 0;
         if (this.bytesBuffered >= this.limit) {
           const excess = this.bytesBuffered - this.limit;
           const tailBuffer = this.buffers[this.buffers.length - 1];
@@ -25580,8 +25580,8 @@ var init_stream_collector = __esm({
     };
     Collector2 = class extends import_node_stream6.Writable {
       bufferedBytes = [];
-      _write(chunk, encoding, callback) {
-        this.bufferedBytes.push(chunk);
+      _write(chunk2, encoding, callback) {
+        this.bufferedBytes.push(chunk2);
         callback();
       }
     };
@@ -25862,8 +25862,8 @@ var init_blobHasher = __esm({
     init_chunked_blob_reader();
     blobHasher = async function blobHasher2(hashCtor, blob) {
       const hash = new hashCtor();
-      await blobReader(blob, (chunk) => {
-        hash.update(chunk);
+      await blobReader(blob, (chunk2) => {
+        hash.update(chunk2);
       });
       return hash.digest();
     };
@@ -25882,9 +25882,9 @@ var init_HashCalculator = __esm({
         super(options);
         this.hash = hash;
       }
-      _write(chunk, encoding, callback) {
+      _write(chunk2, encoding, callback) {
         try {
-          this.hash.update(toUint8Array(chunk));
+          this.hash.update(toUint8Array(chunk2));
         } catch (err) {
           return callback(err);
         }
@@ -26191,15 +26191,15 @@ var init_Sha256Js = __esm({
           this.inner.update(data);
           return;
         }
-        const chunk = toUint8Array(data);
+        const chunk2 = toUint8Array(data);
         let position = 0;
-        let { byteLength } = chunk;
+        let { byteLength } = chunk2;
         this.bytesHashed += byteLength;
         if (this.bytesHashed * 8 > MAX_HASHABLE_LENGTH) {
           throw new Error("Cannot hash more than 2^53 - 1 bits");
         }
         while (byteLength > 0) {
-          this.buffer[this.bufferLength++] = chunk[position++];
+          this.buffer[this.bufferLength++] = chunk2[position++];
           byteLength--;
           if (this.bufferLength === BLOCK) {
             this.hashBuffer();
@@ -26517,8 +26517,8 @@ var init_Sha256WebCrypto = __esm({
       }
       switchToFallback() {
         const sha256Js = new Sha256Js(this.secret);
-        for (const chunk of this.pending) {
-          sha256Js.update(chunk);
+        for (const chunk2 of this.pending) {
+          sha256Js.update(chunk2);
         }
         this.fallback = sha256Js;
         this.pending = [];
@@ -26634,9 +26634,9 @@ var init_HeaderMarshaller = __esm({
         }
         const out = new Uint8Array(chunks.reduce((carry, bytes) => carry + bytes.byteLength, 0));
         let position = 0;
-        for (const chunk of chunks) {
-          out.set(chunk, position);
-          position += chunk.byteLength;
+        for (const chunk2 of chunks) {
+          out.set(chunk2, position);
+          position += chunk2.byteLength;
         }
         return out;
       }
@@ -26999,8 +26999,8 @@ var init_SmithyMessageEncoderStream = __esm({
         return this.asyncIterator();
       }
       async *asyncIterator() {
-        for await (const chunk of this.options.inputStream) {
-          const payloadBuf = this.options.serializer(chunk);
+        for await (const chunk2 of this.options.inputStream) {
+          const payloadBuf = this.options.serializer(chunk2);
           yield payloadBuf;
         }
       }
@@ -27083,8 +27083,8 @@ function getUnmarshalledStream(source, options) {
   const messageUnmarshaller = getMessageUnmarshaller(options.deserializer, options.toUtf8);
   return {
     [Symbol.asyncIterator]: async function* () {
-      for await (const chunk of source) {
-        const message = options.eventStreamCodec.decode(chunk);
+      for await (const chunk2 of source) {
+        const message = options.eventStreamCodec.decode(chunk2);
         const type = await messageUnmarshaller(message);
         if (type === void 0)
           continue;
@@ -32552,9 +32552,9 @@ var require_dist_cjs2 = __commonJS({
         }
         const out = new Uint8Array(chunks.reduce((carry, bytes) => carry + bytes.byteLength, 0));
         let position = 0;
-        for (const chunk of chunks) {
-          out.set(chunk, position);
-          position += chunk.byteLength;
+        for (const chunk2 of chunks) {
+          out.set(chunk2, position);
+          position += chunk2.byteLength;
         }
         return out;
       }
@@ -33355,8 +33355,8 @@ var require_dist_cjs4 = __commonJS({
             req.destroy();
           }
           const chunks = [];
-          res.on("data", (chunk) => {
-            chunks.push(chunk);
+          res.on("data", (chunk2) => {
+            chunks.push(chunk2);
           });
           res.on("end", () => {
             resolve(Buffer.concat(chunks));
@@ -59072,9 +59072,9 @@ var tagReducer = (previousValue, currentValue) => {
   previousValue[currentValue.Key] = currentValue.Value;
   return previousValue;
 };
-var RETRY_CONFIG = { maxAttempts: 5, retryMode: "standard" };
+var chunk = (arr, size) => arr.reduce((acc, _, i5) => i5 % size ? acc : [...acc, arr.slice(i5, i5 + size)], []);
 async function ssmParameters(prefix, decrypt = true) {
-  const client = new import_client_ssm.SSMClient({ region: "us-east-1", ...RETRY_CONFIG });
+  const client = new import_client_ssm.SSMClient({ region: "us-east-1", maxAttempts: 10, retryMode: "adaptive" });
   const params = [];
   for await (const page of (0, import_client_ssm.paginateGetParametersByPath)({ client, pageSize: 10 }, {
     Path: prefix,
@@ -59082,17 +59082,21 @@ async function ssmParameters(prefix, decrypt = true) {
   })) {
     params.push(...page.Parameters);
   }
-  return await Promise.all(params.map(async (param) => {
-    const tags = (await client.send(new import_client_ssm.ListTagsForResourceCommand({
-      ResourceType: "Parameter",
-      ResourceId: param.Name
-    }))).TagList;
-    return {
-      name: param.Name,
-      value: param.Value,
-      tags: tags.reduce(tagReducer, {})
-    };
-  }));
+  const results = [];
+  for (const batch of chunk(params, 5)) {
+    results.push(...await Promise.all(batch.map(async (param) => {
+      const tags = (await client.send(new import_client_ssm.ListTagsForResourceCommand({
+        ResourceType: "Parameter",
+        ResourceId: param.Name
+      }))).TagList;
+      return {
+        name: param.Name,
+        value: param.Value,
+        tags: tags.reduce(tagReducer, {})
+      };
+    })));
+  }
+  return results;
 }
 
 // src/ecs-config.js

@@ -71440,7 +71440,7 @@ async function ecsUpdateService(service, cluster, taskDefinition) {
   return response.service;
 }
 async function ssmParameters(prefix, decrypt = true) {
-  const client = new import_client_ssm.SSMClient({ region: "us-east-1", ...RETRY_CONFIG });
+  const client = new import_client_ssm.SSMClient({ region: "us-east-1", maxAttempts: 10, retryMode: "adaptive" });
   const params = [];
   for await (const page of (0, import_client_ssm.paginateGetParametersByPath)({ client, pageSize: 10 }, {
     Path: prefix,
@@ -71448,17 +71448,21 @@ async function ssmParameters(prefix, decrypt = true) {
   })) {
     params.push(...page.Parameters);
   }
-  return await Promise.all(params.map(async (param) => {
-    const tags = (await client.send(new import_client_ssm.ListTagsForResourceCommand({
-      ResourceType: "Parameter",
-      ResourceId: param.Name
-    }))).TagList;
-    return {
-      name: param.Name,
-      value: param.Value,
-      tags: tags.reduce(tagReducer, {})
-    };
-  }));
+  const results = [];
+  for (const batch of chunk(params, 5)) {
+    results.push(...await Promise.all(batch.map(async (param) => {
+      const tags = (await client.send(new import_client_ssm.ListTagsForResourceCommand({
+        ResourceType: "Parameter",
+        ResourceId: param.Name
+      }))).TagList;
+      return {
+        name: param.Name,
+        value: param.Value,
+        tags: tags.reduce(tagReducer, {})
+      };
+    })));
+  }
+  return results;
 }
 async function eventBridgeListRules(prefix) {
   const client = new import_client_eventbridge.EventBridgeClient({ ...RETRY_CONFIG });
@@ -71571,13 +71575,18 @@ async function run() {
       [projectName, environment, buildNumber].every(isDefined),
       'Missing required input or environment value. Has "setup-env" action been run?'
     );
-    await updateServices(projectName, environment, buildNumber);
-    await updateScheduledTasks(projectName, environment, buildNumber);
+    let secretsPromise;
+    const getSecrets = () => {
+      if (!secretsPromise) secretsPromise = runtimeSecrets(projectName, environment);
+      return secretsPromise;
+    };
+    await updateServices(projectName, environment, buildNumber, getSecrets);
+    await updateScheduledTasks(projectName, environment, buildNumber, getSecrets);
   } catch (error3) {
     setFailed(error3.message);
   }
 }
-async function updateServices(projectName, environment, buildNumber) {
+async function updateServices(projectName, environment, buildNumber, getSecrets) {
   const env2 = environmentNickname(environment);
   const cluster = ecsCluster(environment);
   const serviceArns = await ecsListServices(new RegExp(`/${escapeStringRegexp(projectName)}-(${environment}|${env2})-`), cluster);
@@ -71585,12 +71594,12 @@ async function updateServices(projectName, environment, buildNumber) {
   for (const [serviceArn, currentTaskDefinition] of Object.entries(taskDefs)) {
     const serviceName = serviceArn.split("/").pop();
     info(`Updating ECS Service: ${serviceName}`);
-    const taskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber);
+    const taskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber, getSecrets);
     await ecsUpdateService(serviceArn, cluster, taskDefinitionArn);
     await new Promise((resolve) => setTimeout(resolve, 1e4));
   }
 }
-async function updateScheduledTasks(projectName, environment, buildNumber) {
+async function updateScheduledTasks(projectName, environment, buildNumber, getSecrets) {
   const env2 = environmentNickname(environment);
   const rules = await eventBridgeListRules(`ecstask-${projectName}-${env2}`);
   for (const rule of rules) {
@@ -71598,15 +71607,15 @@ async function updateScheduledTasks(projectName, environment, buildNumber) {
     for (const target of targets) {
       info(`Updating ECS Scheduled Task: ${target.Id}`);
       const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn);
-      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber, currentTaskDefinition.tags);
+      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber, getSecrets, currentTaskDefinition.tags);
       await eventBridgeUpdateTarget(rule.Name, target);
       await new Promise((resolve) => setTimeout(resolve, 1e4));
     }
   }
 }
-async function updateTaskDefinition(taskDefinition, projectName, environment, buildNumber, taskTags = []) {
+async function updateTaskDefinition(taskDefinition, projectName, environment, buildNumber, getSecrets, taskTags = []) {
   const image = ecrImageTag(projectName, environment, buildNumber);
-  const secrets = await runtimeSecrets(projectName, environment);
+  const secrets = await getSecrets();
   const taskDef = {};
   if (taskTags.length > 0) {
     taskDef.tags = taskTags;
