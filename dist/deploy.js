@@ -232306,6 +232306,13 @@ var GAXIOS_RETRY2 = {
     statusCodesToRetry: [[429, 429], [500, 599]]
   }
 };
+var ApigSpecError = class extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = "ApigSpecError";
+    this.fatal = true;
+  }
+};
 var shortName = (resource) => resource.split("/").pop();
 var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var httpStatus = (error3) => error3?.response?.status ?? error3?.status ?? error3?.code;
@@ -232315,7 +232322,7 @@ function apigSpecKey(labels) {
   const key = raw.trim();
   const invalid = key === "" || key.startsWith("/") || key.includes("\\") || key.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
   if (invalid) {
-    throw new Error(
+    throw new ApigSpecError(
       `Image label ${APIG_LABEL}="${raw}" is not a usable file name \u2014 expected a relative path with no empty, "." or ".." segments (e.g. "openapi.yaml").`
     );
   }
@@ -232339,7 +232346,7 @@ function apigEnv(services, repo) {
         backendService ? null : APIG_BACKEND_SERVICE_ENV,
         backendSa ? null : APIG_BACKEND_SA_ENV
       ].filter(Boolean);
-      throw new Error(
+      throw new ApigSpecError(
         `${APIG_GATEWAY_ENV}="${gatewayId}" is set on ${shortName(service.name)} but ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not. Terraform must inject all three together.`
       );
     }
@@ -232358,7 +232365,7 @@ function renderSpec(template, vars) {
     return String(vars[name]);
   });
   if (unresolved.size > 0) {
-    throw new Error(
+    throw new ApigSpecError(
       `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(", ")}. Each must be a plain-valued env var on the app container (Terraform-injected), or ${BACKEND_VAR}.`
     );
   }
@@ -232367,7 +232374,7 @@ function renderSpec(template, vars) {
 function configIdFor(rendered) {
   return `cfg-${(0, import_node_crypto6.createHash)("sha256").update(rendered).digest("hex").slice(0, 12)}`;
 }
-async function awaitOperation(client, operation2, { label, deadlineMs, pollIntervalMs }) {
+async function awaitOperation(client, operation2, { label, deadlineMs, pollIntervalMs, fatalOnError = false }) {
   const started = Date.now();
   let op2 = operation2;
   while (!op2?.done) {
@@ -232386,9 +232393,46 @@ async function awaitOperation(client, operation2, { label, deadlineMs, pollInter
     op2 = res.data;
   }
   if (op2.error) {
-    throw new Error(`${label} failed: ${op2.error.message ?? JSON.stringify(op2.error)}`);
+    const message = `${label} failed: ${op2.error.message ?? JSON.stringify(op2.error)}`;
+    throw fatalOnError ? new ApigSpecError(message) : new Error(message);
   }
   return op2;
+}
+async function deleteConfig(client, configName, { deadlineMs, pollIntervalMs }) {
+  const id = shortName(configName);
+  const res = await client.request({ url: `${APIG_API}/${configName}`, method: "DELETE" });
+  await awaitOperation(client, res.data, {
+    label: `api config ${id} delete`,
+    deadlineMs,
+    pollIntervalMs
+  });
+}
+async function resolveExistingConfig(client, configName, { pollIntervalMs }) {
+  const id = shortName(configName);
+  const deadline = Date.now() + CONFIG_DEADLINE_MS;
+  while (true) {
+    let config;
+    try {
+      config = (await client.request({
+        url: `${APIG_API}/${configName}`,
+        method: "GET",
+        ...GAXIOS_RETRY2
+      })).data;
+    } catch (error3) {
+      if (httpStatus(error3) !== 404) throw error3;
+      return "absent";
+    }
+    const state2 = config?.state ?? "ACTIVE";
+    if (state2 === "ACTIVE") return "active";
+    if (state2 === "FAILED") return "failed";
+    if (Date.now() > deadline) {
+      throw new Error(
+        `api config ${id} was still ${state2} after ${Math.round(CONFIG_DEADLINE_MS / 1e3)}s; another deploy may be mid-flight`
+      );
+    }
+    info(`api config ${id} is ${state2}; waiting\u2026`);
+    await sleep2(pollIntervalMs);
+  }
 }
 async function collectGarbage(client, { apiName, keep, pollIntervalMs }) {
   const deleted = [];
@@ -232412,12 +232456,7 @@ async function collectGarbage(client, { apiName, keep, pollIntervalMs }) {
     info(`api configs: ${names.length} total, keeping ${keep.join(", ")}, deleting ${stale.length}`);
     for (const name of stale) {
       const id = shortName(name);
-      const res = await client.request({ url: `${APIG_API}/${name}`, method: "DELETE" });
-      await awaitOperation(client, res.data, {
-        label: `api config ${id} delete`,
-        deadlineMs: GC_DEADLINE_MS,
-        pollIntervalMs
-      });
+      await deleteConfig(client, name, { deadlineMs: GC_DEADLINE_MS, pollIntervalMs });
       info(`deleted superseded api config ${id}`);
       deleted.push(id);
     }
@@ -232447,18 +232486,18 @@ async function publishApiConfig({
   info(`extracting ${source} from ${image}`);
   const template = await oci.readFile(source);
   if (!template) {
-    throw new Error(
+    throw new ApigSpecError(
       `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. The Dockerfile must COPY the spec there.`
     );
   }
   const backend = services.find((service) => shortName(service.name) === backendService);
   if (!backend) {
-    throw new Error(
+    throw new ApigSpecError(
       `${APIG_BACKEND_SERVICE_ENV}="${backendService}" names a Cloud Run service that does not exist in ${runtimeProject} (found: ${services.map((s3) => shortName(s3.name)).join(", ") || "none"}).`
     );
   }
   if (!backend.uri) {
-    throw new Error(
+    throw new ApigSpecError(
       `Cloud Run service "${backendService}" has no uri, so \${${BACKEND_VAR}} cannot be resolved.`
     );
   }
@@ -232474,7 +232513,7 @@ async function publishApiConfig({
   const current = gateway?.apiConfig;
   const match = current?.match(/^(projects\/[^/]+\/locations\/global\/apis\/[^/]+)\/configs\/([^/]+)$/);
   if (!match) {
-    throw new Error(
+    throw new ApigSpecError(
       `Gateway ${gatewayName} has no usable apiConfig (got ${current ?? "none"}). Terraform must create the gateway with a bootstrap config.`
     );
   }
@@ -232483,13 +232522,15 @@ async function publishApiConfig({
     return { published: true, reason: "unchanged", gatewayId, configId, apiConfig: current };
   }
   const configName = `${apiName}/configs/${configId}`;
-  let exists2 = true;
-  try {
-    await client.request({ url: `${APIG_API}/${configName}`, method: "GET", ...GAXIOS_RETRY2 });
-  } catch (error3) {
-    if (httpStatus(error3) !== 404) throw error3;
-    exists2 = false;
+  let existing = await resolveExistingConfig(client, configName, { pollIntervalMs });
+  if (existing === "failed") {
+    warning(
+      `api config ${configId} exists but is FAILED, left by an earlier run; deleting it and creating it again`
+    );
+    await deleteConfig(client, configName, { deadlineMs: CONFIG_DEADLINE_MS, pollIntervalMs });
+    existing = "absent";
   }
+  const exists2 = existing === "active";
   if (exists2) {
     info(`api gateway config ${configId} already exists; re-pointing the gateway`);
   } else {
@@ -232515,11 +232556,27 @@ async function publishApiConfig({
       await awaitOperation(client, created.data, {
         label: `api config ${configId} create`,
         deadlineMs: CONFIG_DEADLINE_MS,
-        pollIntervalMs
+        pollIntervalMs,
+        // The create LRO is where the gateway reports a bad document, and a bad
+        // document is a bug in the image, not a bad day for the API.
+        fatalOnError: true
       });
     } catch (error3) {
       if (httpStatus(error3) !== 409) throw error3;
-      info(`api gateway config ${configId} was created concurrently; continuing`);
+      info(`api gateway config ${configId} was created concurrently; waiting for it`);
+      const raced = await resolveExistingConfig(client, configName, { pollIntervalMs });
+      if (raced === "failed") {
+        throw new ApigSpecError(
+          `api config ${configId} was created concurrently and is FAILED; the rendered spec is the same bytes, so this is the gateway rejecting the document.`,
+          { cause: error3 }
+        );
+      }
+      if (raced === "absent") {
+        throw new Error(
+          `api config ${configId} was created concurrently and then deleted; retry the deploy.`,
+          { cause: error3 }
+        );
+      }
     }
   }
   info(`pointing gateway ${gatewayId} at ${configId} (this takes a few minutes)`);
@@ -232706,6 +232763,7 @@ async function deployCloudRun({ image, runtimeProject }) {
       );
     }
   } catch (error3) {
+    if (error3.fatal) throw error3;
     warning(`api gateway config not published (deploy unaffected): ${error3.message}`);
   }
   return { deployedImage: image, services: updatedServices, signin, apig };
