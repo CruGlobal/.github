@@ -24,6 +24,12 @@
 // service's own URI into its own env is a dependency cycle, and it is knowable
 // here for free (the deploy already listed the services).
 //
+// Nothing here parses the document. Rendering is a textual ${VAR} substitution
+// and the API takes the bytes, so the same code path publishes an OpenAPI 2.0 or
+// an OpenAPI 3.0.x spec (API Gateway accepts both; not 3.1). Validation of the
+// document's shape is the gateway's job, and it reports it through the create
+// operation's error — see awaitOperation.
+//
 // The rendered document is then published as an *immutable* api config and the
 // gateway is re-pointed at it. Config ids are content hashes (cfg-<sha256[0:12]>,
 // the same convention the Terraform-managed config used), which buys two things:

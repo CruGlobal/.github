@@ -32,8 +32,11 @@ const BACKEND_URI = 'https://mcp-api-abc-uc.a.run.app'
 const BACKEND_SA = 'gateway-backend@mcp-stage-1234.iam.gserviceaccount.com'
 const API = `projects/${PROJECT}/locations/global/apis/mcp-api`
 const GATEWAY = `projects/${PROJECT}/locations/us-central1/gateways/${GATEWAY_ID}`
-const SPEC = 'swagger: "2.0"\naddress: ${API_GATEWAY_BACKEND}\nissuer: ${OAUTH_ISSUER}\n'
-const RENDERED = `swagger: "2.0"\naddress: ${BACKEND_URI}\nissuer: https://issuer.example\n`
+// Shape-agnostic on purpose: publishing is a textual render of ${VAR}, so the
+// same code path carries an OpenAPI 2.0 or a 3.0.x document. This fixture is
+// 3.0.x, matching what the apps now ship.
+const SPEC = 'openapi: "3.0.3"\naddress: ${API_GATEWAY_BACKEND}\nissuer: ${OAUTH_ISSUER}\n'
+const RENDERED = `openapi: "3.0.3"\naddress: ${BACKEND_URI}\nissuer: https://issuer.example\n`
 const CONFIG_ID = configIdFor(RENDERED)
 
 // The gateway env Terraform injects, plus one unrelated var the spec uses.
