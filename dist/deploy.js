@@ -192177,8 +192177,8 @@ var init_AwsQueryProtocol = __esm({
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
         }
-        const shortName3 = operationSchema.name.split("#")[1] ?? operationSchema.name;
-        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName3 + "Result" : void 0;
+        const shortName4 = operationSchema.name.split("#")[1] ?? operationSchema.name;
+        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName4 + "Result" : void 0;
         const bytes = await collectBody(response.body, context);
         if (bytes.byteLength > 0) {
           Object.assign(dataObject, await deserializer.read(ns, bytes, awsQueryResultKey));
@@ -196984,7 +196984,7 @@ var require_dist_cjs11 = __commonJS({
     var { setCredentialFeature: setCredentialFeature2 } = (init_client3(), __toCommonJS(client_exports2));
     var { CredentialsProviderError: CredentialsProviderError2, parseKnownFiles: parseKnownFiles2, getProfileName: getProfileName2 } = (init_config2(), __toCommonJS(config_exports));
     var { HttpRequest: HttpRequest2 } = (init_protocols(), __toCommonJS(protocols_exports));
-    var { createHash: createHash6, createPrivateKey, createPublicKey, sign: sign2 } = require("node:crypto");
+    var { createHash: createHash7, createPrivateKey, createPublicKey, sign: sign2 } = require("node:crypto");
     var { promises: promises3 } = require("node:fs");
     var { homedir: homedir2 } = require("node:os");
     var { dirname, join: join5 } = require("node:path");
@@ -197153,7 +197153,7 @@ var require_dist_cjs11 = __commonJS({
       getTokenFilePath() {
         const directory = process.env.AWS_LOGIN_CACHE_DIRECTORY ?? join5(homedir2(), ".aws", "login", "cache");
         const loginSessionBytes = Buffer.from(this.loginSession, "utf8");
-        const loginSessionSha256 = createHash6("sha256").update(loginSessionBytes).digest("hex");
+        const loginSessionSha256 = createHash7("sha256").update(loginSessionBytes).digest("hex");
         return join5(directory, `${loginSessionSha256}.json`);
       }
       derToRawSignature(derSignature) {
@@ -232110,7 +232110,7 @@ async function authClient() {
   return auth.getClient();
 }
 
-// src/v2/signin.js
+// src/v2/apigateway.js
 var import_node_crypto6 = require("node:crypto");
 
 // src/v2/oci.js
@@ -232284,13 +232284,320 @@ async function openImage(imageRef) {
   };
 }
 
+// src/v2/apigateway.js
+var APIG_LABEL = "org.cru.api-gateway";
+var APIG_IMAGE_DIR = "/cru/api-gateway";
+var APIG_GATEWAY_ENV = "API_GATEWAY_GATEWAY_ID";
+var APIG_BACKEND_SERVICE_ENV = "API_GATEWAY_BACKEND_SERVICE";
+var APIG_BACKEND_SA_ENV = "API_GATEWAY_BACKEND_SA";
+var BACKEND_VAR = "API_GATEWAY_BACKEND";
+var APIG_API = "https://apigateway.googleapis.com/v1";
+var POLL_INTERVAL_MS = 5e3;
+var CONFIG_DEADLINE_MS = 10 * 60 * 1e3;
+var GATEWAY_DEADLINE_MS = 15 * 60 * 1e3;
+var GC_DEADLINE_MS = 2 * 60 * 1e3;
+var GENERATED_CONFIG_ID = /^cfg-[0-9a-f]{12}$/;
+var GAXIOS_RETRY2 = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ["GET"],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+};
+var shortName = (resource) => resource.split("/").pop();
+var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var httpStatus = (error3) => error3?.response?.status ?? error3?.status ?? error3?.code;
+function apigSpecKey(labels) {
+  const raw = labels?.[APIG_LABEL];
+  if (raw == null) return null;
+  const key = raw.trim();
+  const invalid = key === "" || key.startsWith("/") || key.includes("\\") || key.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+  if (invalid) {
+    throw new Error(
+      `Image label ${APIG_LABEL}="${raw}" is not a usable file name \u2014 expected a relative path with no empty, "." or ".." segments (e.g. "openapi.yaml").`
+    );
+  }
+  return key;
+}
+function apigEnv(services, repo) {
+  for (const service of services) {
+    const containers = service.template?.containers ?? [];
+    const app = findAppContainer(containers, repo);
+    if (!app) continue;
+    const env2 = {};
+    for (const entry of app.env ?? []) {
+      if (entry.value !== void 0) env2[entry.name] = entry.value;
+    }
+    const gatewayId = env2[APIG_GATEWAY_ENV];
+    if (!gatewayId) continue;
+    const backendService = env2[APIG_BACKEND_SERVICE_ENV];
+    const backendSa = env2[APIG_BACKEND_SA_ENV];
+    if (!backendService || !backendSa) {
+      const missing = [
+        backendService ? null : APIG_BACKEND_SERVICE_ENV,
+        backendSa ? null : APIG_BACKEND_SA_ENV
+      ].filter(Boolean);
+      throw new Error(
+        `${APIG_GATEWAY_ENV}="${gatewayId}" is set on ${shortName(service.name)} but ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not. Terraform must inject all three together.`
+      );
+    }
+    return { gatewayId, backendService, backendSa, env: env2 };
+  }
+  return null;
+}
+var PLACEHOLDER = /\$\{([A-Z][A-Z0-9_]*)\}/g;
+function renderSpec(template, vars) {
+  const unresolved = /* @__PURE__ */ new Set();
+  const rendered = template.replace(PLACEHOLDER, (match, name) => {
+    if (!Object.hasOwn(vars, name) || vars[name] == null) {
+      unresolved.add(name);
+      return match;
+    }
+    return String(vars[name]);
+  });
+  if (unresolved.size > 0) {
+    throw new Error(
+      `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(", ")}. Each must be a plain-valued env var on the app container (Terraform-injected), or ${BACKEND_VAR}.`
+    );
+  }
+  return rendered;
+}
+function configIdFor(rendered) {
+  return `cfg-${(0, import_node_crypto6.createHash)("sha256").update(rendered).digest("hex").slice(0, 12)}`;
+}
+async function awaitOperation(client, operation2, { label, deadlineMs, pollIntervalMs }) {
+  const started = Date.now();
+  let op2 = operation2;
+  while (!op2?.done) {
+    if (Date.now() - started > deadlineMs) {
+      throw new Error(
+        `${label} did not finish within ${Math.round(deadlineMs / 1e3)}s (operation ${op2?.name})`
+      );
+    }
+    await sleep2(pollIntervalMs);
+    info(`waiting for ${label}\u2026`);
+    const res = await client.request({
+      url: `${APIG_API}/${op2.name}`,
+      method: "GET",
+      ...GAXIOS_RETRY2
+    });
+    op2 = res.data;
+  }
+  if (op2.error) {
+    throw new Error(`${label} failed: ${op2.error.message ?? JSON.stringify(op2.error)}`);
+  }
+  return op2;
+}
+async function deleteConfig(client, configName, { deadlineMs, pollIntervalMs }) {
+  const id = shortName(configName);
+  const res = await client.request({ url: `${APIG_API}/${configName}`, method: "DELETE" });
+  await awaitOperation(client, res.data, {
+    label: `api config ${id} delete`,
+    deadlineMs,
+    pollIntervalMs
+  });
+}
+async function resolveExistingConfig(client, configName, { pollIntervalMs }) {
+  const id = shortName(configName);
+  const deadline = Date.now() + CONFIG_DEADLINE_MS;
+  while (true) {
+    let config;
+    try {
+      config = (await client.request({
+        url: `${APIG_API}/${configName}`,
+        method: "GET",
+        ...GAXIOS_RETRY2
+      })).data;
+    } catch (error3) {
+      if (httpStatus(error3) !== 404) throw error3;
+      return "absent";
+    }
+    const state2 = config?.state ?? "ACTIVE";
+    if (state2 === "ACTIVE") return "active";
+    if (state2 === "FAILED") return "failed";
+    if (Date.now() > deadline) {
+      throw new Error(
+        `api config ${id} was still ${state2} after ${Math.round(CONFIG_DEADLINE_MS / 1e3)}s; another deploy may be mid-flight`
+      );
+    }
+    info(`api config ${id} is ${state2}; waiting\u2026`);
+    await sleep2(pollIntervalMs);
+  }
+}
+async function collectGarbage(client, { apiName, keep, pollIntervalMs }) {
+  const deleted = [];
+  try {
+    const names = [];
+    let pageToken;
+    do {
+      const res = await client.request({
+        url: `${APIG_API}/${apiName}/configs`,
+        method: "GET",
+        params: { pageSize: 100, ...pageToken ? { pageToken } : {} },
+        ...GAXIOS_RETRY2
+      });
+      names.push(...(res.data?.apiConfigs ?? []).map((config) => config.name).filter(Boolean));
+      pageToken = res.data?.nextPageToken;
+    } while (pageToken);
+    const stale = names.filter((name) => {
+      const id = shortName(name);
+      return GENERATED_CONFIG_ID.test(id) && !keep.includes(id);
+    });
+    info(`api configs: ${names.length} total, keeping ${keep.join(", ")}, deleting ${stale.length}`);
+    for (const name of stale) {
+      const id = shortName(name);
+      await deleteConfig(client, name, { deadlineMs: GC_DEADLINE_MS, pollIntervalMs });
+      info(`deleted superseded api config ${id}`);
+      deleted.push(id);
+    }
+  } catch (error3) {
+    warning(`superseded api configs not cleaned up (deploy unaffected): ${error3.message}`);
+  }
+  return deleted;
+}
+async function publishApiConfig({
+  image,
+  services,
+  repo,
+  runtimeProject,
+  region = DEFAULT_REGION,
+  pollIntervalMs = POLL_INTERVAL_MS
+}) {
+  const wiring = apigEnv(services, repo);
+  if (!wiring) return { published: false, reason: "not-configured" };
+  const { gatewayId, backendService, backendSa, env: env2 } = wiring;
+  if (!runtimeProject) {
+    throw new Error("runtime-project is required to publish an api gateway config");
+  }
+  const oci = await openImage(image);
+  const specKey = apigSpecKey(oci.labels);
+  if (specKey === null) return { published: false, reason: "no-label" };
+  const source = `${APIG_IMAGE_DIR}/${specKey}`;
+  info(`extracting ${source} from ${image}`);
+  const template = await oci.readFile(source);
+  if (!template) {
+    throw new Error(
+      `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. The Dockerfile must COPY the spec there.`
+    );
+  }
+  const backend = services.find((service) => shortName(service.name) === backendService);
+  if (!backend) {
+    throw new Error(
+      `${APIG_BACKEND_SERVICE_ENV}="${backendService}" names a Cloud Run service that does not exist in ${runtimeProject} (found: ${services.map((s3) => shortName(s3.name)).join(", ") || "none"}).`
+    );
+  }
+  if (!backend.uri) {
+    throw new Error(
+      `Cloud Run service "${backendService}" has no uri, so \${${BACKEND_VAR}} cannot be resolved.`
+    );
+  }
+  const rendered = renderSpec(template.toString("utf8"), { ...env2, [BACKEND_VAR]: backend.uri });
+  const configId = configIdFor(rendered);
+  const client = await authClient();
+  const gatewayName = `projects/${runtimeProject}/locations/${region}/gateways/${gatewayId}`;
+  const gateway = (await client.request({
+    url: `${APIG_API}/${gatewayName}`,
+    method: "GET",
+    ...GAXIOS_RETRY2
+  })).data;
+  const current = gateway?.apiConfig;
+  const match = current?.match(/^(projects\/[^/]+\/locations\/global\/apis\/[^/]+)\/configs\/([^/]+)$/);
+  if (!match) {
+    throw new Error(
+      `Gateway ${gatewayName} has no usable apiConfig (got ${current ?? "none"}). Terraform must create the gateway with a bootstrap config.`
+    );
+  }
+  const [, apiName, currentConfigId] = match;
+  if (currentConfigId === configId) {
+    return { published: true, reason: "unchanged", gatewayId, configId, apiConfig: current };
+  }
+  const configName = `${apiName}/configs/${configId}`;
+  let existing = await resolveExistingConfig(client, configName, { pollIntervalMs });
+  if (existing === "failed") {
+    warning(
+      `api config ${configId} exists but is FAILED, left by an earlier run; deleting it and creating it again`
+    );
+    await deleteConfig(client, configName, { deadlineMs: CONFIG_DEADLINE_MS, pollIntervalMs });
+    existing = "absent";
+  }
+  const exists2 = existing === "active";
+  if (exists2) {
+    info(`api gateway config ${configId} already exists; re-pointing the gateway`);
+  } else {
+    info(`creating api gateway config ${configId} (${rendered.length} bytes of spec)`);
+    try {
+      const created = await client.request({
+        url: `${APIG_API}/${apiName}/configs`,
+        method: "POST",
+        params: { apiConfigId: configId },
+        data: {
+          // Stamp the config with the digest it was rendered from, so the
+          // console answers "which release is this gateway serving?".
+          displayName: parseImageRef(image).digest ?? image,
+          // REST v1 spells this as a top-level, immutable field. The nested
+          // gateway_config { backend_config { google_service_account } } shape
+          // is the Terraform provider's own, and the API rejects it.
+          gatewayServiceAccount: backendSa,
+          openapiDocuments: [
+            { document: { path: "openapi.yaml", contents: Buffer.from(rendered).toString("base64") } }
+          ]
+        }
+      });
+      await awaitOperation(client, created.data, {
+        label: `api config ${configId} create`,
+        deadlineMs: CONFIG_DEADLINE_MS,
+        pollIntervalMs
+      });
+    } catch (error3) {
+      if (httpStatus(error3) !== 409) throw error3;
+      info(`api gateway config ${configId} was created concurrently; waiting for it`);
+      const raced = await resolveExistingConfig(client, configName, { pollIntervalMs });
+      if (raced !== "active") {
+        throw new Error(
+          `api config ${configId} was created concurrently but is ${raced === "absent" ? "gone" : "FAILED"}`,
+          { cause: error3 }
+        );
+      }
+    }
+  }
+  info(`pointing gateway ${gatewayId} at ${configId} (this takes a few minutes)`);
+  const patched = await client.request({
+    url: `${APIG_API}/${gatewayName}`,
+    method: "PATCH",
+    params: { updateMask: "apiConfig" },
+    data: { apiConfig: configName }
+  });
+  await awaitOperation(client, patched.data, {
+    label: `gateway ${gatewayId} update`,
+    deadlineMs: GATEWAY_DEADLINE_MS,
+    pollIntervalMs
+  });
+  const deletedConfigIds = await collectGarbage(client, {
+    apiName,
+    keep: [configId, currentConfigId],
+    pollIntervalMs
+  });
+  return {
+    published: true,
+    reason: exists2 ? "repointed" : "created",
+    gatewayId,
+    configId,
+    apiConfig: configName,
+    previousConfigId: currentConfigId,
+    deletedConfigIds
+  };
+}
+
 // src/v2/signin.js
+var import_node_crypto7 = require("node:crypto");
 var SIGNIN_LABEL = "org.cru.iap-signin";
 var SIGNIN_IMAGE_DIR = "/cru/iap-signin";
 var SIGNIN_BUCKET_ENV = "IAP_SIGNIN_BUCKET";
 var CONTENT_TYPE = "text/html";
 var CACHE_CONTROL = "public, max-age=300";
-var GAXIOS_RETRY2 = {
+var GAXIOS_RETRY3 = {
   retry: true,
   retryConfig: {
     retry: 5,
@@ -232324,7 +232631,7 @@ function signinBucket(services, repo) {
   return null;
 }
 async function uploadObject({ bucket, key, body, contentType, cacheControl }) {
-  const boundary = `cru-${(0, import_node_crypto6.createHash)("sha256").update(body).digest("hex").slice(0, 32)}`;
+  const boundary = `cru-${(0, import_node_crypto7.createHash)("sha256").update(body).digest("hex").slice(0, 32)}`;
   const metadata = JSON.stringify({ name: key, contentType, cacheControl });
   const payload2 = Buffer.concat([
     Buffer.from(
@@ -232349,7 +232656,7 @@ Content-Type: ${contentType}\r
     params: { uploadType: "multipart" },
     headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
     body: payload2,
-    ...GAXIOS_RETRY2
+    ...GAXIOS_RETRY3
   });
 }
 async function publishSigninPage({ image, bucket }) {
@@ -232377,7 +232684,7 @@ async function publishSigninPage({ image, bucket }) {
 
 // src/v2/deploy-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
-var shortName = (resource) => resource.split("/").pop();
+var shortName2 = (resource) => resource.split("/").pop();
 async function deployCloudRun({ image, runtimeProject }) {
   assertDigestRef(image);
   if (!runtimeProject) {
@@ -232390,7 +232697,7 @@ async function deployCloudRun({ image, runtimeProject }) {
   const jobs = await cloudrunListJobs(runtimeProject);
   info(`jobs: ${JSON.stringify(jobs.map((j5) => j5.name))}`);
   const secrets = await listSecrets(runtimeProject, RUNTIME_PARAM_TYPES);
-  const migrateJob = jobs.find((job) => shortName(job.name) === DB_MIGRATE_JOB);
+  const migrateJob = jobs.find((job) => shortName2(job.name) === DB_MIGRATE_JOB);
   if (migrateJob) {
     await updateJobImage(migrateJob, image, secrets);
     info(`executing job: ${migrateJob.name}`);
@@ -232408,7 +232715,7 @@ async function deployCloudRun({ image, runtimeProject }) {
     );
     info(`updating service: ${service.name} (${updated.length} container(s))`);
     await updateService(service.name, updated);
-    updatedServices.push(shortName(service.name));
+    updatedServices.push(shortName2(service.name));
   }
   const signin = { published: false };
   const bucket = signinBucket(services, repo);
@@ -232426,7 +232733,17 @@ async function deployCloudRun({ image, runtimeProject }) {
       warning(`sign-in page not published (deploy unaffected): ${error3.message}`);
     }
   }
-  return { deployedImage: image, services: updatedServices, signin };
+  const apig = await publishApiConfig({ image, services, repo, runtimeProject });
+  if (apig.published) {
+    info(
+      apig.reason === "unchanged" ? `api gateway config: ${apig.configId} (unchanged)` : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
+    );
+  } else if (apig.reason === "no-label") {
+    warning(
+      `this environment has an API gateway but ${image} carries no OpenAPI spec; leaving the existing api config in place. Expected in a rollback to a release built before the image carried the spec.`
+    );
+  }
+  return { deployedImage: image, services: updatedServices, signin, apig };
 }
 async function updateJobImage(job, image, secrets) {
   const container = job.template.template.containers[0];
@@ -232521,7 +232838,7 @@ async function deployEcs({ projectName, environment, image }) {
   const secrets = await runtimeSecrets(projectName, nickname);
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
-  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
+  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName3))}`);
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns });
   const services = await updateServices({ projectName, cluster, image, secrets, serviceArns });
   await updateScheduledTasks({ projectName, nickname, image, secrets });
@@ -232607,12 +232924,12 @@ async function updateServices({ projectName, cluster, image, secrets, serviceArn
   for (const serviceArn of serviceArns) {
     const family = current[serviceArn]?.family;
     if (!family) {
-      throw new Error(`Could not determine the task-definition family for service ${shortName2(serviceArn)}`);
+      throw new Error(`Could not determine the task-definition family for service ${shortName3(serviceArn)}`);
     }
     const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
-    info(`updating ECS service ${shortName2(serviceArn)} -> ${taskDefinitionArn}`);
+    info(`updating ECS service ${shortName3(serviceArn)} -> ${taskDefinitionArn}`);
     await ecsUpdateService(serviceArn, cluster, taskDefinitionArn);
-    updated.push(shortName2(serviceArn));
+    updated.push(shortName3(serviceArn));
   }
   return updated;
 }
@@ -232645,7 +232962,7 @@ function familyOf(taskDefinitionArn) {
   if (!taskDefinitionArn) return void 0;
   return taskDefinitionArn.split("/").pop().split(":")[0];
 }
-function shortName2(arn) {
+function shortName3(arn) {
   return arn.split("/").pop();
 }
 

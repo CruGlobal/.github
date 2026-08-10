@@ -20,8 +20,16 @@ vi.mock('../src/v2/signin.js', async importOriginal => ({
   publishSigninPage: vi.fn()
 }))
 
+// Likewise for the api gateway config: only the publish call is stubbed.
+// Covered in depth by test/v2-apigateway.test.js.
+vi.mock('../src/v2/apigateway.js', async importOriginal => ({
+  ...(await importOriginal()),
+  publishApiConfig: vi.fn()
+}))
+
 import * as gcp from '../src/gcp.js'
 import { publishSigninPage } from '../src/v2/signin.js'
+import { publishApiConfig } from '../src/v2/apigateway.js'
 import { deployCloudRun } from '../src/v2/deploy-cloudrun.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
@@ -66,6 +74,8 @@ beforeEach(() => {
   for (const fn of Object.values(gcp)) fn.mockReset?.()
   publishSigninPage.mockReset()
   publishSigninPage.mockResolvedValue({ published: true, bucket: BUCKET, objectKey: 'signin', bytes: 42 })
+  publishApiConfig.mockReset()
+  publishApiConfig.mockResolvedValue({ published: false, reason: 'not-configured' })
 })
 
 describe('deployCloudRun digest invariant', () => {
@@ -118,7 +128,9 @@ describe('deployCloudRun orchestration', () => {
       deployedImage: IMAGE,
       services: ['hoax-web'],
       // No IAP_SIGNIN_BUCKET on this service -> nothing to publish.
-      signin: { published: false }
+      signin: { published: false },
+      // No API_GATEWAY_GATEWAY_ID either -> not-configured.
+      apig: { published: false, reason: 'not-configured' }
     })
   })
 
@@ -219,6 +231,50 @@ describe('deployCloudRun publishes the IAP sign-in page', () => {
 
     expect(result.services).toEqual(['hoax-web'])
     expect(result.signin).toEqual({ published: false, reason: 'no-label' })
+  })
+})
+
+describe('deployCloudRun api gateway config', () => {
+  beforeEach(() => {
+    gcp.cloudrunListServices.mockResolvedValue([service()])
+    gcp.cloudrunListJobs.mockResolvedValue([])
+    gcp.listSecrets.mockResolvedValue(SECRETS)
+    gcp.updateService.mockResolvedValue({})
+  })
+
+  it('reports what was published', async () => {
+    publishApiConfig.mockResolvedValue({ published: true, reason: 'created', gatewayId: 'gw', configId: 'cfg-abc123abc123' })
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(publishApiConfig).toHaveBeenCalledWith({
+      image: IMAGE,
+      services: [service()],
+      repo: REPO,
+      runtimeProject: 'p'
+    })
+    expect(result.apig.configId).toBe('cfg-abc123abc123')
+  })
+
+  // The services are already on the new image by now, so an unpublished config
+  // means the gateway is fronting this release's code with the previous release's
+  // routes. The cause does not change that, so neither does the outcome: both of
+  // these fail the deploy rather than warning on a green run.
+  it.each([
+    ['the spec is unusable', 'API gateway spec has unresolved placeholder(s): OAUTH_ISSUER.'],
+    ['the api is unhappy', '503 apigateway.googleapis.com unavailable']
+  ])('fails the deploy when %s', async (_label, message) => {
+    publishApiConfig.mockRejectedValue(new Error(message))
+
+    await expect(deployCloudRun({ image: IMAGE, runtimeProject: 'p' })).rejects.toThrow(message)
+  })
+
+  it('only warns when the image carries no spec — the rollback path', async () => {
+    publishApiConfig.mockResolvedValue({ published: false, reason: 'no-label' })
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(result.apig).toEqual({ published: false, reason: 'no-label' })
   })
 })
 

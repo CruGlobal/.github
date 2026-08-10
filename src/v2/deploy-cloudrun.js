@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { cloudrunListJobs, cloudrunListServices, listSecrets, runJob, updateJob, updateService } from '../gcp'
 import { RUNTIME_PARAM_TYPES } from '../ecs-config'
+import { publishApiConfig } from './apigateway'
 import { assertDigestRef, isAppContainer, parseImageRef } from './gcp'
 import { publishSigninPage, signinBucket } from './signin'
 
@@ -32,7 +33,16 @@ const shortName = resource => resource.split('/').pop()
 // is invisible to Terraform and identical in every environment — one true
 // version per build. Sidecars are untouched.
 //
-// Returns { deployedImage, services } (services = short names updated).
+// After the services are updated, two artifacts that ship INSIDE the image are
+// published: the IAP sign-in page (./signin.js) and the API Gateway OpenAPI
+// config (./apigateway.js). The page is cosmetic and entirely fail-soft. The
+// gateway config is not: it is the app's routing table, so failing to publish it
+// FAILS the deploy. The invariant worth protecting is that the gateway serves the
+// spec matching the running code, and a 503 breaks it exactly as thoroughly as a
+// malformed document does — "it will sort itself out next deploy" is no comfort to
+// an app that deploys once a week.
+//
+// Returns { deployedImage, services, signin, apig } (services = short names updated).
 export async function deployCloudRun ({ image, runtimeProject }) {
   assertDigestRef(image) // defensive; the router validates too
   if (!runtimeProject) {
@@ -109,7 +119,36 @@ export async function deployCloudRun ({ image, runtimeProject }) {
     }
   }
 
-  return { deployedImage: image, services: updatedServices, signin }
+  // Publish the API Gateway config rendered from the spec carried by this image,
+  // if this environment has a gateway. Same shape as the sign-in page: the
+  // Terraform-injected API_GATEWAY_GATEWAY_ID on the PRE-update app container is
+  // the gate, and the pre-update services also carry the backend's run.app uri
+  // that ${API_GATEWAY_BACKEND} resolves to (see ./apigateway.js). The gate lives
+  // inside publishApiConfig because it needs the whole env map anyway.
+  // Unlike the page, this one is NOT caught: if it did not publish, the gateway
+  // is serving the previous release's routes in front of this release's code, and
+  // the cause does not change that. A re-run costs nothing (the content-hash
+  // config id makes an already-published spec a no-op), while a green check over
+  // a skewed gateway costs 404s nobody is looking for.
+  const apig = await publishApiConfig({ image, services, repo, runtimeProject })
+  if (apig.published) {
+    core.info(
+      apig.reason === 'unchanged'
+        ? `api gateway config: ${apig.configId} (unchanged)`
+        : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
+    )
+  } else if (apig.reason === 'no-label') {
+    // The one skew we accept, because the alternative is worse: refusing to
+    // deploy a release built before the image carried the spec would mean
+    // refusing to roll back to it.
+    core.warning(
+      `this environment has an API gateway but ${image} carries no OpenAPI spec; ` +
+      'leaving the existing api config in place. Expected in a rollback to a ' +
+      'release built before the image carried the spec.'
+    )
+  }
+
+  return { deployedImage: image, services: updatedServices, signin, apig }
 }
 
 // Update a Cloud Run job's container image and secrets in place. A job has a
