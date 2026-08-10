@@ -72,14 +72,17 @@ function image ({ labels = { [APIG_LABEL]: 'openapi.yaml' }, files = { '/cru/api
 // Route the mocked client by URL+method, so tests describe the API surface they
 // expect rather than a call sequence.
 // `configPages` is the api's existing configs, as one array per response page.
+// `configStates` is what successive GETs of THIS spec's config report: a state
+// string, or null for a 404. The last entry repeats once the list runs out.
 function api ({
   currentConfig = `${API}/configs/cfg-old`,
-  configExists = false,
+  configStates = [null],
   operations = {},
   configPages = [[]],
   onDelete = () => {}
 } = {}) {
   const calls = []
+  let configGets = 0
   requestMock.mockImplementation(async options => {
     calls.push(options)
     const { url, method = 'GET' } = options
@@ -101,8 +104,9 @@ function api ({
       return { data: { name: `operations/delete-${shortId(url)}`, done: true } }
     }
     if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) {
-      if (configExists) return { data: { name: `${API}/configs/${CONFIG_ID}` } }
-      throw Object.assign(new Error('not found'), { response: { status: 404 } })
+      const state = configStates[Math.min(configGets++, configStates.length - 1)]
+      if (state == null) throw Object.assign(new Error('not found'), { response: { status: 404 } })
+      return { data: { name: `${API}/configs/${CONFIG_ID}`, state } }
     }
     for (const [name, data] of Object.entries(operations)) {
       if (url.endsWith(`/${name}`)) return { data }
@@ -339,12 +343,31 @@ describe('publishApiConfig', () => {
   it('surfaces an operation error — a bad spec only fails inside the LRO', async () => {
     image()
     api({ operations: { 'operations/create': { name: 'operations/create', done: true, error: { code: 3, message: 'invalid openapi: duplicate operationId' } } } })
-    await expect(publish()).rejects.toThrow(/invalid openapi: duplicate operationId/)
+
+    // The create LRO is the gateway's verdict on the document, so it is fatal:
+    // the deploy fails rather than warning (see deploy-cloudrun.js).
+    const error = await publish().catch(e => e)
+    expect(error.message).toMatch(/invalid openapi: duplicate operationId/)
+    expect(error.fatal).toBe(true)
   })
 
-  it('treats a 409 on create as success — the config is content-addressed', async () => {
+  it('does not mark an unhappy API as fatal — that one is worth retrying', async () => {
+    image()
+    api()
+    const routed = requestMock.getMockImplementation()
+    requestMock.mockImplementation(async options => {
+      if (options.url.endsWith(GATEWAY)) throw Object.assign(new Error('backend error'), { response: { status: 503 } })
+      return routed(options)
+    })
+
+    const error = await publish().catch(e => e)
+    expect(error.fatal).toBeUndefined()
+  })
+
+  it('treats a 409 on create as success once the racing create is ACTIVE', async () => {
     image()
     const calls = []
+    let configGets = 0
     requestMock.mockImplementation(async options => {
       calls.push(options)
       const { url, method = 'GET' } = options
@@ -352,23 +375,118 @@ describe('publishApiConfig', () => {
       if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: true } }
       if (url.endsWith(`${API}/configs`) && method === 'POST') throw Object.assign(new Error('exists'), { response: { status: 409 } })
       if (url.endsWith(`${API}/configs`) && method === 'GET') return { data: { apiConfigs: [] } }
-      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) throw Object.assign(new Error('nope'), { response: { status: 404 } })
+      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) {
+        // Absent when we looked, then the other run's create lands.
+        if (configGets++ === 0) throw Object.assign(new Error('nope'), { response: { status: 404 } })
+        return { data: { name: `${API}/configs/${CONFIG_ID}`, state: 'ACTIVE' } }
+      }
       throw new Error(`unexpected request: ${method} ${url}`)
     })
 
     const result = await publish()
     expect(result.published).toBe(true)
+    // Re-pointed only after confirming the racing config is servable.
     expect(callsTo(calls, 'PATCH', '/gateways/')).toHaveLength(1)
+    expect(configGets).toBe(2)
+  })
+
+  it('warns rather than fails when a racing create is deleted under us', async () => {
+    // A concurrent deploy's GC, not a bad document: the next run creates it
+    // cleanly, so this one stays retryable (non-fatal).
+    image()
+    api({ configStates: [null] })
+    const routed = requestMock.getMockImplementation()
+    requestMock.mockImplementation(async options => {
+      if (options.url.endsWith(`${API}/configs`) && options.method === 'POST') {
+        throw Object.assign(new Error('exists'), { response: { status: 409 } })
+      }
+      return routed(options)
+    })
+
+    const error = await publish().catch(e => e)
+    expect(error.message).toMatch(/created concurrently and then deleted/)
+    expect(error.fatal).toBeUndefined()
   })
 
   it('skips the create when the config already exists — the rollback path', async () => {
     image()
-    const calls = api({ configExists: true, operations: { 'operations/patch': { name: 'operations/patch', done: true } } })
+    const calls = api({ configStates: ['ACTIVE'], operations: { 'operations/patch': { name: 'operations/patch', done: true } } })
 
     const result = await publish()
     expect(result.reason).toBe('repointed')
     expect(callsTo(calls, 'POST', '/configs')).toHaveLength(0)
     expect(callsTo(calls, 'PATCH', '/gateways/')).toHaveLength(1)
+  })
+
+  it('treats a config with no state field as usable — the API always sets one', async () => {
+    image()
+    requestMock.mockImplementation(async options => {
+      const { url, method = 'GET' } = options
+      if (url.endsWith(GATEWAY) && method === 'GET') return { data: { apiConfig: `${API}/configs/cfg-old` } }
+      if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: true } }
+      if (url.endsWith(`${API}/configs`) && method === 'GET') return { data: { apiConfigs: [] } }
+      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) return { data: { name: `${API}/configs/${CONFIG_ID}` } }
+      throw new Error(`unexpected request: ${method} ${url}`)
+    })
+
+    expect((await publish()).reason).toBe('repointed')
+  })
+
+  it('waits out a config another run is still creating, then re-points', async () => {
+    image()
+    const calls = api({
+      configStates: ['CREATING', 'CREATING', 'ACTIVE'],
+      operations: { 'operations/patch': { name: 'operations/patch', done: true } }
+    })
+
+    const result = await publish()
+    expect(result.reason).toBe('repointed')
+    // Nothing created: the config that landed is the same bytes as ours.
+    expect(callsTo(calls, 'POST', '/configs')).toHaveLength(0)
+    expect(callsTo(calls, 'GET', `/configs/${CONFIG_ID}`)).toHaveLength(3)
+  })
+
+  it('replaces a FAILED config left by an earlier run instead of wedging on it', async () => {
+    // Config ids are content hashes, so a half-created config sits exactly where
+    // every future deploy of this spec looks. Re-pointing at it would serve
+    // nothing, and GC spares it (it is the id this deploy wants) — so without
+    // this the app is stuck until someone deletes the config by hand.
+    image()
+    const deletes = []
+    const calls = api({
+      configStates: ['FAILED'],
+      onDelete: id => deletes.push(id),
+      operations: {
+        'operations/create': { name: 'operations/create', done: true },
+        'operations/patch': { name: 'operations/patch', done: true }
+      }
+    })
+
+    const result = await publish()
+    expect(deletes).toContain(CONFIG_ID)
+    expect(result.reason).toBe('created')
+    // Deleted, then created again — in that order.
+    const [create] = callsTo(calls, 'POST', '/configs')
+    expect(calls.findIndex(call => call.method === 'DELETE')).toBeLessThan(calls.indexOf(create))
+    expect(callsTo(calls, 'PATCH', '/gateways/')).toHaveLength(1)
+  })
+
+  it('fails fatally when a concurrently-created config is FAILED', async () => {
+    image()
+    // 404 on the look before the create, FAILED once the racing create landed.
+    api({ configStates: [null, 'FAILED'] })
+    const create = requestMock.getMockImplementation()
+    requestMock.mockImplementation(async options => {
+      if (options.url.endsWith(`${API}/configs`) && options.method === 'POST') {
+        throw Object.assign(new Error('exists'), { response: { status: 409 } })
+      }
+      return create(options)
+    })
+
+    // Same bytes as ours, so the gateway rejected this document — not a flake.
+    const error = await publish().catch(e => e)
+    expect(error.message).toMatch(/created concurrently and is FAILED/)
+    expect(error.fatal).toBe(true)
   })
 
   it('collects superseded configs, sparing the active, the previous and anything it did not mint', async () => {

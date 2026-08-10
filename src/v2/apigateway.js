@@ -103,6 +103,22 @@ const GAXIOS_RETRY = {
   }
 }
 
+/**
+ * A deterministic problem with the spec or its wiring: a placeholder nothing
+ * resolves, a label promising a file the image does not carry, a document the
+ * gateway rejects. The next deploy of the same image fails the same way, so the
+ * caller fails the deploy rather than warning — a green run whose new routes 404
+ * is worse than a red one. Transient API trouble (a 503, an operation that
+ * outruns its deadline) is NOT this: it stays fail-soft. See deploy-cloudrun.js.
+ */
+export class ApigSpecError extends Error {
+  constructor (message, options) {
+    super(message, options)
+    this.name = 'ApigSpecError'
+    this.fatal = true
+  }
+}
+
 // Resource names are full paths (projects/.../<kind>/<name>).
 const shortName = resource => resource.split('/').pop()
 
@@ -130,7 +146,7 @@ export function apigSpecKey (labels) {
     key.includes('\\') ||
     key.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
   if (invalid) {
-    throw new Error(
+    throw new ApigSpecError(
       `Image label ${APIG_LABEL}="${raw}" is not a usable file name — ` +
       'expected a relative path with no empty, "." or ".." segments (e.g. "openapi.yaml").'
     )
@@ -179,7 +195,7 @@ export function apigEnv (services, repo) {
         backendService ? null : APIG_BACKEND_SERVICE_ENV,
         backendSa ? null : APIG_BACKEND_SA_ENV
       ].filter(Boolean)
-      throw new Error(
+      throw new ApigSpecError(
         `${APIG_GATEWAY_ENV}="${gatewayId}" is set on ${shortName(service.name)} but ` +
         `${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} not. ` +
         'Terraform must inject all three together.'
@@ -214,7 +230,7 @@ export function renderSpec (template, vars) {
   })
 
   if (unresolved.size > 0) {
-    throw new Error(
+    throw new ApigSpecError(
       `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(', ')}. ` +
       'Each must be a plain-valued env var on the app container (Terraform-injected), ' +
       `or ${BACKEND_VAR}.`
@@ -234,7 +250,14 @@ export function configIdFor (rendered) {
 
 // Poll a long-running operation to completion. Surfaces operation.error as a
 // thrown error: the LRO is the only place a config create reports a bad spec.
-async function awaitOperation (client, operation, { label, deadlineMs, pollIntervalMs }) {
+//
+// `fatalOnError` marks that error as an ApigSpecError — true for a config
+// create, whose rejection IS the gateway's verdict on the document. A missed
+// deadline never gets that treatment, however slow: the operation may well have
+// been fine and we simply stopped watching.
+async function awaitOperation (
+  client, operation, { label, deadlineMs, pollIntervalMs, fatalOnError = false }
+) {
   const started = Date.now()
   let op = operation
 
@@ -255,9 +278,70 @@ async function awaitOperation (client, operation, { label, deadlineMs, pollInter
   }
 
   if (op.error) {
-    throw new Error(`${label} failed: ${op.error.message ?? JSON.stringify(op.error)}`)
+    const message = `${label} failed: ${op.error.message ?? JSON.stringify(op.error)}`
+    throw fatalOnError ? new ApigSpecError(message) : new Error(message)
   }
   return op
+}
+
+// Delete one api config and wait for the deletion to land.
+async function deleteConfig (client, configName, { deadlineMs, pollIntervalMs }) {
+  const id = shortName(configName)
+  const res = await client.request({ url: `${APIG_API}/${configName}`, method: 'DELETE' })
+  await awaitOperation(client, res.data, {
+    label: `api config ${id} delete`,
+    deadlineMs,
+    pollIntervalMs
+  })
+}
+
+/**
+ * Settle what is sitting at a config id before we decide to create or re-point.
+ *
+ * Existence alone is not enough, because only an ACTIVE config can be served,
+ * and config ids are content hashes: a create that was interrupted — a cancelled
+ * run, a deadline we gave up on — leaves a config at the id that EVERY future
+ * deploy of that same spec will compute. Treating it as usable would re-point the
+ * gateway at an unservable config, and the id is one this deploy wants to keep,
+ * so GC would never reclaim it: the app would be stuck, one warning per deploy,
+ * until someone deleted the config by hand.
+ *
+ * Returns 'absent', 'active', or 'failed'. Transitional states (CREATING,
+ * DELETING, ...) are waited out — another run is mid-flight and the outcome we
+ * want is whatever it settles on.
+ */
+async function resolveExistingConfig (client, configName, { pollIntervalMs }) {
+  const id = shortName(configName)
+  const deadline = Date.now() + CONFIG_DEADLINE_MS
+
+  while (true) {
+    let config
+    try {
+      config = (await client.request({
+        url: `${APIG_API}/${configName}`,
+        method: 'GET',
+        ...GAXIOS_RETRY
+      })).data
+    } catch (error) {
+      if (httpStatus(error) !== 404) throw error
+      return 'absent'
+    }
+
+    // The API always sets state; an absent one means a response shape we do not
+    // know, and refusing to proceed on that would wedge deploys for no gain.
+    const state = config?.state ?? 'ACTIVE'
+    if (state === 'ACTIVE') return 'active'
+    if (state === 'FAILED') return 'failed'
+
+    if (Date.now() > deadline) {
+      throw new Error(
+        `api config ${id} was still ${state} after ` +
+        `${Math.round(CONFIG_DEADLINE_MS / 1000)}s; another deploy may be mid-flight`
+      )
+    }
+    core.info(`api config ${id} is ${state}; waiting…`)
+    await sleep(pollIntervalMs)
+  }
 }
 
 // Delete the api configs this module minted that nothing points at any more.
@@ -296,12 +380,7 @@ async function collectGarbage (client, { apiName, keep, pollIntervalMs }) {
 
     for (const name of stale) {
       const id = shortName(name)
-      const res = await client.request({ url: `${APIG_API}/${name}`, method: 'DELETE' })
-      await awaitOperation(client, res.data, {
-        label: `api config ${id} delete`,
-        deadlineMs: GC_DEADLINE_MS,
-        pollIntervalMs
-      })
+      await deleteConfig(client, name, { deadlineMs: GC_DEADLINE_MS, pollIntervalMs })
       core.info(`deleted superseded api config ${id}`)
       deleted.push(id)
     }
@@ -318,8 +397,9 @@ async function collectGarbage (client, { apiName, keep, pollIntervalMs }) {
  * Returns `{ published: false, reason: 'not-configured' }` when the environment
  * has no gateway (most apps), and `{ published: false, reason: 'no-label' }`
  * when the image ships no spec — legitimate during the rollout and permanently
- * legitimate when rolling back to an older release. Throws on anything else; the
- * caller decides whether that is fatal.
+ * legitimate when rolling back to an older release. Throws on anything else: an
+ * ApigSpecError when the spec or its wiring is at fault (the caller fails the
+ * deploy on those), a plain Error when the API was merely unhappy.
  */
 export async function publishApiConfig ({
   image,
@@ -345,7 +425,7 @@ export async function publishApiConfig ({
   core.info(`extracting ${source} from ${image}`)
   const template = await oci.readFile(source)
   if (!template) {
-    throw new Error(
+    throw new ApigSpecError(
       `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. ` +
       'The Dockerfile must COPY the spec there.'
     )
@@ -355,13 +435,13 @@ export async function publishApiConfig ({
   // the deploy can know (see the header comment).
   const backend = services.find(service => shortName(service.name) === backendService)
   if (!backend) {
-    throw new Error(
+    throw new ApigSpecError(
       `${APIG_BACKEND_SERVICE_ENV}="${backendService}" names a Cloud Run service that does not ` +
       `exist in ${runtimeProject} (found: ${services.map(s => shortName(s.name)).join(', ') || 'none'}).`
     )
   }
   if (!backend.uri) {
-    throw new Error(
+    throw new ApigSpecError(
       `Cloud Run service "${backendService}" has no uri, so ` +
       `\${${BACKEND_VAR}} cannot be resolved.`
     )
@@ -384,7 +464,7 @@ export async function publishApiConfig ({
   const current = gateway?.apiConfig
   const match = current?.match(/^(projects\/[^/]+\/locations\/global\/apis\/[^/]+)\/configs\/([^/]+)$/)
   if (!match) {
-    throw new Error(
+    throw new ApigSpecError(
       `Gateway ${gatewayName} has no usable apiConfig (got ${current ?? 'none'}). ` +
       'Terraform must create the gateway with a bootstrap config.'
     )
@@ -398,15 +478,24 @@ export async function publishApiConfig ({
   const configName = `${apiName}/configs/${configId}`
 
   // The config may already exist: a rollback re-points at a config published by
-  // an earlier deploy, and a retried run re-computes the same hash.
-  let exists = true
-  try {
-    await client.request({ url: `${APIG_API}/${configName}`, method: 'GET', ...GAXIOS_RETRY })
-  } catch (error) {
-    if (httpStatus(error) !== 404) throw error
-    exists = false
+  // an earlier deploy, and a retried run re-computes the same hash. Only an
+  // ACTIVE one is worth re-pointing at (see resolveExistingConfig).
+  let existing = await resolveExistingConfig(client, configName, { pollIntervalMs })
+
+  if (existing === 'failed') {
+    // An earlier run left a broken config at the id this spec hashes to, and
+    // configs are immutable, so the only way forward is to replace it. Safe to
+    // delete: a FAILED config cannot be serving traffic, and the gateway points
+    // elsewhere (currentConfigId !== configId, checked above).
+    core.warning(
+      `api config ${configId} exists but is FAILED, left by an earlier run; ` +
+      'deleting it and creating it again'
+    )
+    await deleteConfig(client, configName, { deadlineMs: CONFIG_DEADLINE_MS, pollIntervalMs })
+    existing = 'absent'
   }
 
+  const exists = existing === 'active'
   if (exists) {
     core.info(`api gateway config ${configId} already exists; re-pointing the gateway`)
   } else {
@@ -432,14 +521,34 @@ export async function publishApiConfig ({
       await awaitOperation(client, created.data, {
         label: `api config ${configId} create`,
         deadlineMs: CONFIG_DEADLINE_MS,
-        pollIntervalMs
+        pollIntervalMs,
+        // The create LRO is where the gateway reports a bad document, and a bad
+        // document is a bug in the image, not a bad day for the API.
+        fatalOnError: true
       })
     } catch (error) {
       // 409 ALREADY_EXISTS: another run (or a retried request) won the race.
       // Configs are content-addressed, so whoever created it created the same
-      // bytes — proceed to the re-point.
+      // bytes — but wait for that create to actually land before re-pointing.
       if (httpStatus(error) !== 409) throw error
-      core.info(`api gateway config ${configId} was created concurrently; continuing`)
+      core.info(`api gateway config ${configId} was created concurrently; waiting for it`)
+      const raced = await resolveExistingConfig(client, configName, { pollIntervalMs })
+      if (raced === 'failed') {
+        // Same bytes as ours, so it is the document the gateway rejected.
+        throw new ApigSpecError(
+          `api config ${configId} was created concurrently and is FAILED; the rendered ` +
+          'spec is the same bytes, so this is the gateway rejecting the document.',
+          { cause: error }
+        )
+      }
+      if (raced === 'absent') {
+        // Created, then deleted under us — a concurrent deploy's GC. Nothing is
+        // wrong with the spec; the next run creates it cleanly.
+        throw new Error(
+          `api config ${configId} was created concurrently and then deleted; retry the deploy.`,
+          { cause: error }
+        )
+      }
     }
   }
 
