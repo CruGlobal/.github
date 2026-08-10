@@ -118,7 +118,9 @@ describe('deployCloudRun orchestration', () => {
       deployedImage: IMAGE,
       services: ['hoax-web'],
       // No IAP_SIGNIN_BUCKET on this service -> nothing to publish.
-      signin: { published: false }
+      signin: { published: false },
+      // No API_GATEWAY_GATEWAY_ID either -> not-configured.
+      apig: { published: false, reason: 'not-configured' }
     })
   })
 
