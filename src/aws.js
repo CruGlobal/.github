@@ -133,7 +133,9 @@ export async function ecsWaitUntilTasksStopped (cluster, tasks, maxWaitTime = 90
 }
 
 export async function ssmParameters (prefix, decrypt = true) {
-  const client = new SSMClient({ region: 'us-east-1', ...RETRY_CONFIG })
+  // Adaptive retry rate-limits the client once SSM starts throttling, so
+  // contended calls slow down and succeed instead of exhausting retries
+  const client = new SSMClient({ region: 'us-east-1', maxAttempts: 10, retryMode: 'adaptive' })
   const params = []
   for await (const page of paginateGetParametersByPath({ client, pageSize: 10 }, {
     Path: prefix,
@@ -141,17 +143,23 @@ export async function ssmParameters (prefix, decrypt = true) {
   })) {
     params.push(...page.Parameters)
   }
-  return await Promise.all(params.map(async (param) => {
-    const tags = (await client.send(new ListTagsForResourceCommand({
-      ResourceType: 'Parameter',
-      ResourceId: param.Name
-    }))).TagList
-    return {
-      name: param.Name,
-      value: param.Value,
-      tags: tags.reduce(tagReducer, {})
-    }
-  }))
+  // Fetch tags in small batches — one concurrent ListTagsForResource per
+  // parameter exceeds the account-wide SSM rate limit when deploys overlap
+  const results = []
+  for (const batch of chunk(params, 5)) {
+    results.push(...await Promise.all(batch.map(async (param) => {
+      const tags = (await client.send(new ListTagsForResourceCommand({
+        ResourceType: 'Parameter',
+        ResourceId: param.Name
+      }))).TagList
+      return {
+        name: param.Name,
+        value: param.Value,
+        tags: tags.reduce(tagReducer, {})
+      }
+    })))
+  }
+  return results
 }
 
 export async function ecsBuildNumber (projectName) {
