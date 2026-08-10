@@ -35,11 +35,13 @@ const shortName = resource => resource.split('/').pop()
 //
 // After the services are updated, two artifacts that ship INSIDE the image are
 // published: the IAP sign-in page (./signin.js) and the API Gateway OpenAPI
-// config (./apigateway.js). Both are fail-soft — a warning annotation, never a
-// failed deploy. For the gateway that is a deliberate call: the spec surface
-// changes rarely, the content-hash config id makes an unchanged spec a no-op, so
-// quiet deploys stay quiet and the rare failure is visible on the run without
-// turning a working app rollout into a red build.
+// config (./apigateway.js). The sign-in page is entirely fail-soft — it is
+// cosmetic. The gateway config is split: transient API trouble warns, but a
+// deterministic problem with the spec or its wiring (an unresolved placeholder, a
+// document the gateway rejects, a missing backend service) FAILS the deploy. It
+// would fail identically on every retry, and it means the new code is live behind
+// the old routes — new endpoints 404 — which is not something to leave hiding in
+// an annotation on a green run.
 //
 // Returns { deployedImage, services, signin, apig } (services = short names updated).
 export async function deployCloudRun ({ image, runtimeProject }) {
@@ -141,6 +143,12 @@ export async function deployCloudRun ({ image, runtimeProject }) {
       )
     }
   } catch (error) {
+    // ApigSpecError marks the deterministic failures — retrying changes nothing,
+    // and the gateway is now serving the previous release's routes in front of
+    // this release's code. Fail the deploy so someone fixes it forward. Anything
+    // else (a 503, an operation that outran its deadline) may well be fine by the
+    // next deploy, and the content-hash config id makes that a cheap no-op.
+    if (error.fatal) throw error
     core.warning(`api gateway config not published (deploy unaffected): ${error.message}`)
   }
 
