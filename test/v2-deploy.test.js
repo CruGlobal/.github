@@ -20,8 +20,7 @@ vi.mock('../src/v2/signin.js', async importOriginal => ({
   publishSigninPage: vi.fn()
 }))
 
-// Likewise for the api gateway config: only the publish call is stubbed, so
-// ApigSpecError is the real class the fail-soft/fail-hard split keys on.
+// Likewise for the api gateway config: only the publish call is stubbed.
 // Covered in depth by test/v2-apigateway.test.js.
 vi.mock('../src/v2/apigateway.js', async importOriginal => ({
   ...(await importOriginal()),
@@ -30,7 +29,7 @@ vi.mock('../src/v2/apigateway.js', async importOriginal => ({
 
 import * as gcp from '../src/gcp.js'
 import { publishSigninPage } from '../src/v2/signin.js'
-import { ApigSpecError, publishApiConfig } from '../src/v2/apigateway.js'
+import { publishApiConfig } from '../src/v2/apigateway.js'
 import { deployCloudRun } from '../src/v2/deploy-cloudrun.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
@@ -257,27 +256,17 @@ describe('deployCloudRun api gateway config', () => {
     expect(result.apig.configId).toBe('cfg-abc123abc123')
   })
 
-  it('fails the deploy on a spec problem — retrying it changes nothing', async () => {
-    // The services are already on the new image at this point, so the gateway is
-    // fronting this release's code with the previous release's routes. A warning
-    // on a green run would hide that; a red run gets it fixed.
-    publishApiConfig.mockRejectedValue(
-      new ApigSpecError('API gateway spec has unresolved placeholder(s): OAUTH_ISSUER.')
-    )
+  // The services are already on the new image by now, so an unpublished config
+  // means the gateway is fronting this release's code with the previous release's
+  // routes. The cause does not change that, so neither does the outcome: both of
+  // these fail the deploy rather than warning on a green run.
+  it.each([
+    ['the spec is unusable', 'API gateway spec has unresolved placeholder(s): OAUTH_ISSUER.'],
+    ['the api is unhappy', '503 apigateway.googleapis.com unavailable']
+  ])('fails the deploy when %s', async (_label, message) => {
+    publishApiConfig.mockRejectedValue(new Error(message))
 
-    await expect(deployCloudRun({ image: IMAGE, runtimeProject: 'p' }))
-      .rejects.toThrow(/unresolved placeholder/)
-  })
-
-  it('only warns when the api itself was unhappy', async () => {
-    // Transient: the next deploy re-computes the same config id and re-points for
-    // free, so a 503 must not turn a good app rollout red.
-    publishApiConfig.mockRejectedValue(new Error('503 apigateway.googleapis.com unavailable'))
-
-    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
-
-    expect(result.deployedImage).toBe(IMAGE)
-    expect(result.apig).toEqual({ published: false })
+    await expect(deployCloudRun({ image: IMAGE, runtimeProject: 'p' })).rejects.toThrow(message)
   })
 
   it('only warns when the image carries no spec — the rollback path', async () => {

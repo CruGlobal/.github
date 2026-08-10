@@ -35,13 +35,12 @@ const shortName = resource => resource.split('/').pop()
 //
 // After the services are updated, two artifacts that ship INSIDE the image are
 // published: the IAP sign-in page (./signin.js) and the API Gateway OpenAPI
-// config (./apigateway.js). The sign-in page is entirely fail-soft — it is
-// cosmetic. The gateway config is split: transient API trouble warns, but a
-// deterministic problem with the spec or its wiring (an unresolved placeholder, a
-// document the gateway rejects, a missing backend service) FAILS the deploy. It
-// would fail identically on every retry, and it means the new code is live behind
-// the old routes — new endpoints 404 — which is not something to leave hiding in
-// an annotation on a green run.
+// config (./apigateway.js). The page is cosmetic and entirely fail-soft. The
+// gateway config is not: it is the app's routing table, so failing to publish it
+// FAILS the deploy. The invariant worth protecting is that the gateway serves the
+// spec matching the running code, and a 503 breaks it exactly as thoroughly as a
+// malformed document does — "it will sort itself out next deploy" is no comfort to
+// an app that deploys once a week.
 //
 // Returns { deployedImage, services, signin, apig } (services = short names updated).
 export async function deployCloudRun ({ image, runtimeProject }) {
@@ -126,30 +125,27 @@ export async function deployCloudRun ({ image, runtimeProject }) {
   // the gate, and the pre-update services also carry the backend's run.app uri
   // that ${API_GATEWAY_BACKEND} resolves to (see ./apigateway.js). The gate lives
   // inside publishApiConfig because it needs the whole env map anyway.
-  const apig = { published: false }
-  try {
-    Object.assign(apig, await publishApiConfig({ image, services, repo, runtimeProject }))
-    if (apig.published) {
-      core.info(
-        apig.reason === 'unchanged'
-          ? `api gateway config: ${apig.configId} (unchanged)`
-          : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
-      )
-    } else if (apig.reason === 'no-label') {
-      core.warning(
-        `this environment has an API gateway but ${image} carries no OpenAPI spec; ` +
-        'leaving the existing api config in place. Expected in a rollback to a ' +
-        'release built before the image carried the spec.'
-      )
-    }
-  } catch (error) {
-    // ApigSpecError marks the deterministic failures — retrying changes nothing,
-    // and the gateway is now serving the previous release's routes in front of
-    // this release's code. Fail the deploy so someone fixes it forward. Anything
-    // else (a 503, an operation that outran its deadline) may well be fine by the
-    // next deploy, and the content-hash config id makes that a cheap no-op.
-    if (error.fatal) throw error
-    core.warning(`api gateway config not published (deploy unaffected): ${error.message}`)
+  // Unlike the page, this one is NOT caught: if it did not publish, the gateway
+  // is serving the previous release's routes in front of this release's code, and
+  // the cause does not change that. A re-run costs nothing (the content-hash
+  // config id makes an already-published spec a no-op), while a green check over
+  // a skewed gateway costs 404s nobody is looking for.
+  const apig = await publishApiConfig({ image, services, repo, runtimeProject })
+  if (apig.published) {
+    core.info(
+      apig.reason === 'unchanged'
+        ? `api gateway config: ${apig.configId} (unchanged)`
+        : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
+    )
+  } else if (apig.reason === 'no-label') {
+    // The one skew we accept, because the alternative is worse: refusing to
+    // deploy a release built before the image carried the spec would mean
+    // refusing to roll back to it.
+    core.warning(
+      `this environment has an API gateway but ${image} carries no OpenAPI spec; ` +
+      'leaving the existing api config in place. Expected in a rollback to a ' +
+      'release built before the image carried the spec.'
+    )
   }
 
   return { deployedImage: image, services: updatedServices, signin, apig }

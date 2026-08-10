@@ -103,22 +103,6 @@ const GAXIOS_RETRY = {
   }
 }
 
-/**
- * A deterministic problem with the spec or its wiring: a placeholder nothing
- * resolves, a label promising a file the image does not carry, a document the
- * gateway rejects. The next deploy of the same image fails the same way, so the
- * caller fails the deploy rather than warning — a green run whose new routes 404
- * is worse than a red one. Transient API trouble (a 503, an operation that
- * outruns its deadline) is NOT this: it stays fail-soft. See deploy-cloudrun.js.
- */
-export class ApigSpecError extends Error {
-  constructor (message, options) {
-    super(message, options)
-    this.name = 'ApigSpecError'
-    this.fatal = true
-  }
-}
-
 // Resource names are full paths (projects/.../<kind>/<name>).
 const shortName = resource => resource.split('/').pop()
 
@@ -146,7 +130,7 @@ export function apigSpecKey (labels) {
     key.includes('\\') ||
     key.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
   if (invalid) {
-    throw new ApigSpecError(
+    throw new Error(
       `Image label ${APIG_LABEL}="${raw}" is not a usable file name — ` +
       'expected a relative path with no empty, "." or ".." segments (e.g. "openapi.yaml").'
     )
@@ -195,7 +179,7 @@ export function apigEnv (services, repo) {
         backendService ? null : APIG_BACKEND_SERVICE_ENV,
         backendSa ? null : APIG_BACKEND_SA_ENV
       ].filter(Boolean)
-      throw new ApigSpecError(
+      throw new Error(
         `${APIG_GATEWAY_ENV}="${gatewayId}" is set on ${shortName(service.name)} but ` +
         `${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} not. ` +
         'Terraform must inject all three together.'
@@ -230,7 +214,7 @@ export function renderSpec (template, vars) {
   })
 
   if (unresolved.size > 0) {
-    throw new ApigSpecError(
+    throw new Error(
       `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(', ')}. ` +
       'Each must be a plain-valued env var on the app container (Terraform-injected), ' +
       `or ${BACKEND_VAR}.`
@@ -250,14 +234,7 @@ export function configIdFor (rendered) {
 
 // Poll a long-running operation to completion. Surfaces operation.error as a
 // thrown error: the LRO is the only place a config create reports a bad spec.
-//
-// `fatalOnError` marks that error as an ApigSpecError — true for a config
-// create, whose rejection IS the gateway's verdict on the document. A missed
-// deadline never gets that treatment, however slow: the operation may well have
-// been fine and we simply stopped watching.
-async function awaitOperation (
-  client, operation, { label, deadlineMs, pollIntervalMs, fatalOnError = false }
-) {
+async function awaitOperation (client, operation, { label, deadlineMs, pollIntervalMs }) {
   const started = Date.now()
   let op = operation
 
@@ -278,8 +255,7 @@ async function awaitOperation (
   }
 
   if (op.error) {
-    const message = `${label} failed: ${op.error.message ?? JSON.stringify(op.error)}`
-    throw fatalOnError ? new ApigSpecError(message) : new Error(message)
+    throw new Error(`${label} failed: ${op.error.message ?? JSON.stringify(op.error)}`)
   }
   return op
 }
@@ -397,9 +373,11 @@ async function collectGarbage (client, { apiName, keep, pollIntervalMs }) {
  * Returns `{ published: false, reason: 'not-configured' }` when the environment
  * has no gateway (most apps), and `{ published: false, reason: 'no-label' }`
  * when the image ships no spec — legitimate during the rollout and permanently
- * legitimate when rolling back to an older release. Throws on anything else: an
- * ApigSpecError when the spec or its wiring is at fault (the caller fails the
- * deploy on those), a plain Error when the API was merely unhappy.
+ * legitimate when rolling back to an older release. Those two are the ONLY
+ * non-failures: anything else throws and fails the deploy, because a gateway left
+ * serving the previous release's spec in front of this release's code is a broken
+ * app, whatever the cause (see deploy-cloudrun.js). Garbage collection is the one
+ * exception, and it is not part of what gets served.
  */
 export async function publishApiConfig ({
   image,
@@ -425,7 +403,7 @@ export async function publishApiConfig ({
   core.info(`extracting ${source} from ${image}`)
   const template = await oci.readFile(source)
   if (!template) {
-    throw new ApigSpecError(
+    throw new Error(
       `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. ` +
       'The Dockerfile must COPY the spec there.'
     )
@@ -435,13 +413,13 @@ export async function publishApiConfig ({
   // the deploy can know (see the header comment).
   const backend = services.find(service => shortName(service.name) === backendService)
   if (!backend) {
-    throw new ApigSpecError(
+    throw new Error(
       `${APIG_BACKEND_SERVICE_ENV}="${backendService}" names a Cloud Run service that does not ` +
       `exist in ${runtimeProject} (found: ${services.map(s => shortName(s.name)).join(', ') || 'none'}).`
     )
   }
   if (!backend.uri) {
-    throw new ApigSpecError(
+    throw new Error(
       `Cloud Run service "${backendService}" has no uri, so ` +
       `\${${BACKEND_VAR}} cannot be resolved.`
     )
@@ -464,7 +442,7 @@ export async function publishApiConfig ({
   const current = gateway?.apiConfig
   const match = current?.match(/^(projects\/[^/]+\/locations\/global\/apis\/[^/]+)\/configs\/([^/]+)$/)
   if (!match) {
-    throw new ApigSpecError(
+    throw new Error(
       `Gateway ${gatewayName} has no usable apiConfig (got ${current ?? 'none'}). ` +
       'Terraform must create the gateway with a bootstrap config.'
     )
@@ -521,10 +499,7 @@ export async function publishApiConfig ({
       await awaitOperation(client, created.data, {
         label: `api config ${configId} create`,
         deadlineMs: CONFIG_DEADLINE_MS,
-        pollIntervalMs,
-        // The create LRO is where the gateway reports a bad document, and a bad
-        // document is a bug in the image, not a bad day for the API.
-        fatalOnError: true
+        pollIntervalMs
       })
     } catch (error) {
       // 409 ALREADY_EXISTS: another run (or a retried request) won the race.
@@ -533,19 +508,13 @@ export async function publishApiConfig ({
       if (httpStatus(error) !== 409) throw error
       core.info(`api gateway config ${configId} was created concurrently; waiting for it`)
       const raced = await resolveExistingConfig(client, configName, { pollIntervalMs })
-      if (raced === 'failed') {
-        // Same bytes as ours, so it is the document the gateway rejected.
-        throw new ApigSpecError(
-          `api config ${configId} was created concurrently and is FAILED; the rendered ` +
-          'spec is the same bytes, so this is the gateway rejecting the document.',
-          { cause: error }
-        )
-      }
-      if (raced === 'absent') {
-        // Created, then deleted under us — a concurrent deploy's GC. Nothing is
-        // wrong with the spec; the next run creates it cleanly.
+      if (raced !== 'active') {
+        // FAILED means the gateway rejected these exact bytes; 'absent' means a
+        // concurrent deploy's GC took it back out. Either way there is nothing to
+        // re-point at.
         throw new Error(
-          `api config ${configId} was created concurrently and then deleted; retry the deploy.`,
+          `api config ${configId} was created concurrently but is ` +
+          `${raced === 'absent' ? 'gone' : 'FAILED'}`,
           { cause: error }
         )
       }
