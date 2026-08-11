@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/CruGlobal/.github/compare/v2.0.0...v2.0.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* dependabot auto-merge gate never arms on repos with &gt;100 lifetime alerts ([#449](https://github.com/CruGlobal/.github/issues/449)) ([918aad3](https://github.com/CruGlobal/.github/commit/918aad38538f537475964fa64e1c2db11d3fb053))
+* **deploy-ecs:** reduce SSM API bursts causing Rate exceeded errors ([#448](https://github.com/CruGlobal/.github/issues/448)) ([a634c72](https://github.com/CruGlobal/.github/commit/a634c72baae1bfe5d5a1a219d4b908985723730e))
+
 ## [2.0.0](https://github.com/CruGlobal/.github/compare/v1.10.0...v2.0.0) (2026-08-07)
 
 
