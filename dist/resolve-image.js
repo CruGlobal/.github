@@ -181540,7 +181540,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.40",
+      version: "3.997.41",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -181640,7 +181640,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.977.5",
+        "@aws-sdk/core": "^3.977.6",
         "@aws-sdk/signature-v4-multi-region": "^3.996.43",
         "@aws-sdk/types": "^3.974.2",
         "@smithy/core": "^3.31.1",
@@ -183319,24 +183319,25 @@ function jsonReviver(key, value, context) {
     const numericString = context.source;
     if (typeof value === "number") {
       const inSafeRange = value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER;
-      if (!inSafeRange || numericString !== String(value)) {
-        if (inSafeRange && /[eE]/.test(numericString) && String(Number(numericString)) === String(value)) {
+      if (inSafeRange) {
+        if (isRepresentable(numericString, value)) {
           return value;
         }
-        if (isFractionalNumeric(numericString)) {
+        return new NumericValue(numericString, "bigDecimal");
+      } else {
+        if (isFractionalBigNumeric(numericString)) {
           return new NumericValue(numericString, "bigDecimal");
-        } else {
-          if (/[eE]/.test(numericString)) {
-            return BigInt(Number(numericString));
-          }
-          return BigInt(numericString);
         }
+        if (/[eE]/.test(numericString)) {
+          return expandExponentToBigInt(numericString);
+        }
+        return BigInt(numericString);
       }
     }
   }
   return value;
 }
-function isFractionalNumeric(s3) {
+function isFractionalBigNumeric(s3) {
   const dotIndex = s3.indexOf(".");
   if (dotIndex === -1) {
     return false;
@@ -183348,6 +183349,83 @@ function isFractionalNumeric(s3) {
   const fracDigits = eIndex - dotIndex - 1;
   const exp = parseInt(s3.slice(eIndex + 1), 10);
   return exp < fracDigits;
+}
+function isRepresentable(numericString, value) {
+  if (numericString === String(value)) {
+    return true;
+  }
+  if (Object.is(value, -0)) {
+    return true;
+  }
+  if (/[eE]/.test(numericString)) {
+    return expandToDecimal(numericString) === expandToDecimal(String(value));
+  }
+  const normalized = numericString.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  const canonical = String(value);
+  if (normalized === canonical) {
+    return true;
+  }
+  if (/[eE]/.test(canonical)) {
+    return normalized === expandToDecimal(canonical);
+  }
+  return false;
+}
+function expandToDecimal(s3) {
+  const negative = s3.startsWith("-");
+  const abs = negative ? s3.slice(1) : s3;
+  const eIndex = abs.search(/[eE]/);
+  let result;
+  if (eIndex === -1) {
+    result = abs;
+  } else {
+    const exp = parseInt(abs.slice(eIndex + 1), 10);
+    const mantissa = abs.slice(0, eIndex);
+    const dotIndex = mantissa.indexOf(".");
+    let digits;
+    let intLen;
+    if (dotIndex === -1) {
+      digits = mantissa;
+      intLen = mantissa.length;
+    } else {
+      digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
+      intLen = dotIndex;
+    }
+    digits = digits.replace(/0+$/, "") || "0";
+    const newDotPos = intLen + exp;
+    if (digits === "0") {
+      result = "0";
+    } else if (newDotPos <= 0) {
+      result = "0." + "0".repeat(-newDotPos) + digits;
+    } else if (newDotPos >= digits.length) {
+      result = digits + "0".repeat(newDotPos - digits.length);
+    } else {
+      result = digits.slice(0, newDotPos) + "." + digits.slice(newDotPos);
+    }
+  }
+  if (result.includes(".")) {
+    result = result.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  }
+  return (negative ? "-" : "") + result;
+}
+function expandExponentToBigInt(s3) {
+  const eIndex = s3.search(/[eE]/);
+  const exp = parseInt(s3.slice(eIndex + 1), 10);
+  const negative = s3.startsWith("-");
+  const mantissa = s3.slice(negative ? 1 : 0, eIndex);
+  const dotIndex = mantissa.indexOf(".");
+  let digits;
+  let shift;
+  if (dotIndex === -1) {
+    digits = mantissa;
+    shift = exp;
+  } else {
+    digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
+    const fracDigits = mantissa.length - dotIndex - 1;
+    shift = exp - fracDigits;
+  }
+  digits = digits.replace(/0+$/, "") || "0";
+  const result = BigInt(digits) * 10n ** BigInt(shift + (mantissa.replace(".", "").length - digits.length));
+  return negative ? -result : result;
 }
 var init_jsonReviver = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReviver.js"() {
@@ -191452,7 +191530,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1100.0";
+    var version = "3.1105.0";
     var packageInfo = {
       version
     };
@@ -198634,6 +198712,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var InstanceHealthCheckType = {
       ACCELERATED_COMPUTE: "ACCELERATED_COMPUTE",
+      AGENT_CONNECTIVITY: "AGENT_CONNECTIVITY",
       CONTAINER_RUNTIME: "CONTAINER_RUNTIME",
       DAEMON: "DAEMON"
     };
@@ -199040,6 +199119,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var TaskStopCode = {
       ESSENTIAL_CONTAINER_EXITED: "EssentialContainerExited",
+      INFRASTRUCTURE_HEALTH: "InfrastructureHealth",
       SERVICE_SCHEDULER_INITIATED: "ServiceSchedulerInitiated",
       SPOT_INTERRUPTION: "SpotInterruption",
       TASK_FAILED_TO_START: "TaskFailedToStart",
@@ -199823,7 +199903,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1100.0";
+    var version = "3.1105.0";
     var packageInfo = {
       version
     };
@@ -204683,7 +204763,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1100.0";
+    var version = "3.1105.0";
     var packageInfo = {
       version
     };

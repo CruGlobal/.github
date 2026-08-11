@@ -35498,7 +35498,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.40",
+      version: "3.997.41",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -35598,7 +35598,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.977.5",
+        "@aws-sdk/core": "^3.977.6",
         "@aws-sdk/signature-v4-multi-region": "^3.996.43",
         "@aws-sdk/types": "^3.974.2",
         "@smithy/core": "^3.31.1",
@@ -37277,24 +37277,25 @@ function jsonReviver(key, value, context) {
     const numericString = context.source;
     if (typeof value === "number") {
       const inSafeRange = value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER;
-      if (!inSafeRange || numericString !== String(value)) {
-        if (inSafeRange && /[eE]/.test(numericString) && String(Number(numericString)) === String(value)) {
+      if (inSafeRange) {
+        if (isRepresentable(numericString, value)) {
           return value;
         }
-        if (isFractionalNumeric(numericString)) {
+        return new NumericValue(numericString, "bigDecimal");
+      } else {
+        if (isFractionalBigNumeric(numericString)) {
           return new NumericValue(numericString, "bigDecimal");
-        } else {
-          if (/[eE]/.test(numericString)) {
-            return BigInt(Number(numericString));
-          }
-          return BigInt(numericString);
         }
+        if (/[eE]/.test(numericString)) {
+          return expandExponentToBigInt(numericString);
+        }
+        return BigInt(numericString);
       }
     }
   }
   return value;
 }
-function isFractionalNumeric(s2) {
+function isFractionalBigNumeric(s2) {
   const dotIndex = s2.indexOf(".");
   if (dotIndex === -1) {
     return false;
@@ -37306,6 +37307,83 @@ function isFractionalNumeric(s2) {
   const fracDigits = eIndex - dotIndex - 1;
   const exp = parseInt(s2.slice(eIndex + 1), 10);
   return exp < fracDigits;
+}
+function isRepresentable(numericString, value) {
+  if (numericString === String(value)) {
+    return true;
+  }
+  if (Object.is(value, -0)) {
+    return true;
+  }
+  if (/[eE]/.test(numericString)) {
+    return expandToDecimal(numericString) === expandToDecimal(String(value));
+  }
+  const normalized = numericString.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  const canonical = String(value);
+  if (normalized === canonical) {
+    return true;
+  }
+  if (/[eE]/.test(canonical)) {
+    return normalized === expandToDecimal(canonical);
+  }
+  return false;
+}
+function expandToDecimal(s2) {
+  const negative = s2.startsWith("-");
+  const abs = negative ? s2.slice(1) : s2;
+  const eIndex = abs.search(/[eE]/);
+  let result;
+  if (eIndex === -1) {
+    result = abs;
+  } else {
+    const exp = parseInt(abs.slice(eIndex + 1), 10);
+    const mantissa = abs.slice(0, eIndex);
+    const dotIndex = mantissa.indexOf(".");
+    let digits;
+    let intLen;
+    if (dotIndex === -1) {
+      digits = mantissa;
+      intLen = mantissa.length;
+    } else {
+      digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
+      intLen = dotIndex;
+    }
+    digits = digits.replace(/0+$/, "") || "0";
+    const newDotPos = intLen + exp;
+    if (digits === "0") {
+      result = "0";
+    } else if (newDotPos <= 0) {
+      result = "0." + "0".repeat(-newDotPos) + digits;
+    } else if (newDotPos >= digits.length) {
+      result = digits + "0".repeat(newDotPos - digits.length);
+    } else {
+      result = digits.slice(0, newDotPos) + "." + digits.slice(newDotPos);
+    }
+  }
+  if (result.includes(".")) {
+    result = result.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  }
+  return (negative ? "-" : "") + result;
+}
+function expandExponentToBigInt(s2) {
+  const eIndex = s2.search(/[eE]/);
+  const exp = parseInt(s2.slice(eIndex + 1), 10);
+  const negative = s2.startsWith("-");
+  const mantissa = s2.slice(negative ? 1 : 0, eIndex);
+  const dotIndex = mantissa.indexOf(".");
+  let digits;
+  let shift;
+  if (dotIndex === -1) {
+    digits = mantissa;
+    shift = exp;
+  } else {
+    digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
+    const fracDigits = mantissa.length - dotIndex - 1;
+    shift = exp - fracDigits;
+  }
+  digits = digits.replace(/0+$/, "") || "0";
+  const result = BigInt(digits) * 10n ** BigInt(shift + (mantissa.replace(".", "").length - digits.length));
+  return negative ? -result : result;
 }
 var init_jsonReviver = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReviver.js"() {
@@ -45653,7 +45731,7 @@ var require_dist_cjs19 = __commonJS({
     var { toUtf8: toUtf83, fromUtf8: fromUtf83, toBase64: toBase643, fromBase64: fromBase642, calculateBodyLength: calculateBodyLength2 } = (init_serde(), __toCommonJS(serde_exports));
     var { streamCollector: streamCollector7, NodeHttpHandler } = require_dist_cjs7();
     var { AwsJson1_0Protocol: AwsJson1_0Protocol2 } = (init_protocols2(), __toCommonJS(protocols_exports2));
-    var { DynamoDBJsonCodec } = require_dist_cjs18();
+    var { DynamoDBJsonCodec2 } = require_dist_cjs18();
     var { Sha256 } = (init_checksum2(), __toCommonJS(checksum_exports));
     var defaultDynamoDBHttpAuthSchemeParametersProvider = async (config, context, input) => {
       return {
@@ -45741,9 +45819,13 @@ var require_dist_cjs19 = __commonJS({
       ResourceArn: { type: "contextParams", name: "TargetTableName" }
     };
     var _ep11 = {
-      ResourceArnList: { type: "operationContextParams", get: (input) => input?.TransactItems?.map((obj) => obj?.Get?.TableName) }
+      IsSearchOperation: { type: "staticContextParams", value: true },
+      ResourceArn: { type: "contextParams", name: "TableName" }
     };
     var _ep122 = {
+      ResourceArnList: { type: "operationContextParams", get: (input) => input?.TransactItems?.map((obj) => obj?.Get?.TableName) }
+    };
+    var _ep13 = {
       ResourceArnList: { type: "operationContextParams", get: (input) => input?.TransactItems?.map((obj) => [obj?.ConditionCheck?.TableName, obj?.Put?.TableName, obj?.Delete?.TableName, obj?.Update?.TableName].filter((i6) => i6)).flat() }
     };
     var _mw05 = (Command3, cs, config, o4) => [];
@@ -46298,13 +46380,14 @@ var require_dist_cjs19 = __commonJS({
     var _CTO = "CreateTableOutput";
     var _CTr = "CreateTable";
     var _CU = "CapacityUnits";
+    var _CVIA = "CreateVectorIndexAction";
     var _CWLGA = "CloudWatchLogGroupArn";
     var _Ca = "Capacity";
     var _Co = "Condition";
     var _Cou = "Count";
     var _Cr = "Create";
     var _Cs = "Csv";
-    var _D = "Delimiter";
+    var _D = "Dimensions";
     var _DB = "DeleteBackup";
     var _DBI = "DeleteBackupInput";
     var _DBIe = "DescribeBackupInput";
@@ -46323,6 +46406,7 @@ var require_dist_cjs19 = __commonJS({
     var _DER = "DescribeEndpointsRequest";
     var _DERe = "DescribeEndpointsResponse";
     var _DEe = "DescribeExport";
+    var _DF = "DistanceFunction";
     var _DGSIA = "DeleteGlobalSecondaryIndexAction";
     var _DGT = "DescribeGlobalTable";
     var _DGTI = "DescribeGlobalTableInput";
@@ -46367,7 +46451,9 @@ var require_dist_cjs19 = __commonJS({
     var _DTTLI = "DescribeTimeToLiveInput";
     var _DTTLO = "DescribeTimeToLiveOutput";
     var _DTe = "DescribeTable";
-    var _De = "Delete";
+    var _DVIA = "DeleteVectorIndexAction";
+    var _De = "Delimiter";
+    var _Del = "Delete";
     var _E2 = "Error";
     var _EA = "ExportArn";
     var _EAM = "ExpectedAttributeMap";
@@ -46704,6 +46790,7 @@ var require_dist_cjs19 = __commonJS({
     var _SBO = "S3BucketOwner";
     var _SBS = "S3BucketSource";
     var _SC = "ScannedCount";
+    var _SCE = "SearchConditionExpression";
     var _SD = "StreamDescription";
     var _SE = "StreamEnabled";
     var _SERGB = "SizeEstimateRangeGB";
@@ -46718,22 +46805,34 @@ var require_dist_cjs19 = __commonJS({
     var _SP = "ScalingPolicies";
     var _SPU = "ScalingPolicyUpdate";
     var _SPr = "S3Prefix";
+    var _SR = "SearchResults";
+    var _SRI = "SearchResultItem";
+    var _SRL = "SearchResultList";
     var _SS = "StreamSpecification";
     var _SSA = "S3SseAlgorithm";
+    var _SSE = "SearchSchemaElement";
     var _SSED = "SSEDescription";
     var _SSES = "SSESpecification";
     var _SSESO = "SSESpecificationOverride";
-    var _SSET = "SSEType";
+    var _SSET = "SearchSchemaElementType";
+    var _SSETy = "SSEType";
     var _SSKKI = "S3SseKmsKeyId";
     var _SS_ = "SS";
+    var _SSe = "SearchSchema";
     var _ST2 = "StartTime";
     var _STA = "SourceTableArn";
     var _STD = "SourceTableDetails";
     var _STFD = "SourceTableFeatureDetails";
     var _STN = "SourceTableName";
+    var _SV = "SearchVector";
+    var _SVI = "SearchVectorsInput";
+    var _SVL = "SearchVectorList";
+    var _SVO = "SearchVectorsOutput";
     var _SVT = "StreamViewType";
+    var _SVe = "SearchVectors";
     var _S_ = "S";
-    var _Sc = "Scan";
+    var _Sc = "Score";
+    var _Sca = "Scan";
     var _Se = "Select";
     var _Seg = "Segment";
     var _St = "Statement";
@@ -46760,7 +46859,8 @@ var require_dist_cjs19 = __commonJS({
     var _TIPE = "TransactionInProgressException";
     var _TIUE = "TableInUseException";
     var _TIr = "TransactItems";
-    var _TK = "TagKeys";
+    var _TK = "TopK";
+    var _TKa = "TagKeys";
     var _TL = "TagList";
     var _TMRCU = "TableMaxReadCapacityUnits";
     var _TMWCU = "TableMaxWriteCapacityUnits";
@@ -46830,6 +46930,22 @@ var require_dist_cjs19 = __commonJS({
     var _UTTLI = "UpdateTimeToLiveInput";
     var _UTTLO = "UpdateTimeToLiveOutput";
     var _V2 = "Value";
+    var _VA = "VectorAttribute";
+    var _VAD = "VectorAttributeDefinition";
+    var _VC = "VectorCapacity";
+    var _VI = "VectorIndexes";
+    var _VICM = "VectorIndexesCapacityMap";
+    var _VID = "VectorIndexDescription";
+    var _VIDL = "VectorIndexDescriptionList";
+    var _VII = "VectorIndexInfo";
+    var _VIL = "VectorIndexList";
+    var _VIO = "VectorIndexOverride";
+    var _VIU = "VectorIndexUpdates";
+    var _VIUL = "VectorIndexUpdateList";
+    var _VIUe = "VectorIndexUpdate";
+    var _VIe = "VectorIndex";
+    var _VSRB = "VectorSearchRequestBytes";
+    var _VWRB = "VectorWriteRequestBytes";
     var _WCU = "WriteCapacityUnits";
     var _WR = "WriteRequest";
     var _WRr = "WriteRequests";
@@ -47396,8 +47512,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _CC,
       0,
-      [_TN, _CU, _RCU, _WCU, _T2, _LSI, _GSI],
-      [0, 1, 1, 1, () => Capacity$, () => SecondaryIndexesCapacityMap, () => SecondaryIndexesCapacityMap]
+      [_TN, _CU, _RCU, _WCU, _T2, _LSI, _GSI, _VI],
+      [0, 1, 1, 1, () => Capacity$, () => SecondaryIndexesCapacityMap, () => SecondaryIndexesCapacityMap, () => VectorIndexesCapacityMap]
     ];
     var ContinuousBackupsDescription$ = [
       3,
@@ -47491,8 +47607,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _CTI,
       0,
-      [_TN, _ADt, _KS, _LSI, _GSI, _BM, _PT, _SS, _SSES, _Ta2, _TC2, _DPE, _WT, _RP, _ODT, _GTSA, _GTSRM],
-      [0, () => AttributeDefinitions, () => KeySchema, () => LocalSecondaryIndexList, () => GlobalSecondaryIndexList, 0, () => ProvisionedThroughput$, () => StreamSpecification$, () => SSESpecification$, () => TagList, 0, 2, () => WarmThroughput$, 0, () => OnDemandThroughput$, 0, 0],
+      [_TN, _ADt, _KS, _LSI, _GSI, _BM, _PT, _SS, _SSES, _Ta2, _TC2, _DPE, _WT, _RP, _ODT, _GTSA, _GTSRM, _VI],
+      [0, () => AttributeDefinitions, () => KeySchema, () => LocalSecondaryIndexList, () => GlobalSecondaryIndexList, 0, () => ProvisionedThroughput$, () => StreamSpecification$, () => SSESpecification$, () => TagList, 0, 2, () => WarmThroughput$, 0, () => OnDemandThroughput$, 0, 0, () => VectorIndexList],
       1
     ];
     var CreateTableOutput$ = [
@@ -47503,18 +47619,27 @@ var require_dist_cjs19 = __commonJS({
       [_TD],
       [() => TableDescription$]
     ];
+    var CreateVectorIndexAction$ = [
+      3,
+      n05,
+      _CVIA,
+      0,
+      [_IN, _VA, _Pr2, _D, _DF, _SSe],
+      [0, () => VectorAttributeDefinition$, () => Projection$, 1, 0, () => SearchSchema],
+      5
+    ];
     var CsvOptions$ = [
       3,
       n05,
       _COs,
       0,
-      [_D, _HL],
+      [_De, _HL],
       [0, 64 | 0]
     ];
     var Delete$ = [
       3,
       n05,
-      _De,
+      _Del,
       0,
       [_K2, _TN, _CE, _EAN, _EAV, _RVOCCF],
       [() => Key, 0, 0, 128 | 0, () => ExpressionAttributeValueMap, 0],
@@ -47632,6 +47757,15 @@ var require_dist_cjs19 = __commonJS({
       0,
       [_TD],
       [() => TableDescription$]
+    ];
+    var DeleteVectorIndexAction$ = [
+      3,
+      n05,
+      _DVIA,
+      0,
+      [_IN],
+      [0],
+      1
     ];
     var DescribeBackupInput$ = [
       3,
@@ -48035,7 +48169,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _GSIU,
       0,
-      [_U, _Cr, _De],
+      [_U, _Cr, _Del],
       [() => UpdateGlobalSecondaryIndexAction$, () => CreateGlobalSecondaryIndexAction$, () => DeleteGlobalSecondaryIndexAction$]
     ];
     var GlobalSecondaryIndexWarmThroughputDescription$ = [
@@ -48084,7 +48218,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _GTWGU,
       0,
-      [_Cr, _De],
+      [_Cr, _Del],
       [() => CreateGlobalTableWitnessGroupMemberAction$, () => DeleteGlobalTableWitnessGroupMemberAction$]
     ];
     var ImportSummary$ = [
@@ -48585,7 +48719,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _RGU,
       0,
-      [_Cr, _U, _De],
+      [_Cr, _U, _Del],
       [() => CreateReplicationGroupMemberAction$, () => UpdateReplicationGroupMemberAction$, () => DeleteReplicationGroupMemberAction$]
     ];
     var ReplicaUpdate$ = [
@@ -48593,7 +48727,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _RU,
       0,
-      [_Cr, _De],
+      [_Cr, _Del],
       [() => CreateReplicaAction$, () => DeleteReplicaAction$]
     ];
     var RestoreSummary$ = [
@@ -48610,8 +48744,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _RTFBI,
       0,
-      [_TTN, _BA, _BMO, _GSIO, _LSIO, _PTO, _ODTO, _SSESO],
-      [0, 0, 0, () => GlobalSecondaryIndexList, () => LocalSecondaryIndexList, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$],
+      [_TTN, _BA, _BMO, _GSIO, _LSIO, _PTO, _ODTO, _SSESO, _VIO],
+      [0, 0, 0, () => GlobalSecondaryIndexList, () => LocalSecondaryIndexList, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$, () => VectorIndexList],
       2
     ];
     var RestoreTableFromBackupOutput$ = [
@@ -48627,8 +48761,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _RTTPITI,
       0,
-      [_TTN, _STA, _STN, _ULRT, _RDT, _BMO, _GSIO, _LSIO, _PTO, _ODTO, _SSESO],
-      [0, 0, 0, 2, 4, 0, () => GlobalSecondaryIndexList, () => LocalSecondaryIndexList, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$],
+      [_TTN, _STA, _STN, _ULRT, _RDT, _BMO, _GSIO, _LSIO, _PTO, _ODTO, _SSESO, _VIO],
+      [0, 0, 0, 2, 4, 0, () => GlobalSecondaryIndexList, () => LocalSecondaryIndexList, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$, () => VectorIndexList],
       1
     ];
     var RestoreTableToPointInTimeOutput$ = [
@@ -48665,6 +48799,40 @@ var require_dist_cjs19 = __commonJS({
       [_It, _Cou, _SC, _LEK, _CC],
       [() => ItemList, 1, 1, () => Key, () => ConsumedCapacity$]
     ];
+    var SearchResultItem$ = [
+      3,
+      n05,
+      _SRI,
+      0,
+      [_I, _Sc],
+      [() => AttributeMap, 1]
+    ];
+    var SearchSchemaElement$ = [
+      3,
+      n05,
+      _SSE,
+      0,
+      [_AN, _SSET],
+      [0, 0],
+      2
+    ];
+    var SearchVectorsInput$ = [
+      3,
+      n05,
+      _SVI,
+      0,
+      [_TN, _IN, _SV, _TK, _RCC, _EAN, _EAV, _PE, _SCE],
+      [0, 0, () => SearchVectorList, 1, 0, 128 | 0, () => ExpressionAttributeValueMap, 0, 0],
+      4
+    ];
+    var SearchVectorsOutput$ = [
+      3,
+      n05,
+      _SVO,
+      0,
+      [_CC, _SR],
+      [() => VectorCapacity$, () => SearchResultList]
+    ];
     var SourceTableDetails$ = [
       3,
       n05,
@@ -48679,15 +48847,15 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _STFD,
       0,
-      [_LSI, _GSI, _SD, _TTLD, _SSED],
-      [() => LocalSecondaryIndexes, () => GlobalSecondaryIndexes, () => StreamSpecification$, () => TimeToLiveDescription$, () => SSEDescription$]
+      [_LSI, _GSI, _SD, _TTLD, _SSED, _VI],
+      [() => LocalSecondaryIndexes, () => GlobalSecondaryIndexes, () => StreamSpecification$, () => TimeToLiveDescription$, () => SSEDescription$, () => VectorIndexes]
     ];
     var SSEDescription$ = [
       3,
       n05,
       _SSED,
       0,
-      [_Sta, _SSET, _KMSMKA, _IEDT],
+      [_Sta, _SSETy, _KMSMKA, _IEDT],
       [0, 0, 0, 4]
     ];
     var SSESpecification$ = [
@@ -48695,7 +48863,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _SSES,
       0,
-      [_Ena, _SSET, _KMSMKI],
+      [_Ena, _SSETy, _KMSMKI],
       [2, 0, 0]
     ];
     var StreamSpecification$ = [
@@ -48728,8 +48896,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _TCP,
       0,
-      [_TN, _ADt, _KS, _BM, _PT, _ODT, _SSES, _GSI],
-      [0, () => AttributeDefinitions, () => KeySchema, 0, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$, () => GlobalSecondaryIndexList],
+      [_TN, _ADt, _KS, _BM, _PT, _ODT, _SSES, _GSI, _VI],
+      [0, () => AttributeDefinitions, () => KeySchema, 0, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$, () => GlobalSecondaryIndexList, () => VectorIndexList],
       3
     ];
     var TableDescription$ = [
@@ -48737,8 +48905,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _TD,
       0,
-      [_ADt, _TN, _KS, _TSa, _CDT, _PT, _TSB, _IC, _TA, _TI, _BMS, _LSI, _GSI, _SS, _LSL, _LSA, _GTV, _Rep, _GTW, _GTSRM, _RSes, _SSED, _AS, _TCS, _DPE, _ODT, _WT, _MRC],
-      [() => AttributeDefinitions, 0, () => KeySchema, 0, 4, () => ProvisionedThroughputDescription$, 1, 1, 0, 0, () => BillingModeSummary$, () => LocalSecondaryIndexDescriptionList, () => GlobalSecondaryIndexDescriptionList, () => StreamSpecification$, 0, 0, 0, () => ReplicaDescriptionList, () => GlobalTableWitnessDescriptionList, 0, () => RestoreSummary$, () => SSEDescription$, () => ArchivalSummary$, () => TableClassSummary$, 2, () => OnDemandThroughput$, () => TableWarmThroughputDescription$, 0]
+      [_ADt, _TN, _KS, _TSa, _CDT, _PT, _TSB, _IC, _TA, _TI, _BMS, _LSI, _GSI, _SS, _LSL, _LSA, _GTV, _Rep, _GTW, _GTSRM, _RSes, _SSED, _AS, _TCS, _DPE, _ODT, _WT, _MRC, _VI],
+      [() => AttributeDefinitions, 0, () => KeySchema, 0, 4, () => ProvisionedThroughputDescription$, 1, 1, 0, 0, () => BillingModeSummary$, () => LocalSecondaryIndexDescriptionList, () => GlobalSecondaryIndexDescriptionList, () => StreamSpecification$, 0, 0, 0, () => ReplicaDescriptionList, () => GlobalTableWitnessDescriptionList, 0, () => RestoreSummary$, () => SSEDescription$, () => ArchivalSummary$, () => TableClassSummary$, 2, () => OnDemandThroughput$, () => TableWarmThroughputDescription$, 0, () => VectorIndexDescriptionList]
     ];
     var TableWarmThroughputDescription$ = [
       3,
@@ -48822,7 +48990,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _TWI,
       0,
-      [_CCo, _Pu, _De, _U],
+      [_CCo, _Pu, _Del, _U],
       [() => ConditionCheck$, () => Put$, () => Delete$, () => Update$]
     ];
     var TransactWriteItemsInput$ = [
@@ -48847,7 +49015,7 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _URI,
       0,
-      [_RA2, _TK],
+      [_RA2, _TKa],
       [0, 64 | 0],
       2
     ];
@@ -48993,8 +49161,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _UTI,
       0,
-      [_TN, _ADt, _BM, _PT, _GSIUl, _SS, _SSES, _RUe, _TC2, _DPE, _MRC, _GTWU, _ODT, _WT, _GTSRM],
-      [0, () => AttributeDefinitions, 0, () => ProvisionedThroughput$, () => GlobalSecondaryIndexUpdateList, () => StreamSpecification$, () => SSESpecification$, () => ReplicationGroupUpdateList, 0, 2, 0, () => GlobalTableWitnessGroupUpdateList, () => OnDemandThroughput$, () => WarmThroughput$, 0],
+      [_TN, _ADt, _BM, _PT, _GSIUl, _SS, _SSES, _RUe, _TC2, _DPE, _MRC, _GTWU, _ODT, _WT, _GTSRM, _VIU],
+      [0, () => AttributeDefinitions, 0, () => ProvisionedThroughput$, () => GlobalSecondaryIndexUpdateList, () => StreamSpecification$, () => SSESpecification$, () => ReplicationGroupUpdateList, 0, 2, 0, () => GlobalTableWitnessGroupUpdateList, () => OnDemandThroughput$, () => WarmThroughput$, 0, () => VectorIndexUpdateList],
       1
     ];
     var UpdateTableOutput$ = [
@@ -49038,6 +49206,56 @@ var require_dist_cjs19 = __commonJS({
       0,
       [_TTLSi],
       [() => TimeToLiveSpecification$]
+    ];
+    var VectorAttributeDefinition$ = [
+      3,
+      n05,
+      _VAD,
+      0,
+      [_AN],
+      [0],
+      1
+    ];
+    var VectorCapacity$ = [
+      3,
+      n05,
+      _VC,
+      0,
+      [_VSRB, _VWRB],
+      [1, 1]
+    ];
+    var VectorIndex$ = [
+      3,
+      n05,
+      _VIe,
+      0,
+      [_IN, _VA, _Pr2, _D, _DF, _SSe],
+      [0, () => VectorAttributeDefinition$, () => Projection$, 1, 0, () => SearchSchema],
+      5
+    ];
+    var VectorIndexDescription$ = [
+      3,
+      n05,
+      _VID,
+      0,
+      [_IN, _SSe, _Pr2, _VA, _D, _DF, _IS, _B, _ISB, _IC, _IAn],
+      [0, () => SearchSchema, () => Projection$, () => VectorAttributeDefinition$, 1, 0, 0, 2, 1, 1, 0]
+    ];
+    var VectorIndexInfo$ = [
+      3,
+      n05,
+      _VII,
+      0,
+      [_IN, _VA, _SSe, _Pr2, _D, _DF],
+      [0, () => VectorAttributeDefinition$, () => SearchSchema, () => Projection$, 1, 0]
+    ];
+    var VectorIndexUpdate$ = [
+      3,
+      n05,
+      _VIUe,
+      0,
+      [_Cr, _Del],
+      [() => CreateVectorIndexAction$, () => DeleteVectorIndexAction$]
     ];
     var WarmThroughput$ = [
       3,
@@ -49385,6 +49603,27 @@ var require_dist_cjs19 = __commonJS({
       0,
       () => ReplicaUpdate$
     ];
+    var SearchResultList = [
+      1,
+      n05,
+      _SRL,
+      0,
+      () => SearchResultItem$
+    ];
+    var SearchSchema = [
+      1,
+      n05,
+      _SSe,
+      0,
+      () => SearchSchemaElement$
+    ];
+    var SearchVectorList = [
+      1,
+      n05,
+      _SVL,
+      0,
+      () => AttributeValue$
+    ];
     var TagList = [
       1,
       n05,
@@ -49412,6 +49651,34 @@ var require_dist_cjs19 = __commonJS({
       _TWIL,
       0,
       () => TransactWriteItem$
+    ];
+    var VectorIndexDescriptionList = [
+      1,
+      n05,
+      _VIDL,
+      0,
+      () => VectorIndexDescription$
+    ];
+    var VectorIndexes = [
+      1,
+      n05,
+      _VI,
+      0,
+      () => VectorIndexInfo$
+    ];
+    var VectorIndexList = [
+      1,
+      n05,
+      _VIL,
+      0,
+      () => VectorIndex$
+    ];
+    var VectorIndexUpdateList = [
+      1,
+      n05,
+      _VIUL,
+      0,
+      () => VectorIndexUpdate$
     ];
     var WriteRequests = [
       1,
@@ -49539,6 +49806,14 @@ var require_dist_cjs19 = __commonJS({
       0,
       0,
       () => Capacity$
+    ];
+    var VectorIndexesCapacityMap = [
+      2,
+      n05,
+      _VICM,
+      0,
+      0,
+      () => VectorCapacity$
     ];
     var AttributeValue$ = [
       4,
@@ -49895,10 +50170,18 @@ var require_dist_cjs19 = __commonJS({
     var Scan$ = [
       9,
       n05,
-      _Sc,
+      _Sca,
       0,
       () => ScanInput$,
       () => ScanOutput$
+    ];
+    var SearchVectors$ = [
+      9,
+      n05,
+      _SVe,
+      0,
+      () => SearchVectorsInput$,
+      () => SearchVectorsOutput$
     ];
     var TagResource$ = [
       9,
@@ -50006,12 +50289,12 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1100.0";
+    var version = "3.1105.0";
     var packageInfo = {
       version
     };
-    var I = "ref";
-    var J = "argv";
+    var L = "ref";
+    var M2 = "argv";
     var a5 = -1;
     var b5 = true;
     var c5 = false;
@@ -50020,7 +50303,7 @@ var require_dist_cjs19 = __commonJS({
     var f5 = "PartitionResult";
     var g5 = "stringEquals";
     var h5 = "getAttr";
-    var i5 = "https://dynamodb.{Region}.{PartitionResult#dualStackDnsSuffix}";
+    var i5 = "parsedEndpoint";
     var j5 = "aws.parseArn";
     var k5 = (n4) => "ParsedArn_ssa_" + n4;
     var l3 = "service";
@@ -50028,81 +50311,97 @@ var require_dist_cjs19 = __commonJS({
     var n3 = "isValidHostLabel";
     var o3 = "accountId";
     var p3 = "FirstArn";
-    var q3 = (n4) => "https://{ParsedArn_ssa_" + n4 + "#accountId}.ddb.{Region}.{PartitionResult#dualStackDnsSuffix}";
-    var s2 = (n4) => "https://{ParsedArn_ssa_" + n4 + "#accountId}.ddb.{Region}.{PartitionResult#dnsSuffix}";
-    var t = { [I]: "Endpoint" };
-    var u = { [I]: "Region" };
-    var v = { [I]: f5 };
-    var w = { [I]: "AccountIdEndpointMode" };
-    var x = { "fn": h5, [J]: [v, "name"] };
-    var y = { "fn": h5, [J]: [{ [I]: "ParsedArn_ssa_2" }, "region"] };
-    var z = { [I]: "ParsedArn_ssa_2" };
-    var A = { [I]: "ResourceArnList" };
-    var B = { "fn": h5, [J]: [{ [I]: "ParsedArn_ssa_1" }, "region"] };
-    var C = { [I]: "ParsedArn_ssa_1" };
-    var D = { [I]: "AccountId" };
-    var E = {};
-    var F = { "metricValues": ["O"] };
-    var G = [u];
-    var H = [{ [I]: "ResourceArn" }];
+    var q3 = (n4) => "https://{ParsedArn_ssa_" + n4 + "#accountId}.search-ddb.{Region}.{PartitionResult#dualStackDnsSuffix}";
+    var s2 = (n4) => "https://{ParsedArn_ssa_" + n4 + "#accountId}.ddb.{Region}.{PartitionResult#dualStackDnsSuffix}";
+    var t = (n4) => "https://{ParsedArn_ssa_" + n4 + "#accountId}.search-ddb.{Region}.{PartitionResult#dnsSuffix}";
+    var u = (n4) => "https://{ParsedArn_ssa_" + n4 + "#accountId}.ddb.{Region}.{PartitionResult#dnsSuffix}";
+    var v = { [L]: "Region" };
+    var w = { [L]: f5 };
+    var x = { "fn": h5, [M2]: [{ [L]: i5 }, "authority"] };
+    var y = { [L]: "AccountIdEndpointMode" };
+    var z = { "fn": h5, [M2]: [w, "name"] };
+    var A = { "fn": h5, [M2]: [{ [L]: "ParsedArn_ssa_2" }, "region"] };
+    var B = { [L]: "ParsedArn_ssa_2" };
+    var C = { [L]: "ResourceArnList" };
+    var D = { "fn": h5, [M2]: [{ [L]: "ParsedArn_ssa_1" }, "region"] };
+    var E = { [L]: "ParsedArn_ssa_1" };
+    var F = { [L]: "AccountId" };
+    var G = {};
+    var H = { "metricValues": ["O"] };
+    var I = [v];
+    var J = [{ [L]: "Endpoint" }];
+    var K2 = [{ [L]: "ResourceArn" }];
     var _data5 = {
       conditions: [
-        [d5, G],
-        [d5, [t]],
-        [e5, [{ [I]: "UseFIPS" }, b5]],
-        ["aws.partition", G, f5],
-        [g5, [u, "local"]],
-        [e5, [{ fn: h5, [J]: [v, "supportsFIPS"] }, b5]],
-        [e5, [{ [I]: "UseDualStack" }, b5]],
-        [e5, [{ fn: h5, [J]: [v, "supportsDualStack"] }, b5]],
-        [g5, [i5, t]],
-        [d5, [w]],
-        [g5, [x, "aws"]],
-        [g5, [w, "disabled"]],
-        [d5, H],
-        [j5, H, k5(2)],
-        [g5, [y, u]],
-        [g5, [{ fn: h5, [J]: [z, l3] }, m3]],
-        [n3, [{ fn: h5, [J]: [z, o3] }, c5]],
-        [n3, [y, c5]],
-        [d5, [A]],
-        [h5, [A, "[0]"], p3],
-        [j5, [{ [I]: p3 }], k5(1)],
-        [g5, [B, u]],
-        [g5, [{ fn: h5, [J]: [C, l3] }, m3]],
-        [n3, [{ fn: h5, [J]: [C, o3] }, c5]],
-        [n3, [B, c5]],
-        [d5, [D]],
-        [g5, [w, "required"]],
+        [d5, I],
+        [d5, J],
+        [e5, [{ [L]: "UseFIPS" }, b5]],
+        [e5, [{ [L]: "UseDualStack" }, b5]],
+        ["aws.partition", I, f5],
+        [g5, [v, "local"]],
+        [e5, [{ fn: h5, [M2]: [w, "supportsFIPS"] }, b5]],
+        ["parseURL", J, i5],
+        [g5, ["dynamodb.{Region}.{PartitionResult#dualStackDnsSuffix}", x]],
+        [e5, [{ fn: h5, [M2]: [w, "supportsDualStack"] }, b5]],
+        [g5, ["search-dynamodb.{Region}.{PartitionResult#dualStackDnsSuffix}", x]],
+        [d5, [y]],
+        [g5, [z, "aws"]],
+        [g5, [y, "disabled"]],
+        [d5, K2],
+        [j5, K2, k5(2)],
+        [g5, [A, v]],
+        [g5, [{ fn: h5, [M2]: [B, l3] }, m3]],
+        [n3, [A, c5]],
+        [n3, [{ fn: h5, [M2]: [B, o3] }, c5]],
+        [d5, [C]],
+        [h5, [C, "[0]"], p3],
+        [j5, [{ [L]: p3 }], k5(1)],
+        [g5, [D, v]],
+        [g5, [{ fn: h5, [M2]: [E, l3] }, m3]],
+        [n3, [{ fn: h5, [M2]: [E, o3] }, c5]],
         [n3, [D, c5]],
-        [g5, [x, "aws-us-gov"]]
+        [d5, [F]],
+        [g5, [y, "required"]],
+        [n3, [F, c5]],
+        [g5, [z, "aws-us-gov"]],
+        [e5, [{ fn: "coalesce", [M2]: [{ [L]: "IsSearchOperation" }, c5] }, b5]]
       ],
       results: [
         [a5],
         [a5, "Invalid Configuration: FIPS and custom endpoint are not supported"],
         [a5, "Invalid Configuration: Dualstack and custom endpoint are not supported"],
         [a5, "Endpoint override is not supported for dual-stack endpoints. Please enable dual-stack functionality by enabling the configuration. For more details, see: https://docs.aws.amazon.com/sdkref/latest/guide/feature-endpoints.html"],
-        ["{Endpoint}", E],
+        ["{Endpoint}", G],
         [a5, "Invalid Configuration: FIPS and local endpoint are not supported"],
         [a5, "Invalid Configuration: Dualstack and local endpoint are not supported"],
-        ["http://localhost:8000", { authSchemes: [{ name: "sigv4", signingName: m3, signingRegion: "us-east-1" }] }],
+        ["http://localhost:8000", { authSchemes: [{ signingRegion: "us-east-1", name: "sigv4", signingName: m3 }] }],
         [a5, "Invalid Configuration: AccountIdEndpointMode is required and FIPS is enabled, but FIPS account endpoints are not supported"],
-        ["https://dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", E],
+        ["https://search-dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
+        ["https://dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
         [a5, "FIPS and DualStack are enabled, but this partition does not support one or both"],
-        ["https://dynamodb.{Region}.{PartitionResult#dnsSuffix}", E],
-        ["https://dynamodb-fips.{Region}.{PartitionResult#dnsSuffix}", E],
+        ["https://search-dynamodb.{Region}.{PartitionResult#dnsSuffix}", G],
+        ["https://dynamodb.{Region}.{PartitionResult#dnsSuffix}", G],
+        ["https://search-dynamodb-fips.{Region}.{PartitionResult#dnsSuffix}", G],
+        ["https://dynamodb-fips.{Region}.{PartitionResult#dnsSuffix}", G],
         [a5, "FIPS is enabled but this partition does not support FIPS"],
-        [q3(2), F],
-        [q3(1), F],
-        ["https://{AccountId}.ddb.{Region}.{PartitionResult#dualStackDnsSuffix}", F],
+        [q3(2), H],
+        [s2(2), H],
+        [q3(1), H],
+        [s2(1), H],
+        ["https://{AccountId}.search-ddb.{Region}.{PartitionResult#dualStackDnsSuffix}", H],
+        ["https://{AccountId}.ddb.{Region}.{PartitionResult#dualStackDnsSuffix}", H],
         [a5, "Credentials-sourced account ID parameter is invalid"],
         [a5, "AccountIdEndpointMode is required but no AccountID was provided or able to be loaded"],
         [a5, "Invalid Configuration: AccountIdEndpointMode is required but account endpoints are not supported in this partition"],
-        [i5, E],
+        ["https://search-dynamodb.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
+        ["https://dynamodb.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
         [a5, "DualStack is enabled but this partition does not support DualStack"],
-        [s2(2), F],
-        [s2(1), F],
-        ["https://{AccountId}.ddb.{Region}.{PartitionResult#dnsSuffix}", F],
+        [t(2), H],
+        [u(2), H],
+        [t(1), H],
+        [u(1), H],
+        ["https://{AccountId}.search-ddb.{Region}.{PartitionResult#dnsSuffix}", H],
+        ["https://{AccountId}.ddb.{Region}.{PartitionResult#dnsSuffix}", H],
         [a5, "Invalid Configuration: Missing Region"]
       ]
     };
@@ -50113,201 +50412,246 @@ var require_dist_cjs19 = __commonJS({
       1,
       -1,
       0,
-      5,
+      6,
       3,
       1,
       4,
-      r5 + 25,
+      r5 + 35,
       2,
       r5 + 1,
-      65,
-      1,
-      63,
-      6,
-      2,
-      52,
-      7,
-      3,
-      8,
-      r5 + 25,
-      4,
-      51,
-      9,
-      6,
-      30,
-      10,
-      9,
-      11,
-      r5 + 11,
-      10,
-      13,
-      12,
-      26,
-      r5 + 19,
-      r5 + 11,
-      11,
-      29,
-      14,
-      12,
-      15,
-      20,
-      13,
-      16,
-      20,
-      14,
-      17,
-      20,
-      15,
-      18,
-      20,
-      16,
-      19,
-      20,
-      17,
-      r5 + 22,
-      20,
-      18,
-      21,
-      27,
-      19,
-      22,
-      27,
-      20,
-      23,
-      27,
-      21,
-      24,
-      27,
-      22,
-      25,
-      27,
-      23,
-      26,
-      27,
-      24,
-      r5 + 23,
-      27,
-      25,
-      28,
-      29,
-      27,
-      r5 + 24,
-      r5 + 17,
-      26,
-      r5 + 18,
-      r5 + 11,
-      7,
-      31,
-      r5 + 21,
-      9,
-      32,
-      r5 + 20,
-      10,
-      34,
-      33,
-      26,
-      r5 + 19,
-      r5 + 20,
-      11,
-      50,
-      35,
-      12,
-      36,
-      41,
-      13,
-      37,
-      41,
-      14,
-      38,
-      41,
-      15,
-      39,
-      41,
-      16,
-      40,
-      41,
-      17,
-      r5 + 14,
-      41,
-      18,
-      42,
-      48,
-      19,
-      43,
-      48,
-      20,
-      44,
-      48,
-      21,
-      45,
-      48,
-      22,
-      46,
-      48,
-      23,
-      47,
-      48,
-      24,
-      r5 + 15,
-      48,
-      25,
-      49,
-      50,
-      27,
-      r5 + 16,
-      r5 + 17,
-      26,
-      r5 + 18,
-      r5 + 20,
-      6,
-      r5 + 6,
-      r5 + 7,
-      3,
-      53,
-      r5 + 25,
-      4,
-      r5 + 5,
-      54,
       5,
-      56,
-      55,
-      6,
-      r5 + 10,
-      r5 + 13,
-      6,
-      60,
-      57,
-      9,
-      58,
-      59,
-      26,
-      r5 + 8,
-      59,
-      28,
-      r5 + 11,
-      r5 + 12,
-      7,
-      61,
-      r5 + 10,
-      9,
-      62,
-      r5 + 9,
-      26,
-      r5 + 8,
-      r5 + 9,
-      2,
-      r5 + 1,
-      64,
       3,
-      66,
-      65,
-      6,
       r5 + 2,
       r5 + 4,
-      6,
-      r5 + 2,
-      67,
+      1,
+      77,
+      7,
+      2,
+      61,
       8,
+      3,
+      34,
+      9,
+      4,
+      10,
+      r5 + 35,
+      5,
+      r5 + 7,
+      11,
+      11,
+      12,
+      69,
+      12,
+      14,
+      13,
+      28,
+      r5 + 25,
+      69,
+      13,
+      33,
+      15,
+      14,
+      16,
+      21,
+      15,
+      17,
+      21,
+      16,
+      18,
+      21,
+      17,
+      19,
+      21,
+      18,
+      20,
+      21,
+      19,
+      32,
+      21,
+      20,
+      22,
+      28,
+      21,
+      23,
+      28,
+      22,
+      24,
+      28,
+      23,
+      25,
+      28,
+      24,
+      26,
+      28,
+      25,
+      27,
+      28,
+      26,
+      31,
+      28,
+      27,
+      29,
+      33,
+      29,
+      30,
+      r5 + 23,
+      31,
+      r5 + 33,
+      r5 + 34,
+      31,
+      r5 + 31,
+      r5 + 32,
+      31,
+      r5 + 29,
+      r5 + 30,
+      28,
+      r5 + 24,
+      69,
+      4,
+      35,
+      r5 + 35,
+      5,
+      r5 + 6,
+      36,
+      9,
+      37,
+      r5 + 28,
+      11,
+      38,
+      60,
+      12,
+      40,
+      39,
+      28,
+      r5 + 25,
+      60,
+      13,
+      59,
+      41,
+      14,
+      42,
+      47,
+      15,
+      43,
+      47,
+      16,
+      44,
+      47,
+      17,
+      45,
+      47,
+      18,
+      46,
+      47,
+      19,
+      58,
+      47,
+      20,
+      48,
+      54,
+      21,
+      49,
+      54,
+      22,
+      50,
+      54,
+      23,
+      51,
+      54,
+      24,
+      52,
+      54,
+      25,
+      53,
+      54,
+      26,
+      57,
+      54,
+      27,
+      55,
+      59,
+      29,
+      56,
+      r5 + 23,
+      31,
+      r5 + 21,
+      r5 + 22,
+      31,
+      r5 + 19,
+      r5 + 20,
+      31,
+      r5 + 17,
+      r5 + 18,
+      28,
+      r5 + 24,
+      60,
+      31,
+      r5 + 26,
+      r5 + 27,
+      3,
+      70,
+      62,
+      4,
+      63,
+      r5 + 35,
+      5,
+      r5 + 5,
+      64,
+      6,
+      65,
+      r5 + 16,
+      11,
+      66,
+      67,
+      28,
+      r5 + 8,
+      67,
+      30,
+      69,
+      68,
+      31,
+      r5 + 14,
+      r5 + 15,
+      31,
+      r5 + 12,
+      r5 + 13,
+      4,
+      71,
+      r5 + 35,
+      5,
+      r5 + 5,
+      72,
+      6,
+      73,
+      r5 + 11,
+      9,
+      74,
+      r5 + 11,
+      11,
+      75,
+      76,
+      28,
+      r5 + 8,
+      76,
+      31,
+      r5 + 9,
+      r5 + 10,
+      2,
+      r5 + 1,
+      78,
+      3,
+      r5 + 2,
+      79,
+      4,
+      80,
+      r5 + 4,
+      7,
+      81,
+      r5 + 4,
+      8,
+      r5 + 3,
+      82,
+      10,
       r5 + 3,
       r5 + 4
     ]);
@@ -50318,6 +50662,7 @@ var require_dist_cjs19 = __commonJS({
         "AccountId",
         "AccountIdEndpointMode",
         "Endpoint",
+        "IsSearchOperation",
         "Region",
         "ResourceArn",
         "ResourceArnList",
@@ -50356,7 +50701,7 @@ var require_dist_cjs19 = __commonJS({
           xmlNamespace: "http://dynamodb.amazonaws.com/doc/2012-08-10/",
           version: "2012-08-10",
           serviceTarget: "DynamoDB_20120810",
-          jsonCodec: new DynamoDBJsonCodec()
+          jsonCodec: new DynamoDBJsonCodec2()
         },
         serviceId: config?.serviceId ?? "DynamoDB",
         sha256: config?.sha256 ?? Sha256,
@@ -50563,11 +50908,13 @@ var require_dist_cjs19 = __commonJS({
     };
     var ScanCommand = class extends command5(_ep2, _mw05, "Scan", Scan$) {
     };
+    var SearchVectorsCommand = class extends command5(_ep11, _mw05, "SearchVectors", SearchVectors$) {
+    };
     var TagResourceCommand = class extends command5(_ep5, _mw05, "TagResource", TagResource$) {
     };
-    var TransactGetItemsCommand = class extends command5(_ep11, _mw05, "TransactGetItems", TransactGetItems$) {
+    var TransactGetItemsCommand = class extends command5(_ep122, _mw05, "TransactGetItems", TransactGetItems$) {
     };
-    var TransactWriteItemsCommand = class extends command5(_ep122, _mw05, "TransactWriteItems", TransactWriteItems$) {
+    var TransactWriteItemsCommand = class extends command5(_ep13, _mw05, "TransactWriteItems", TransactWriteItems$) {
     };
     var UntagResourceCommand = class extends command5(_ep5, _mw05, "UntagResource", UntagResource$) {
     };
@@ -50859,6 +51206,7 @@ var require_dist_cjs19 = __commonJS({
       RestoreTableFromBackupCommand,
       RestoreTableToPointInTimeCommand,
       ScanCommand,
+      SearchVectorsCommand,
       TagResourceCommand,
       TransactGetItemsCommand,
       TransactWriteItemsCommand,
@@ -50951,6 +51299,15 @@ var require_dist_cjs19 = __commonJS({
       DISABLING: "DISABLING",
       ENABLED: "ENABLED",
       ENABLING: "ENABLING"
+    };
+    var VectorDistanceFunction = {
+      COSINE: "COSINE",
+      DOT_PRODUCT: "DOT_PRODUCT",
+      EUCLIDEAN: "EUCLIDEAN"
+    };
+    var SearchSchemaElementType = {
+      HASH: "HASH",
+      INLINE_FILTER: "INLINE_FILTER"
     };
     var BackupTypeFilter = {
       ALL: "ALL",
@@ -51210,6 +51567,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.CreateTableCommand = CreateTableCommand;
     exports2.CreateTableInput$ = CreateTableInput$;
     exports2.CreateTableOutput$ = CreateTableOutput$;
+    exports2.CreateVectorIndexAction$ = CreateVectorIndexAction$;
     exports2.CsvOptions$ = CsvOptions$;
     exports2.Delete$ = Delete$;
     exports2.DeleteBackup$ = DeleteBackup$;
@@ -51233,6 +51591,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.DeleteTableCommand = DeleteTableCommand;
     exports2.DeleteTableInput$ = DeleteTableInput$;
     exports2.DeleteTableOutput$ = DeleteTableOutput$;
+    exports2.DeleteVectorIndexAction$ = DeleteVectorIndexAction$;
     exports2.DescribeBackup$ = DescribeBackup$;
     exports2.DescribeBackupCommand = DescribeBackupCommand;
     exports2.DescribeBackupInput$ = DescribeBackupInput$;
@@ -51502,6 +51861,13 @@ var require_dist_cjs19 = __commonJS({
     exports2.ScanCommand = ScanCommand;
     exports2.ScanInput$ = ScanInput$;
     exports2.ScanOutput$ = ScanOutput$;
+    exports2.SearchResultItem$ = SearchResultItem$;
+    exports2.SearchSchemaElement$ = SearchSchemaElement$;
+    exports2.SearchSchemaElementType = SearchSchemaElementType;
+    exports2.SearchVectors$ = SearchVectors$;
+    exports2.SearchVectorsCommand = SearchVectorsCommand;
+    exports2.SearchVectorsInput$ = SearchVectorsInput$;
+    exports2.SearchVectorsOutput$ = SearchVectorsOutput$;
     exports2.Select = Select;
     exports2.SourceTableDetails$ = SourceTableDetails$;
     exports2.SourceTableFeatureDetails$ = SourceTableFeatureDetails$;
@@ -51589,6 +51955,13 @@ var require_dist_cjs19 = __commonJS({
     exports2.UpdateTimeToLiveCommand = UpdateTimeToLiveCommand;
     exports2.UpdateTimeToLiveInput$ = UpdateTimeToLiveInput$;
     exports2.UpdateTimeToLiveOutput$ = UpdateTimeToLiveOutput$;
+    exports2.VectorAttributeDefinition$ = VectorAttributeDefinition$;
+    exports2.VectorCapacity$ = VectorCapacity$;
+    exports2.VectorDistanceFunction = VectorDistanceFunction;
+    exports2.VectorIndex$ = VectorIndex$;
+    exports2.VectorIndexDescription$ = VectorIndexDescription$;
+    exports2.VectorIndexInfo$ = VectorIndexInfo$;
+    exports2.VectorIndexUpdate$ = VectorIndexUpdate$;
     exports2.WarmThroughput$ = WarmThroughput$;
     exports2.WitnessStatus = WitnessStatus;
     exports2.WriteRequest$ = WriteRequest$;
