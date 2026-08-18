@@ -60,7 +60,7 @@ jobs:
 
       - name: Commit Change
         id: commit_version
-        uses: EndBug/add-and-commit@v10
+        uses: EndBug/add-and-commit@v11
         env:
           NEW_VERSION: ${{ steps.increment_version.outputs.new_version }}
         with:
