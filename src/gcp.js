@@ -34,7 +34,7 @@ async function mutate(label, apply) {
             // treat it as applied instead of failing a deploy that worked. Only
             // ever from attempt 2 on: a first-attempt ABORTED is a genuine
             // conflict (a concurrent deploy) and still fails. The warning keeps
-            // the guess visible on the run, and the pipeline's verify leg is the
+            // the guess visible on the run, and re-running the deploy is the
             // backstop if it is ever wrong.
             if (attempt > 1 && isAborted(error)) {
                 core.warning(
