@@ -4421,7 +4421,7 @@ var require_util2 = __commonJS({
       });
       return { promise, resolve: res, reject: rej };
     }
-    function isAborted(fetchParams) {
+    function isAborted2(fetchParams) {
       return fetchParams.controller.state === "aborted";
     }
     function isCancelled(fetchParams) {
@@ -4830,7 +4830,7 @@ var require_util2 = __commonJS({
     };
     var environmentSettingsObject = new EnvironmentSettingsObject();
     module2.exports = {
-      isAborted,
+      isAborted: isAborted2,
       isCancelled,
       isValidEncodedURL,
       createDeferredPromise,
@@ -12259,7 +12259,7 @@ var require_response = __commonJS({
     var {
       isValidReasonPhrase,
       isCancelled,
-      isAborted,
+      isAborted: isAborted2,
       isBlobLike,
       serializeJavascriptValueToJSONString,
       isErrorLike,
@@ -12537,7 +12537,7 @@ var require_response = __commonJS({
     }
     function makeAppropriateNetworkError(fetchParams, err = null) {
       assert(isCancelled(fetchParams));
-      return isAborted(fetchParams) ? makeNetworkError(Object.assign(new DOMException("The operation was aborted.", "AbortError"), { cause: err })) : makeNetworkError(Object.assign(new DOMException("Request was cancelled."), { cause: err }));
+      return isAborted2(fetchParams) ? makeNetworkError(Object.assign(new DOMException("The operation was aborted.", "AbortError"), { cause: err })) : makeNetworkError(Object.assign(new DOMException("Request was cancelled."), { cause: err }));
     }
     function initializeResponse(response, init, body) {
       if (init.status !== null && (init.status < 200 || init.status > 599)) {
@@ -13418,7 +13418,7 @@ var require_fetch = __commonJS({
       isBlobLike,
       sameOrigin,
       isCancelled,
-      isAborted,
+      isAborted: isAborted2,
       isErrorLike,
       fullyReadBody,
       readableStreamClose,
@@ -14251,7 +14251,7 @@ var require_fetch = __commonJS({
           let isFailure;
           try {
             const { done, value } = await fetchParams.controller.next();
-            if (isAborted(fetchParams)) {
+            if (isAborted2(fetchParams)) {
               break;
             }
             bytes = done ? void 0 : value;
@@ -14287,7 +14287,7 @@ var require_fetch = __commonJS({
         }
       };
       function onAborted(reason) {
-        if (isAborted(fetchParams)) {
+        if (isAborted2(fetchParams)) {
           response.aborted = true;
           if (isReadable(stream)) {
             fetchParams.controller.controller.error(
@@ -48263,13 +48263,13 @@ var require_retry2 = __commonJS({
       }
       const delay = getNextRetryDelay(config);
       err.config.retryConfig.currentRetryAttempt += 1;
-      const backoff = config.retryBackoff ? config.retryBackoff(err, delay) : new Promise((resolve) => {
+      const backoff2 = config.retryBackoff ? config.retryBackoff(err, delay) : new Promise((resolve) => {
         setTimeout(resolve, delay);
       });
       if (config.onRetryAttempt) {
         await config.onRetryAttempt(err);
       }
-      await backoff;
+      await backoff2;
       return { shouldRetry: true, config: err.config };
     }
     function shouldRetryRequest(err) {
@@ -166828,8 +166828,6 @@ var init_ListSchema = __esm({
     init_Schema();
     ListSchema = class _ListSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/lis");
-      name;
-      traits;
       valueSchema;
       symbol = _ListSchema.symbol;
     };
@@ -166849,8 +166847,6 @@ var init_MapSchema = __esm({
     init_Schema();
     MapSchema = class _MapSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/map");
-      name;
-      traits;
       keySchema;
       valueSchema;
       symbol = _MapSchema.symbol;
@@ -166872,8 +166868,6 @@ var init_OperationSchema = __esm({
     init_Schema();
     OperationSchema = class _OperationSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/ope");
-      name;
-      traits;
       input;
       output;
       symbol = _OperationSchema.symbol;
@@ -166895,8 +166889,6 @@ var init_StructureSchema = __esm({
     init_Schema();
     StructureSchema = class _StructureSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/str");
-      name;
-      traits;
       memberNames;
       memberList;
       symbol = _StructureSchema.symbol;
@@ -167262,9 +167254,7 @@ var init_SimpleSchema = __esm({
     init_Schema();
     SimpleSchema = class _SimpleSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/sim");
-      name;
       schemaRef;
-      traits;
       symbol = _SimpleSchema.symbol;
     };
     sim = (namespace, name, schemaRef, traits) => Schema.assign(new SimpleSchema(), {
@@ -173476,27 +173466,27 @@ var init_HeaderMarshaller = __esm({
       formatHeaderValue(header) {
         switch (header.type) {
           case "boolean":
-            return Uint8Array.from([header.value ? HEADER_VALUE_TYPE.boolTrue : HEADER_VALUE_TYPE.boolFalse]);
+            return Uint8Array.from([header.value ? 0 : 1]);
           case "byte":
-            return Uint8Array.from([HEADER_VALUE_TYPE.byte, header.value]);
+            return Uint8Array.from([2, header.value]);
           case "short":
             const shortView = new DataView(new ArrayBuffer(3));
-            shortView.setUint8(0, HEADER_VALUE_TYPE.short);
+            shortView.setUint8(0, 3);
             shortView.setInt16(1, header.value, false);
             return new Uint8Array(shortView.buffer);
           case "integer":
             const intView = new DataView(new ArrayBuffer(5));
-            intView.setUint8(0, HEADER_VALUE_TYPE.integer);
+            intView.setUint8(0, 4);
             intView.setInt32(1, header.value, false);
             return new Uint8Array(intView.buffer);
           case "long":
             const longBytes = new Uint8Array(9);
-            longBytes[0] = HEADER_VALUE_TYPE.long;
+            longBytes[0] = 5;
             longBytes.set(header.value.bytes, 1);
             return longBytes;
           case "binary":
             const binView = new DataView(new ArrayBuffer(3 + header.value.byteLength));
-            binView.setUint8(0, HEADER_VALUE_TYPE.byteArray);
+            binView.setUint8(0, 6);
             binView.setUint16(1, header.value.byteLength, false);
             const binBytes = new Uint8Array(binView.buffer);
             binBytes.set(header.value, 3);
@@ -173504,14 +173494,14 @@ var init_HeaderMarshaller = __esm({
           case "string":
             const utf8Bytes = this.fromUtf8(header.value);
             const strView = new DataView(new ArrayBuffer(3 + utf8Bytes.byteLength));
-            strView.setUint8(0, HEADER_VALUE_TYPE.string);
+            strView.setUint8(0, 7);
             strView.setUint16(1, utf8Bytes.byteLength, false);
             const strBytes = new Uint8Array(strView.buffer);
             strBytes.set(utf8Bytes, 3);
             return strBytes;
           case "timestamp":
             const tsBytes = new Uint8Array(9);
-            tsBytes[0] = HEADER_VALUE_TYPE.timestamp;
+            tsBytes[0] = 8;
             tsBytes.set(Int64.fromNumber(header.value.valueOf()).bytes, 1);
             return tsBytes;
           case "uuid":
@@ -173519,7 +173509,7 @@ var init_HeaderMarshaller = __esm({
               throw new Error(`Invalid UUID received: ${header.value}`);
             }
             const uuidBytes = new Uint8Array(17);
-            uuidBytes[0] = HEADER_VALUE_TYPE.uuid;
+            uuidBytes[0] = 9;
             uuidBytes.set(fromHex(header.value.replace(/-/g, "")), 1);
             return uuidBytes;
         }
@@ -173532,46 +173522,46 @@ var init_HeaderMarshaller = __esm({
           const name = this.toUtf8(new Uint8Array(headers.buffer, headers.byteOffset + position, nameLength));
           position += nameLength;
           switch (headers.getUint8(position++)) {
-            case HEADER_VALUE_TYPE.boolTrue:
+            case 0:
               out[name] = {
                 type: BOOLEAN_TAG,
                 value: true
               };
               break;
-            case HEADER_VALUE_TYPE.boolFalse:
+            case 1:
               out[name] = {
                 type: BOOLEAN_TAG,
                 value: false
               };
               break;
-            case HEADER_VALUE_TYPE.byte:
+            case 2:
               out[name] = {
                 type: BYTE_TAG,
                 value: headers.getInt8(position++)
               };
               break;
-            case HEADER_VALUE_TYPE.short:
+            case 3:
               out[name] = {
                 type: SHORT_TAG,
                 value: headers.getInt16(position, false)
               };
               position += 2;
               break;
-            case HEADER_VALUE_TYPE.integer:
+            case 4:
               out[name] = {
                 type: INT_TAG,
                 value: headers.getInt32(position, false)
               };
               position += 4;
               break;
-            case HEADER_VALUE_TYPE.long:
+            case 5:
               out[name] = {
                 type: LONG_TAG,
                 value: new Int64(new Uint8Array(headers.buffer, headers.byteOffset + position, 8))
               };
               position += 8;
               break;
-            case HEADER_VALUE_TYPE.byteArray:
+            case 6:
               const binaryLength = headers.getUint16(position, false);
               position += 2;
               out[name] = {
@@ -173580,7 +173570,7 @@ var init_HeaderMarshaller = __esm({
               };
               position += binaryLength;
               break;
-            case HEADER_VALUE_TYPE.string:
+            case 7:
               const stringLength = headers.getUint16(position, false);
               position += 2;
               out[name] = {
@@ -173589,14 +173579,14 @@ var init_HeaderMarshaller = __esm({
               };
               position += stringLength;
               break;
-            case HEADER_VALUE_TYPE.timestamp:
+            case 8:
               out[name] = {
                 type: TIMESTAMP_TAG,
                 value: new Date(new Int64(new Uint8Array(headers.buffer, headers.byteOffset + position, 8)).valueOf())
               };
               position += 8;
               break;
-            case HEADER_VALUE_TYPE.uuid:
+            case 9:
               const uuidBytes = new Uint8Array(headers.buffer, headers.byteOffset + position, 16);
               position += 16;
               out[name] = {
@@ -174115,7 +174105,7 @@ var init_EventStreamSerde = __esm({
         this.defaultContentType = defaultContentType;
         this.compositeErrorRegistry = compositeErrorRegistry;
       }
-      async serializeEventStream({ eventStream, requestSchema, initialRequest }) {
+      async serializeEventStream({ eventStream, requestSchema, initialRequest, initialMessageType }) {
         const marshaller = this.marshaller;
         const eventStreamMember = requestSchema.getEventStreamMember();
         const unionSchema = requestSchema.getMemberSchema(eventStreamMember);
@@ -174126,7 +174116,7 @@ var init_EventStreamSerde = __esm({
           async *[Symbol.asyncIterator]() {
             if (initialRequest) {
               const headers = {
-                ":event-type": { type: "string", value: "initial-request" },
+                ":event-type": { type: "string", value: initialMessageType ?? "initial-request" },
                 ":message-type": { type: "string", value: "event" },
                 ":content-type": { type: "string", value: defaultContentType }
               };
@@ -174170,7 +174160,7 @@ var init_EventStreamSerde = __esm({
           };
         });
       }
-      async deserializeEventStream({ response, responseSchema, initialResponseContainer }) {
+      async deserializeEventStream({ response, responseSchema, initialResponseContainer, initialMessageType }) {
         const marshaller = this.marshaller;
         const eventStreamMember = responseSchema.getEventStreamMember();
         const unionSchema = responseSchema.getMemberSchema(eventStreamMember);
@@ -174185,7 +174175,7 @@ var init_EventStreamSerde = __esm({
             }
           }
           const body = event[unionMember].body;
-          if (unionMember === "initial-response") {
+          if (unionMember === (initialMessageType ?? "initial-response")) {
             const dataObject = await this.deserializer.read(responseSchema, body);
             delete dataObject[eventStreamMember];
             return {
@@ -174876,10 +174866,9 @@ var init_RpcProtocol = __esm({
           if (eventStreamMember) {
             if (input[eventStreamMember]) {
               const initialRequest = {};
-              for (const [memberName, memberSchema] of ns.structIterator()) {
-                if (memberName !== eventStreamMember && input[memberName]) {
-                  serializer.write(memberSchema, input[memberName]);
-                  initialRequest[memberName] = serializer.flush();
+              for (const [memberName] of ns.structIterator()) {
+                if (memberName !== eventStreamMember && input[memberName] != null) {
+                  initialRequest[memberName] = input[memberName];
                 }
               }
               payload2 = await this.serializeEventStream({
@@ -175368,24 +175357,27 @@ var getHttpHandlerExtensionConfiguration, resolveHttpHandlerRuntimeConfig;
 var init_httpExtensionConfiguration = __esm({
   "node_modules/@smithy/core/dist-es/submodules/protocols/protocol-http/extensions/httpExtensionConfiguration.js"() {
     getHttpHandlerExtensionConfiguration = (runtimeConfig) => {
+      if (runtimeConfig.logger && runtimeConfig.logger.constructor?.name !== "NoOpLogger") {
+        runtimeConfig.requestHandler?.updateHttpClientConfig?.(/* @__PURE__ */ Symbol.for("logger"), runtimeConfig.logger);
+      }
       return {
         setHttpHandler(handler) {
-          runtimeConfig.httpHandler = handler;
+          runtimeConfig.requestHandler = handler;
         },
         httpHandler() {
-          return runtimeConfig.httpHandler;
+          return runtimeConfig.requestHandler;
         },
         updateHttpClientConfig(key, value) {
-          runtimeConfig.httpHandler?.updateHttpClientConfig(key, value);
+          runtimeConfig.requestHandler?.updateHttpClientConfig(key, value);
         },
         httpHandlerConfigs() {
-          return runtimeConfig.httpHandler.httpHandlerConfigs();
+          return runtimeConfig.requestHandler.httpHandlerConfigs();
         }
       };
     };
     resolveHttpHandlerRuntimeConfig = (httpHandlerExtensionConfiguration) => {
       return {
-        httpHandler: httpHandlerExtensionConfiguration.httpHandler()
+        requestHandler: httpHandlerExtensionConfiguration.httpHandler()
       };
     };
   }
@@ -175400,10 +175392,12 @@ function contentLengthMiddleware(bodyLengthChecker) {
       if (body && Object.keys(headers).map((str) => str.toLowerCase()).indexOf(CONTENT_LENGTH_HEADER) === -1) {
         try {
           const length = bodyLengthChecker(body);
-          request.headers = {
-            ...request.headers,
-            [CONTENT_LENGTH_HEADER]: String(length)
-          };
+          if (length != null) {
+            request.headers = {
+              ...request.headers,
+              [CONTENT_LENGTH_HEADER]: String(length)
+            };
+          }
         } catch (ignored) {
         }
       }
@@ -178992,18 +178986,18 @@ function stsRegionDefaultResolver(loaderConfig = {}) {
   return loadConfig({
     ...NODE_REGION_CONFIG_OPTIONS,
     async default() {
-      if (!warning.silence) {
+      if (!warning2.silence) {
         console.warn("@aws-sdk - WARN - default STS region of us-east-1 used. See @aws-sdk/credential-providers README and set a region explicitly.");
       }
       return "us-east-1";
     }
   }, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig });
 }
-var warning;
+var warning2;
 var init_stsRegionDefaultResolver = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/region-config-resolver/stsRegionDefaultResolver.js"() {
     init_config2();
-    warning = {
+    warning2 = {
       silence: false
     };
   }
@@ -179080,7 +179074,7 @@ __export(client_exports2, {
   setTokenFeature: () => setTokenFeature,
   state: () => state,
   stsRegionDefaultResolver: () => stsRegionDefaultResolver,
-  stsRegionWarning: () => warning,
+  stsRegionWarning: () => warning2,
   toEndpointV1: () => toEndpointV12,
   useDefaultPartitionInfo: () => useDefaultPartitionInfo,
   userAgentMiddleware: () => userAgentMiddleware
@@ -181540,7 +181534,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.41",
+      version: "3.997.43",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -181640,9 +181634,9 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.977.6",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.43",
-        "@aws-sdk/types": "^3.974.2",
+        "@aws-sdk/core": "^3.977.8",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.45",
+        "@aws-sdk/types": "^3.974.4",
         "@smithy/core": "^3.31.1",
         "@smithy/fetch-http-handler": "^5.6.13",
         "@smithy/node-http-handler": "^4.9.13",
@@ -181653,7 +181647,7 @@ var init_package = __esm({
         concurrently: "7.0.0",
         "downlevel-dts": "0.10.1",
         premove: "4.0.0",
-        typescript: "~5.8.3"
+        typescript: "~7.0.2"
       },
       engines: {
         node: ">=20.0.0"
@@ -182973,9 +182967,8 @@ var init_SmithyRpcV2CborProtocol = __esm({
             this.serializer.write(15, {});
             request.body = this.serializer.flush();
           }
-          try {
+          if (request.body instanceof Uint8Array) {
             request.headers["content-length"] = String(request.body.byteLength);
-          } catch (ignored) {
           }
         }
         const { service, operation: operation2 } = getSmithyContext(context);
@@ -186462,15 +186455,15 @@ var init_coercing_serializers = __esm({
         return val;
       }
       if (typeof val === "number" || typeof val === "bigint") {
-        const warning2 = new Error(`Received number ${val} where a string was expected.`);
-        warning2.name = "Warning";
-        console.warn(warning2);
+        const warning3 = new Error(`Received number ${val} where a string was expected.`);
+        warning3.name = "Warning";
+        console.warn(warning3);
         return String(val);
       }
       if (typeof val === "boolean") {
-        const warning2 = new Error(`Received boolean ${val} where a string was expected.`);
-        warning2.name = "Warning";
-        console.warn(warning2);
+        const warning3 = new Error(`Received boolean ${val} where a string was expected.`);
+        warning3.name = "Warning";
+        console.warn(warning3);
         return String(val);
       }
       return val;
@@ -186484,9 +186477,9 @@ var init_coercing_serializers = __esm({
       if (typeof val === "string") {
         const lowercase = val.toLowerCase();
         if (val !== "" && lowercase !== "false" && lowercase !== "true") {
-          const warning2 = new Error(`Received string "${val}" where a boolean was expected.`);
-          warning2.name = "Warning";
-          console.warn(warning2);
+          const warning3 = new Error(`Received string "${val}" where a boolean was expected.`);
+          warning3.name = "Warning";
+          console.warn(warning3);
         }
         return val !== "" && lowercase !== "false";
       }
@@ -186501,9 +186494,9 @@ var init_coercing_serializers = __esm({
       if (typeof val === "string") {
         const num = Number(val);
         if (num.toString() !== val) {
-          const warning2 = new Error(`Received string "${val}" where a number was expected.`);
-          warning2.name = "Warning";
-          console.warn(warning2);
+          const warning3 = new Error(`Received string "${val}" where a number was expected.`);
+          warning3.name = "Warning";
+          console.warn(warning3);
           return val;
         }
         return num;
@@ -191530,7 +191523,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1105.0";
+    var version = "3.1110.0";
     var packageInfo = {
       version
     };
@@ -199903,7 +199896,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1105.0";
+    var version = "3.1110.0";
     var packageInfo = {
       version
     };
@@ -204763,7 +204756,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1105.0";
+    var version = "3.1110.0";
     var packageInfo = {
       version
     };
@@ -218690,6 +218683,9 @@ function setFailed(message) {
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function warning(message, properties = {}) {
+  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
 function info(message) {
   process.stdout.write(message + os4.EOL);
 }
@@ -218811,6 +218807,79 @@ function ecrRegistry(account, region = "us-east-1") {
   return `${accountNumber}.dkr.ecr.${region}.amazonaws.com`;
 }
 
+// src/grpc-retry.js
+var GRPC_UNKNOWN = 2;
+var GRPC_DEADLINE_EXCEEDED = 4;
+var GRPC_ABORTED = 10;
+var GRPC_UNAVAILABLE = 14;
+var CODE_NAMES = {
+  [GRPC_UNKNOWN]: "UNKNOWN",
+  [GRPC_DEADLINE_EXCEEDED]: "DEADLINE_EXCEEDED",
+  [GRPC_ABORTED]: "ABORTED",
+  [GRPC_UNAVAILABLE]: "UNAVAILABLE"
+};
+var NETWORK_ERRNOS = [
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ECONNREFUSED",
+  "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN"
+];
+var DEFAULT_ATTEMPTS = 5;
+var DEFAULT_BASE_DELAY_MS = 2e3;
+var DEFAULT_MAX_TOTAL_DELAY_MS = 3e4;
+function networkErrno(error3) {
+  const haystack = [
+    error3.code,
+    error3.details,
+    error3.message,
+    error3.cause?.code,
+    error3.cause?.message
+  ].filter((value) => typeof value === "string").join(" ");
+  return NETWORK_ERRNOS.some((errno) => haystack.includes(errno));
+}
+function isTransientError2(error3) {
+  if (error3 == null) return false;
+  const { code } = error3;
+  if (code === GRPC_UNAVAILABLE || code === GRPC_DEADLINE_EXCEEDED) return true;
+  if (code === GRPC_UNKNOWN || code === void 0 || typeof code === "string") {
+    return networkErrno(error3);
+  }
+  return false;
+}
+function statusName(error3) {
+  return CODE_NAMES[error3?.code] ?? (typeof error3?.code === "string" ? error3.code : "a transient error");
+}
+function backoff(attempt, baseDelayMs) {
+  const exponential = baseDelayMs * 2 ** (attempt - 1);
+  return exponential / 2 + Math.random() * (exponential / 2);
+}
+var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function retryTransient(label, fn, options = {}) {
+  const {
+    attempts = DEFAULT_ATTEMPTS,
+    baseDelayMs = DEFAULT_BASE_DELAY_MS,
+    maxTotalDelayMs = DEFAULT_MAX_TOTAL_DELAY_MS
+  } = options;
+  let budget = maxTotalDelayMs;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error3) {
+      if (attempt >= attempts || !isTransientError2(error3)) throw error3;
+      const delay = Math.max(0, Math.min(backoff(attempt, baseDelayMs), budget));
+      budget -= delay;
+      warning(
+        `${label}: retrying after ${statusName(error3)} (attempt ${attempt}/${attempts}) in ${Math.round(delay)}ms \u2014 ${error3.message}`
+      );
+      await sleep2(delay);
+    }
+  }
+}
+
 // src/gcp.js
 var { ServicesClient, JobsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
@@ -218821,7 +218890,11 @@ async function cloudrunListServices(project) {
 }
 async function cloudrunListJobs(project) {
   const client = new JobsClient();
-  const [jobs] = await client.listJobs({ parent: `projects/${project}/locations/${DEFAULT_REGION}` });
+  const request = { parent: `projects/${project}/locations/${DEFAULT_REGION}` };
+  const [jobs] = await retryTransient(
+    `cloudrunListJobs ${project}`,
+    () => client.listJobs(request)
+  );
   return jobs;
 }
 

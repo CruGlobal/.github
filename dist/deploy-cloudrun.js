@@ -4420,7 +4420,7 @@ var require_util2 = __commonJS({
       });
       return { promise, resolve: res, reject: rej };
     }
-    function isAborted(fetchParams) {
+    function isAborted2(fetchParams) {
       return fetchParams.controller.state === "aborted";
     }
     function isCancelled(fetchParams) {
@@ -4829,7 +4829,7 @@ var require_util2 = __commonJS({
     };
     var environmentSettingsObject = new EnvironmentSettingsObject();
     module2.exports = {
-      isAborted,
+      isAborted: isAborted2,
       isCancelled,
       isValidEncodedURL,
       createDeferredPromise,
@@ -12258,7 +12258,7 @@ var require_response = __commonJS({
     var {
       isValidReasonPhrase,
       isCancelled,
-      isAborted,
+      isAborted: isAborted2,
       isBlobLike,
       serializeJavascriptValueToJSONString,
       isErrorLike,
@@ -12536,7 +12536,7 @@ var require_response = __commonJS({
     }
     function makeAppropriateNetworkError(fetchParams, err = null) {
       assert2(isCancelled(fetchParams));
-      return isAborted(fetchParams) ? makeNetworkError(Object.assign(new DOMException("The operation was aborted.", "AbortError"), { cause: err })) : makeNetworkError(Object.assign(new DOMException("Request was cancelled."), { cause: err }));
+      return isAborted2(fetchParams) ? makeNetworkError(Object.assign(new DOMException("The operation was aborted.", "AbortError"), { cause: err })) : makeNetworkError(Object.assign(new DOMException("Request was cancelled."), { cause: err }));
     }
     function initializeResponse(response, init, body) {
       if (init.status !== null && (init.status < 200 || init.status > 599)) {
@@ -13417,7 +13417,7 @@ var require_fetch = __commonJS({
       isBlobLike,
       sameOrigin,
       isCancelled,
-      isAborted,
+      isAborted: isAborted2,
       isErrorLike,
       fullyReadBody,
       readableStreamClose,
@@ -14250,7 +14250,7 @@ var require_fetch = __commonJS({
           let isFailure;
           try {
             const { done, value } = await fetchParams.controller.next();
-            if (isAborted(fetchParams)) {
+            if (isAborted2(fetchParams)) {
               break;
             }
             bytes = done ? void 0 : value;
@@ -14286,7 +14286,7 @@ var require_fetch = __commonJS({
         }
       };
       function onAborted(reason) {
-        if (isAborted(fetchParams)) {
+        if (isAborted2(fetchParams)) {
           response.aborted = true;
           if (isReadable(stream)) {
             fetchParams.controller.controller.error(
@@ -48262,13 +48262,13 @@ var require_retry2 = __commonJS({
       }
       const delay = getNextRetryDelay(config);
       err.config.retryConfig.currentRetryAttempt += 1;
-      const backoff = config.retryBackoff ? config.retryBackoff(err, delay) : new Promise((resolve) => {
+      const backoff2 = config.retryBackoff ? config.retryBackoff(err, delay) : new Promise((resolve) => {
         setTimeout(resolve, delay);
       });
       if (config.onRetryAttempt) {
         await config.onRetryAttempt(err);
       }
-      await backoff;
+      await backoff2;
       return { shouldRetry: true, config: err.config };
     }
     function shouldRetryRequest(err) {
@@ -166127,6 +166127,9 @@ function debug(message) {
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function warning(message, properties = {}) {
+  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
 function info(message) {
   process.stdout.write(message + os3.EOL);
 }
@@ -166142,6 +166145,82 @@ var import_run = __toESM(require_src13());
 var PARAM_TYPES = ["BUILD", "RUNTIME", "ALL"];
 var RUNTIME_PARAM_TYPES = ["RUNTIME", "ALL"];
 
+// src/grpc-retry.js
+var GRPC_UNKNOWN = 2;
+var GRPC_DEADLINE_EXCEEDED = 4;
+var GRPC_ABORTED = 10;
+var GRPC_UNAVAILABLE = 14;
+var CODE_NAMES = {
+  [GRPC_UNKNOWN]: "UNKNOWN",
+  [GRPC_DEADLINE_EXCEEDED]: "DEADLINE_EXCEEDED",
+  [GRPC_ABORTED]: "ABORTED",
+  [GRPC_UNAVAILABLE]: "UNAVAILABLE"
+};
+var NETWORK_ERRNOS = [
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ECONNREFUSED",
+  "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN"
+];
+var DEFAULT_ATTEMPTS = 5;
+var DEFAULT_BASE_DELAY_MS = 2e3;
+var DEFAULT_MAX_TOTAL_DELAY_MS = 3e4;
+function networkErrno(error2) {
+  const haystack = [
+    error2.code,
+    error2.details,
+    error2.message,
+    error2.cause?.code,
+    error2.cause?.message
+  ].filter((value) => typeof value === "string").join(" ");
+  return NETWORK_ERRNOS.some((errno) => haystack.includes(errno));
+}
+function isTransientError(error2) {
+  if (error2 == null) return false;
+  const { code } = error2;
+  if (code === GRPC_UNAVAILABLE || code === GRPC_DEADLINE_EXCEEDED) return true;
+  if (code === GRPC_UNKNOWN || code === void 0 || typeof code === "string") {
+    return networkErrno(error2);
+  }
+  return false;
+}
+function isAborted(error2) {
+  return error2?.code === GRPC_ABORTED;
+}
+function statusName(error2) {
+  return CODE_NAMES[error2?.code] ?? (typeof error2?.code === "string" ? error2.code : "a transient error");
+}
+function backoff(attempt, baseDelayMs) {
+  const exponential = baseDelayMs * 2 ** (attempt - 1);
+  return exponential / 2 + Math.random() * (exponential / 2);
+}
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function retryTransient(label, fn, options = {}) {
+  const {
+    attempts = DEFAULT_ATTEMPTS,
+    baseDelayMs = DEFAULT_BASE_DELAY_MS,
+    maxTotalDelayMs = DEFAULT_MAX_TOTAL_DELAY_MS
+  } = options;
+  let budget = maxTotalDelayMs;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error2) {
+      if (attempt >= attempts || !isTransientError(error2)) throw error2;
+      const delay = Math.max(0, Math.min(backoff(attempt, baseDelayMs), budget));
+      budget -= delay;
+      warning(
+        `${label}: retrying after ${statusName(error2)} (attempt ${attempt}/${attempts}) in ${Math.round(delay)}ms \u2014 ${error2.message}`
+      );
+      await sleep(delay);
+    }
+  }
+}
+
 // src/gcp.js
 var { ServicesClient, JobsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
@@ -166151,12 +166230,33 @@ function gcrRegistry(project, projectName, region = DEFAULT_REGION) {
 function gcrImageTag(project, projectName, environment, buildNumber) {
   return `${gcrRegistry(project, projectName)}:${environment}-${buildNumber}`;
 }
+async function mutate(label, apply) {
+  return retryTransient(label, async (attempt) => {
+    try {
+      const [operation] = await apply();
+      const [response] = await operation.promise();
+      return response;
+    } catch (error2) {
+      if (attempt > 1 && isAborted(error2)) {
+        warning(
+          `${label}: ABORTED on attempt ${attempt} \u2014 the replay collided with the update the previous attempt had already started. Treating it as applied.`
+        );
+        return null;
+      }
+      throw error2;
+    }
+  });
+}
 async function listSecrets(project, types3 = PARAM_TYPES) {
   const client = new import_secret_manager.SecretManagerServiceClient();
-  const [secrets] = await client.listSecrets({
+  const request = {
     parent: `projects/${project}`,
     filter: types3.map((type) => `labels.param_type=${type.toLowerCase()}`).join(" OR ")
-  });
+  };
+  const [secrets] = await retryTransient(
+    `listSecrets ${project}`,
+    () => client.listSecrets(request)
+  );
   return secrets;
 }
 async function cloudrunListServices(project) {
@@ -166166,14 +166266,17 @@ async function cloudrunListServices(project) {
 }
 async function cloudrunListJobs(project) {
   const client = new JobsClient();
-  const [jobs] = await client.listJobs({ parent: `projects/${project}/locations/${DEFAULT_REGION}` });
+  const request = { parent: `projects/${project}/locations/${DEFAULT_REGION}` };
+  const [jobs] = await retryTransient(
+    `cloudrunListJobs ${project}`,
+    () => client.listJobs(request)
+  );
   return jobs;
 }
 async function updateJob(job) {
   const client = new JobsClient();
-  const [operation] = await client.updateJob({ job });
-  const [response] = await operation.promise();
-  return response;
+  const request = { job };
+  return mutate(`updateJob ${job.name}`, () => client.updateJob(request));
 }
 async function runJob(name) {
   const client = new JobsClient();
@@ -166186,7 +166289,7 @@ async function runJob(name) {
 }
 async function updateService(name, containers) {
   const client = new ServicesClient();
-  const [operation] = await client.updateService({
+  const request = {
     service: {
       name,
       template: {
@@ -166199,9 +166302,8 @@ async function updateService(name, containers) {
     updateMask: {
       paths: ["template.containers", "template.annotations"]
     }
-  });
-  const [response] = await operation.promise();
-  return response;
+  };
+  return mutate(`updateService ${name}`, () => client.updateService(request));
 }
 
 // src/deploy-cloudrun.js

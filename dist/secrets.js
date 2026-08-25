@@ -19995,8 +19995,6 @@ var init_ListSchema = __esm({
     init_Schema();
     ListSchema = class _ListSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/lis");
-      name;
-      traits;
       valueSchema;
       symbol = _ListSchema.symbol;
     };
@@ -20016,8 +20014,6 @@ var init_MapSchema = __esm({
     init_Schema();
     MapSchema = class _MapSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/map");
-      name;
-      traits;
       keySchema;
       valueSchema;
       symbol = _MapSchema.symbol;
@@ -20039,8 +20035,6 @@ var init_OperationSchema = __esm({
     init_Schema();
     OperationSchema = class _OperationSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/ope");
-      name;
-      traits;
       input;
       output;
       symbol = _OperationSchema.symbol;
@@ -20062,8 +20056,6 @@ var init_StructureSchema = __esm({
     init_Schema();
     StructureSchema = class _StructureSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/str");
-      name;
-      traits;
       memberNames;
       memberList;
       symbol = _StructureSchema.symbol;
@@ -20429,9 +20421,7 @@ var init_SimpleSchema = __esm({
     init_Schema();
     SimpleSchema = class _SimpleSchema extends Schema {
       static symbol = /* @__PURE__ */ Symbol.for("@smithy/sim");
-      name;
       schemaRef;
-      traits;
       symbol = _SimpleSchema.symbol;
     };
     sim = (namespace, name, schemaRef, traits) => Schema.assign(new SimpleSchema(), {
@@ -26643,27 +26633,27 @@ var init_HeaderMarshaller = __esm({
       formatHeaderValue(header) {
         switch (header.type) {
           case "boolean":
-            return Uint8Array.from([header.value ? HEADER_VALUE_TYPE.boolTrue : HEADER_VALUE_TYPE.boolFalse]);
+            return Uint8Array.from([header.value ? 0 : 1]);
           case "byte":
-            return Uint8Array.from([HEADER_VALUE_TYPE.byte, header.value]);
+            return Uint8Array.from([2, header.value]);
           case "short":
             const shortView = new DataView(new ArrayBuffer(3));
-            shortView.setUint8(0, HEADER_VALUE_TYPE.short);
+            shortView.setUint8(0, 3);
             shortView.setInt16(1, header.value, false);
             return new Uint8Array(shortView.buffer);
           case "integer":
             const intView = new DataView(new ArrayBuffer(5));
-            intView.setUint8(0, HEADER_VALUE_TYPE.integer);
+            intView.setUint8(0, 4);
             intView.setInt32(1, header.value, false);
             return new Uint8Array(intView.buffer);
           case "long":
             const longBytes = new Uint8Array(9);
-            longBytes[0] = HEADER_VALUE_TYPE.long;
+            longBytes[0] = 5;
             longBytes.set(header.value.bytes, 1);
             return longBytes;
           case "binary":
             const binView = new DataView(new ArrayBuffer(3 + header.value.byteLength));
-            binView.setUint8(0, HEADER_VALUE_TYPE.byteArray);
+            binView.setUint8(0, 6);
             binView.setUint16(1, header.value.byteLength, false);
             const binBytes = new Uint8Array(binView.buffer);
             binBytes.set(header.value, 3);
@@ -26671,14 +26661,14 @@ var init_HeaderMarshaller = __esm({
           case "string":
             const utf8Bytes = this.fromUtf8(header.value);
             const strView = new DataView(new ArrayBuffer(3 + utf8Bytes.byteLength));
-            strView.setUint8(0, HEADER_VALUE_TYPE.string);
+            strView.setUint8(0, 7);
             strView.setUint16(1, utf8Bytes.byteLength, false);
             const strBytes = new Uint8Array(strView.buffer);
             strBytes.set(utf8Bytes, 3);
             return strBytes;
           case "timestamp":
             const tsBytes = new Uint8Array(9);
-            tsBytes[0] = HEADER_VALUE_TYPE.timestamp;
+            tsBytes[0] = 8;
             tsBytes.set(Int64.fromNumber(header.value.valueOf()).bytes, 1);
             return tsBytes;
           case "uuid":
@@ -26686,7 +26676,7 @@ var init_HeaderMarshaller = __esm({
               throw new Error(`Invalid UUID received: ${header.value}`);
             }
             const uuidBytes = new Uint8Array(17);
-            uuidBytes[0] = HEADER_VALUE_TYPE.uuid;
+            uuidBytes[0] = 9;
             uuidBytes.set(fromHex(header.value.replace(/-/g, "")), 1);
             return uuidBytes;
         }
@@ -26699,46 +26689,46 @@ var init_HeaderMarshaller = __esm({
           const name = this.toUtf8(new Uint8Array(headers.buffer, headers.byteOffset + position, nameLength));
           position += nameLength;
           switch (headers.getUint8(position++)) {
-            case HEADER_VALUE_TYPE.boolTrue:
+            case 0:
               out[name] = {
                 type: BOOLEAN_TAG,
                 value: true
               };
               break;
-            case HEADER_VALUE_TYPE.boolFalse:
+            case 1:
               out[name] = {
                 type: BOOLEAN_TAG,
                 value: false
               };
               break;
-            case HEADER_VALUE_TYPE.byte:
+            case 2:
               out[name] = {
                 type: BYTE_TAG,
                 value: headers.getInt8(position++)
               };
               break;
-            case HEADER_VALUE_TYPE.short:
+            case 3:
               out[name] = {
                 type: SHORT_TAG,
                 value: headers.getInt16(position, false)
               };
               position += 2;
               break;
-            case HEADER_VALUE_TYPE.integer:
+            case 4:
               out[name] = {
                 type: INT_TAG,
                 value: headers.getInt32(position, false)
               };
               position += 4;
               break;
-            case HEADER_VALUE_TYPE.long:
+            case 5:
               out[name] = {
                 type: LONG_TAG,
                 value: new Int64(new Uint8Array(headers.buffer, headers.byteOffset + position, 8))
               };
               position += 8;
               break;
-            case HEADER_VALUE_TYPE.byteArray:
+            case 6:
               const binaryLength = headers.getUint16(position, false);
               position += 2;
               out[name] = {
@@ -26747,7 +26737,7 @@ var init_HeaderMarshaller = __esm({
               };
               position += binaryLength;
               break;
-            case HEADER_VALUE_TYPE.string:
+            case 7:
               const stringLength = headers.getUint16(position, false);
               position += 2;
               out[name] = {
@@ -26756,14 +26746,14 @@ var init_HeaderMarshaller = __esm({
               };
               position += stringLength;
               break;
-            case HEADER_VALUE_TYPE.timestamp:
+            case 8:
               out[name] = {
                 type: TIMESTAMP_TAG,
                 value: new Date(new Int64(new Uint8Array(headers.buffer, headers.byteOffset + position, 8)).valueOf())
               };
               position += 8;
               break;
-            case HEADER_VALUE_TYPE.uuid:
+            case 9:
               const uuidBytes = new Uint8Array(headers.buffer, headers.byteOffset + position, 16);
               position += 16;
               out[name] = {
@@ -27282,7 +27272,7 @@ var init_EventStreamSerde = __esm({
         this.defaultContentType = defaultContentType;
         this.compositeErrorRegistry = compositeErrorRegistry;
       }
-      async serializeEventStream({ eventStream, requestSchema, initialRequest }) {
+      async serializeEventStream({ eventStream, requestSchema, initialRequest, initialMessageType }) {
         const marshaller = this.marshaller;
         const eventStreamMember = requestSchema.getEventStreamMember();
         const unionSchema = requestSchema.getMemberSchema(eventStreamMember);
@@ -27293,7 +27283,7 @@ var init_EventStreamSerde = __esm({
           async *[Symbol.asyncIterator]() {
             if (initialRequest) {
               const headers = {
-                ":event-type": { type: "string", value: "initial-request" },
+                ":event-type": { type: "string", value: initialMessageType ?? "initial-request" },
                 ":message-type": { type: "string", value: "event" },
                 ":content-type": { type: "string", value: defaultContentType }
               };
@@ -27337,7 +27327,7 @@ var init_EventStreamSerde = __esm({
           };
         });
       }
-      async deserializeEventStream({ response, responseSchema, initialResponseContainer }) {
+      async deserializeEventStream({ response, responseSchema, initialResponseContainer, initialMessageType }) {
         const marshaller = this.marshaller;
         const eventStreamMember = responseSchema.getEventStreamMember();
         const unionSchema = responseSchema.getMemberSchema(eventStreamMember);
@@ -27352,7 +27342,7 @@ var init_EventStreamSerde = __esm({
             }
           }
           const body = event[unionMember].body;
-          if (unionMember === "initial-response") {
+          if (unionMember === (initialMessageType ?? "initial-response")) {
             const dataObject = await this.deserializer.read(responseSchema, body);
             delete dataObject[eventStreamMember];
             return {
@@ -28043,10 +28033,9 @@ var init_RpcProtocol = __esm({
           if (eventStreamMember) {
             if (input[eventStreamMember]) {
               const initialRequest = {};
-              for (const [memberName, memberSchema] of ns.structIterator()) {
-                if (memberName !== eventStreamMember && input[memberName]) {
-                  serializer.write(memberSchema, input[memberName]);
-                  initialRequest[memberName] = serializer.flush();
+              for (const [memberName] of ns.structIterator()) {
+                if (memberName !== eventStreamMember && input[memberName] != null) {
+                  initialRequest[memberName] = input[memberName];
                 }
               }
               payload2 = await this.serializeEventStream({
@@ -28535,24 +28524,27 @@ var getHttpHandlerExtensionConfiguration, resolveHttpHandlerRuntimeConfig;
 var init_httpExtensionConfiguration = __esm({
   "node_modules/@smithy/core/dist-es/submodules/protocols/protocol-http/extensions/httpExtensionConfiguration.js"() {
     getHttpHandlerExtensionConfiguration = (runtimeConfig) => {
+      if (runtimeConfig.logger && runtimeConfig.logger.constructor?.name !== "NoOpLogger") {
+        runtimeConfig.requestHandler?.updateHttpClientConfig?.(/* @__PURE__ */ Symbol.for("logger"), runtimeConfig.logger);
+      }
       return {
         setHttpHandler(handler) {
-          runtimeConfig.httpHandler = handler;
+          runtimeConfig.requestHandler = handler;
         },
         httpHandler() {
-          return runtimeConfig.httpHandler;
+          return runtimeConfig.requestHandler;
         },
         updateHttpClientConfig(key, value) {
-          runtimeConfig.httpHandler?.updateHttpClientConfig(key, value);
+          runtimeConfig.requestHandler?.updateHttpClientConfig(key, value);
         },
         httpHandlerConfigs() {
-          return runtimeConfig.httpHandler.httpHandlerConfigs();
+          return runtimeConfig.requestHandler.httpHandlerConfigs();
         }
       };
     };
     resolveHttpHandlerRuntimeConfig = (httpHandlerExtensionConfiguration) => {
       return {
-        httpHandler: httpHandlerExtensionConfiguration.httpHandler()
+        requestHandler: httpHandlerExtensionConfiguration.httpHandler()
       };
     };
   }
@@ -28567,10 +28559,12 @@ function contentLengthMiddleware(bodyLengthChecker) {
       if (body && Object.keys(headers).map((str) => str.toLowerCase()).indexOf(CONTENT_LENGTH_HEADER) === -1) {
         try {
           const length = bodyLengthChecker(body);
-          request.headers = {
-            ...request.headers,
-            [CONTENT_LENGTH_HEADER]: String(length)
-          };
+          if (length != null) {
+            request.headers = {
+              ...request.headers,
+              [CONTENT_LENGTH_HEADER]: String(length)
+            };
+          }
         } catch (ignored) {
         }
       }
@@ -34707,7 +34701,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.41",
+      version: "3.997.43",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -34807,9 +34801,9 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.977.6",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.43",
-        "@aws-sdk/types": "^3.974.2",
+        "@aws-sdk/core": "^3.977.8",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.45",
+        "@aws-sdk/types": "^3.974.4",
         "@smithy/core": "^3.31.1",
         "@smithy/fetch-http-handler": "^5.6.13",
         "@smithy/node-http-handler": "^4.9.13",
@@ -34820,7 +34814,7 @@ var init_package = __esm({
         concurrently: "7.0.0",
         "downlevel-dts": "0.10.1",
         premove: "4.0.0",
-        typescript: "~5.8.3"
+        typescript: "~7.0.2"
       },
       engines: {
         node: ">=20.0.0"
@@ -36140,9 +36134,8 @@ var init_SmithyRpcV2CborProtocol = __esm({
             this.serializer.write(15, {});
             request.body = this.serializer.flush();
           }
-          try {
+          if (request.body instanceof Uint8Array) {
             request.headers["content-length"] = String(request.body.byteLength);
-          } catch (ignored) {
           }
         }
         const { service, operation: operation2 } = getSmithyContext(context);
@@ -44697,7 +44690,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1105.0";
+    var version = "3.1110.0";
     var packageInfo = {
       version
     };
