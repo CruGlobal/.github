@@ -19,11 +19,35 @@ name: Release Please
 on:
   push:
     branches: [main]
+    # Skip the bot's own "build: rebuild dist/" commit (build-dist.yml). A
+    # dist-only commit is a `build:` commit, which never produces a release on
+    # its own, so such a run can only misread state -- and it did: a run started
+    # while a release PR was still open, then read the repo after that PR merged
+    # but before its release existed, concluded "no open release PR + unreleased
+    # commits", and opened a duplicate release PR. Since build-dist pushes one
+    # dist commit after every merge, that straddling run was systematic rather
+    # than unlucky.
+    paths-ignore:
+      - 'dist/**'
+  # Safety net. A merge performed on behalf of the default GITHUB_TOKEN starts
+  # no workflow run at all, so a push that should have cut a release can be
+  # skipped silently and stay unreleased indefinitely. This sweep re-evaluates
+  # the release state on a schedule, whatever the push trigger missed. Wednesday
+  # because Dependabot opens its batch on Tuesday (.github/dependabot.yml), so a
+  # skipped auto-merge is picked up within a day rather than a week.
+  schedule:
+    - cron: '0 6 * * 3'
+  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+# Serialize runs so two of them never compute a release at the same time. Runs
+# queue rather than cancel: cancelling a run mid-release would abandon a tag or
+# a GitHub release halfway. Note this orders runs against each other but cannot
+# help a run that started before a release PR merged and reads the repo after --
+# the paths-ignore above is what removes that case.
 concurrency:
   group: release-please
   cancel-in-progress: false

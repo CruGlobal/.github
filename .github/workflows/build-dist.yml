@@ -19,6 +19,16 @@ on:
     branches: [main]
     paths-ignore:
       - 'dist/**'
+  # Safety net. A merge performed on behalf of the default GITHUB_TOKEN starts
+  # no workflow run at all, so a push that should have rebuilt dist/ can be
+  # skipped silently and leave dist/ stale on main until the next unrelated
+  # merge happens to catch it up. This sweep rebuilds on a schedule regardless.
+  # When dist/ already matches src/ the commit step finds a clean working tree,
+  # reports nothing to commit and succeeds, so a sweep with nothing to do is a
+  # clean no-op. Wednesday because Dependabot opens its batch on Tuesday
+  # (.github/dependabot.yml).
+  schedule:
+    - cron: '0 6 * * 3'
   workflow_dispatch:
 
 permissions:
