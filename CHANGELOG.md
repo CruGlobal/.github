@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/CruGlobal/.github/compare/v2.0.1...v2.0.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* **cloudrun:** retry transient gRPC failures on the deploy path ([#459](https://github.com/CruGlobal/.github/issues/459)) ([1fcbb16](https://github.com/CruGlobal/.github/commit/1fcbb16b00a8efa08bd8626c7ab871d035c4328f))
+
 ## [2.0.1](https://github.com/CruGlobal/.github/compare/v2.0.0...v2.0.1) (2026-08-11)
 
 
