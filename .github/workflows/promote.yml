@@ -23,6 +23,11 @@ name: Promote
 # CruGlobal/.github#441 and CruGlobal/cru-terraform-modules#753 applied first --
 # without them nothing writes the ledger row this reads and no app-info item
 # carries `RcMode` at all.
+#
+# Pre-release apps (`Lifecycle` "pre-release" on the staging item, or simply no
+# production app-info row) are REFUSED in `lookup`, as early as the data allows:
+# they are stage-only on purpose and have no production environment to promote
+# into. Both readings are handled in the two app-info steps below.
 
 on:
   workflow_call:
@@ -134,6 +139,23 @@ jobs:
           # stage-less app that item exists ONLY to carry this gate's
           # configuration (cru-terraform-modules#753); nothing runs there.
           rc_mode=$(echo "$item" | jq -r '.RcMode.S // "deploy"')
+          # PRE-RELEASE apps: stage-only, by design and for now. A release
+          # candidate exists and is gated normally; production does not exist
+          # yet, so there is nothing to promote INTO. `Lifecycle` is written on
+          # the staging item by the app module's `pre_release` knob and is absent
+          # on every launched app, so existing items read as launched without
+          # being rewritten (the same omitted-on-default idiom as RcMode).
+          #
+          # Refused HERE, in the first step that reads app-info: before the
+          # production lookup, before any credential is assumed, and long before
+          # a provider job. Without this the run died at the production app-info
+          # read with "add the row before promoting" -- true but misleading
+          # advice for an app that is not supposed to have one yet.
+          lifecycle=$(echo "$item" | jq -r '.Lifecycle.S // empty')
+          if [ "$lifecycle" = "pre-release" ]; then
+            echo "::error title=Pre-release app::$PROJECT_NAME is pre-release: no production environment exists; promote is unavailable until the app launches. Its candidates still build and gate on release-candidate. Launching means standing up the app's production Terraform directory and clearing pre_release on the stage module -- ask #dps-devops."
+            exit 1
+          fi
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -175,8 +197,14 @@ jobs:
             --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment "$legacy_env" \
               '{Project: {S: $project}, Environment: {S: $environment}}')")
           item=$(echo "$info" | jq -c '.Item // empty')
+          # No production row = no production environment. The pre-release check
+          # in the release-candidate step above catches this for an app whose
+          # module DECLARES the state; this is the same refusal for one that has
+          # not been re-applied yet (or was never marked), so the two readings
+          # get one message rather than the old "add the row before promoting",
+          # which reads as a misconfiguration and is wrong for a pre-release app.
           if [ -z "$item" ]; then
-            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before promoting"
+            echo "::error title=No production environment::$PROJECT_NAME has no CruApplicationInfo row for '$legacy_env', so there is no production environment to promote into. If the app is pre-release (stage-only) this is expected -- promote becomes available when it launches: stand up its production Terraform directory and clear pre_release on the stage module. If it is meant to have production already, that directory has not been applied. Ask #dps-devops."
             exit 1
           fi
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')

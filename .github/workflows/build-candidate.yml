@@ -4,6 +4,14 @@ name: Build Candidate
 # triggering commit and pushes it to the shared registry tagged candidate-<yyyy-mm-dd>-<n>
 # (build date + build number; and sha-<gitsha> for traceability). Nothing is deployed here — every
 # environment later deploys this exact artifact by digest.
+#
+# Candidates are prod-bound, so the build runs in the app's `production` GitHub
+# environment and uses its build identity. A PRE-RELEASE app (stage-only: a
+# release candidate exists, production does not yet) has no production
+# environment to borrow, so `setup` resolves the build environment to `staging`
+# for it and everything downstream follows from that one output — see the
+# "Determine build environment" step and "Pre-release (stage-only) apps" in
+# cru-deploy's docs/pipeline-v2.md.
 
 on:
   workflow_call:
@@ -45,6 +53,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       project-name: ${{ steps.info.outputs.project-name }}
+      # GitHub Actions environment the runtime build job runs in -- "production"
+      # for every launched app, "staging" for a pre-release one. See the
+      # "Determine build environment" step.
+      build-env: ${{ steps.build-env.outputs.build-env }}
     steps:
       # A candidate is promotable by definition: whatever this run builds can be
       # deployed to release-candidate and promoted to production, and nothing
@@ -76,6 +88,79 @@ jobs:
           echo "project-name=$project_name" >> "$GITHUB_OUTPUT"
           echo "::notice title=Build Candidate::project=$project_name type=${{ inputs.type }}"
 
+      # Which GitHub Actions environment the runtime build job below runs in --
+      # i.e. whose cloud identity builds the candidate. Normally "production":
+      # candidates are prod-bound, so they are built by the app's PRODUCTION
+      # build identity, the one that holds write on the shared registry. That is
+      # a fleet rule, not an accident.
+      #
+      # A PRE-RELEASE app (stage-only: a release candidate exists, production
+      # does not yet -- see "Pre-release (stage-only) apps" in cru-deploy's
+      # docs/pipeline-v2.md) has no production ANYTHING: no app-info row, no
+      # `production` GitHub environment, no prod build identity, no prod project.
+      # For it the build environment is "staging", and the app's `pre_release`
+      # module knob is what grants that environment's build identity registry
+      # write. Existence of a production app-info row is the test because it is
+      # the same fact every other v2 lookup keys on, and it is written by the
+      # production Terraform directory -- the very thing a pre-release app lacks.
+      #
+      # The probe is app-info's HTTP API, NOT a dynamodb get-item like
+      # deploy-candidate's and promote's lookups. Those run in cru-deploy and
+      # assume GitHubDeployECS, whose trust is cru-deploy-repo-scoped; THIS
+      # workflow runs in the app repo, which cannot assume that role (the same
+      # constraint that makes the notify-failure job below dispatch to cru-deploy
+      # rather than read app-info itself). The public read-only endpoint is the
+      # only lookup available from here, and it needs no credential.
+      #
+      # FAIL-SAFE, deliberately asymmetric: ONLY an unambiguous "there is no
+      # production row" -- HTTP 404, or a 200 carrying an empty object -- selects
+      # staging. Every other outcome (5xx, timeout, DNS failure, unparseable
+      # body) keeps "production", which is exactly today's behavior for every
+      # app. cru-app-info being unreachable must never silently re-point a build
+      # at a different identity; a pre-release app's build failing while the API
+      # is down is the cheaper mistake, and it is loud.
+      - name: Determine build environment
+        id: build-env
+        env:
+          PROJECT_NAME: ${{ steps.info.outputs.project-name }}
+        run: |
+          body="$(mktemp)"
+          # No -f: a 404 is a MEANINGFUL answer here, not a transport failure, so
+          # the status code must survive. --retry covers 5xx/timeouts only, never
+          # a 404. On a hard failure curl writes 000, and the || is a belt.
+          code="$(curl -sS --max-time 20 --retry 2 --retry-connrefused \
+            -o "$body" -w '%{http_code}' \
+            "https://deploys.cru.org/info?project=${PROJECT_NAME}&environment=production")" || code=000
+          case "$code" in
+            200)
+              # A 200 whose body is an empty object is the same answer as a 404;
+              # the endpoint has returned both for a missing row. Anything that
+              # will not parse is inconclusive, so it falls through to the
+              # fail-safe rather than being read as "no row".
+              keys="$(jq -r 'if type == "object" then (keys | length) else "bad" end' "$body" 2>/dev/null || echo bad)"
+              case "$keys" in
+                0)   build_env=staging ;;
+                bad) build_env=production; inconclusive="production app-info row returned an unparseable body" ;;
+                *)   build_env=production ;;
+              esac
+              ;;
+            404)
+              build_env=staging
+              ;;
+            *)
+              build_env=production
+              inconclusive="app-info lookup returned HTTP $code"
+              ;;
+          esac
+          echo "build-env=$build_env" >> "$GITHUB_OUTPUT"
+          if [ -n "${inconclusive:-}" ]; then
+            echo "::warning title=Build environment defaulted::$inconclusive for $PROJECT_NAME; building with the production environment (the fleet default). If this app is pre-release, re-run once https://deploys.cru.org is healthy."
+          elif [ "$build_env" = "staging" ]; then
+            echo "::notice title=Pre-release build::$PROJECT_NAME has no production app-info row, so the candidate is built with the STAGING environment's build identity. Promote is unavailable until the app launches."
+          else
+            echo "::notice title=Build environment::$PROJECT_NAME builds with the production environment's build identity."
+          fi
+
   build-cloudrun:
     name: Build Candidate (Cloud Run)
     if: inputs.type == 'cloudrun'
@@ -96,7 +181,13 @@ jobs:
     # Candidates are prod-bound: they authenticate with the app's PRODUCTION-env
     # github-actions SA (which holds AR writer on the app's shared-registry repo),
     # so the env-scoped vars.GCP_* below are the production environment's values.
-    environment: production
+    # A PRE-RELEASE app has no production environment at all, so `setup` resolves
+    # this to "staging" for it and the staging github-actions SA (granted AR
+    # writer by the module's `pre_release` knob) builds instead -- see setup's
+    # "Determine build environment" step. Job-level `environment` accepts the
+    # `needs` context, and for every launched app this expression evaluates to
+    # the literal "production" it replaces.
+    environment: ${{ needs.setup.outputs.build-env }}
     permissions:
       id-token: write
       contents: read
@@ -123,12 +214,18 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           token_format: access_token
 
+      # The build counter lives in AWS even for a Cloud Run app, reached with the
+      # app's <project>-<env>-GitHubRole. Same environment as the build itself,
+      # so a pre-release app uses -stage-GitHubRole (setup-env maps staging ->
+      # stage) -- the only one that exists for it. The counter table is keyed on
+      # the PROJECT, not the environment, so build numbers stay one sequence per
+      # app whichever role increments them.
       - name: Setup AWS build-counter environment
         uses: ./cru-github-actions/actions/setup-env
         id: setup-env
         with:
           project-name: ${{ needs.setup.outputs.project-name }}
-          environment: production
+          environment: ${{ needs.setup.outputs.build-env }}
           role-suffix: GitHubRole
 
       - name: Configure AWS credentials (build counter)
@@ -280,7 +377,15 @@ jobs:
     # identity is retired for v2). ECR is org-shared (account 056154071827), so
     # the candidate-<n>/sha-<gitsha> families land in the app's EXISTING per-app
     # ECR repo, keyed on the PROJECT NAME (v2 fixes v1's repo-name mismatch).
-    environment: production
+    #
+    # A PRE-RELEASE app (stage-only) has no production environment at all, so
+    # `setup` resolves this to "staging" and its <project>-stage-GitHubRole
+    # builds instead -- see setup's "Determine build environment" step. That role
+    # already carries the identical ECR push + build-counter grants (aws/ecs/app
+    # never gated them on env), so nothing but the role name changes. Job-level
+    # `environment` accepts the `needs` context, and for every launched app this
+    # expression evaluates to the literal "production" it replaces.
+    environment: ${{ needs.setup.outputs.build-env }}
     permissions:
       id-token: write
       contents: read
@@ -304,7 +409,7 @@ jobs:
         id: setup-env
         with:
           project-name: ${{ needs.setup.outputs.project-name }}
-          environment: production
+          environment: ${{ needs.setup.outputs.build-env }}
           role-suffix: GitHubRole
 
       - name: Configure AWS credentials
@@ -448,7 +553,12 @@ jobs:
     # same identity model as the ECS build job. ECR is org-shared (account
     # 056154071827), so the candidate-<n>/sha-<gitsha> families land in the app's
     # EXISTING per-app ECR repo, keyed on the PROJECT NAME.
-    environment: production
+    #
+    # A PRE-RELEASE app (stage-only) resolves this to "staging" and builds with
+    # its <project>-stage-GitHubRole -- see setup's "Determine build environment"
+    # step and the ECS job's note above. For every launched app the expression
+    # evaluates to the literal "production" it replaces.
+    environment: ${{ needs.setup.outputs.build-env }}
     permissions:
       id-token: write
       contents: read
@@ -472,7 +582,7 @@ jobs:
         id: setup-env
         with:
           project-name: ${{ needs.setup.outputs.project-name }}
-          environment: production
+          environment: ${{ needs.setup.outputs.build-env }}
           role-suffix: GitHubRole
 
       - name: Configure AWS credentials
