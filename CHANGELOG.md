@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/CruGlobal/.github/compare/v2.0.2...v2.1.0) (2026-08-25)
+
+
+### Features
+
+* support pre-release (stage-only) apps in build-candidate and promote ([#466](https://github.com/CruGlobal/.github/issues/466)) ([3f6a643](https://github.com/CruGlobal/.github/commit/3f6a64311368c9b696a74f793207b3317bd6d25f))
+
 ## [2.0.2](https://github.com/CruGlobal/.github/compare/v2.0.1...v2.0.2) (2026-08-25)
 
 
