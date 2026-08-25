@@ -18,6 +18,23 @@ name: dependabot-auto-merge
 # checks, GitHub falls back to an immediate merge once auto-merge is
 # enabled — so this workflow's safety relies on the repo's ruleset
 # requiring the CI workflow to pass.
+#
+# Auto-merge is enabled with CRU_DEVOPS_GITHUB_TOKEN, the same PAT the
+# repo's own maintenance workflows use, and NOT the default
+# GITHUB_TOKEN: the eventual merge commit is pushed on behalf of
+# whoever enabled auto-merge, and a push made on behalf of
+# GITHUB_TOKEN starts no workflow run. Enabling it as GITHUB_TOKEN
+# therefore merged the PR but silently skipped every push-triggered
+# workflow — the dist/ rebuild and the release train never ran for the
+# merge, leaving dist/ stale and the commit unreleased until an
+# unrelated merge happened to catch it up.
+#
+# The PAT must be present in this repo's DEPENDABOT secrets, not only
+# its Actions secrets: runs Dependabot triggers read the Dependabot
+# secrets context. If it is absent the token expression falls back to
+# GITHUB_TOKEN — auto-merge still works, but the release train will not
+# fire — so the check step below says so in the run log rather than
+# letting the regression return silently.
 
 on:
   pull_request:
@@ -61,13 +78,29 @@ jobs:
           echo "alert-state=$ALERT_STATE"
           echo "update-type=$UPDATE_TYPE"
 
+      # Report which identity will enable auto-merge, because that
+      # decides whether the merge commit triggers the dist/ rebuild and
+      # the release train at all (see the header). The fallback keeps
+      # merging PRs, so without this the gap is invisible.
+      - name: Check the auto-merge token
+        if: ${{ steps.gate.outputs.eligible == 'true' }}
+        env:
+          MERGE_TOKEN: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$MERGE_TOKEN" ]; then
+            echo "::warning title=Release train will not run for this merge::CRU_DEVOPS_GITHUB_TOKEN is not readable by this run; auto-merge falls back to GITHUB_TOKEN, whose merge commit triggers no push workflows (dist/ rebuild, release train). Add the PAT to this repository's Dependabot secrets."
+          else
+            echo "auto-merge will be enabled with CRU_DEVOPS_GITHUB_TOKEN"
+          fi
+
       - name: Approve PR
         if: ${{ steps.gate.outputs.eligible == 'true' }}
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # gh pr review runs as github-actions[bot], which is a different
-        # identity from dependabot[bot], so the approval satisfies any
+          GH_TOKEN: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+        # gh pr review runs as the PAT's user (or github-actions[bot] on
+        # the fallback) — either way a different identity from
+        # dependabot[bot], so the approval satisfies any
         # "no self-approval" ruleset requirement.
         run: gh pr review --approve "$PR_URL"
 
@@ -75,5 +108,5 @@ jobs:
         if: ${{ steps.gate.outputs.eligible == 'true' }}
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.CRU_DEVOPS_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
         run: gh pr merge --squash --auto "$PR_URL"
