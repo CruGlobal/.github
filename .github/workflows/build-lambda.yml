@@ -97,6 +97,10 @@ jobs:
           DOCKER_NETWORK: ${{ steps.env.outputs.project-name }}
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            # No provenance attestation: BuildKit's default attaches an extra
+            # manifest that registries scan and bill as a second image, and
+            # nothing in the pipeline consumes it.
+            --provenance=false
             --build-arg PROJECT_NAME=${{ steps.env.outputs.project-name }}
             --build-arg ENVIRONMENT=${{ steps.env.outputs.environment }}
             --build-arg BUILD_NUMBER=${{ steps.build-number.outputs.build-number }}
