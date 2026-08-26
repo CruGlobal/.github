@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/CruGlobal/.github/compare/v2.1.0...v2.1.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* disable provenance attestations on candidate builds ([#468](https://github.com/CruGlobal/.github/issues/468)) ([c8574da](https://github.com/CruGlobal/.github/commit/c8574da4bdb6eade0d70fcc85df7baddcedeb012))
+
 ## [2.1.0](https://github.com/CruGlobal/.github/compare/v2.0.2...v2.1.0) (2026-08-25)
 
 
