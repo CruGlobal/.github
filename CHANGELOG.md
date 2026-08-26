@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/CruGlobal/.github/compare/v2.1.1...v2.1.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* comment lines inside DOCKER_ARGS block scalars broke every build ([#471](https://github.com/CruGlobal/.github/issues/471)) ([f1ea980](https://github.com/CruGlobal/.github/commit/f1ea980cbc64af0a52d46649d86246a5e1e1a62a))
+
 ## [2.1.1](https://github.com/CruGlobal/.github/compare/v2.1.0...v2.1.1) (2026-08-26)
 
 
