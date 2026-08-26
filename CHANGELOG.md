@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.3](https://github.com/CruGlobal/.github/compare/v1.10.2...v1.10.3) (2026-08-26)
+
+
+### Bug Fixes
+
+* **build:** move provenance comments out of the DOCKER_ARGS block scalars (v1.10.2 passed them to docker as arguments, breaking every build)
+
 ## [1.10.2](https://github.com/CruGlobal/.github/compare/v1.10.1...v1.10.2) (2026-08-26)
 
 
