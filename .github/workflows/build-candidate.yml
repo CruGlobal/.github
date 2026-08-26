@@ -341,6 +341,11 @@ jobs:
           # environment. Apps without the ARG just log an unused-build-arg warning.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            # No provenance attestation: BuildKit's default attaches an extra
+            # manifest that registries treat (and bill) as a second scanned
+            # image, and nothing in the pipeline consumes it — promotion is
+            # digest-pinned to the image itself.
+            --provenance=false
             --build-arg VERSION=${{ steps.built.outputs.version }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
@@ -518,6 +523,11 @@ jobs:
           # VERSION: see the Cloud Run job's comment -- one build identity, baked.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            # No provenance attestation: BuildKit's default attaches an extra
+            # manifest that registries treat (and bill) as a second scanned
+            # image, and nothing in the pipeline consumes it — promotion is
+            # digest-pinned to the image itself.
+            --provenance=false
             --build-arg VERSION=${{ steps.built.outputs.version }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
@@ -704,6 +714,11 @@ jobs:
           # VERSION: see the Cloud Run job's comment -- one build identity, baked.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            # No provenance attestation: BuildKit's default attaches an extra
+            # manifest that registries treat (and bill) as a second scanned
+            # image, and nothing in the pipeline consumes it — promotion is
+            # digest-pinned to the image itself.
+            --provenance=false
             --build-arg VERSION=${{ steps.built.outputs.version }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
