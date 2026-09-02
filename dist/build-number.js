@@ -50413,7 +50413,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1115.0";
+    var version = "3.1120.0";
     var packageInfo = {
       version
     };

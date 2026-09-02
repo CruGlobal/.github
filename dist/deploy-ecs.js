@@ -44821,7 +44821,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1115.0";
+    var version = "3.1120.0";
     var packageInfo = {
       version
     };
@@ -45444,6 +45444,7 @@ var require_dist_cjs16 = __commonJS({
     var _DEGSResc = "DescribeExpressGatewayServiceResponse";
     var _DEGSe = "DescribeExpressGatewayService";
     var _DES = "DeploymentEphemeralStorage";
+    var _DESC = "DeploymentEarlySuccessCriteria";
     var _DL = "DevicesList";
     var _DLH = "DeploymentLifecycleHook";
     var _DLHD = "DeploymentLifecycleHookDetail";
@@ -46029,6 +46030,7 @@ var require_dist_cjs16 = __commonJS({
     var _eRA = "executionRoleArn";
     var _eS = "effectiveSettings";
     var _eSA = "executionStoppedAt";
+    var _eSC = "earlySuccessCriteria";
     var _eSp = "ephemeralStorage";
     var _eVC = "efsVolumeConfiguration";
     var _en = "environment";
@@ -46072,9 +46074,10 @@ var require_dist_cjs16 = __commonJS({
     var _hE5 = "httpError";
     var _hI = "hookId";
     var _hL = "hardLimit";
-    var _hP = "hostPath";
+    var _hP = "healthyPercent";
     var _hPR = "hostPortRange";
-    var _hPo = "hostPort";
+    var _hPo = "hostPath";
+    var _hPos = "hostPort";
     var _hS = "healthStatus";
     var _hTA = "hookTargetArn";
     var _he = "header";
@@ -46316,6 +46319,7 @@ var require_dist_cjs16 = __commonJS({
     var _sSG = "serviceSecurityGroups";
     var _sSGB = "storageSizeGiB";
     var _sSR = "sourceServiceRevisions";
+    var _sSRC = "sourceServiceRevisionCleanup";
     var _sSV = "stringSetValue";
     var _sSt = "stabilityStatus";
     var _sT3 = "startTimeout";
@@ -47432,8 +47436,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DC,
       0,
-      [_dCB, _mPa, _mHP, _al, _str, _bTIM, _lH, _lCi, _cC],
-      [() => DeploymentCircuitBreaker$, 1, 1, () => DeploymentAlarms$, 0, 1, () => DeploymentLifecycleHookList, () => LinearConfiguration$, () => CanaryConfiguration$]
+      [_dCB, _mPa, _mHP, _al, _str, _bTIM, _lH, _lCi, _cC, _eSC],
+      [() => DeploymentCircuitBreaker$, 1, 1, () => DeploymentAlarms$, 0, 1, () => DeploymentLifecycleHookList, () => LinearConfiguration$, () => CanaryConfiguration$, () => DeploymentEarlySuccessCriteria$]
     ];
     var DeploymentController$ = [
       3,
@@ -47442,6 +47446,15 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_t],
       [0],
+      1
+    ];
+    var DeploymentEarlySuccessCriteria$ = [
+      3,
+      n05,
+      _DESC,
+      0,
+      [_enab, _hP, _sSRC],
+      [2, 1, 0],
       1
     ];
     var DeploymentEphemeralStorage$ = [
@@ -47751,7 +47764,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _De,
       0,
-      [_hP, _cPo, _pe],
+      [_hPo, _cPo, _pe],
       [0, 0, 64 | 0],
       1
     ];
@@ -48581,7 +48594,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _NB,
       0,
-      [_bIP, _cPon, _hPo, _pr, _cPR, _hPR],
+      [_bIP, _cPon, _hPos, _pr, _cPR, _hPR],
       [0, 1, 1, 0, 0, 0]
     ];
     var NetworkConfiguration$ = [
@@ -48638,7 +48651,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _PM,
       0,
-      [_cPon, _hPo, _pr, _n, _aP, _cPR],
+      [_cPon, _hPos, _pr, _n, _aP, _cPR],
       [1, 1, 0, 0, 0, 0]
     ];
     var ProtectedTask$ = [
@@ -52255,6 +52268,10 @@ var require_dist_cjs16 = __commonJS({
       COUNT: "COUNT",
       UNBOUNDED_PERCENT: "UNBOUNDED_PERCENT"
     };
+    var ServiceRevisionCleanup = {
+      BLOCKING: "BLOCKING",
+      DEFERRED: "DEFERRED"
+    };
     var DeploymentLifecycleHookStage = {
       POST_PRODUCTION_TRAFFIC_SHIFT: "POST_PRODUCTION_TRAFFIC_SHIFT",
       POST_SCALE_UP: "POST_SCALE_UP",
@@ -52604,6 +52621,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeploymentConfiguration$ = DeploymentConfiguration$;
     exports2.DeploymentController$ = DeploymentController$;
     exports2.DeploymentControllerType = DeploymentControllerType;
+    exports2.DeploymentEarlySuccessCriteria$ = DeploymentEarlySuccessCriteria$;
     exports2.DeploymentEphemeralStorage$ = DeploymentEphemeralStorage$;
     exports2.DeploymentLifecycleHook$ = DeploymentLifecycleHook$;
     exports2.DeploymentLifecycleHookAction = DeploymentLifecycleHookAction;
@@ -52959,6 +52977,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.ServiceNotFoundException$ = ServiceNotFoundException$;
     exports2.ServiceRegistry$ = ServiceRegistry$;
     exports2.ServiceRevision$ = ServiceRevision$;
+    exports2.ServiceRevisionCleanup = ServiceRevisionCleanup;
     exports2.ServiceRevisionLoadBalancer$ = ServiceRevisionLoadBalancer$;
     exports2.ServiceRevisionOverrides$ = ServiceRevisionOverrides$;
     exports2.ServiceRevisionSummary$ = ServiceRevisionSummary$;
@@ -53194,7 +53213,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1115.0";
+    var version = "3.1120.0";
     var packageInfo = {
       version
     };
@@ -67457,7 +67476,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1115.0";
+    var version = "3.1120.0";
     var packageInfo = {
       version
     };
