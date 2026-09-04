@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.3](https://github.com/CruGlobal/.github/compare/v2.1.2...v2.1.3) (2026-09-04)
+
+
+### Bug Fixes
+
+* forward-port --provenance=false to the v1-style build workflows on the v2 line ([#479](https://github.com/CruGlobal/.github/issues/479)) ([ee6b55d](https://github.com/CruGlobal/.github/commit/ee6b55d2ee40f186ba7e8f830a0b68f631a7da63))
+* no-change guard reports an absent sha tag as found=false instead of an error ([#477](https://github.com/CruGlobal/.github/issues/477)) ([b1e16b4](https://github.com/CruGlobal/.github/commit/b1e16b405f0672e84520ce4521ce8943286026bf))
+
 ## [2.1.2](https://github.com/CruGlobal/.github/compare/v2.1.1...v2.1.2) (2026-08-26)
 
 
