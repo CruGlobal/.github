@@ -106,8 +106,12 @@ jobs:
         env:
           DOCKER_NETWORK: ${{ steps.env.outputs.project-name }}
           GITHUB_TOKEN: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN || github.token }}
+          # --provenance=false: BuildKit's default attestation adds an extra
+          # manifest that registries scan and bill as a second image; nothing
+          # in the pipeline consumes it.
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
+            --provenance=false
             --cache-from type=local,src=/tmp/.buildx-cache
             --cache-to type=local,dest=/tmp/.buildx-cache-new
             --tag ${{ steps.ecr.outputs.registry }}/${{ github.event.repository.name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
