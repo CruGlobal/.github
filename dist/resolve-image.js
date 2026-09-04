@@ -218441,6 +218441,13 @@ var require_src14 = __commonJS({
   }
 });
 
+// src/resolve-image.js
+var resolve_image_exports = {};
+__export(resolve_image_exports, {
+  run: () => run
+});
+module.exports = __toCommonJS(resolve_image_exports);
+
 // node_modules/@actions/core/lib/command.js
 var os = __toESM(require("os"), 1);
 
@@ -218914,6 +218921,17 @@ function getInput(name, options) {
   }
   return val.trim();
 }
+function getBooleanInput(name, options) {
+  const trueValue = ["true", "True", "TRUE"];
+  const falseValue = ["false", "False", "FALSE"];
+  const val = getInput(name, options);
+  if (trueValue.includes(val))
+    return true;
+  if (falseValue.includes(val))
+    return false;
+  throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}
+Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
+}
 function setOutput(name, value) {
   const filePath = process.env["GITHUB_OUTPUT"] || "";
   if (filePath) {
@@ -218935,6 +218953,16 @@ function warning(message, properties = {}) {
 function info(message) {
   process.stdout.write(message + os4.EOL);
 }
+
+// src/v2/errors.js
+var TagNotFoundError = class extends Error {
+  constructor(tag, location) {
+    super(`Tag "${tag}" not found in ${location}`);
+    this.name = "TagNotFoundError";
+    this.tag = tag;
+    this.location = location;
+  }
+};
 
 // src/v2/env.js
 var V2_ENVIRONMENTS = Object.freeze({
@@ -219226,9 +219254,7 @@ async function resolveTag(projectName, tag) {
     }
   }
   if (!match) {
-    throw new Error(
-      `Tag "${tag}" not found in ${SHARED_PROJECT}/${sharedRegistryRepo(projectName)}`
-    );
+    throw new TagNotFoundError(tag, `${SHARED_PROJECT}/${sharedRegistryRepo(projectName)}`);
   }
   const { digest: digest2 } = parseImageRef(match.uri);
   return {
@@ -219343,7 +219369,7 @@ async function ecrDescribeTag(client, projectName, tag) {
   }));
   const detail = response.imageDetails?.[0];
   if (!detail?.imageDigest) {
-    throw new Error(`Tag "${tag}" not found in ECR repository ${ecrRepo(projectName)}`);
+    throw new TagNotFoundError(tag, `ECR repository ${ecrRepo(projectName)}`);
   }
   return { digest: detail.imageDigest, tags: detail.imageTags ?? [] };
 }
@@ -219481,7 +219507,9 @@ async function resolveRunningImage3(projectName, environment) {
 
 // src/resolve-image.js
 async function run() {
+  let missingOk = false;
   try {
+    missingOk = getBooleanInput("missing-ok");
     const type = getInput("type", { required: true });
     const projectName = getInput("project-name", { required: true });
     const mode = getInput("mode", { required: true });
@@ -219502,10 +219530,19 @@ async function run() {
     }
     const resolved = await dispatch(type, { mode, projectName, environment, tag, runtimeProject });
     info(`resolved image: ${resolved.image}`);
+    setOutput("found", "true");
     setOutput("image", resolved.image);
     setOutput("digest", resolved.digest);
     setOutput("tags", (resolved.tags ?? []).join(","));
   } catch (error3) {
+    if (missingOk && error3 instanceof TagNotFoundError) {
+      info(`${error3.message}; missing-ok is set, so reporting found=false instead of failing`);
+      setOutput("found", "false");
+      setOutput("image", "");
+      setOutput("digest", "");
+      setOutput("tags", "");
+      return;
+    }
     setFailed(error3.message);
   }
 }
@@ -219521,7 +219558,11 @@ function dispatch(type, args) {
       throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`);
   }
 }
-run();
+if (!process.env.VITEST) run();
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  run
+});
 /*! Bundled license information:
 
 undici/lib/web/fetch/body.js:
