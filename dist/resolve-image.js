@@ -212073,6 +212073,722 @@ var require_dist_cjs18 = __commonJS({
   }
 });
 
+// node_modules/google-auth-library/node_modules/gcp-metadata/build/src/gcp-residency.js
+var require_gcp_residency2 = __commonJS({
+  "node_modules/google-auth-library/node_modules/gcp-metadata/build/src/gcp-residency.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.GCE_LINUX_BIOS_PATHS = void 0;
+    exports2.isGoogleCloudServerless = isGoogleCloudServerless;
+    exports2.isGoogleComputeEngineLinux = isGoogleComputeEngineLinux;
+    exports2.isGoogleComputeEngineMACAddress = isGoogleComputeEngineMACAddress;
+    exports2.isGoogleComputeEngine = isGoogleComputeEngine;
+    exports2.detectGCPResidency = detectGCPResidency;
+    var fs_1 = require("fs");
+    var os_1 = require("os");
+    exports2.GCE_LINUX_BIOS_PATHS = {
+      BIOS_DATE: "/sys/class/dmi/id/bios_date",
+      BIOS_VENDOR: "/sys/class/dmi/id/bios_vendor"
+    };
+    var GCE_MAC_ADDRESS_REGEX = /^42:01/;
+    function isGoogleCloudServerless() {
+      const isGFEnvironment = process.env.CLOUD_RUN_JOB || process.env.FUNCTION_NAME || process.env.K_SERVICE;
+      return !!isGFEnvironment;
+    }
+    function isGoogleComputeEngineLinux() {
+      if ((0, os_1.platform)() !== "linux")
+        return false;
+      try {
+        (0, fs_1.statSync)(exports2.GCE_LINUX_BIOS_PATHS.BIOS_DATE);
+        const biosVendor = (0, fs_1.readFileSync)(exports2.GCE_LINUX_BIOS_PATHS.BIOS_VENDOR, "utf8");
+        return /Google/.test(biosVendor);
+      } catch {
+        return false;
+      }
+    }
+    function isGoogleComputeEngineMACAddress() {
+      const interfaces = (0, os_1.networkInterfaces)();
+      for (const item of Object.values(interfaces)) {
+        if (!item)
+          continue;
+        for (const { mac } of item) {
+          if (GCE_MAC_ADDRESS_REGEX.test(mac)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    function isGoogleComputeEngine() {
+      return isGoogleComputeEngineLinux() || isGoogleComputeEngineMACAddress();
+    }
+    function detectGCPResidency() {
+      return isGoogleCloudServerless() || isGoogleComputeEngine();
+    }
+  }
+});
+
+// node_modules/google-auth-library/node_modules/google-logging-utils/build/src/colours.js
+var require_colours2 = __commonJS({
+  "node_modules/google-auth-library/node_modules/google-logging-utils/build/src/colours.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.Colours = void 0;
+    var Colours = class _Colours {
+      static enabled = false;
+      static reset = "";
+      static bright = "";
+      static dim = "";
+      static red = "";
+      static green = "";
+      static yellow = "";
+      static blue = "";
+      static magenta = "";
+      static cyan = "";
+      static white = "";
+      static grey = "";
+      /**
+       * @param stream The stream (e.g. process.stderr)
+       * @returns true if the stream should have colourization enabled
+       */
+      static isEnabled(stream) {
+        return stream && // May happen in browsers.
+        stream.isTTY && (typeof stream.getColorDepth === "function" ? stream.getColorDepth() > 2 : true);
+      }
+      static refresh() {
+        _Colours.enabled = _Colours.isEnabled(process?.stderr);
+        if (!this.enabled) {
+          _Colours.reset = "";
+          _Colours.bright = "";
+          _Colours.dim = "";
+          _Colours.red = "";
+          _Colours.green = "";
+          _Colours.yellow = "";
+          _Colours.blue = "";
+          _Colours.magenta = "";
+          _Colours.cyan = "";
+          _Colours.white = "";
+          _Colours.grey = "";
+        } else {
+          _Colours.reset = "\x1B[0m";
+          _Colours.bright = "\x1B[1m";
+          _Colours.dim = "\x1B[2m";
+          _Colours.red = "\x1B[31m";
+          _Colours.green = "\x1B[32m";
+          _Colours.yellow = "\x1B[33m";
+          _Colours.blue = "\x1B[34m";
+          _Colours.magenta = "\x1B[35m";
+          _Colours.cyan = "\x1B[36m";
+          _Colours.white = "\x1B[37m";
+          _Colours.grey = "\x1B[90m";
+        }
+      }
+    };
+    exports2.Colours = Colours;
+    Colours.refresh();
+  }
+});
+
+// node_modules/google-auth-library/node_modules/google-logging-utils/build/src/types.js
+var require_types2 = __commonJS({
+  "node_modules/google-auth-library/node_modules/google-logging-utils/build/src/types.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.LogSeverity = void 0;
+    var LogSeverity;
+    (function(LogSeverity2) {
+      LogSeverity2["DEFAULT"] = "DEFAULT";
+      LogSeverity2["DEBUG"] = "DEBUG";
+      LogSeverity2["INFO"] = "INFO";
+      LogSeverity2["WARNING"] = "WARNING";
+      LogSeverity2["ERROR"] = "ERROR";
+    })(LogSeverity || (exports2.LogSeverity = LogSeverity = {}));
+  }
+});
+
+// node_modules/google-auth-library/node_modules/google-logging-utils/build/src/logging-utils.js
+var require_logging_utils2 = __commonJS({
+  "node_modules/google-auth-library/node_modules/google-logging-utils/build/src/logging-utils.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
+      if (k22 === void 0) k22 = k5;
+      var desc = Object.getOwnPropertyDescriptor(m4, k5);
+      if (!desc || ("get" in desc ? !m4.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m4[k5];
+        } };
+      }
+      Object.defineProperty(o3, k22, desc);
+    }) : (function(o3, m4, k5, k22) {
+      if (k22 === void 0) k22 = k5;
+      o3[k22] = m4[k5];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o3, v) {
+      Object.defineProperty(o3, "default", { enumerable: true, value: v });
+    }) : function(o3, v) {
+      o3["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o3) {
+        ownKeys = Object.getOwnPropertyNames || function(o4) {
+          var ar = [];
+          for (var k5 in o4) if (Object.prototype.hasOwnProperty.call(o4, k5)) ar[ar.length] = k5;
+          return ar;
+        };
+        return ownKeys(o3);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k5 = ownKeys(mod), i6 = 0; i6 < k5.length; i6++) if (k5[i6] !== "default") __createBinding(result, mod, k5[i6]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.env = exports2.DebugLogBackendBase = exports2.placeholder = exports2.AdhocDebugLogger = void 0;
+    exports2.getNodeBackend = getNodeBackend;
+    exports2.getDebugBackend = getDebugBackend;
+    exports2.getStructuredBackend = getStructuredBackend;
+    exports2.setBackend = setBackend;
+    exports2.log = log;
+    var events_1 = require("events");
+    var process2 = __importStar(require("process"));
+    var util = __importStar(require("util"));
+    var colours_1 = require_colours2();
+    var types_1 = require_types2();
+    var AdhocDebugLogger = class extends events_1.EventEmitter {
+      // Our namespace (system/subsystem/etc)
+      namespace;
+      // The function we'll call with new log lines.
+      // Should be built in Node util stuff, or the "debug" package, or whatever.
+      upstream;
+      // Self-referential function wrapper that calls invoke() on us.
+      func;
+      /**
+       * @param upstream The backend will pass a function that will be
+       * called whenever our logger function is invoked.
+       */
+      constructor(namespace, upstream) {
+        super();
+        this.namespace = namespace;
+        this.upstream = upstream;
+        this.func = Object.assign(this.invoke.bind(this), {
+          // Also add an instance pointer back to us.
+          instance: this,
+          // And pull over the EventEmitter functionality.
+          on: (event, listener) => this.on(event, listener)
+        });
+        this.func.debug = (...args) => this.invokeSeverity(types_1.LogSeverity.DEBUG, ...args);
+        this.func.info = (...args) => this.invokeSeverity(types_1.LogSeverity.INFO, ...args);
+        this.func.warn = (...args) => this.invokeSeverity(types_1.LogSeverity.WARNING, ...args);
+        this.func.error = (...args) => this.invokeSeverity(types_1.LogSeverity.ERROR, ...args);
+        this.func.sublog = (namespace2) => log(namespace2, this.func);
+      }
+      invoke(fields, ...args) {
+        if (this.upstream) {
+          try {
+            this.upstream(fields, ...args);
+          } catch (e6) {
+          }
+        }
+        try {
+          this.emit("log", fields, args);
+        } catch (e6) {
+        }
+      }
+      invokeSeverity(severity, ...args) {
+        this.invoke({ severity }, ...args);
+      }
+    };
+    exports2.AdhocDebugLogger = AdhocDebugLogger;
+    exports2.placeholder = new AdhocDebugLogger("", () => {
+    }).func;
+    var DebugLogBackendBase = class {
+      cached = /* @__PURE__ */ new Map();
+      filters = [];
+      filtersSet = false;
+      constructor() {
+        let nodeFlag = process2.env[exports2.env.nodeEnables] ?? "*";
+        if (nodeFlag === "all") {
+          nodeFlag = "*";
+        }
+        this.filters = nodeFlag.split(",");
+      }
+      log(namespace, fields, ...args) {
+        try {
+          if (!this.filtersSet) {
+            this.setFilters();
+            this.filtersSet = true;
+          }
+          let logger2 = this.cached.get(namespace);
+          if (!logger2) {
+            logger2 = this.makeLogger(namespace);
+            this.cached.set(namespace, logger2);
+          }
+          logger2(fields, ...args);
+        } catch (e6) {
+          console.error(e6);
+        }
+      }
+    };
+    exports2.DebugLogBackendBase = DebugLogBackendBase;
+    var NodeBackend = class extends DebugLogBackendBase {
+      // Default to allowing all systems, since we gate earlier based on whether the
+      // variable is empty.
+      enabledRegexp = /.*/g;
+      isEnabled(namespace) {
+        return this.enabledRegexp.test(namespace);
+      }
+      makeLogger(namespace) {
+        if (!this.enabledRegexp.test(namespace)) {
+          return () => {
+          };
+        }
+        return (fields, ...args) => {
+          const nscolour = `${colours_1.Colours.green}${namespace}${colours_1.Colours.reset}`;
+          const pid = `${colours_1.Colours.yellow}${process2.pid}${colours_1.Colours.reset}`;
+          let level;
+          switch (fields.severity) {
+            case types_1.LogSeverity.ERROR:
+              level = `${colours_1.Colours.red}${fields.severity}${colours_1.Colours.reset}`;
+              break;
+            case types_1.LogSeverity.INFO:
+              level = `${colours_1.Colours.magenta}${fields.severity}${colours_1.Colours.reset}`;
+              break;
+            case types_1.LogSeverity.WARNING:
+              level = `${colours_1.Colours.yellow}${fields.severity}${colours_1.Colours.reset}`;
+              break;
+            default:
+              level = fields.severity ?? types_1.LogSeverity.DEFAULT;
+              break;
+          }
+          const msg = util.formatWithOptions({ colors: colours_1.Colours.enabled }, ...args);
+          const filteredFields = Object.assign({}, fields);
+          delete filteredFields.severity;
+          const fieldsJson = Object.getOwnPropertyNames(filteredFields).length ? JSON.stringify(filteredFields) : "";
+          const fieldsColour = fieldsJson ? `${colours_1.Colours.grey}${fieldsJson}${colours_1.Colours.reset}` : "";
+          console.error("%s [%s|%s] %s%s", pid, nscolour, level, msg, fieldsJson ? ` ${fieldsColour}` : "");
+        };
+      }
+      // Regexp patterns below are from here:
+      // https://github.com/nodejs/node/blob/c0aebed4b3395bd65d54b18d1fd00f071002ac20/lib/internal/util/debuglog.js#L36
+      setFilters() {
+        const totalFilters = this.filters.join(",");
+        const regexp = totalFilters.replace(/[|\\{}()[\]^$+?.]/g, "\\$&").replace(/\*/g, ".*").replace(/,/g, "$|^");
+        this.enabledRegexp = new RegExp(`^${regexp}$`, "i");
+      }
+    };
+    function getNodeBackend() {
+      return new NodeBackend();
+    }
+    var DebugBackend = class extends DebugLogBackendBase {
+      debugPkg;
+      constructor(pkg) {
+        super();
+        this.debugPkg = pkg;
+      }
+      makeLogger(namespace) {
+        const debugLogger = this.debugPkg(namespace);
+        return (fields, ...args) => {
+          debugLogger(args[0], ...args.slice(1));
+        };
+      }
+      setFilters() {
+        const existingFilters = process2.env["NODE_DEBUG"] ?? "";
+        process2.env["NODE_DEBUG"] = `${existingFilters}${existingFilters ? "," : ""}${this.filters.join(",")}`;
+      }
+    };
+    function getDebugBackend(debugPkg) {
+      return new DebugBackend(debugPkg);
+    }
+    var StructuredBackend = class extends DebugLogBackendBase {
+      upstream;
+      constructor(upstream) {
+        super();
+        this.upstream = upstream ?? void 0;
+      }
+      makeLogger(namespace) {
+        const debugLogger = this.upstream?.makeLogger(namespace);
+        return (fields, ...args) => {
+          const severity = fields.severity ?? types_1.LogSeverity.INFO;
+          const json = Object.assign({
+            severity,
+            message: util.format(...args)
+          }, fields);
+          const jsonString = JSON.stringify(json);
+          if (debugLogger) {
+            debugLogger(fields, jsonString);
+          } else {
+            console.log("%s", jsonString);
+          }
+        };
+      }
+      setFilters() {
+        this.upstream?.setFilters();
+      }
+    };
+    function getStructuredBackend(upstream) {
+      return new StructuredBackend(upstream);
+    }
+    exports2.env = {
+      /**
+       * Filter wildcards specific to the Node syntax, and similar to the built-in
+       * utils.debuglog() environment variable. If missing, disables logging.
+       */
+      nodeEnables: "GOOGLE_SDK_NODE_LOGGING"
+    };
+    var loggerCache = /* @__PURE__ */ new Map();
+    var cachedBackend = void 0;
+    function setBackend(backend) {
+      cachedBackend = backend;
+      loggerCache.clear();
+    }
+    function log(namespace, parent) {
+      if (!cachedBackend) {
+        const enablesFlag = process2.env[exports2.env.nodeEnables];
+        if (!enablesFlag) {
+          return exports2.placeholder;
+        }
+      }
+      if (!namespace) {
+        return exports2.placeholder;
+      }
+      if (parent) {
+        namespace = `${parent.instance.namespace}:${namespace}`;
+      }
+      const existing = loggerCache.get(namespace);
+      if (existing) {
+        return existing.func;
+      }
+      if (cachedBackend === null) {
+        return exports2.placeholder;
+      } else if (cachedBackend === void 0) {
+        cachedBackend = getNodeBackend();
+      }
+      const logger2 = (() => {
+        let previousBackend = void 0;
+        const newLogger = new AdhocDebugLogger(namespace, (fields, ...args) => {
+          if (previousBackend !== cachedBackend) {
+            if (cachedBackend === null) {
+              return;
+            } else if (cachedBackend === void 0) {
+              cachedBackend = getNodeBackend();
+            }
+            previousBackend = cachedBackend;
+          }
+          cachedBackend?.log(namespace, fields, ...args);
+        });
+        return newLogger;
+      })();
+      loggerCache.set(namespace, logger2);
+      return logger2.func;
+    }
+  }
+});
+
+// node_modules/google-auth-library/node_modules/google-logging-utils/build/src/index.js
+var require_src14 = __commonJS({
+  "node_modules/google-auth-library/node_modules/google-logging-utils/build/src/index.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
+      if (k22 === void 0) k22 = k5;
+      var desc = Object.getOwnPropertyDescriptor(m4, k5);
+      if (!desc || ("get" in desc ? !m4.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m4[k5];
+        } };
+      }
+      Object.defineProperty(o3, k22, desc);
+    }) : (function(o3, m4, k5, k22) {
+      if (k22 === void 0) k22 = k5;
+      o3[k22] = m4[k5];
+    }));
+    var __exportStar = exports2 && exports2.__exportStar || function(m4, exports3) {
+      for (var p3 in m4) if (p3 !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p3)) __createBinding(exports3, m4, p3);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    __exportStar(require_logging_utils2(), exports2);
+  }
+});
+
+// node_modules/google-auth-library/node_modules/gcp-metadata/build/src/index.js
+var require_src15 = __commonJS({
+  "node_modules/google-auth-library/node_modules/gcp-metadata/build/src/index.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
+      if (k22 === void 0) k22 = k5;
+      var desc = Object.getOwnPropertyDescriptor(m4, k5);
+      if (!desc || ("get" in desc ? !m4.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m4[k5];
+        } };
+      }
+      Object.defineProperty(o3, k22, desc);
+    }) : (function(o3, m4, k5, k22) {
+      if (k22 === void 0) k22 = k5;
+      o3[k22] = m4[k5];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o3, v) {
+      Object.defineProperty(o3, "default", { enumerable: true, value: v });
+    }) : function(o3, v) {
+      o3["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o3) {
+        ownKeys = Object.getOwnPropertyNames || function(o4) {
+          var ar = [];
+          for (var k5 in o4) if (Object.prototype.hasOwnProperty.call(o4, k5)) ar[ar.length] = k5;
+          return ar;
+        };
+        return ownKeys(o3);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k5 = ownKeys(mod), i6 = 0; i6 < k5.length; i6++) if (k5[i6] !== "default") __createBinding(result, mod, k5[i6]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    var __exportStar = exports2 && exports2.__exportStar || function(m4, exports3) {
+      for (var p3 in m4) if (p3 !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p3)) __createBinding(exports3, m4, p3);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.gcpResidencyCache = exports2.METADATA_SERVER_DETECTION = exports2.HEADERS = exports2.HEADER_VALUE = exports2.HEADER_NAME = exports2.SECONDARY_HOST_ADDRESS = exports2.HOST_ADDRESS = exports2.BASE_PATH = void 0;
+    exports2.instance = instance;
+    exports2.project = project;
+    exports2.universe = universe;
+    exports2.bulk = bulk;
+    exports2.isAvailable = isAvailable;
+    exports2.resetIsAvailableCache = resetIsAvailableCache;
+    exports2.getGCPResidency = getGCPResidency;
+    exports2.setGCPResidency = setGCPResidency;
+    exports2.requestTimeout = requestTimeout;
+    var gaxios_1 = require_src5();
+    var jsonBigint = require_json_bigint();
+    var gcp_residency_1 = require_gcp_residency2();
+    var logger2 = __importStar(require_src14());
+    exports2.BASE_PATH = "/computeMetadata/v1";
+    exports2.HOST_ADDRESS = "http://169.254.169.254";
+    exports2.SECONDARY_HOST_ADDRESS = "http://metadata.google.internal.";
+    exports2.HEADER_NAME = "Metadata-Flavor";
+    exports2.HEADER_VALUE = "Google";
+    exports2.HEADERS = Object.freeze({ [exports2.HEADER_NAME]: exports2.HEADER_VALUE });
+    var log = logger2.log("gcp-metadata");
+    exports2.METADATA_SERVER_DETECTION = Object.freeze({
+      "assume-present": "don't try to ping the metadata server, but assume it's present",
+      none: "don't try to ping the metadata server, but don't try to use it either",
+      "bios-only": "treat the result of a BIOS probe as canonical (don't fall back to pinging)",
+      "ping-only": "skip the BIOS probe, and go straight to pinging"
+    });
+    function getBaseUrl(baseUrl) {
+      if (!baseUrl) {
+        baseUrl = process.env.GCE_METADATA_IP || process.env.GCE_METADATA_HOST || exports2.HOST_ADDRESS;
+      }
+      if (!/^https?:\/\//.test(baseUrl)) {
+        baseUrl = `http://${baseUrl}`;
+      }
+      return new URL(exports2.BASE_PATH, baseUrl).href;
+    }
+    function validate(options) {
+      Object.keys(options).forEach((key) => {
+        switch (key) {
+          case "params":
+          case "property":
+          case "headers":
+            break;
+          case "qs":
+            throw new Error("'qs' is not a valid configuration option. Please use 'params' instead.");
+          default:
+            throw new Error(`'${key}' is not a valid configuration option.`);
+        }
+      });
+    }
+    async function metadataAccessor(type, options = {}, noResponseRetries = 3, fastFail = false) {
+      const headers = new Headers(exports2.HEADERS);
+      let metadataKey = "";
+      let params = {};
+      if (typeof type === "object") {
+        const metadataAccessor2 = type;
+        new Headers(metadataAccessor2.headers).forEach((value, key) => headers.set(key, value));
+        metadataKey = metadataAccessor2.metadataKey;
+        params = metadataAccessor2.params || params;
+        noResponseRetries = metadataAccessor2.noResponseRetries || noResponseRetries;
+        fastFail = metadataAccessor2.fastFail || fastFail;
+      } else {
+        metadataKey = type;
+      }
+      if (typeof options === "string") {
+        metadataKey += `/${options}`;
+      } else {
+        validate(options);
+        if (options.property) {
+          metadataKey += `/${options.property}`;
+        }
+        new Headers(options.headers).forEach((value, key) => headers.set(key, value));
+        params = options.params || params;
+      }
+      const requestMethod = fastFail ? fastFailMetadataRequest : gaxios_1.request;
+      const req = {
+        url: `${getBaseUrl()}/${metadataKey}`,
+        headers,
+        retryConfig: { noResponseRetries },
+        params,
+        responseType: "text",
+        timeout: requestTimeout()
+      };
+      log.info("instance request %j", req);
+      const res = await requestMethod(req);
+      log.info("instance metadata is %s", res.data);
+      const metadataFlavor = res.headers.get(exports2.HEADER_NAME);
+      if (metadataFlavor !== exports2.HEADER_VALUE) {
+        throw new RangeError(`Invalid response from metadata service: incorrect ${exports2.HEADER_NAME} header. Expected '${exports2.HEADER_VALUE}', got ${metadataFlavor ? `'${metadataFlavor}'` : "no header"}`);
+      }
+      if (typeof res.data === "string") {
+        try {
+          return jsonBigint.parse(res.data);
+        } catch {
+        }
+      }
+      return res.data;
+    }
+    async function fastFailMetadataRequest(options) {
+      const secondaryOptions = {
+        ...options,
+        url: options.url?.toString().replace(getBaseUrl(), getBaseUrl(exports2.SECONDARY_HOST_ADDRESS))
+      };
+      const r1 = (0, gaxios_1.request)(options);
+      const r22 = (0, gaxios_1.request)(secondaryOptions);
+      return Promise.any([r1, r22]);
+    }
+    function instance(options) {
+      return metadataAccessor("instance", options);
+    }
+    function project(options) {
+      return metadataAccessor("project", options);
+    }
+    function universe(options) {
+      return metadataAccessor("universe", options);
+    }
+    async function bulk(properties) {
+      const r6 = {};
+      await Promise.all(properties.map((item) => {
+        return (async () => {
+          const res = await metadataAccessor(item);
+          const key = item.metadataKey;
+          r6[key] = res;
+        })();
+      }));
+      return r6;
+    }
+    function detectGCPAvailableRetries() {
+      return process.env.DETECT_GCP_RETRIES ? Number(process.env.DETECT_GCP_RETRIES) : 0;
+    }
+    var cachedIsAvailableResponse;
+    async function isAvailable() {
+      if (process.env.METADATA_SERVER_DETECTION) {
+        const value = process.env.METADATA_SERVER_DETECTION.trim().toLocaleLowerCase();
+        if (!(value in exports2.METADATA_SERVER_DETECTION)) {
+          throw new RangeError(`Unknown \`METADATA_SERVER_DETECTION\` env variable. Got \`${value}\`, but it should be \`${Object.keys(exports2.METADATA_SERVER_DETECTION).join("`, `")}\`, or unset`);
+        }
+        switch (value) {
+          case "assume-present":
+            return true;
+          case "none":
+            return false;
+          case "bios-only":
+            return getGCPResidency();
+          case "ping-only":
+        }
+      }
+      try {
+        if (cachedIsAvailableResponse === void 0) {
+          cachedIsAvailableResponse = (async () => {
+            try {
+              await metadataAccessor(
+                "instance",
+                void 0,
+                detectGCPAvailableRetries(),
+                // If the default HOST_ADDRESS has been overridden, we should not
+                // make an effort to try SECONDARY_HOST_ADDRESS (as we are likely in
+                // a non-GCP environment):
+                !(process.env.GCE_METADATA_IP || process.env.GCE_METADATA_HOST)
+              );
+              return true;
+            } catch (e6) {
+              const err = e6;
+              if (process.env.DEBUG_AUTH) {
+                console.info(err);
+              }
+              if (err.type === "request-timeout") {
+                return false;
+              }
+              if (err.response && err.response.status === 404) {
+                return false;
+              } else {
+                const errObj = e6;
+                const getErrorCodes = (err2) => {
+                  if (!err2)
+                    return ["UNKNOWN"];
+                  if (err2.name === "AggregateError" && Array.isArray(err2.errors)) {
+                    return err2.errors.flatMap(getErrorCodes);
+                  }
+                  if (err2.code) {
+                    return [err2.code.toString()];
+                  }
+                  if (err2.cause) {
+                    return getErrorCodes(err2.cause);
+                  }
+                  return ["UNKNOWN"];
+                };
+                const codes = getErrorCodes(errObj);
+                const isExpected = codes.every((code) => [
+                  "EHOSTDOWN",
+                  "EHOSTUNREACH",
+                  "ENETUNREACH",
+                  "ENOENT",
+                  "ENOTFOUND",
+                  "ECONNREFUSED"
+                ].includes(code));
+                if (!isExpected) {
+                  const code = err.code ? err.code.toString() : "UNKNOWN";
+                  process.emitWarning(`received unexpected error = ${err.message} code = ${code}`, "MetadataLookupWarning");
+                }
+                return false;
+              }
+            }
+          })();
+        }
+        return await cachedIsAvailableResponse;
+      } catch (e6) {
+        return false;
+      }
+    }
+    function resetIsAvailableCache() {
+      cachedIsAvailableResponse = void 0;
+    }
+    exports2.gcpResidencyCache = null;
+    function getGCPResidency() {
+      if (exports2.gcpResidencyCache === null) {
+        setGCPResidency();
+      }
+      return exports2.gcpResidencyCache;
+    }
+    function setGCPResidency(value = null) {
+      exports2.gcpResidencyCache = value !== null ? value : (0, gcp_residency_1.detectGCPResidency)();
+    }
+    function requestTimeout() {
+      return getGCPResidency() ? 0 : 3e3;
+    }
+    __exportStar(require_gcp_residency2(), exports2);
+  }
+});
+
 // node_modules/google-auth-library/build/src/crypto/shared.js
 var require_shared3 = __commonJS({
   "node_modules/google-auth-library/build/src/crypto/shared.js"(exports2) {
@@ -212411,11 +213127,11 @@ var require_package7 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "10.9.1",
+      version: "11.0.2",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
-        node: ">=18"
+        node: ">=22"
       },
       main: "./build/src/index.js",
       types: "./build/src/index.d.ts",
@@ -212435,8 +213151,8 @@ var require_package7 = __commonJS({
         "base64-js": "^1.3.0",
         "ecdsa-sig-formatter": "^1.0.11",
         gaxios: "^7.1.4",
-        "gcp-metadata": "8.1.2",
-        "google-logging-utils": "1.1.3",
+        "gcp-metadata": "^9.0.0",
+        "google-logging-utils": "^2.0.0",
         jws: "^4.0.0"
       },
       devDependencies: {
@@ -212453,15 +213169,15 @@ var require_package7 = __commonJS({
         gts: "^6.0.2",
         "is-docker": "^3.0.0",
         jsdoc: "^4.0.4",
-        "jsdoc-fresh": "^5.0.0",
-        "jsdoc-region-tag": "^4.0.0",
+        "jsdoc-fresh": "^6.0.0",
+        "jsdoc-region-tag": "^5.0.0",
         karma: "^6.0.0",
         "karma-chrome-launcher": "^3.0.0",
         "karma-coverage": "^2.0.0",
         "karma-firefox-launcher": "^2.0.0",
         "karma-mocha": "^2.0.0",
         "karma-sourcemap-loader": "^0.4.0",
-        "karma-webpack": "^5.0.1",
+        "karma-webpack": "^5.0.0",
         keypair: "^1.0.4",
         mocha: "^11.1.0",
         mv: "^2.1.1",
@@ -212526,7 +213242,7 @@ var require_authclient2 = __commonJS({
     var events_1 = require("events");
     var gaxios_1 = require_src5();
     var util_1 = require_util15();
-    var google_logging_utils_1 = require_src6();
+    var google_logging_utils_1 = require_src14();
     var shared_cjs_1 = require_shared4();
     exports2.DEFAULT_UNIVERSE = "googleapis.com";
     exports2.DEFAULT_EAGER_REFRESH_THRESHOLD_MILLIS = 5 * 60 * 1e3;
@@ -213492,7 +214208,7 @@ var require_computeclient2 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Compute = void 0;
     var gaxios_1 = require_src5();
-    var gcpMetadata = require_src7();
+    var gcpMetadata = require_src15();
     var oauth2client_1 = require_oauth2client2();
     var Compute = class extends oauth2client_1.OAuth2Client {
       serviceAccountEmail;
@@ -213631,7 +214347,7 @@ var require_envDetect2 = __commonJS({
     exports2.GCPEnv = void 0;
     exports2.clear = clear;
     exports2.getEnv = getEnv;
-    var gcpMetadata = require_src7();
+    var gcpMetadata = require_src15();
     var GCPEnv;
     (function(GCPEnv2) {
       GCPEnv2["APP_ENGINE"] = "APP_ENGINE";
@@ -217240,7 +217956,7 @@ var require_googleauth2 = __commonJS({
     var child_process_1 = require("child_process");
     var fs4 = require("fs");
     var gaxios_1 = require_src5();
-    var gcpMetadata = require_src7();
+    var gcpMetadata = require_src15();
     var os5 = require("os");
     var path = require("path");
     var crypto_1 = require_crypto6();
@@ -218306,7 +219022,7 @@ var require_passthrough2 = __commonJS({
 });
 
 // node_modules/google-auth-library/build/src/index.js
-var require_src14 = __commonJS({
+var require_src16 = __commonJS({
   "node_modules/google-auth-library/build/src/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
@@ -218331,7 +219047,7 @@ var require_src14 = __commonJS({
     Object.defineProperty(exports2, "GoogleAuth", { enumerable: true, get: function() {
       return googleauth_1.GoogleAuth;
     } });
-    exports2.gcpMetadata = require_src7();
+    exports2.gcpMetadata = require_src15();
     exports2.gaxios = require_src5();
     var authclient_1 = require_authclient2();
     Object.defineProperty(exports2, "AuthClient", { enumerable: true, get: function() {
@@ -219173,7 +219889,7 @@ async function cloudrunListJobs(project) {
 }
 
 // src/v2/gcp.js
-var import_google_auth_library = __toESM(require_src14());
+var import_google_auth_library = __toESM(require_src16());
 
 // src/v2/image-ref.js
 function parseImageRef(ref) {
