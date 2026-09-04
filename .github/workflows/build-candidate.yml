@@ -235,8 +235,10 @@ jobs:
           role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
 
       # No-change guard: if this exact git sha was already built and pushed as a
-      # candidate, reuse it rather than building again. resolve-image fails
-      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      # candidate, reuse it rather than building again. An absent sha tag is the
+      # expected build signal, so missing-ok reports it as found=false instead of
+      # failing. continue-on-error keeps any other resolve error from blocking the
+      # build: found stays unset and the build proceeds, as before.
       - name: No-change guard (resolve existing sha)
         uses: ./cru-github-actions/actions/resolve-image
         id: guard
@@ -246,9 +248,10 @@ jobs:
           project-name: ${{ needs.setup.outputs.project-name }}
           mode: tag
           tag: sha-${{ github.sha }}
+          missing-ok: 'true'
 
       - name: Reuse existing candidate
-        if: steps.guard.outcome == 'success'
+        if: steps.guard.outputs.found == 'true'
         id: existing
         env:
           TAGS: ${{ steps.guard.outputs.tags }}
@@ -263,12 +266,12 @@ jobs:
           echo "::notice title=No-change build::reusing $candidate (git sha already built)"
 
       - name: Increment build number
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: ./cru-github-actions/actions/build-number
         id: build-number
 
       - name: Compute candidate tag
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         id: built
         # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
         # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
@@ -281,12 +284,12 @@ jobs:
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: docker/setup-buildx-action@v4
         id: buildx
 
       - name: Login to Artifact Registry
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: docker/login-action@v4
         with:
           registry: us-central1-docker.pkg.dev
@@ -303,7 +306,7 @@ jobs:
       # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
       # masked in logs (they are Actions secrets).
       - name: Export BUILD_* repo secrets
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
@@ -324,14 +327,14 @@ jobs:
           done
 
       - name: Checkout project
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: project
 
       - name: Run build.sh
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         working-directory: project
         run: ./build.sh
         env:
@@ -351,7 +354,7 @@ jobs:
             --push
 
       - name: Resolve pushed digest
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
         with:
@@ -423,8 +426,10 @@ jobs:
           role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
 
       # No-change guard: if this exact git sha was already built and pushed as a
-      # candidate, reuse it rather than building again. resolve-image fails
-      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      # candidate, reuse it rather than building again. An absent sha tag is the
+      # expected build signal, so missing-ok reports it as found=false instead of
+      # failing. continue-on-error keeps any other resolve error from blocking the
+      # build: found stays unset and the build proceeds, as before.
       - name: No-change guard (resolve existing sha)
         uses: ./cru-github-actions/actions/resolve-image
         id: guard
@@ -434,9 +439,10 @@ jobs:
           project-name: ${{ needs.setup.outputs.project-name }}
           mode: tag
           tag: sha-${{ github.sha }}
+          missing-ok: 'true'
 
       - name: Reuse existing candidate
-        if: steps.guard.outcome == 'success'
+        if: steps.guard.outputs.found == 'true'
         id: existing
         env:
           TAGS: ${{ steps.guard.outputs.tags }}
@@ -451,12 +457,12 @@ jobs:
           echo "::notice title=No-change build::reusing $candidate (git sha already built)"
 
       - name: Increment build number
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: ./cru-github-actions/actions/build-number
         id: build-number
 
       - name: Compute candidate tag
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         id: built
         # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
         # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
@@ -469,12 +475,12 @@ jobs:
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: docker/setup-buildx-action@v4
         id: buildx
 
       - name: Login to Amazon ECR
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
@@ -487,7 +493,7 @@ jobs:
       # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
       # masked in logs (they are Actions secrets).
       - name: Export BUILD_* repo secrets
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
@@ -508,14 +514,14 @@ jobs:
           done
 
       - name: Checkout project
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: project
 
       - name: Run build.sh
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         working-directory: project
         run: ./build.sh
         env:
@@ -532,7 +538,7 @@ jobs:
             --push
 
       - name: Resolve pushed digest
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
         with:
@@ -600,8 +606,10 @@ jobs:
           role-to-assume: ${{ steps.setup-env.outputs.role-arn }}
 
       # No-change guard: if this exact git sha was already built and pushed as a
-      # candidate, reuse it rather than building again. resolve-image fails
-      # (continue-on-error) when the sha tag is absent — that is the build signal.
+      # candidate, reuse it rather than building again. An absent sha tag is the
+      # expected build signal, so missing-ok reports it as found=false instead of
+      # failing. continue-on-error keeps any other resolve error from blocking the
+      # build: found stays unset and the build proceeds, as before.
       - name: No-change guard (resolve existing sha)
         uses: ./cru-github-actions/actions/resolve-image
         id: guard
@@ -611,9 +619,10 @@ jobs:
           project-name: ${{ needs.setup.outputs.project-name }}
           mode: tag
           tag: sha-${{ github.sha }}
+          missing-ok: 'true'
 
       - name: Reuse existing candidate
-        if: steps.guard.outcome == 'success'
+        if: steps.guard.outputs.found == 'true'
         id: existing
         env:
           TAGS: ${{ steps.guard.outputs.tags }}
@@ -628,12 +637,12 @@ jobs:
           echo "::notice title=No-change build::reusing $candidate (git sha already built)"
 
       - name: Increment build number
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: ./cru-github-actions/actions/build-number
         id: build-number
 
       - name: Compute candidate tag
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         id: built
         # Tag = candidate-<yyyy-mm-dd>-<n> (D10): the BUILD date gives humans
         # age-at-a-glance in tag listings, dispatch inputs, and Slack; the build
@@ -646,12 +655,12 @@ jobs:
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: docker/setup-buildx-action@v4
         id: buildx
 
       - name: Login to Amazon ECR
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       # BUILD-time secrets are GitHub repo secrets prefixed BUILD_ (D2, ratified
@@ -664,7 +673,7 @@ jobs:
       # prefix is stripped on export: BUILD_NPM_TOKEN -> NPM_TOKEN. Values stay
       # masked in logs (they are Actions secrets).
       - name: Export BUILD_* repo secrets
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
@@ -685,14 +694,14 @@ jobs:
           done
 
       - name: Checkout project
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: project
 
       - name: Run build.sh
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         working-directory: project
         run: ./build.sh
         env:
@@ -723,7 +732,7 @@ jobs:
             --push
 
       - name: Resolve pushed digest
-        if: steps.guard.outcome != 'success'
+        if: steps.guard.outputs.found != 'true'
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
         with:

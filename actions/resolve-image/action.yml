@@ -29,7 +29,19 @@ inputs:
       GCP project ID of the app's target environment project. Required for
       cloudrun when mode=environment.
     required: false
+  missing-ok:
+    description: >-
+      When mode=tag and the tag does not exist, succeed with found=false (and
+      empty image/digest/tags) instead of failing. For callers that probe for a
+      tag, such as build-candidate's no-change guard, where absence is the
+      expected signal rather than an error. Any other failure still fails.
+    required: false
+    default: 'false'
 outputs:
+  found:
+    description: >-
+      "true" when the tag or environment resolved to an image, "false" when
+      mode=tag, missing-ok is set and the tag does not exist.
   image:
     description: Full digest reference, e.g. us-central1-docker.pkg.dev/cru-shared-artifacts/hoax/hoax@sha256:...
   digest:

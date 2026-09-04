@@ -19,6 +19,7 @@ vi.mock('@aws-sdk/client-ecr', () => ({
 
 import * as aws from '../src/aws.js'
 import { resolveEcs } from '../src/v2/resolve-ecs.js'
+import { TagNotFoundError } from '../src/v2/errors.js'
 
 const REGISTRY = '056154071827.dkr.ecr.us-east-1.amazonaws.com'
 const ARN = 'arn:aws:ecs:us-east-1:056154071827:service/stage/hoax-staging-web'
@@ -43,6 +44,15 @@ describe('resolveEcs mode=tag', () => {
       tags: ['candidate-10012', 'sha-abc']
     })
     expect(aws.ecsListServices).not.toHaveBeenCalled()
+  })
+
+  it('throws TagNotFoundError when ECR has no image with the tag', async () => {
+    sendMock.mockResolvedValue({ imageDetails: [] })
+
+    const attempt = resolveEcs({ mode: 'tag', projectName: 'hoax', tag: 'sha-nope' })
+
+    await expect(attempt).rejects.toBeInstanceOf(TagNotFoundError)
+    await expect(attempt).rejects.toThrow('Tag "sha-nope" not found in ECR repository hoax')
   })
 })
 

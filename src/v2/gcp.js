@@ -1,4 +1,5 @@
 import { GoogleAuth } from 'google-auth-library'
+import { TagNotFoundError } from './errors'
 import { DEFAULT_REGION } from '../gcp'
 import { parseImageRef } from './image-ref'
 
@@ -146,9 +147,7 @@ export async function resolveTag (projectName, tag) {
     }
   }
   if (!match) {
-    throw new Error(
-      `Tag "${tag}" not found in ${SHARED_PROJECT}/${sharedRegistryRepo(projectName)}`
-    )
+    throw new TagNotFoundError(tag, `${SHARED_PROJECT}/${sharedRegistryRepo(projectName)}`)
   }
   const { digest } = parseImageRef(match.uri)
   return {

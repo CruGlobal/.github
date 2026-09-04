@@ -19,6 +19,7 @@ vi.mock('../src/gcp.js', () => ({
 
 import * as gcp from '../src/gcp.js'
 import { resolveCloudRun } from '../src/v2/resolve-cloudrun.js'
+import { TagNotFoundError } from '../src/v2/errors.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
 const REPO = `${HOST}/cru-shared-artifacts/hoax/hoax`
@@ -56,6 +57,15 @@ describe('resolveCloudRun mode=tag', () => {
       tags: ['candidate-10012', 'sha-abc123']
     })
     expect(gcp.cloudrunListServices).not.toHaveBeenCalled()
+  })
+
+  it('throws TagNotFoundError when no image carries the tag', async () => {
+    requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
+
+    const attempt = resolveCloudRun({ mode: 'tag', projectName: 'hoax', tag: 'sha-nope' })
+
+    await expect(attempt).rejects.toBeInstanceOf(TagNotFoundError)
+    await expect(attempt).rejects.toThrow('Tag "sha-nope" not found in cru-shared-artifacts/hoax')
   })
 })
 

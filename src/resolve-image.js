@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { TagNotFoundError } from './v2/errors'
 import { environmentNickname } from './v2/env'
 import { resolveCloudRun } from './v2/resolve-cloudrun'
 import { resolveEcs } from './v2/resolve-ecs'
@@ -8,9 +9,13 @@ import { resolveLambda } from './v2/resolve-lambda'
 // image reference in the shared registry. v2's build-once/promote model means
 // callers never deploy a tag — they resolve it here first.
 //
-// The router dispatches on `type` (cloudrun implemented; ecs/lambda stubbed).
-async function run () {
+// With missing-ok, a tag that does not exist is an outcome (found=false), not
+// a failure: build-candidate's no-change guard probes for `sha-<gitsha>` and
+// treats absence as the signal to build, so it must not surface as an error.
+export async function run () {
+  let missingOk = false
   try {
+    missingOk = core.getBooleanInput('missing-ok')
     const type = core.getInput('type', { required: true })
     const projectName = core.getInput('project-name', { required: true })
     const mode = core.getInput('mode', { required: true })
@@ -36,10 +41,19 @@ async function run () {
     const resolved = await dispatch(type, { mode, projectName, environment, tag, runtimeProject })
 
     core.info(`resolved image: ${resolved.image}`)
+    core.setOutput('found', 'true')
     core.setOutput('image', resolved.image)
     core.setOutput('digest', resolved.digest)
     core.setOutput('tags', (resolved.tags ?? []).join(','))
   } catch (error) {
+    if (missingOk && error instanceof TagNotFoundError) {
+      core.info(`${error.message}; missing-ok is set, so reporting found=false instead of failing`)
+      core.setOutput('found', 'false')
+      core.setOutput('image', '')
+      core.setOutput('digest', '')
+      core.setOutput('tags', '')
+      return
+    }
     core.setFailed(error.message)
   }
 }
@@ -57,4 +71,6 @@ function dispatch (type, args) {
   }
 }
 
-run()
+// Auto-run as the action entrypoint, but stay import-safe under test (matches
+// deploy.js and dispatch.js) so specs can drive run() with a mocked core.
+if (!process.env.VITEST) run()
