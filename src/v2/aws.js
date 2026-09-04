@@ -1,4 +1,5 @@
 import escapeStringRegexp from 'escape-string-regexp'
+import { TagNotFoundError } from './errors'
 
 import {
   ECRClient,
@@ -70,7 +71,7 @@ async function ecrDescribeTag (client, projectName, tag) {
   }))
   const detail = response.imageDetails?.[0]
   if (!detail?.imageDigest) {
-    throw new Error(`Tag "${tag}" not found in ECR repository ${ecrRepo(projectName)}`)
+    throw new TagNotFoundError(tag, `ECR repository ${ecrRepo(projectName)}`)
   }
   return { digest: detail.imageDigest, tags: detail.imageTags ?? [] }
 }
