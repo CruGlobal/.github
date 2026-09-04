@@ -39,6 +39,9 @@ on:
       slack-bot-token:
         required: false
         description: Slack bot token for pipeline notifications; unset disables posting.
+      flightdeck-token:
+        required: false
+        description: Flightdeck PAT of the CruDeploy service user, for release-timeline events; unset disables posting.
 
 jobs:
   lookup:
@@ -54,6 +57,7 @@ jobs:
       project-id: ${{ steps.app-info.outputs.project-id }}
       release-tag: ${{ steps.release.outputs.tag }}
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
+      flightdeck-project: ${{ steps.app-info.outputs.flightdeck-project }}
       app-url: ${{ steps.app-info.outputs.app-url }}
     steps:
       # Authorization runs FIRST, before any provider job mutates production.
@@ -114,6 +118,7 @@ jobs:
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
+          flightdeck_project=$(echo "$item" | jq -r '.FlightdeckProject.S // empty')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -123,6 +128,7 @@ jobs:
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
+          echo "flightdeck-project=$flightdeck_project" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
@@ -313,6 +319,21 @@ jobs:
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
             || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      # Record the release on the app's Flightdeck project timeline (GateOps
+      # Phase 0). Project = app-info FlightdeckProject; credential = the CruDeploy
+      # service user's PAT held by cru-deploy. Either unset => silent skip. Same
+      # telemetry policy as the ledger: the action never fails, continue-on-error
+      # is the belt on top.
+      - name: Record release event in Flightdeck
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/flightdeck-release-event
+        with:
+          token: ${{ secrets.flightdeck-token }}
+          project: ${{ needs.lookup.outputs.flightdeck-project }}
+          environment: production
+          kind: rollback
+          release-tag: ${{ steps.actual-release.outputs.tag }}
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
@@ -566,6 +587,21 @@ jobs:
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
             || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      # Record the release on the app's Flightdeck project timeline (GateOps
+      # Phase 0). Project = app-info FlightdeckProject; credential = the CruDeploy
+      # service user's PAT held by cru-deploy. Either unset => silent skip. Same
+      # telemetry policy as the ledger: the action never fails, continue-on-error
+      # is the belt on top.
+      - name: Record release event in Flightdeck
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/flightdeck-release-event
+        with:
+          token: ${{ secrets.flightdeck-token }}
+          project: ${{ needs.lookup.outputs.flightdeck-project }}
+          environment: production
+          kind: rollback
+          release-tag: ${{ steps.actual-release.outputs.tag }}
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
