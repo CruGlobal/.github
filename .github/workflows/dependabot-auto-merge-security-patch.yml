@@ -21,15 +21,25 @@ name: dependabot-auto-merge-security-patch
 # version bumps). Repos handling gem security updates opt into this
 # variant on an allowlist basis.
 #
-# Allowlisted repos MUST also enforce, via ruleset on the default
-# branch: a required pull request with >= 1 approving review, "Dismiss
-# stale pull request approvals when new commits are pushed", the
-# required status checks, and "Allow auto-merge" on the repo. Review
-# dismissal must not be restricted away from github-actions[bot]. The
-# stale-approval dismissal matters: the disarm step below only runs on
-# Dependabot-triggered events (the job guard skips human-triggered
-# synchronize runs), so without it a human push to an armed Dependabot
-# branch would keep the bot approval and merge unreviewed code.
+# Allowlisted repos MUST enable "Allow auto-merge" on the repo, require
+# the repo's own status checks via ruleset on the default branch (today
+# `lint` and `test` on the Rails callers, plus `Validate PR Title` where
+# the repo runs it), and must not restrict review dismissal away from
+# github-actions[bot]: the disarm step below dismisses the bot's own
+# approval on every run, whatever the review posture. Two review
+# postures are supported:
+#
+#   a. Pipeline v2 default: `required_approving_review_count: 0`. The
+#      pipeline-v2 ruleset drops the review requirement so auto-merge
+#      can fire; the bot approval below satisfies no base review-count
+#      requirement.
+#   b. Review-required repos: `required_approving_review_count: 1`,
+#      satisfied by the github-actions[bot] approval below. This posture
+#      also requires `dismiss_stale_reviews_on_push: true`, because the
+#      disarm step only runs on Dependabot-triggered events (the job
+#      guard skips human-triggered synchronize runs): without dismissal
+#      a human push to an armed Dependabot branch would keep the bot
+#      approval and merge unreviewed code.
 #
 # Alert lookup requires more than the default GITHUB_TOKEN: this
 # workflow mints a GitHub App installation token, scoped down to
