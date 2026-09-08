@@ -44646,6 +44646,7 @@ var require_dist_cjs15 = __commonJS({
             if (!passiveLock) {
               passiveLock = chain3(options).then((c5) => {
                 credentials = c5;
+              }).catch(() => {
               }).finally(() => {
                 passiveLock = void 0;
               });
@@ -44822,7 +44823,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1120.0";
+    var version = "3.1126.0";
     var packageInfo = {
       version
     };
@@ -45954,6 +45955,7 @@ var require_dist_cjs16 = __commonJS({
     var _DR = "DryRun";
     var _DRP = "DeleteResourcePolicy";
     var _DRPR = "DeleteResourcePolicyRequest";
+    var _DSR = "DirectS3Read";
     var _De = "Destination";
     var _Du = "Duration";
     var _E2 = "Error";
@@ -46391,6 +46393,7 @@ var require_dist_cjs16 = __commonJS({
     var _SDERt = "StopDurableExecutionResponse";
     var _SE = "ServiceException";
     var _SET = "ScheduledEndTimestamp";
+    var _SFC = "S3FilesConfig";
     var _SFD = "StepFailedDetails";
     var _SFMCE = "S3FilesMountConnectivityException";
     var _SFMFE = "S3FilesMountFailureException";
@@ -47826,8 +47829,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _FSCi,
       0,
-      [_Arn, _LMP],
-      [0, 0],
+      [_Arn, _LMP, _SFC],
+      [0, 0, () => S3FilesConfig$],
       2
     ];
     var Filter$ = [
@@ -48974,6 +48977,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_EC, _M],
       [0, [() => SensitiveString, 0]]
+    ];
+    var S3FilesConfig$ = [
+      3,
+      n05,
+      _SFC,
+      0,
+      [_DSR],
+      [0]
     ];
     var ScalingConfig$ = [
       3,
@@ -51150,6 +51161,11 @@ var require_dist_cjs16 = __commonJS({
       Copy: "COPY",
       Reference: "REFERENCE"
     };
+    var DirectS3Read = {
+      AUTO: "AUTO",
+      DISABLED: "DISABLED",
+      ENABLED: "ENABLED"
+    };
     var LogFormat = {
       Json: "JSON",
       Text: "Text"
@@ -51482,6 +51498,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeleteResourcePolicyCommand = DeleteResourcePolicyCommand;
     exports2.DeleteResourcePolicyRequest$ = DeleteResourcePolicyRequest$;
     exports2.DestinationConfig$ = DestinationConfig$;
+    exports2.DirectS3Read = DirectS3Read;
     exports2.DocumentDBEventSourceConfig$ = DocumentDBEventSourceConfig$;
     exports2.DurableConfig$ = DurableConfig$;
     exports2.DurableExecutionAlreadyStartedException = DurableExecutionAlreadyStartedException;
@@ -51846,6 +51863,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.Runtime = Runtime;
     exports2.RuntimeVersionConfig$ = RuntimeVersionConfig$;
     exports2.RuntimeVersionError$ = RuntimeVersionError$;
+    exports2.S3FilesConfig$ = S3FilesConfig$;
     exports2.S3FilesMountConnectivityException = S3FilesMountConnectivityException;
     exports2.S3FilesMountConnectivityException$ = S3FilesMountConnectivityException$;
     exports2.S3FilesMountFailureException = S3FilesMountFailureException;

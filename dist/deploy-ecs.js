@@ -44646,6 +44646,7 @@ var require_dist_cjs15 = __commonJS({
             if (!passiveLock) {
               passiveLock = chain3(options).then((c5) => {
                 credentials = c5;
+              }).catch(() => {
               }).finally(() => {
                 passiveLock = void 0;
               });
@@ -44821,7 +44822,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1120.0";
+    var version = "3.1126.0";
     var packageInfo = {
       version
     };
@@ -45962,6 +45963,7 @@ var require_dist_cjs16 = __commonJS({
     var _conta = "containers";
     var _cou = "count";
     var _cp = "cpu";
+    var _cr = "critical";
     var _d = "details";
     var _dA = "daemonArn";
     var _dAe = "deploymentArn";
@@ -46389,6 +46391,8 @@ var require_dist_cjs16 = __commonJS({
     var _tTR = "testTrafficRules";
     var _tV = "targetValue";
     var _tVo = "tokenValue";
+    var _tWDC = "totalWithoutDaemonCount";
+    var _tWDIC = "totalWithoutDaemonInstanceCount";
     var _ta = "tags";
     var _tas = "tasks";
     var _task = "task";
@@ -46418,6 +46422,8 @@ var require_dist_cjs16 = __commonJS({
     var _vo = "volumes";
     var _w = "weight";
     var _wD = "workingDirectory";
+    var _wDC = "withoutDaemonCount";
+    var _wDIC = "withoutDaemonInstanceCount";
     var _xN = "xmlName";
     var n05 = "com.amazonaws.ecs";
     var _s_registry5 = TypeRegistry2.for(_s5);
@@ -46994,8 +47000,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _CDR,
       0,
-      [_dNa, _dTDA, _cPAa, _cA, _dC2, _ta, _pTr, _eECSMT, _eEC, _cT],
-      [0, 0, 64 | 0, 0, () => DaemonDeploymentConfiguration$, () => Tags, 0, 2, 2, 0],
+      [_dNa, _dTDA, _cPAa, _cA, _dC2, _ta, _pTr, _eECSMT, _eEC, _cT, _cr],
+      [0, 0, 64 | 0, 0, () => DaemonDeploymentConfiguration$, () => Tags, 0, 2, 2, 0, 2],
       3
     ];
     var CreateDaemonResponse$ = [
@@ -47087,8 +47093,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DCP,
       0,
-      [_ar, _rCu],
-      [0, 1]
+      [_ar, _rCu, _wDC],
+      [0, 1, 1]
     ];
     var DaemonCircuitBreaker$ = [
       3,
@@ -47136,8 +47142,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DDCP,
       0,
-      [_ar, _rIC, _dIC],
-      [0, 1, 1]
+      [_ar, _rIC, _wDIC, _dIC],
+      [0, 1, 1, 1]
     ];
     var DaemonDeploymentConfiguration$ = [
       3,
@@ -47152,8 +47158,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DDRD,
       0,
-      [_ar, _cPap, _tRIC, _tDIC],
-      [0, () => DaemonDeploymentCapacityProviderList, 1, 1]
+      [_ar, _cPap, _tRIC, _tWDIC, _tDIC],
+      [0, () => DaemonDeploymentCapacityProviderList, 1, 1, 1]
     ];
     var DaemonDeploymentSummary$ = [
       3,
@@ -47184,16 +47190,16 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DR,
       0,
-      [_dRA, _cA, _dA, _dTDA, _cAr, _cI3, _pTr, _eECSMT, _eEC],
-      [0, 0, 0, 0, 4, () => DaemonContainerImages, 0, 2, 2]
+      [_dRA, _cA, _dA, _dTDA, _cAr, _cI3, _pTr, _eECSMT, _eEC, _cr],
+      [0, 0, 0, 0, 4, () => DaemonContainerImages, 0, 2, 2, 2]
     ];
     var DaemonRevisionDetail$ = [
       3,
       n05,
       _DRD,
       0,
-      [_ar, _cPap, _tRC],
-      [0, () => DaemonCapacityProviderList, 1]
+      [_ar, _cPap, _tRC, _tWDC],
+      [0, () => DaemonCapacityProviderList, 1, 1]
     ];
     var DaemonRollback$ = [
       3,
@@ -49466,8 +49472,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _UDR,
       0,
-      [_dA, _dTDA, _cPAa, _dC2, _pTr, _eECSMT, _eEC],
-      [0, 0, 64 | 0, () => DaemonDeploymentConfiguration$, 0, 2, 2],
+      [_dA, _dTDA, _cPAa, _dC2, _pTr, _eECSMT, _eEC, _cr],
+      [0, 0, 64 | 0, () => DaemonDeploymentConfiguration$, 0, 2, 2, 2],
       3
     ];
     var UpdateDaemonResponse$ = [
@@ -53213,7 +53219,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1120.0";
+    var version = "3.1126.0";
     var packageInfo = {
       version
     };
@@ -67476,7 +67482,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1120.0";
+    var version = "3.1126.0";
     var packageInfo = {
       version
     };
