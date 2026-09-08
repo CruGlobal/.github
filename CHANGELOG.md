@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/CruGlobal/.github/compare/v2.1.3...v2.2.0) (2026-09-08)
+
+
+### Features
+
+* **v2:** record release events in Flightdeck from promote and rollback ([#480](https://github.com/CruGlobal/.github/issues/480)) ([78102da](https://github.com/CruGlobal/.github/commit/78102da6712c4ea629ce10e9d1a367d73535bc28))
+
 ## [2.1.3](https://github.com/CruGlobal/.github/compare/v2.1.2...v2.1.3) (2026-09-04)
 
 
