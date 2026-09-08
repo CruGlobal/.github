@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/CruGlobal/.github/compare/v2.2.0...v2.3.0) (2026-09-08)
+
+
+### Features
+
+* **build-candidate:** pass GIT_SHA as a Docker build arg ([#485](https://github.com/CruGlobal/.github/issues/485)) ([a876fe9](https://github.com/CruGlobal/.github/commit/a876fe9f34b9b22a2f025540b89d428bdf4a2977))
+
 ## [2.2.0](https://github.com/CruGlobal/.github/compare/v2.1.3...v2.2.0) (2026-09-08)
 
 
