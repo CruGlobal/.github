@@ -1,0 +1,64 @@
+name: Flightdeck Release Event
+description: >-
+  Record a deploy, hotfix or rollback on a Flightdeck project's release
+  timeline (pipeline v2 telemetry). Resolves the project by the identifier
+  app-info carries as FlightdeckProject, then POSTs
+  /api/v1/projects/:id/release-events as the CruDeploy service user. Telemetry
+  policy: the action NEVER fails the run. An unset token or project is a
+  silent skip, every error is a warning, and `status` says what happened.
+inputs:
+  token:
+    description: >-
+      Flightdeck personal access token of a workspace admin (the CruDeploy
+      service user). Unset skips posting.
+    required: false
+  project:
+    description: >-
+      Flightdeck project identifier, e.g. BILLS (app-info FlightdeckProject).
+      Unset skips posting.
+    required: false
+  environment:
+    description: Flightdeck environment the release landed in, e.g. production or staging.
+    required: true
+  kind:
+    description: One of deploy | hotfix | rollback.
+    required: false
+    default: deploy
+  release-tag:
+    description: Release tag deployed, e.g. release-2026-09-04-10123.
+    required: false
+  build-number:
+    description: >-
+      Build number. Defaults to the numeric tail of release-tag
+      (release-[<yyyy-mm-dd>-]<n> -> <n>).
+    required: false
+  sha:
+    description: Git sha deployed. Defaults to the sha-<40 hex> tag in image-tags.
+    required: false
+  image-tags:
+    description: Comma-separated tags on the deployed digest (resolve-image `tags`), used to derive sha.
+    required: false
+  rollback-safety:
+    description: >-
+      classify-rollback-safety verdict: safe | unsafe | unclassified. safe and
+      unsafe become rollback_safe true/false; anything else sends no opinion.
+    required: false
+  rollback-safety-reasons:
+    description: classify-rollback-safety `reasons` (JSON array of strings); sent only with a safe/unsafe verdict.
+    required: false
+  deployed-at:
+    description: ISO 8601 deploy time. Unset lets Flightdeck stamp the time of the post.
+    required: false
+  endpoint:
+    description: Flightdeck base URL.
+    required: false
+    default: 'https://flightdeck.cru.org'
+outputs:
+  status:
+    description: skipped | created | updated | failed
+  event-id:
+    description: Id of the Flightdeck release event when status is created or updated.
+
+runs:
+  using: 'node24'
+  main: '../../dist/flightdeck-release-event.js'
