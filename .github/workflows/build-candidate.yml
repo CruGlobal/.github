@@ -342,6 +342,10 @@ jobs:
           # for the future release tag (D10 full-suffix reuse), so a Dockerfile that
           # bakes `ARG VERSION` -> `ENV DD_VERSION` reports one true version in every
           # environment. Apps without the ARG just log an unused-build-arg warning.
+          # GIT_SHA is the commit the candidate is built from -- the same sha the
+          # sha-<gitsha> tag and the pipeline's release events carry -- for apps whose
+          # error tracker keys code_version on a git sha (VERSION is the D10 suffix,
+          # not a sha). Same opt-in as VERSION: bake `ARG GIT_SHA` or ignore it.
           # --provenance=false: BuildKit's default attestation adds an extra
           # manifest that registries scan and bill as a second image; nothing
           # in the pipeline consumes it.
@@ -349,6 +353,7 @@ jobs:
             --builder ${{ steps.buildx.outputs.name }}
             --provenance=false
             --build-arg VERSION=${{ steps.built.outputs.version }}
+            --build-arg GIT_SHA=${{ github.sha }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag us-central1-docker.pkg.dev/cru-shared-artifacts/${{ needs.setup.outputs.project-name }}/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --push
@@ -533,6 +538,7 @@ jobs:
             --builder ${{ steps.buildx.outputs.name }}
             --provenance=false
             --build-arg VERSION=${{ steps.built.outputs.version }}
+            --build-arg GIT_SHA=${{ github.sha }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
             --push
@@ -726,9 +732,9 @@ jobs:
             --builder ${{ steps.buildx.outputs.name }}
             --provenance=false
             --build-arg VERSION=${{ steps.built.outputs.version }}
+            --build-arg GIT_SHA=${{ github.sha }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:${{ steps.built.outputs.candidate }}
             --tag 056154071827.dkr.ecr.us-east-1.amazonaws.com/${{ needs.setup.outputs.project-name }}:sha-${{ github.sha }}
-            --provenance=false
             --push
 
       - name: Resolve pushed digest
