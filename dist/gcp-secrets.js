@@ -1,4 +1,4 @@
-/*! cruglobal-dot-github v2.1.3 | MIT */
+/*! cruglobal-dot-github v2.2.0 | MIT */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
