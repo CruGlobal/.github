@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/CruGlobal/.github/compare/v2.3.0...v2.3.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **gcp:** stop waiting two hours on a db-migrate execution that never starts ([#487](https://github.com/CruGlobal/.github/issues/487)) ([fa873da](https://github.com/CruGlobal/.github/commit/fa873dab489a830a5348f58bc0b82cd0ba3e6988))
+
 ## [2.3.0](https://github.com/CruGlobal/.github/compare/v2.2.0...v2.3.0) (2026-09-08)
 
 
