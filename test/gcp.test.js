@@ -4,10 +4,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // list calls can be driven without the network. src/gcp.js destructures
 // { ServicesClient, JobsClient } off the module's `v2` export at load time, so
 // the mock has to provide that shape.
-const { updateServiceMock, listJobsMock, updateJobMock } = vi.hoisted(() => ({
+const {
+  updateServiceMock, listJobsMock, updateJobMock,
+  runJobMock, getExecutionMock, cancelExecutionMock
+} = vi.hoisted(() => ({
   updateServiceMock: vi.fn(),
   listJobsMock: vi.fn(),
-  updateJobMock: vi.fn()
+  updateJobMock: vi.fn(),
+  runJobMock: vi.fn(),
+  getExecutionMock: vi.fn(),
+  cancelExecutionMock: vi.fn()
 }))
 
 vi.mock('@google-cloud/run', () => ({
@@ -21,6 +27,14 @@ vi.mock('@google-cloud/run', () => ({
       constructor () {
         this.listJobs = listJobsMock
         this.updateJob = updateJobMock
+        this.runJob = runJobMock
+      }
+    },
+    ExecutionsClient: class {
+      constructor () {
+        this.getExecution = getExecutionMock
+        this.cancelExecution = cancelExecutionMock
+        this.close = () => Promise.resolve()
       }
     }
   }
@@ -35,6 +49,7 @@ import {
   cloudrunListJobs,
   gcrImageTag,
   gcrRegistry,
+  runJob,
   updateJob,
   updateService
 } from '../src/gcp.js'
@@ -165,5 +180,160 @@ describe('transient gRPC failures', () => {
 
     await expect(cloudrunListJobs('hoax-prod-1234')).resolves.toEqual([{ name: 'db-migrate' }])
     expect(listJobsMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+// --- runJob -----------------------------------------------------------------
+//
+// The job is never re-run automatically: the deadline exists so a stalled
+// execution fails the deploy in fifteen minutes instead of two hours, and the
+// cancellation is housekeeping so a late start cannot collide with whatever the
+// operator runs next.
+
+const JOB = `projects/flightdeck-stage-fybm/locations/${DEFAULT_REGION}/jobs/db-migrate`
+const EXEC = `${JOB}/executions/db-migrate-4vdmx`
+
+// The RunJob long-running operation: Execution as metadata (readable before it
+// resolves) and the finished Execution as the response.
+function runOperation (executionName, response = {}) {
+  return [{
+    metadata: executionName ? { name: executionName } : undefined,
+    promise: () => Promise.resolve([{ name: executionName, taskCount: 1, succeededCount: 1, ...response }])
+  }]
+}
+
+const started = name => [{ name, startTime: { seconds: 1 }, taskCount: 1 }]
+const pending = name => [{ name, taskCount: 1 }]
+// Terminal AND ran — the ordering trap: the proto does not promise start_time
+// lands before completion_time, so the counters have to be believed too.
+const ranAndFinished = name => [{ name, completionTime: { seconds: 2 }, failedCount: 1, taskCount: 1 }]
+
+const cancelOperation = execution => [{ promise: () => Promise.resolve([execution]) }]
+
+function grpcError (code, message) {
+  const error = new Error(message)
+  error.code = code
+  return error
+}
+
+// Tiny values so the stall path does not actually wait.
+const FAST = { startDeadlineMs: 30, pollIntervalMs: 5 }
+
+describe('runJob', () => {
+  beforeEach(() => {
+    runJobMock.mockReset()
+    getExecutionMock.mockReset()
+    cancelExecutionMock.mockReset()
+    cancelExecutionMock.mockResolvedValue(cancelOperation({ name: EXEC, cancelledCount: 0 }))
+  })
+
+  it('waits for a started execution and returns it', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  it('never re-runs the job, whatever happens', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC, { succeededCount: 0, failedCount: 1 }))
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('Job execution did not succeed')
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  // start_time is not guaranteed to land before completion_time, so a finished
+  // execution is judged by the run operation rather than by the timestamps.
+  it('lets the run operation report a terminal execution', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC, { succeededCount: 0, failedCount: 1 }))
+    getExecutionMock.mockResolvedValue(ranAndFinished(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('Job execution did not succeed')
+
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  it('fails in minutes when the execution never starts, and cancels it', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(pending(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow(/had not started.*has been cancelled/s)
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+    expect(cancelExecutionMock).toHaveBeenCalledWith({ name: EXEC }, expect.objectContaining({
+      longrunning: expect.objectContaining({ totalTimeoutMillis: expect.any(Number) })
+    }))
+  })
+
+  it('says so when the stalled execution could not be cancelled', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(pending(EXEC))
+    cancelExecutionMock.mockRejectedValue(grpcError(7, 'PERMISSION_DENIED'))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow(/could NOT be cancelled.*confirm it is not running/s)
+  })
+
+  it('says so when the execution started while being cancelled', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(pending(EXEC))
+    cancelExecutionMock.mockResolvedValue(cancelOperation({ name: EXEC, cancelledCount: 1 }))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow(/STARTED while being cancelled/)
+  })
+
+  it('carries the execution conditions into the failure', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue([{
+      name: EXEC,
+      taskCount: 1,
+      conditions: [{ type: 'ContainerReady', message: 'Imported container image in 26.13s.' }]
+    }])
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('Imported container image in 26.13s.')
+  })
+
+  // Read-after-write lag on the first poll must not switch the deadline off.
+  it('keeps polling through NOT_FOUND', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock
+      .mockRejectedValueOnce(grpcError(5, 'NOT_FOUND'))
+      .mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(getExecutionMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails loudly when the execution cannot be read for want of permission', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockRejectedValue(grpcError(7, 'PERMISSION_DENIED'))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('PERMISSION_DENIED')
+
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  // Any other read failure is not evidence either way, so it falls back to the
+  // behaviour this replaced rather than failing a running migration's deploy.
+  it('falls back to waiting on the operation when the execution cannot be read', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockRejectedValue(grpcError(9, 'FAILED_PRECONDITION'))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the original wait when the operation names no execution', async () => {
+    runJobMock.mockResolvedValue(runOperation(undefined, { name: EXEC }))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(getExecutionMock).not.toHaveBeenCalled()
   })
 })
