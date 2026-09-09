@@ -107,10 +107,8 @@ export async function updateJob(job) {
     return mutate(`updateJob ${job.name}`, () => client.updateJob(request))
 }
 
-// How long we will wait for a task to BEGIN before treating the execution as
-// stalled, how often we ask, and how long we will wait for a cancellation to
-// finalise. A healthy execution starts in one to two minutes, so the first is
-// generous.
+// How long we will wait for a task to BEGIN, and how often we ask. A healthy
+// execution starts in one to two minutes, so this is generous.
 //
 // Cloud Run has its own start deadline of TWO HOURS, and it is not tunable: the
 // job spec exposes only containers, maxRetries, serviceAccountName and
@@ -118,196 +116,131 @@ export async function updateJob(job) {
 // deadline out failed a 05:15 nightly at 07:15, so the useful deadline is ours.
 export const START_DEADLINE_MS = 15 * 60 * 1000
 export const POLL_INTERVAL_MS = 15 * 1000
-export const CANCEL_TIMEOUT_MS = 2 * 60 * 1000
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-// What we learned while waiting for the execution to start.
-const RAN = "ran"                // a task began; only the task's own result matters now
-const NEVER_RAN = "never-ran"    // terminal, and no task ever began
-const PENDING = "pending"        // our deadline passed with nothing terminal either way
-
-// Reject a promise that takes too long, so a hung long-running operation cannot
-// put back the two-hour wait this function exists to remove.
-function withTimeout(promise, ms, label) {
-    let timer
-    const expiry = new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} did not finish within ${Math.round(ms / 1000)}s`)), ms)
-    })
-    return Promise.race([promise, expiry]).finally(() => clearTimeout(timer))
+// Polling settings for the cancellation's own long-running operation. gax
+// leaves `totalTimeoutMillis` unset by default, which is an INFINITE deadline —
+// and an abandoned poller keeps a ref'd timer chain alive, so the step would
+// outlive the failure it is reporting.
+const CANCEL_BACKOFF = {
+    initialRetryDelayMillis: 1000,
+    retryDelayMultiplier: 1.5,
+    maxRetryDelayMillis: 10000,
+    initialRpcTimeoutMillis: 20000,
+    rpcTimeoutMultiplier: 1,
+    maxRpcTimeoutMillis: 20000,
+    totalTimeoutMillis: 120000
 }
 
+const GRPC_NOT_FOUND = 5
+const GRPC_PERMISSION_DENIED = 7
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const count = value => Number(value ?? 0)
 
-// Did any task ever run? `start_time` is the direct signal, but the proto warns
-// it "is not guaranteed to be set in happens-before order across separate
-// operations", so a task that ran can be corroborated by the counters even when
-// the timestamp has not landed yet.
-//
-// `cancelled_count` is deliberately NOT one of them: cancelling an execution
-// that never started is exactly what the stall path does, so counting it as
-// evidence of running would make the retry refuse itself every time. A task that
-// ran and was then cancelled still trips start_time or running_count.
+// Has any task begun? `start_time` is the direct signal, but the proto warns it
+// "is not guaranteed to be set in happens-before order across separate
+// operations", so the counters corroborate it.
 function ranAnything(execution) {
     return Boolean(execution.startTime) ||
         count(execution.runningCount) > 0 ||
         count(execution.succeededCount) > 0 ||
         count(execution.failedCount) > 0 ||
+        count(execution.cancelledCount) > 0 ||
         count(execution.retriedCount) > 0
 }
 
-const describeCounts = execution =>
-    `startTime=${execution.startTime ? "set" : "unset"} running=${count(execution.runningCount)} ` +
-    `succeeded=${count(execution.succeededCount)} failed=${count(execution.failedCount)} ` +
-    `cancelled=${count(execution.cancelledCount)} retried=${count(execution.retriedCount)}`
+const conditionSummary = execution => (execution?.conditions ?? [])
+    .filter(condition => condition.message)
+    .map(condition => `${condition.type}: ${condition.message}`)
+    .join("; ")
 
 // Execute a job and wait for the execution to complete. The returned
 // long-running operation only resolves once the execution finishes, and
 // rejects if it fails.
 //
-// A task that RAN and failed is never re-run: the only job a deploy executes is
-// database migrations, and a half-applied schema change must fail the deploy
-// loudly (the module fixes the job's own max_retries at 0 for the same reason).
-// But the invariant that protects is "never run a migration twice", not "never
-// call RunJob twice" — and an execution that never started ran nothing at all.
-// That one case is retried ONCE; every other failure fails the deploy on the
-// first attempt, as before.
+// NOT retried, and the job's own max_retries is fixed at 0 by the Terraform
+// module for the same reason: the only job a deploy executes is database
+// migrations, and a half-applied schema change must fail the deploy loudly.
 //
-// The bar for calling it that case is deliberately high, because a stalled
-// deploy is recoverable and a migration applied twice may not be. Before the
-// job runs again the execution must be TERMINAL and show no evidence that any
-// task ever ran — cancelled first if Cloud Run could still schedule it, and
-// re-read afterwards whatever the cancellation did. Anything we cannot confirm
-// throws instead.
+// What this does add is a deadline of OUR own on the execution starting. Cloud
+// Run will sit on an execution it cannot schedule for two hours before saying
+// so, which is two hours of a deploy job holding a runner to report a failure
+// it could have reported in fifteen minutes. On the deadline the pending
+// execution is cancelled — best effort, and only so it cannot start later and
+// collide with whatever the operator runs next — and the deploy fails with the
+// execution named.
 export async function runJob(name, options = {}) {
-    const {
-        startDeadlineMs = START_DEADLINE_MS,
-        pollIntervalMs = POLL_INTERVAL_MS,
-        cancelTimeoutMs = CANCEL_TIMEOUT_MS
-    } = options
+    const {startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS} = options
+    const jobs = new JobsClient()
+    const [operation] = await jobs.runJob({name})
+    const executionName = operation.metadata?.name
 
-    let attempt = await executeJob(name, startDeadlineMs, pollIntervalMs)
-
-    if (attempt.stalled) {
-        // Throws unless nothing ran, so reaching the next line IS the proof.
-        await confirmNothingRan(attempt.executionName, attempt.verdict, cancelTimeoutMs)
-        core.warning(
-            `${attempt.executionName} never started and ran no task, so it is safe to execute the job ` +
-            "again. Running it once more."
-        )
-        attempt = await executeJob(name, startDeadlineMs, pollIntervalMs)
-        if (attempt.stalled) {
-            const outcome = await cancelForAbandon(attempt.executionName, attempt.verdict, cancelTimeoutMs)
-            throw new Error(
-                `Job execution failed to start twice, most recently ${attempt.executionName} (${outcome}). ` +
-                "Confirm that execution is not running before executing the job again."
-            )
-        }
+    // With no execution name there is nothing to poll, so wait on the operation
+    // exactly as this function always did.
+    if (executionName) {
+        await awaitStart(executionName, startDeadlineMs, pollIntervalMs)
     }
 
-    const execution = attempt.execution
+    const [execution] = await operation.promise()
     if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
         throw new Error(`Job execution did not succeed: ${execution.name}`)
     }
     return execution
 }
 
-// One RunJob call: either the finished execution, or `stalled` when no task
-// began. The RunJob operation carries the Execution as its metadata, so the
-// execution can be polled and cancelled while the operation is still pending.
-async function executeJob(name, startDeadlineMs, pollIntervalMs) {
-    const client = new JobsClient()
-    const [operation] = await client.runJob({name})
-    const executionName = operation.metadata?.name
-
-    // With no execution name we cannot tell a stall from a failure, so keep the
-    // original behaviour rather than guess: wait however long Cloud Run takes.
-    if (!executionName) {
-        const [execution] = await operation.promise()
-        return {execution}
-    }
-
-    let verdict
-    try {
-        verdict = await awaitStart(executionName, startDeadlineMs, pollIntervalMs)
-    } catch (error) {
-        // Polling is an optimisation over waiting on the operation. If it fails
-        // outright, fall back to the operation rather than fail a deploy whose
-        // migration may well be running — the pre-poll behaviour, which tolerated
-        // this because gax retries the operation for us.
-        core.warning(
-            `${executionName}: could not read the execution (${error.message}); waiting on the run operation instead.`
-        )
-        const [execution] = await operation.promise()
-        return {execution}
-    }
-
-    if (verdict === RAN) {
-        const [execution] = await operation.promise()
-        return {execution}
-    }
-    return {stalled: true, verdict, executionName}
-}
-
-// Poll until a task begins, the execution ends without one, or our deadline
-// passes. `ranAnything` is tested FIRST so an execution that both started and
-// finished reads as RAN whichever timestamp landed first.
+// Returns once a task has begun, or once the execution is terminal either way —
+// the run operation is then the authoritative account of what happened, so it
+// reports the outcome rather than this. Throws only when our deadline passes
+// first, which is the stall this function exists for.
 async function awaitStart(executionName, startDeadlineMs, pollIntervalMs) {
-    const deadline = Date.now() + startDeadlineMs
-    for (;;) {
-        const execution = await getExecution(executionName)
-        if (ranAnything(execution)) return RAN
-        if (execution.completionTime) return NEVER_RAN
-        const remaining = deadline - Date.now()
-        if (remaining <= 0) return PENDING
-        await sleep(Math.min(pollIntervalMs, remaining))
-    }
-}
-
-// The last observation before the job runs again, and the only thing standing
-// between a scheduling hiccup and a migration applied twice. Returns only when
-// the execution is terminal and nothing ever ran; throws otherwise.
-async function confirmNothingRan(executionName, verdict, cancelTimeoutMs) {
-    if (verdict !== NEVER_RAN) {
-        // Still pending at our deadline, so Cloud Run may yet schedule it inside
-        // its own two-hour window. Cancel before running the job again, or the
-        // two race. A cancellation we cannot complete is a refusal to retry, not
-        // a warning to step past.
-        await cancelExecution(executionName, cancelTimeoutMs)
-    }
-
-    // One authoritative read decides, whatever the cancellation did — it also
-    // closes the gap between the last poll and the cancel landing, in which a
-    // task could have started.
-    const execution = await getExecution(executionName)
-    if (ranAnything(execution)) {
-        throw new Error(
-            `${executionName} ran a task after all (${describeCounts(execution)}); refusing to execute the job ` +
-            "again, because a migration must never run twice."
-        )
-    }
-    if (!execution.completionTime) {
-        throw new Error(
-            `${executionName} is neither finished nor cancelled, so Cloud Run could still start it; refusing ` +
-            "to execute the job again."
-        )
-    }
-}
-
-// Second stall: we are failing the deploy either way, so this only reports
-// whether the stuck execution was seen off, for whoever re-runs it.
-async function cancelForAbandon(executionName, verdict, cancelTimeoutMs) {
-    if (verdict === NEVER_RAN) return "already terminal"
-    try {
-        await cancelExecution(executionName, cancelTimeoutMs)
-        return "cancelled"
-    } catch (error) {
-        return `NOT cancelled: ${error.message}`
-    }
-}
-
-async function getExecution(executionName) {
     const client = new ExecutionsClient()
+    const deadline = Date.now() + startDeadlineMs
+    let last = null
+    try {
+        for (;;) {
+            let execution
+            try {
+                execution = await getExecution(client, executionName)
+            } catch (error) {
+                // A permission problem will not fix itself, and quietly falling
+                // back would turn the whole deadline off. Anything else may be
+                // read-after-write lag on the first poll or a passing blip, and
+                // the deadline still bounds us either way.
+                if (error.code === GRPC_PERMISSION_DENIED) throw error
+                if (error.code !== GRPC_NOT_FOUND) {
+                    core.warning(
+                        `${executionName}: could not read the execution (${error.message}); waiting on the run ` +
+                        "operation instead, without a start deadline."
+                    )
+                    return
+                }
+                execution = null
+            }
+
+            if (execution) {
+                if (ranAnything(execution) || execution.completionTime) return
+                last = execution
+            }
+
+            const remaining = deadline - Date.now()
+            if (remaining <= 0) break
+            await sleep(Math.min(pollIntervalMs, remaining))
+        }
+
+        const outcome = await cancelStalled(client, executionName)
+        const reason = conditionSummary(last)
+        throw new Error(
+            `${executionName} had not started ${Math.round(startDeadlineMs / 60000)} minutes after it was ` +
+            `created, so Cloud Run scheduled no task${reason ? ` (${reason})` : ""}. ${outcome} Nothing ran, ` +
+            "so the deploy can simply be run again."
+        )
+    } finally {
+        try { await client.close() } catch { /* the deploy's outcome does not turn on closing a channel */ }
+    }
+}
+
+// One read, retried the way every other call in this file is.
+async function getExecution(client, executionName) {
     const [execution] = await retryTransient(
         `getExecution ${executionName}`,
         () => client.getExecution({name: executionName})
@@ -315,13 +248,22 @@ async function getExecution(executionName) {
     return execution
 }
 
-async function cancelExecution(executionName, cancelTimeoutMs) {
-    const label = `cancelExecution ${executionName}`
-    const client = new ExecutionsClient()
-    return retryTransient(label, async () => {
-        const [operation] = await client.cancelExecution({name: executionName})
-        return withTimeout(operation.promise(), cancelTimeoutMs, label)
-    })
+// Best effort, and deliberately not load bearing: nothing re-runs the job
+// automatically, so this only stops a late start colliding with whatever the
+// operator does next. Bounded inside gax rather than raced against a timer, so
+// a cancellation that hangs cannot outlive the step reporting the failure.
+// Whether it worked goes in the message either way.
+async function cancelStalled(client, executionName) {
+    try {
+        const [cancellation] = await client.cancelExecution({name: executionName}, {longrunning: CANCEL_BACKOFF})
+        const [execution] = await cancellation.promise()
+        return ranAnything(execution)
+            ? `It STARTED while being cancelled — check ${executionName} before running the job again.`
+            : "It has been cancelled."
+    } catch (error) {
+        return `It could NOT be cancelled (${error.message}), so Cloud Run may still start it within two hours ` +
+            "of its creation — confirm it is not running before running the job again."
+    }
 }
 
 // `containers` is the full container list for the service template (the app

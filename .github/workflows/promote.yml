@@ -234,6 +234,10 @@ jobs:
     needs: lookup
     if: needs.lookup.outputs.provider == 'gcp'
     runs-on: ubuntu-latest
+    # A backstop for anything the deploy path does not model: without it a job
+    # inherits GitHub's six-hour default, and a Cloud Run call that hangs holds
+    # a runner for the rest of the morning. Well clear of a real deploy.
+    timeout-minutes: 60
     # Shared production lock with rollback: only one production mutation per app
     # at a time, and never cancelled mid-flight.
     concurrency:
@@ -636,6 +640,10 @@ jobs:
     needs: lookup
     if: needs.lookup.outputs.provider == 'aws'
     runs-on: ubuntu-latest
+    # A backstop for anything the deploy path does not model: without it a job
+    # inherits GitHub's six-hour default, and a Cloud Run call that hangs holds
+    # a runner for the rest of the morning. Well clear of a real deploy.
+    timeout-minutes: 60
     # Shared production lock with rollback (same group as promote-gcp).
     concurrency:
       group: production-${{ inputs.project-name }}

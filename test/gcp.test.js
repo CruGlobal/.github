@@ -34,6 +34,7 @@ vi.mock('@google-cloud/run', () => ({
       constructor () {
         this.getExecution = getExecutionMock
         this.cancelExecution = cancelExecutionMock
+        this.close = () => Promise.resolve()
       }
     }
   }
@@ -185,13 +186,13 @@ describe('transient gRPC failures', () => {
 
 // --- runJob -----------------------------------------------------------------
 //
-// The distinction under test is the whole point of the retry: an execution that
-// never ran a task may be run again, while anything we cannot prove ran nothing
-// must fail the deploy instead.
+// The job is never re-run automatically: the deadline exists so a stalled
+// execution fails the deploy in fifteen minutes instead of two hours, and the
+// cancellation is housekeeping so a late start cannot collide with whatever the
+// operator runs next.
 
 const JOB = `projects/flightdeck-stage-fybm/locations/${DEFAULT_REGION}/jobs/db-migrate`
 const EXEC = `${JOB}/executions/db-migrate-4vdmx`
-const EXEC2 = `${JOB}/executions/db-migrate-b7k2p`
 
 // The RunJob long-running operation: Execution as metadata (readable before it
 // resolves) and the finished Execution as the response.
@@ -204,29 +205,27 @@ function runOperation (executionName, response = {}) {
 
 const started = name => [{ name, startTime: { seconds: 1 }, taskCount: 1 }]
 const pending = name => [{ name, taskCount: 1 }]
-// Cloud Run's own verdict after two hours: terminal, and no task ever ran.
-const neverRan = name => [{ name, completionTime: { seconds: 2 }, taskCount: 1 }]
 // Terminal AND ran — the ordering trap: the proto does not promise start_time
 // lands before completion_time, so the counters have to be believed too.
 const ranAndFinished = name => [{ name, completionTime: { seconds: 2 }, failedCount: 1, taskCount: 1 }]
 
 const cancelOperation = execution => [{ promise: () => Promise.resolve([execution]) }]
 
-// Non-transient, so retryTransient gives up at once instead of backing off.
-function denied (message = 'PERMISSION_DENIED') {
+function grpcError (code, message) {
   const error = new Error(message)
-  error.code = 7
+  error.code = code
   return error
 }
 
-// Tiny values so the stall paths do not actually wait.
-const FAST = { startDeadlineMs: 30, pollIntervalMs: 5, cancelTimeoutMs: 50 }
+// Tiny values so the stall path does not actually wait.
+const FAST = { startDeadlineMs: 30, pollIntervalMs: 5 }
 
 describe('runJob', () => {
   beforeEach(() => {
     runJobMock.mockReset()
     getExecutionMock.mockReset()
     cancelExecutionMock.mockReset()
+    cancelExecutionMock.mockResolvedValue(cancelOperation({ name: EXEC, cancelledCount: 0 }))
   })
 
   it('waits for a started execution and returns it', async () => {
@@ -236,151 +235,105 @@ describe('runJob', () => {
     await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
 
     expect(runJobMock).toHaveBeenCalledTimes(1)
-    expect(runJobMock).toHaveBeenCalledWith({ name: JOB })
     expect(cancelExecutionMock).not.toHaveBeenCalled()
   })
 
-  it('does NOT retry a task that ran and failed', async () => {
+  it('never re-runs the job, whatever happens', async () => {
     runJobMock.mockResolvedValue(runOperation(EXEC, { succeededCount: 0, failedCount: 1 }))
     getExecutionMock.mockResolvedValue(started(EXEC))
 
     await expect(runJob(JOB, FAST)).rejects.toThrow('Job execution did not succeed')
 
     expect(runJobMock).toHaveBeenCalledTimes(1)
-    expect(cancelExecutionMock).not.toHaveBeenCalled()
   })
 
-  // A terminal execution with no task counts is Cloud Run telling us it gave up
-  // scheduling. Nothing to cancel, and nothing ran.
-  it('re-runs a terminal execution that never started, without cancelling it', async () => {
-    runJobMock
-      .mockResolvedValueOnce(runOperation(EXEC))
-      .mockResolvedValueOnce(runOperation(EXEC2))
-    getExecutionMock.mockImplementation(({ name }) =>
-      Promise.resolve(name === EXEC ? neverRan(EXEC) : started(EXEC2))
-    )
-
-    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC2 })
-
-    expect(runJobMock).toHaveBeenCalledTimes(2)
-    expect(cancelExecutionMock).not.toHaveBeenCalled()
-  })
-
-  // Still pending when our deadline passes: Cloud Run could still schedule it,
-  // so it has to be cancelled before the job runs again.
-  it('cancels a still-pending execution before re-running, and confirms nothing ran', async () => {
-    runJobMock
-      .mockResolvedValueOnce(runOperation(EXEC))
-      .mockResolvedValueOnce(runOperation(EXEC2))
-    let cancelled = false
-    cancelExecutionMock.mockImplementation(() => {
-      cancelled = true
-      return Promise.resolve(cancelOperation({ name: EXEC, completionTime: { seconds: 3 }, cancelledCount: 1 }))
-    })
-    getExecutionMock.mockImplementation(({ name }) => {
-      if (name === EXEC2) return Promise.resolve(started(EXEC2))
-      return Promise.resolve(cancelled
-        ? [{ name: EXEC, completionTime: { seconds: 3 }, cancelledCount: 1, taskCount: 1 }]
-        : pending(EXEC))
-    })
-
-    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC2 })
-
-    expect(cancelExecutionMock).toHaveBeenCalledWith({ name: EXEC })
-    expect(runJobMock).toHaveBeenCalledTimes(2)
-  })
-
-  // Finding: a swallowed cancel failure would start a second execution while the
-  // first is still schedulable.
-  it('refuses to re-run when the cancellation fails', async () => {
-    runJobMock.mockResolvedValue(runOperation(EXEC))
-    getExecutionMock.mockResolvedValue(pending(EXEC))
-    cancelExecutionMock.mockRejectedValue(denied())
-
-    await expect(runJob(JOB, FAST)).rejects.toThrow('PERMISSION_DENIED')
-
-    expect(runJobMock).toHaveBeenCalledTimes(1)
-  })
-
-  // Finding: the task can start between the last poll and the cancel landing.
-  it('refuses to re-run when the execution turns out to have started', async () => {
-    runJobMock.mockResolvedValue(runOperation(EXEC))
-    cancelExecutionMock.mockResolvedValue(cancelOperation({ name: EXEC }))
-    let cancelled = false
-    cancelExecutionMock.mockImplementation(() => {
-      cancelled = true
-      return Promise.resolve(cancelOperation({ name: EXEC }))
-    })
-    getExecutionMock.mockImplementation(() => Promise.resolve(cancelled
-      ? [{ name: EXEC, startTime: { seconds: 9 }, completionTime: { seconds: 10 }, cancelledCount: 1, taskCount: 1 }]
-      : pending(EXEC)))
-
-    await expect(runJob(JOB, FAST)).rejects.toThrow('ran a task after all')
-
-    expect(runJobMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('refuses to re-run when the execution is still not terminal after cancelling', async () => {
-    runJobMock.mockResolvedValue(runOperation(EXEC))
-    cancelExecutionMock.mockResolvedValue(cancelOperation({ name: EXEC }))
-    getExecutionMock.mockResolvedValue(pending(EXEC))
-
-    await expect(runJob(JOB, FAST)).rejects.toThrow('neither finished nor cancelled')
-
-    expect(runJobMock).toHaveBeenCalledTimes(1)
-  })
-
-  // Finding: start_time is not guaranteed to land before completion_time, so a
-  // finished-but-failed execution must not read as "never started".
-  it('believes the task counters when completion lands before start_time', async () => {
+  // start_time is not guaranteed to land before completion_time, so a finished
+  // execution is judged by the run operation rather than by the timestamps.
+  it('lets the run operation report a terminal execution', async () => {
     runJobMock.mockResolvedValue(runOperation(EXEC, { succeededCount: 0, failedCount: 1 }))
     getExecutionMock.mockResolvedValue(ranAndFinished(EXEC))
 
     await expect(runJob(JOB, FAST)).rejects.toThrow('Job execution did not succeed')
 
-    expect(runJobMock).toHaveBeenCalledTimes(1)
     expect(cancelExecutionMock).not.toHaveBeenCalled()
   })
 
-  // Finding: polling is less tolerant than the operation wait it replaced, so a
-  // read that fails outright falls back rather than failing the deploy.
+  it('fails in minutes when the execution never starts, and cancels it', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(pending(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow(/had not started.*has been cancelled/s)
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+    expect(cancelExecutionMock).toHaveBeenCalledWith({ name: EXEC }, expect.objectContaining({
+      longrunning: expect.objectContaining({ totalTimeoutMillis: expect.any(Number) })
+    }))
+  })
+
+  it('says so when the stalled execution could not be cancelled', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(pending(EXEC))
+    cancelExecutionMock.mockRejectedValue(grpcError(7, 'PERMISSION_DENIED'))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow(/could NOT be cancelled.*confirm it is not running/s)
+  })
+
+  it('says so when the execution started while being cancelled', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(pending(EXEC))
+    cancelExecutionMock.mockResolvedValue(cancelOperation({ name: EXEC, cancelledCount: 1 }))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow(/STARTED while being cancelled/)
+  })
+
+  it('carries the execution conditions into the failure', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue([{
+      name: EXEC,
+      taskCount: 1,
+      conditions: [{ type: 'ContainerReady', message: 'Imported container image in 26.13s.' }]
+    }])
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('Imported container image in 26.13s.')
+  })
+
+  // Read-after-write lag on the first poll must not switch the deadline off.
+  it('keeps polling through NOT_FOUND', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock
+      .mockRejectedValueOnce(grpcError(5, 'NOT_FOUND'))
+      .mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(getExecutionMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails loudly when the execution cannot be read for want of permission', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockRejectedValue(grpcError(7, 'PERMISSION_DENIED'))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('PERMISSION_DENIED')
+
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  // Any other read failure is not evidence either way, so it falls back to the
+  // behaviour this replaced rather than failing a running migration's deploy.
   it('falls back to waiting on the operation when the execution cannot be read', async () => {
     runJobMock.mockResolvedValue(runOperation(EXEC))
-    getExecutionMock.mockRejectedValue(denied('cannot read'))
+    getExecutionMock.mockRejectedValue(grpcError(9, 'FAILED_PRECONDITION'))
 
     await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
 
     expect(cancelExecutionMock).not.toHaveBeenCalled()
   })
 
-  // Finding: an unbounded cancel would put back the two-hour wait.
-  it('bounds the cancellation rather than hanging on it', async () => {
-    runJobMock.mockResolvedValue(runOperation(EXEC))
-    getExecutionMock.mockResolvedValue(pending(EXEC))
-    cancelExecutionMock.mockResolvedValue([{ promise: () => new Promise(() => {}) }])
-
-    await expect(runJob(JOB, { ...FAST, cancelTimeoutMs: 20 })).rejects.toThrow('did not finish within')
-
-    expect(runJobMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('fails the deploy when it never starts twice, and says whether the second was cancelled', async () => {
-    runJobMock
-      .mockResolvedValueOnce(runOperation(EXEC))
-      .mockResolvedValueOnce(runOperation(EXEC2))
-    getExecutionMock.mockImplementation(({ name }) => Promise.resolve(neverRan(name)))
-
-    await expect(runJob(JOB, FAST)).rejects.toThrow(/failed to start twice.*already terminal/s)
-
-    expect(runJobMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('keeps the original unbounded wait when the operation names no execution', async () => {
+  it('keeps the original wait when the operation names no execution', async () => {
     runJobMock.mockResolvedValue(runOperation(undefined, { name: EXEC }))
 
     await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
 
     expect(getExecutionMock).not.toHaveBeenCalled()
-    expect(runJobMock).toHaveBeenCalledTimes(1)
   })
 })

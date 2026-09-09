@@ -153,6 +153,10 @@ jobs:
     needs: lookup
     if: needs.lookup.outputs.provider == 'gcp'
     runs-on: ubuntu-latest
+    # A backstop for anything the deploy path does not model: without it a job
+    # inherits GitHub's six-hour default, and a Cloud Run call that hangs holds
+    # a runner for the rest of the morning. Well clear of a real deploy.
+    timeout-minutes: 60
     concurrency:
       group: release-candidate-${{ inputs.project-name }}
       cancel-in-progress: false
@@ -400,6 +404,10 @@ jobs:
     # outright on a gcp app that asks for it.
     if: needs.lookup.outputs.provider == 'aws' && needs.lookup.outputs.rc-mode != 'verify'
     runs-on: ubuntu-latest
+    # A backstop for anything the deploy path does not model: without it a job
+    # inherits GitHub's six-hour default, and a Cloud Run call that hangs holds
+    # a runner for the rest of the morning. Well clear of a real deploy.
+    timeout-minutes: 60
     concurrency:
       group: release-candidate-${{ inputs.project-name }}
       cancel-in-progress: false
@@ -657,6 +665,10 @@ jobs:
     needs: lookup
     if: needs.lookup.outputs.provider == 'aws' && needs.lookup.outputs.rc-mode == 'verify'
     runs-on: ubuntu-latest
+    # A backstop for anything the deploy path does not model: without it a job
+    # inherits GitHub's six-hour default, and a Cloud Run call that hangs holds
+    # a runner for the rest of the morning. Well clear of a real deploy.
+    timeout-minutes: 60
     # Same lock group as the provider deploy jobs: exactly one of the three runs
     # per app, so whichever it is holds the app's release-candidate lock.
     concurrency:
