@@ -11114,11 +11114,11 @@ var require_pluralizer = __commonJS({
         this.singular = singular;
         this.plural = plural;
       }
-      pluralize(count) {
-        const one = count === 1;
+      pluralize(count2) {
+        const one = count2 === 1;
         const keys = one ? singulars : plurals;
         const noun = one ? this.singular : this.plural;
-        return { ...keys, count, noun };
+        return { ...keys, count: count2, noun };
       }
     };
   }
@@ -30141,8 +30141,8 @@ var require_crypto = __commonJS({
         const outputBuffer = await window.crypto.subtle.digest("SHA-256", inputBuffer);
         return base64js.fromByteArray(new Uint8Array(outputBuffer));
       }
-      randomBytesBase64(count) {
-        const array = new Uint8Array(count);
+      randomBytesBase64(count2) {
+        const array = new Uint8Array(count2);
         window.crypto.getRandomValues(array);
         return base64js.fromByteArray(array);
       }
@@ -30229,8 +30229,8 @@ var require_crypto2 = __commonJS({
       async sha256DigestBase64(str) {
         return crypto3.createHash("sha256").update(str).digest("base64");
       }
-      randomBytesBase64(count) {
-        return crypto3.randomBytes(count).toString("base64");
+      randomBytesBase64(count2) {
+        return crypto3.randomBytes(count2).toString("base64");
       }
       async verify(pubkey, data, signature) {
         const verifier = crypto3.createVerify("RSA-SHA256");
@@ -60081,13 +60081,13 @@ var require_retrying_call = __commonJS({
         }, retryDelayMs);
       }
       countActiveCalls() {
-        let count = 0;
+        let count2 = 0;
         for (const call of this.underlyingCalls) {
           if ((call === null || call === void 0 ? void 0 : call.state) === "ACTIVE") {
-            count += 1;
+            count2 += 1;
           }
         }
-        return count;
+        return count2;
       }
       handleProcessedStatus(status, callIndex, pushback) {
         var _a2, _b, _c5;
@@ -65933,13 +65933,13 @@ var require_load_balancer_weighted_round_robin = __commonJS({
         this.weightUpdateTimer = null;
       }
       countChildrenWithState(state2) {
-        let count = 0;
+        let count2 = 0;
         for (const entry of this.children.values()) {
           if (entry.child.getConnectivityState() === state2) {
-            count += 1;
+            count2 += 1;
           }
         }
-        return count;
+        return count2;
       }
       updateWeight(entry, loadReport) {
         var _a2, _b;
@@ -79093,13 +79093,13 @@ var require_stream_writable = __commonJS({
         var buffer = new Array(l3);
         var holder = state2.corkedRequestsFree;
         holder.entry = entry;
-        var count = 0;
+        var count2 = 0;
         var allBuffers = true;
         while (entry) {
-          buffer[count] = entry;
+          buffer[count2] = entry;
           if (!entry.isBuf) allBuffers = false;
           entry = entry.next;
-          count += 1;
+          count2 += 1;
         }
         buffer.allBuffers = allBuffers;
         doWrite(stream, state2, true, state2.length, buffer, "", holder.finish);
@@ -83145,11 +83145,11 @@ var require_task = __commonJS({
        * @return {number} The number of elements.
        */
       getElementCount() {
-        let count = 0;
+        let count2 = 0;
         for (let i6 = 0; i6 < this._data.length; ++i6) {
-          count += this._data[i6].elements.length;
+          count2 += this._data[i6].elements.length;
         }
-        return count;
+        return count2;
       }
       /**
        * Returns the total byte size of the elements in a task.
@@ -117861,7 +117861,7 @@ var require_executions_client = __commonJS({
     var google_gax_1 = require_src10();
     var gapicConfig = require_executions_client_config();
     var version = require_package6().version;
-    var ExecutionsClient = class {
+    var ExecutionsClient2 = class {
       _terminated = false;
       _opts;
       _providedCustomServicePath;
@@ -119035,7 +119035,7 @@ var require_executions_client = __commonJS({
         return Promise.resolve();
       }
     };
-    exports2.ExecutionsClient = ExecutionsClient;
+    exports2.ExecutionsClient = ExecutionsClient2;
   }
 });
 
@@ -128697,8 +128697,8 @@ var require_protos4 = __commonJS({
                 Executions.create = function create(rpcImpl, requestDelimited, responseDelimited) {
                   return new this(rpcImpl, requestDelimited, responseDelimited);
                 };
-                Object.defineProperty(Executions.prototype.getExecution = function getExecution(request, callback) {
-                  return this.rpcCall(getExecution, $root.google.cloud.run.v2.GetExecutionRequest, $root.google.cloud.run.v2.Execution, request, callback);
+                Object.defineProperty(Executions.prototype.getExecution = function getExecution2(request, callback) {
+                  return this.rpcCall(getExecution2, $root.google.cloud.run.v2.GetExecutionRequest, $root.google.cloud.run.v2.Execution, request, callback);
                 }, "name", { value: "GetExecution" });
                 Object.defineProperty(Executions.prototype.listExecutions = function listExecutions(request, callback) {
                   return this.rpcCall(listExecutions, $root.google.cloud.run.v2.ListExecutionsRequest, $root.google.cloud.run.v2.ListExecutionsResponse, request, callback);
@@ -157592,8 +157592,8 @@ var require_src12 = __commonJS({
     exports2.v2 = v22;
     var BuildsClient = v22.BuildsClient;
     exports2.BuildsClient = BuildsClient;
-    var ExecutionsClient = v22.ExecutionsClient;
-    exports2.ExecutionsClient = ExecutionsClient;
+    var ExecutionsClient2 = v22.ExecutionsClient;
+    exports2.ExecutionsClient = ExecutionsClient2;
     var InstancesClient = v22.InstancesClient;
     exports2.InstancesClient = InstancesClient;
     var JobsClient2 = v22.JobsClient;
@@ -157606,7 +157606,7 @@ var require_src12 = __commonJS({
     exports2.TasksClient = TasksClient;
     var WorkerPoolsClient = v22.WorkerPoolsClient;
     exports2.WorkerPoolsClient = WorkerPoolsClient;
-    exports2.default = { v2: v22, BuildsClient, ExecutionsClient, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
+    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
     var protos = require_protos4();
     exports2.protos = protos;
   }
@@ -167982,9 +167982,9 @@ var init_DefaultRetryToken = __esm({
       $retryLog = {
         acquisitionDelay: 0
       };
-      constructor(delay, count, cost, longPoll) {
+      constructor(delay, count2, cost, longPoll) {
         this.delay = delay;
-        this.count = count;
+        this.count = count2;
         this.cost = cost;
         this.longPoll = longPoll;
       }
@@ -173939,7 +173939,7 @@ function writeStruct(ns, value, serdeContext) {
   ensure(headerSize);
   const headerPos = cursor;
   cursor += headerSize;
-  let count = 0;
+  let count2 = 0;
   for (let i6 = 0; i6 < z; ++i6) {
     const item = value[memberNames[i6]];
     if (item == null && !memberSchemas[i6].isIdempotencyToken()) {
@@ -173950,7 +173950,7 @@ function writeStruct(ns, value, serdeContext) {
     buf.set(key, cursor);
     cursor += key.length;
     writeValue(memberSchemas[i6], item, ns, serdeContext);
-    ++count;
+    ++count2;
   }
   if (typeof value.__type === "string") {
     for (const k5 in value) {
@@ -173959,19 +173959,19 @@ function writeStruct(ns, value, serdeContext) {
       if (!memberNames.includes(k5)) {
         writeString(k5);
         writeUntypedValue(value[k5]);
-        ++count;
+        ++count2;
       }
     }
   }
   if (headerSize === 1) {
-    buf[headerPos] = majorMap << 5 | count;
+    buf[headerPos] = majorMap << 5 | count2;
   } else if (headerSize === 2) {
     buf[headerPos] = majorMap << 5 | 24;
-    buf[headerPos + 1] = count;
+    buf[headerPos + 1] = count2;
   } else {
     buf[headerPos] = majorMap << 5 | extendedFloat16;
-    buf[headerPos + 1] = count >> 8;
-    buf[headerPos + 2] = count & 255;
+    buf[headerPos + 1] = count2 >> 8;
+    buf[headerPos + 2] = count2 & 255;
   }
 }
 function writeList(ns, value, isDocument, serdeContext) {
@@ -173997,14 +173997,14 @@ function writeList(ns, value, isDocument, serdeContext) {
       writeValue(valueSchema, items[i6], void 0, serdeContext);
     }
   } else {
-    let count = 0;
+    let count2 = 0;
     for (let i6 = 0; i6 < value.length; ++i6) {
       if (value[i6] != null) {
-        ++count;
+        ++count2;
       }
     }
     ensure(9);
-    encodeHeader(majorList, count);
+    encodeHeader(majorList, count2);
     for (let i6 = 0; i6 < value.length; ++i6) {
       if (value[i6] != null) {
         writeValue(valueSchema, value[i6], void 0, serdeContext);
@@ -174368,29 +174368,29 @@ function readValue(ns) {
   }
 }
 function readList(ns) {
-  const count = decodeCount();
+  const count2 = decodeCount();
   const memberSchema = ns.isListSchema() ? ns.getValueSchema() : ns;
-  const list2 = Array(count);
-  for (let i6 = 0; i6 < count; ++i6) {
+  const list2 = Array(count2);
+  for (let i6 = 0; i6 < count2; ++i6) {
     list2[i6] = readValue(memberSchema);
   }
   return list2;
 }
 function readMap(ns) {
-  const count = decodeCount();
+  const count2 = decodeCount();
   if (ns.isStructSchema()) {
     const startPos = pos;
-    return readStruct(ns, count, startPos);
+    return readStruct(ns, count2, startPos);
   }
   const valueSchema = ns.isMapSchema() ? ns.getValueSchema() : ns;
   const map3 = {};
-  for (let i6 = 0; i6 < count; ++i6) {
+  for (let i6 = 0; i6 < count2; ++i6) {
     const key = readUtf8String();
     map3[key] = readValue(valueSchema);
   }
   return map3;
 }
-function readStruct(ns, count, startPos) {
+function readStruct(ns, count2, startPos) {
   const isUnion = ns.isUnionSchema();
   const cache5 = loadCborStructIterator(ns);
   const { memberSchemas, encodedKeys, memberNames } = cache5;
@@ -174401,7 +174401,7 @@ function readStruct(ns, count, startPos) {
   let unknownCount = 0;
   let hasType = false;
   let hint = 0;
-  for (let i6 = 0; i6 < count; ++i6) {
+  for (let i6 = 0; i6 < count2; ++i6) {
     const matchIdx = matchStructKey(encodedKeys, z, hint);
     if (matchIdx >= 0) {
       hint = matchIdx + 1;
@@ -174438,7 +174438,7 @@ function readStruct(ns, count, startPos) {
   } else if (hasType) {
     pos = startPos;
     const docSchema = NormalizedSchema.of(15);
-    for (let i6 = 0; i6 < count; ++i6) {
+    for (let i6 = 0; i6 < count2; ++i6) {
       const key = readUtf8String();
       const val = readValue(docSchema);
       if (!(key in result)) {
@@ -175938,8 +175938,8 @@ var init_JsonBytesStringAdapter = __esm({
       padEnd(maxLength, fillString) {
         return this.s().padEnd(maxLength, fillString);
       }
-      repeat(count) {
-        return this.s().repeat(count);
+      repeat(count2) {
+        return this.s().repeat(count2);
       }
       toUpperCase() {
         return this.s().toUpperCase();
@@ -217771,12 +217771,12 @@ async function ecsDescribeServices(serviceArns, cluster) {
   const response = await client.send(new import_client_ecs.DescribeServicesCommand({ cluster, services: serviceArns }));
   return response.services ?? [];
 }
-async function ecsRunTask({ cluster, taskDefinition, count = 1, startedBy, networkConfiguration, launchType, capacityProviderStrategy }) {
+async function ecsRunTask({ cluster, taskDefinition, count: count2 = 1, startedBy, networkConfiguration, launchType, capacityProviderStrategy }) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
   return client.send(new import_client_ecs.RunTaskCommand({
     cluster,
     taskDefinition,
-    count,
+    count: count2,
     startedBy,
     networkConfiguration,
     launchType,
@@ -218007,7 +218007,7 @@ async function retryTransient(label, fn, options = {}) {
 }
 
 // src/gcp.js
-var { ServicesClient, JobsClient } = import_run.v2;
+var { ServicesClient, JobsClient, ExecutionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
 async function mutate(label, apply) {
   return retryTransient(label, async (attempt) => {
@@ -218057,14 +218057,93 @@ async function updateJob(job) {
   const request = { job };
   return mutate(`updateJob ${job.name}`, () => client.updateJob(request));
 }
-async function runJob(name) {
-  const client = new JobsClient();
-  const [operation2] = await client.runJob({ name });
+var START_DEADLINE_MS = 15 * 60 * 1e3;
+var POLL_INTERVAL_MS = 15 * 1e3;
+var CANCEL_BACKOFF = {
+  initialRetryDelayMillis: 1e3,
+  retryDelayMultiplier: 1.5,
+  maxRetryDelayMillis: 1e4,
+  initialRpcTimeoutMillis: 2e4,
+  rpcTimeoutMultiplier: 1,
+  maxRpcTimeoutMillis: 2e4,
+  totalTimeoutMillis: 12e4
+};
+var GRPC_NOT_FOUND = 5;
+var GRPC_PERMISSION_DENIED = 7;
+var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var count = (value) => Number(value ?? 0);
+function ranAnything(execution) {
+  return Boolean(execution.startTime) || count(execution.runningCount) > 0 || count(execution.succeededCount) > 0 || count(execution.failedCount) > 0 || count(execution.cancelledCount) > 0 || count(execution.retriedCount) > 0;
+}
+var conditionSummary = (execution) => (execution?.conditions ?? []).filter((condition) => condition.message).map((condition) => `${condition.type}: ${condition.message}`).join("; ");
+async function runJob(name, options = {}) {
+  const { startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS } = options;
+  const jobs = new JobsClient();
+  const [operation2] = await jobs.runJob({ name });
+  const executionName = operation2.metadata?.name;
+  if (executionName) {
+    await awaitStart(executionName, startDeadlineMs, pollIntervalMs);
+  }
   const [execution] = await operation2.promise();
   if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
     throw new Error(`Job execution did not succeed: ${execution.name}`);
   }
   return execution;
+}
+async function awaitStart(executionName, startDeadlineMs, pollIntervalMs) {
+  const client = new ExecutionsClient();
+  const deadline = Date.now() + startDeadlineMs;
+  let last = null;
+  try {
+    for (; ; ) {
+      let execution;
+      try {
+        execution = await getExecution(client, executionName);
+      } catch (error3) {
+        if (error3.code === GRPC_PERMISSION_DENIED) throw error3;
+        if (error3.code !== GRPC_NOT_FOUND) {
+          warning(
+            `${executionName}: could not read the execution (${error3.message}); waiting on the run operation instead, without a start deadline.`
+          );
+          return;
+        }
+        execution = null;
+      }
+      if (execution) {
+        if (ranAnything(execution) || execution.completionTime) return;
+        last = execution;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await sleep3(Math.min(pollIntervalMs, remaining));
+    }
+    const outcome = await cancelStalled(client, executionName);
+    const reason = conditionSummary(last);
+    throw new Error(
+      `${executionName} had not started ${Math.round(startDeadlineMs / 6e4)} minutes after it was created, so Cloud Run scheduled no task${reason ? ` (${reason})` : ""}. ${outcome} Nothing ran, so the deploy can simply be run again.`
+    );
+  } finally {
+    try {
+      await client.close();
+    } catch {
+    }
+  }
+}
+async function getExecution(client, executionName) {
+  const [execution] = await retryTransient(
+    `getExecution ${executionName}`,
+    () => client.getExecution({ name: executionName })
+  );
+  return execution;
+}
+async function cancelStalled(client, executionName) {
+  try {
+    const [cancellation] = await client.cancelExecution({ name: executionName }, { longrunning: CANCEL_BACKOFF });
+    const [execution] = await cancellation.promise();
+    return ranAnything(execution) ? `It STARTED while being cancelled \u2014 check ${executionName} before running the job again.` : "It has been cancelled.";
+  } catch (error3) {
+    return `It could NOT be cancelled (${error3.message}), so Cloud Run may still start it within two hours of its creation \u2014 confirm it is not running before running the job again.`;
+  }
 }
 async function updateService(name, containers) {
   const client = new ServicesClient();

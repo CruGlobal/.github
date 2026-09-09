@@ -117861,7 +117861,7 @@ var require_executions_client = __commonJS({
     var google_gax_1 = require_src10();
     var gapicConfig = require_executions_client_config();
     var version = require_package6().version;
-    var ExecutionsClient = class {
+    var ExecutionsClient2 = class {
       _terminated = false;
       _opts;
       _providedCustomServicePath;
@@ -119035,7 +119035,7 @@ var require_executions_client = __commonJS({
         return Promise.resolve();
       }
     };
-    exports2.ExecutionsClient = ExecutionsClient;
+    exports2.ExecutionsClient = ExecutionsClient2;
   }
 });
 
@@ -157592,8 +157592,8 @@ var require_src12 = __commonJS({
     exports2.v2 = v22;
     var BuildsClient = v22.BuildsClient;
     exports2.BuildsClient = BuildsClient;
-    var ExecutionsClient = v22.ExecutionsClient;
-    exports2.ExecutionsClient = ExecutionsClient;
+    var ExecutionsClient2 = v22.ExecutionsClient;
+    exports2.ExecutionsClient = ExecutionsClient2;
     var InstancesClient = v22.InstancesClient;
     exports2.InstancesClient = InstancesClient;
     var JobsClient2 = v22.JobsClient;
@@ -157606,7 +157606,7 @@ var require_src12 = __commonJS({
     exports2.TasksClient = TasksClient;
     var WorkerPoolsClient = v22.WorkerPoolsClient;
     exports2.WorkerPoolsClient = WorkerPoolsClient;
-    exports2.default = { v2: v22, BuildsClient, ExecutionsClient, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
+    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
     var protos = require_protos4();
     exports2.protos = protos;
   }
@@ -188913,8 +188913,10 @@ function ecrRegistry(account, region = "us-east-1") {
 }
 
 // src/gcp.js
-var { ServicesClient, JobsClient } = import_run.v2;
+var { ServicesClient, JobsClient, ExecutionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
+var START_DEADLINE_MS = 15 * 60 * 1e3;
+var POLL_INTERVAL_MS = 15 * 1e3;
 
 // src/v2/gcp.js
 var SHARED_LOCATION = DEFAULT_REGION;

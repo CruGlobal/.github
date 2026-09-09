@@ -11113,11 +11113,11 @@ var require_pluralizer = __commonJS({
         this.singular = singular;
         this.plural = plural;
       }
-      pluralize(count) {
-        const one = count === 1;
+      pluralize(count2) {
+        const one = count2 === 1;
         const keys = one ? singulars : plurals;
         const noun = one ? this.singular : this.plural;
-        return { ...keys, count, noun };
+        return { ...keys, count: count2, noun };
       }
     };
   }
@@ -41680,13 +41680,13 @@ var require_retrying_call = __commonJS({
         }, retryDelayMs);
       }
       countActiveCalls() {
-        let count = 0;
+        let count2 = 0;
         for (const call of this.underlyingCalls) {
           if ((call === null || call === void 0 ? void 0 : call.state) === "ACTIVE") {
-            count += 1;
+            count2 += 1;
           }
         }
-        return count;
+        return count2;
       }
       handleProcessedStatus(status, callIndex, pushback) {
         var _a, _b, _c;
@@ -47532,13 +47532,13 @@ var require_load_balancer_weighted_round_robin = __commonJS({
         this.weightUpdateTimer = null;
       }
       countChildrenWithState(state) {
-        let count = 0;
+        let count2 = 0;
         for (const entry of this.children.values()) {
           if (entry.child.getConnectivityState() === state) {
-            count += 1;
+            count2 += 1;
           }
         }
-        return count;
+        return count2;
       }
       updateWeight(entry, loadReport) {
         var _a, _b;
@@ -59213,8 +59213,8 @@ var require_crypto = __commonJS({
         const outputBuffer = await window.crypto.subtle.digest("SHA-256", inputBuffer);
         return base64js.fromByteArray(new Uint8Array(outputBuffer));
       }
-      randomBytesBase64(count) {
-        const array = new Uint8Array(count);
+      randomBytesBase64(count2) {
+        const array = new Uint8Array(count2);
         window.crypto.getRandomValues(array);
         return base64js.fromByteArray(array);
       }
@@ -59301,8 +59301,8 @@ var require_crypto2 = __commonJS({
       async sha256DigestBase64(str) {
         return crypto2.createHash("sha256").update(str).digest("base64");
       }
-      randomBytesBase64(count) {
-        return crypto2.randomBytes(count).toString("base64");
+      randomBytesBase64(count2) {
+        return crypto2.randomBytes(count2).toString("base64");
       }
       async verify(pubkey, data, signature) {
         const verifier = crypto2.createVerify("RSA-SHA256");
@@ -79092,13 +79092,13 @@ var require_stream_writable = __commonJS({
         var buffer = new Array(l);
         var holder = state.corkedRequestsFree;
         holder.entry = entry;
-        var count = 0;
+        var count2 = 0;
         var allBuffers = true;
         while (entry) {
-          buffer[count] = entry;
+          buffer[count2] = entry;
           if (!entry.isBuf) allBuffers = false;
           entry = entry.next;
-          count += 1;
+          count2 += 1;
         }
         buffer.allBuffers = allBuffers;
         doWrite(stream, state, true, state.length, buffer, "", holder.finish);
@@ -83144,11 +83144,11 @@ var require_task = __commonJS({
        * @return {number} The number of elements.
        */
       getElementCount() {
-        let count = 0;
+        let count2 = 0;
         for (let i2 = 0; i2 < this._data.length; ++i2) {
-          count += this._data[i2].elements.length;
+          count2 += this._data[i2].elements.length;
         }
-        return count;
+        return count2;
       }
       /**
        * Returns the total byte size of the elements in a task.
@@ -117860,7 +117860,7 @@ var require_executions_client = __commonJS({
     var google_gax_1 = require_src10();
     var gapicConfig = require_executions_client_config();
     var version = require_package6().version;
-    var ExecutionsClient = class {
+    var ExecutionsClient2 = class {
       _terminated = false;
       _opts;
       _providedCustomServicePath;
@@ -119034,7 +119034,7 @@ var require_executions_client = __commonJS({
         return Promise.resolve();
       }
     };
-    exports2.ExecutionsClient = ExecutionsClient;
+    exports2.ExecutionsClient = ExecutionsClient2;
   }
 });
 
@@ -128696,8 +128696,8 @@ var require_protos4 = __commonJS({
                 Executions.create = function create(rpcImpl, requestDelimited, responseDelimited) {
                   return new this(rpcImpl, requestDelimited, responseDelimited);
                 };
-                Object.defineProperty(Executions.prototype.getExecution = function getExecution(request, callback) {
-                  return this.rpcCall(getExecution, $root.google.cloud.run.v2.GetExecutionRequest, $root.google.cloud.run.v2.Execution, request, callback);
+                Object.defineProperty(Executions.prototype.getExecution = function getExecution2(request, callback) {
+                  return this.rpcCall(getExecution2, $root.google.cloud.run.v2.GetExecutionRequest, $root.google.cloud.run.v2.Execution, request, callback);
                 }, "name", { value: "GetExecution" });
                 Object.defineProperty(Executions.prototype.listExecutions = function listExecutions(request, callback) {
                   return this.rpcCall(listExecutions, $root.google.cloud.run.v2.ListExecutionsRequest, $root.google.cloud.run.v2.ListExecutionsResponse, request, callback);
@@ -157591,8 +157591,8 @@ var require_src12 = __commonJS({
     exports2.v2 = v22;
     var BuildsClient = v22.BuildsClient;
     exports2.BuildsClient = BuildsClient;
-    var ExecutionsClient = v22.ExecutionsClient;
-    exports2.ExecutionsClient = ExecutionsClient;
+    var ExecutionsClient2 = v22.ExecutionsClient;
+    exports2.ExecutionsClient = ExecutionsClient2;
     var InstancesClient = v22.InstancesClient;
     exports2.InstancesClient = InstancesClient;
     var JobsClient2 = v22.JobsClient;
@@ -157605,7 +157605,7 @@ var require_src12 = __commonJS({
     exports2.TasksClient = TasksClient;
     var WorkerPoolsClient = v22.WorkerPoolsClient;
     exports2.WorkerPoolsClient = WorkerPoolsClient;
-    exports2.default = { v2: v22, BuildsClient, ExecutionsClient, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
+    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
     var protos = require_protos4();
     exports2.protos = protos;
   }
@@ -158161,7 +158161,7 @@ async function retryTransient(label, fn, options = {}) {
 }
 
 // src/gcp.js
-var { ServicesClient, JobsClient } = import_run.v2;
+var { ServicesClient, JobsClient, ExecutionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
 function gcrRegistry(project, projectName, region = DEFAULT_REGION) {
   return `${region}-docker.pkg.dev/${project}/container/${projectName}`;
@@ -158217,14 +158217,93 @@ async function updateJob(job) {
   const request = { job };
   return mutate(`updateJob ${job.name}`, () => client.updateJob(request));
 }
-async function runJob(name) {
-  const client = new JobsClient();
-  const [operation] = await client.runJob({ name });
+var START_DEADLINE_MS = 15 * 60 * 1e3;
+var POLL_INTERVAL_MS = 15 * 1e3;
+var CANCEL_BACKOFF = {
+  initialRetryDelayMillis: 1e3,
+  retryDelayMultiplier: 1.5,
+  maxRetryDelayMillis: 1e4,
+  initialRpcTimeoutMillis: 2e4,
+  rpcTimeoutMultiplier: 1,
+  maxRpcTimeoutMillis: 2e4,
+  totalTimeoutMillis: 12e4
+};
+var GRPC_NOT_FOUND = 5;
+var GRPC_PERMISSION_DENIED = 7;
+var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var count = (value) => Number(value ?? 0);
+function ranAnything(execution) {
+  return Boolean(execution.startTime) || count(execution.runningCount) > 0 || count(execution.succeededCount) > 0 || count(execution.failedCount) > 0 || count(execution.cancelledCount) > 0 || count(execution.retriedCount) > 0;
+}
+var conditionSummary = (execution) => (execution?.conditions ?? []).filter((condition) => condition.message).map((condition) => `${condition.type}: ${condition.message}`).join("; ");
+async function runJob(name, options = {}) {
+  const { startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS } = options;
+  const jobs = new JobsClient();
+  const [operation] = await jobs.runJob({ name });
+  const executionName = operation.metadata?.name;
+  if (executionName) {
+    await awaitStart(executionName, startDeadlineMs, pollIntervalMs);
+  }
   const [execution] = await operation.promise();
   if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
     throw new Error(`Job execution did not succeed: ${execution.name}`);
   }
   return execution;
+}
+async function awaitStart(executionName, startDeadlineMs, pollIntervalMs) {
+  const client = new ExecutionsClient();
+  const deadline = Date.now() + startDeadlineMs;
+  let last = null;
+  try {
+    for (; ; ) {
+      let execution;
+      try {
+        execution = await getExecution(client, executionName);
+      } catch (error2) {
+        if (error2.code === GRPC_PERMISSION_DENIED) throw error2;
+        if (error2.code !== GRPC_NOT_FOUND) {
+          warning(
+            `${executionName}: could not read the execution (${error2.message}); waiting on the run operation instead, without a start deadline.`
+          );
+          return;
+        }
+        execution = null;
+      }
+      if (execution) {
+        if (ranAnything(execution) || execution.completionTime) return;
+        last = execution;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await sleep2(Math.min(pollIntervalMs, remaining));
+    }
+    const outcome = await cancelStalled(client, executionName);
+    const reason = conditionSummary(last);
+    throw new Error(
+      `${executionName} had not started ${Math.round(startDeadlineMs / 6e4)} minutes after it was created, so Cloud Run scheduled no task${reason ? ` (${reason})` : ""}. ${outcome} Nothing ran, so the deploy can simply be run again.`
+    );
+  } finally {
+    try {
+      await client.close();
+    } catch {
+    }
+  }
+}
+async function getExecution(client, executionName) {
+  const [execution] = await retryTransient(
+    `getExecution ${executionName}`,
+    () => client.getExecution({ name: executionName })
+  );
+  return execution;
+}
+async function cancelStalled(client, executionName) {
+  try {
+    const [cancellation] = await client.cancelExecution({ name: executionName }, { longrunning: CANCEL_BACKOFF });
+    const [execution] = await cancellation.promise();
+    return ranAnything(execution) ? `It STARTED while being cancelled \u2014 check ${executionName} before running the job again.` : "It has been cancelled.";
+  } catch (error2) {
+    return `It could NOT be cancelled (${error2.message}), so Cloud Run may still start it within two hours of its creation \u2014 confirm it is not running before running the job again.`;
+  }
 }
 async function updateService(name, containers) {
   const client = new ServicesClient();
