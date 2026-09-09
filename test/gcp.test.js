@@ -4,10 +4,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // list calls can be driven without the network. src/gcp.js destructures
 // { ServicesClient, JobsClient } off the module's `v2` export at load time, so
 // the mock has to provide that shape.
-const { updateServiceMock, listJobsMock, updateJobMock } = vi.hoisted(() => ({
+const {
+  updateServiceMock, listJobsMock, updateJobMock,
+  runJobMock, getExecutionMock, cancelExecutionMock
+} = vi.hoisted(() => ({
   updateServiceMock: vi.fn(),
   listJobsMock: vi.fn(),
-  updateJobMock: vi.fn()
+  updateJobMock: vi.fn(),
+  runJobMock: vi.fn(),
+  getExecutionMock: vi.fn(),
+  cancelExecutionMock: vi.fn()
 }))
 
 vi.mock('@google-cloud/run', () => ({
@@ -21,6 +27,13 @@ vi.mock('@google-cloud/run', () => ({
       constructor () {
         this.listJobs = listJobsMock
         this.updateJob = updateJobMock
+        this.runJob = runJobMock
+      }
+    },
+    ExecutionsClient: class {
+      constructor () {
+        this.getExecution = getExecutionMock
+        this.cancelExecution = cancelExecutionMock
       }
     }
   }
@@ -35,6 +48,7 @@ import {
   cloudrunListJobs,
   gcrImageTag,
   gcrRegistry,
+  runJob,
   updateJob,
   updateService
 } from '../src/gcp.js'
@@ -165,5 +179,127 @@ describe('transient gRPC failures', () => {
 
     await expect(cloudrunListJobs('hoax-prod-1234')).resolves.toEqual([{ name: 'db-migrate' }])
     expect(listJobsMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+// --- runJob -----------------------------------------------------------------
+//
+// The distinction under test is the whole point of the retry: an execution that
+// never STARTED ran no migration and may be run again, while a task that ran and
+// failed must fail the deploy on the first attempt.
+
+const JOB = `projects/flightdeck-stage-fybm/locations/${DEFAULT_REGION}/jobs/db-migrate`
+const EXEC = `${JOB}/executions/db-migrate-4vdmx`
+const EXEC2 = `${JOB}/executions/db-migrate-b7k2p`
+
+// The RunJob long-running operation: Execution as metadata (available before it
+// resolves) and the finished Execution as the response.
+function runOperation (executionName, response = {}) {
+  return [{
+    metadata: executionName ? { name: executionName } : undefined,
+    promise: () => Promise.resolve([{ name: executionName, taskCount: 1, succeededCount: 1, ...response }])
+  }]
+}
+
+const started = name => [{ name, startTime: { seconds: 1 }, taskCount: 1 }]
+const pending = name => [{ name, taskCount: 1 }]
+const neverStarted = name => [{ name, completionTime: { seconds: 2 }, taskCount: 1 }]
+
+// Tiny values so the stall paths do not actually wait.
+const FAST = { startDeadlineMs: 30, pollIntervalMs: 5 }
+
+describe('runJob', () => {
+  beforeEach(() => {
+    runJobMock.mockReset()
+    getExecutionMock.mockReset()
+    cancelExecutionMock.mockReset()
+    cancelExecutionMock.mockResolvedValue([{ promise: () => Promise.resolve([{}]) }])
+  })
+
+  it('waits for a started execution and returns it', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC))
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+    expect(runJobMock).toHaveBeenCalledWith({ name: JOB })
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  it('does NOT retry a task that ran and failed', async () => {
+    runJobMock.mockResolvedValue(runOperation(EXEC, { succeededCount: 0, failedCount: 1 }))
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('Job execution did not succeed')
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  it('cancels and retries once when the execution never started', async () => {
+    runJobMock
+      .mockResolvedValueOnce(runOperation(EXEC))
+      .mockResolvedValueOnce(runOperation(EXEC2))
+    getExecutionMock
+      .mockResolvedValueOnce(neverStarted(EXEC))
+      .mockResolvedValue(started(EXEC2))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC2 })
+
+    expect(runJobMock).toHaveBeenCalledTimes(2)
+    expect(cancelExecutionMock).toHaveBeenCalledTimes(1)
+    expect(cancelExecutionMock).toHaveBeenCalledWith({ name: EXEC })
+  })
+
+  it('treats our own start deadline as a stall while the execution is still pending', async () => {
+    runJobMock
+      .mockResolvedValueOnce(runOperation(EXEC))
+      .mockResolvedValueOnce(runOperation(EXEC2))
+    // Keyed by name, not call order: the first execution stays pending however
+    // many times it is polled, so the deadline is what ends the wait.
+    getExecutionMock.mockImplementation(({ name }) =>
+      Promise.resolve(name === EXEC ? pending(EXEC) : started(EXEC2))
+    )
+
+    await expect(runJob(JOB, { startDeadlineMs: 12, pollIntervalMs: 5 })).resolves.toMatchObject({ name: EXEC2 })
+
+    expect(cancelExecutionMock).toHaveBeenCalledWith({ name: EXEC })
+  })
+
+  it('fails the deploy when it never starts twice', async () => {
+    runJobMock
+      .mockResolvedValueOnce(runOperation(EXEC))
+      .mockResolvedValueOnce(runOperation(EXEC2))
+    getExecutionMock
+      .mockResolvedValueOnce(neverStarted(EXEC))
+      .mockResolvedValueOnce(neverStarted(EXEC2))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('failed to start twice')
+
+    expect(runJobMock).toHaveBeenCalledTimes(2)
+    expect(cancelExecutionMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('carries on when cancelling the stalled execution fails', async () => {
+    runJobMock
+      .mockResolvedValueOnce(runOperation(EXEC))
+      .mockResolvedValueOnce(runOperation(EXEC2))
+    getExecutionMock
+      .mockResolvedValueOnce(neverStarted(EXEC))
+      .mockResolvedValue(started(EXEC2))
+    cancelExecutionMock.mockRejectedValue(new Error('already terminated'))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC2 })
+  })
+
+  it('keeps the original unbounded wait when the operation names no execution', async () => {
+    runJobMock.mockResolvedValue(runOperation(undefined, { name: EXEC }))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(getExecutionMock).not.toHaveBeenCalled()
+    expect(runJobMock).toHaveBeenCalledTimes(1)
   })
 })

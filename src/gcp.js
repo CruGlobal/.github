@@ -4,7 +4,7 @@ import {v2} from "@google-cloud/run"
 import {PARAM_TYPES} from "./ecs-config";
 import {isAborted, retryTransient} from "./grpc-retry";
 
-const {ServicesClient, JobsClient} = v2
+const {ServicesClient, JobsClient, ExecutionsClient} = v2
 
 export const DEFAULT_REGION = "us-central1"
 
@@ -107,22 +107,107 @@ export async function updateJob(job) {
     return mutate(`updateJob ${job.name}`, () => client.updateJob(request))
 }
 
+// How long we will wait for a task to BEGIN before treating the execution as
+// stalled, and how often we ask. A healthy execution starts in one to two
+// minutes, so this is generous.
+//
+// Cloud Run has its own start deadline of TWO HOURS, and it is not tunable: the
+// job spec exposes only containers, maxRetries, serviceAccountName and
+// timeoutSeconds, and that last one caps how long a task may RUN. Waiting that
+// deadline out failed a 05:15 nightly at 07:15, so the useful deadline is ours.
+export const START_DEADLINE_MS = 15 * 60 * 1000
+export const POLL_INTERVAL_MS = 15 * 1000
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
 // Execute a job and wait for the execution to complete. The returned
 // long-running operation only resolves once the execution finishes, and
 // rejects if it fails.
 //
-// NOT retried, unlike the updates above: a replayed RunJob can start a SECOND
-// execution of a job the server already accepted, and the only job a deploy
-// executes is database migrations. Failing a rerunnable deploy beats running
-// migrations twice.
-export async function runJob(name) {
-    const client = new JobsClient()
-    const [operation] = await client.runJob({name})
-    const [execution] = await operation.promise()
+// A task that RAN and failed is never re-run: the only job a deploy executes is
+// database migrations, and a half-applied schema change must fail the deploy
+// loudly (the module fixes the job's own max_retries at 0 for the same reason).
+// But the invariant that protects is "never run a migration twice", not "never
+// call RunJob twice" — and Cloud Run tells us which happened. `start_time` is
+// set the moment a task begins and stays null for an execution that was never
+// scheduled, so an execution that never started provably ran nothing and is
+// safe to run again. That case is retried ONCE; every other failure still fails
+// the deploy on the first attempt, as before.
+//
+// The stalled execution is cancelled before the retry so a late start cannot
+// race it into a second concurrent migration.
+export async function runJob(name, {startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS} = {}) {
+    let attempt = await executeJob(name, startDeadlineMs, pollIntervalMs)
+
+    if (attempt.stalled) {
+        core.warning(
+            `${attempt.executionName} never started within ${Math.round(startDeadlineMs / 60000)}m, so ` +
+            "Cloud Run scheduled no task and nothing ran. Cancelling it and executing the job once more."
+        )
+        await cancelQuietly(attempt.executionName)
+        attempt = await executeJob(name, startDeadlineMs, pollIntervalMs)
+        if (attempt.stalled) {
+            await cancelQuietly(attempt.executionName)
+            throw new Error(`Job execution failed to start twice, most recently ${attempt.executionName}`)
+        }
+    }
+
+    const execution = attempt.execution
     if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
         throw new Error(`Job execution did not succeed: ${execution.name}`)
     }
     return execution
+}
+
+// One RunJob call: either the finished execution, or `stalled` when no task ever
+// began. The RunJob operation carries the Execution as its metadata, so the
+// execution can be polled and cancelled while the operation is still pending.
+async function executeJob(name, startDeadlineMs, pollIntervalMs) {
+    const client = new JobsClient()
+    const [operation] = await client.runJob({name})
+    const executionName = operation.metadata?.name
+
+    // With no execution name we cannot tell a stall from a failure, so keep the
+    // original behaviour rather than guess: wait however long Cloud Run takes.
+    if (!executionName) {
+        const [execution] = await operation.promise()
+        return {execution}
+    }
+
+    if (!await waitForStart(executionName, startDeadlineMs, pollIntervalMs)) {
+        return {stalled: true, executionName}
+    }
+    const [execution] = await operation.promise()
+    return {execution}
+}
+
+// True once a task has begun. False when the execution reaches a terminal state
+// without ever starting (Cloud Run's own deadline beat ours) or when our
+// deadline passes first.
+async function waitForStart(executionName, startDeadlineMs, pollIntervalMs) {
+    const client = new ExecutionsClient()
+    const deadline = Date.now() + startDeadlineMs
+    for (;;) {
+        const [execution] = await client.getExecution({name: executionName})
+        if (execution.startTime) return true
+        if (execution.completionTime) return false
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) return false
+        await sleep(Math.min(pollIntervalMs, remaining))
+    }
+}
+
+// Best effort. The point is only to stop a late start racing the retry, and an
+// execution that has already reached a terminal state refuses cancellation —
+// which is the same outcome we wanted.
+async function cancelQuietly(executionName) {
+    try {
+        const client = new ExecutionsClient()
+        const [operation] = await client.cancelExecution({name: executionName})
+        await operation.promise()
+    } catch (error) {
+        core.warning(`cancelExecution ${executionName} failed, continuing: ${error.message}`)
+    }
 }
 
 // `containers` is the full container list for the service template (the app
