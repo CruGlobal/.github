@@ -138,15 +138,25 @@ export function minifiedUrl (appUrl, relativePath) {
   // silently upload it against the wrong URL.
   const target = relativePath.slice(0, -'.map'.length)
 
+  // Segments are checked DECODED, because URL() decodes before it resolves: a
+  // raw ".." is caught below, but so must "%2e%2e" be, or it walks up out of the
+  // tree the path is supposed to mirror. A colon is refused outright — a first
+  // segment containing one parses as a SCHEME, so "http:host/x.js" and
+  // "javascript:alert(1).js" both resolve somewhere that is not this app, and no
+  // chunk path has ever contained one.
   const invalid =
     target === '' ||
     target.startsWith('/') ||
     target.includes('\\') ||
-    target.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
+    target.includes(':') ||
+    target.split('/').some(segment => {
+      const decoded = decodeSegment(segment)
+      return decoded === null || decoded === '' || decoded === '.' || decoded === '..'
+    })
   if (invalid) {
     throw new Error(
       `"${relativePath}" is not a usable source-map path — expected a relative path with no ` +
-      'empty, "." or ".." segments.'
+      'empty, ".", ".." or scheme-like segments.'
     )
   }
 
@@ -154,7 +164,25 @@ export function minifiedUrl (appUrl, relativePath) {
   // treats the app URL's last segment as a file and replaces it, so an app
   // served at https://host/app would lose the /app.
   const base = appUrl.endsWith('/') ? appUrl : `${appUrl}/`
-  return new URL(target, base).toString()
+  const composed = new URL(target, base).toString()
+  // The belt behind those checks. Whatever URL() made of the path, the result
+  // has to still be under this app: a map uploaded against another host matches
+  // no frame and reports nothing, which is the silent failure this step exists
+  // to avoid.
+  if (!composed.startsWith(base)) {
+    throw new Error(`"${relativePath}" resolves to ${composed}, which is outside ${base}`)
+  }
+  return composed
+}
+
+// decodeURIComponent throws on a malformed escape. A segment we cannot decode is
+// one we cannot check, so it is refused rather than trusted.
+function decodeSegment (segment) {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -189,7 +217,7 @@ export function sourceMapsEndpoint (services, repo) {
 // Content-Type is deliberately not set: fetch derives it from the FormData,
 // boundary included, and setting it by hand produces a body the server cannot
 // split.
-async function postMap ({ url, token, version, minified, name, contents, timeoutMs }) {
+async function postMap ({ url, token, version, minified, name, contents, timeoutMs, phase }) {
   const form = new FormData()
   form.append('version', version)
   form.append('minified_url', minified)
@@ -199,7 +227,7 @@ async function postMap ({ url, token, version, minified, name, contents, timeout
     method: 'POST',
     headers: { [TOKEN_HEADER]: token },
     body: form,
-    signal: AbortSignal.timeout(timeoutMs)
+    signal: phase ? AbortSignal.any([AbortSignal.timeout(timeoutMs), phase]) : AbortSignal.timeout(timeoutMs)
   })
   if (response.ok) return
 
@@ -237,6 +265,10 @@ async function uploadWithRetries (request, { attempts, retryDelayMs }) {
     try {
       return await postMap(request)
     } catch (error) {
+      // An aborted phase is the budget expiring, not a flake — and retryable()
+      // treats an abort as retryable because no answer came back, so without
+      // this the ceiling would be retried straight through.
+      if (request.phase?.aborted) throw new Error('the upload budget ran out', { cause: error })
       // retryable() already refuses every 4xx, auth failures included.
       if (attempt >= attempts || !retryable(error)) throw error
       await sleep(retryDelayMs * 2 ** (attempt - 1))
@@ -305,6 +337,17 @@ export async function publishSourceMaps ({
   // Everything under the prefix ending in .map is a map; anything else is
   // reported and left alone, because the directory's whole meaning is "these
   // are maps" and a stray file there is a build mistake worth seeing.
+  // Declared before the queue it is attached to. The per-map timeout bounds a
+  // single attempt; this bounds all of them together, including retries and
+  // anything already in flight. Without it a worker starting just under the
+  // deadline could run three more attempts past it, and every worker could be
+  // doing that at once — on the rollback path, where the budget exists to keep
+  // this step from standing between an operator and a restored production.
+  const deadline = Date.now() + budgetMs
+  // Clamped: AbortSignal.timeout refuses a negative delay, and a budget already
+  // spent is a legitimate caller input meaning "do not start".
+  const phase = AbortSignal.timeout(Math.max(0, budgetMs))
+
   const queue = []
   for (const file of files) {
     if (!file.name.endsWith('.map')) {
@@ -325,6 +368,7 @@ export async function publishSourceMaps ({
         name: file.name.split('/').pop(),
         contents: file.contents,
         timeoutMs: requestTimeoutMs,
+        phase,
         file: file.path
       })
     } catch (error) {
@@ -334,10 +378,22 @@ export async function publishSourceMaps ({
   }
 
   const attempted = queue.length
-  if (attempted === 0) return { ...result, reason: 'no-maps' }
+  if (attempted === 0) {
+    // An app that ships no maps and an app whose every map was unusable both
+    // upload nothing, but only the second is a build mistake. Reading the same
+    // on the action output would hide it.
+    return result.skipped > 0
+      ? { ...result, status: 'failed', reason: 'no-usable-maps' }
+      : { ...result, reason: 'no-maps' }
+  }
   core.info(`uploading ${attempted} source map(s) for version ${version} to ${endpoint}`)
 
-  const deadline = Date.now() + budgetMs
+  // One signal for the whole phase. The per-map timeout bounds a single attempt;
+  // this bounds all of them together, including retries and anything already in
+  // flight. Without it a worker starting just under the deadline could run three
+  // more attempts past it, and every worker could be doing that at once — on the
+  // rollback path, where the budget exists precisely to keep this step from
+  // standing between an operator and a restored production.
   let abort = null
 
   const worker = async () => {

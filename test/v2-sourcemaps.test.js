@@ -181,6 +181,26 @@ describe('minifiedUrl', () => {
       .toBe('https://bills.cru.org/_next/static/chunks/abc123.js')
   })
 
+  // Review of #489. Each of these composed to somewhere that is not this app,
+  // and the map would then have uploaded cleanly and matched no frame ever —
+  // the silent class of failure this step exists to avoid.
+  it.each([
+    ['a scheme-like first segment', 'http:cdn.example.com/x.js.map'],
+    ['a javascript: URL', 'javascript:alert(1).js.map'],
+    ['a percent-encoded parent segment', '%2e%2e/b.js.map'],
+    ['a percent-encoded parent below a directory', '_next/%2e%2e/%2e%2e/b.js.map'],
+    ['a malformed escape', '%zz/b.js.map']
+  ])('refuses %s', (unused, staged) => {
+    expect(() => minifiedUrl(APP_URL, staged)).toThrow()
+  })
+
+  it('never composes a URL outside the app, whatever the path', () => {
+    const base = 'https://bills.cru.org/app/'
+    for (const staged of ['a.js.map', 'a/b/c.js.map', 'a/b%20c.js.map']) {
+      expect(minifiedUrl(base, staged).startsWith(base)).toBe(true)
+    }
+  })
+
   it('treats an app URL with and without a trailing slash the same', () => {
     expect(minifiedUrl('https://bills.cru.org/', 'a/b.js.map')).toBe('https://bills.cru.org/a/b.js')
     expect(minifiedUrl('https://bills.cru.org', 'a/b.js.map')).toBe('https://bills.cru.org/a/b.js')
@@ -566,6 +586,35 @@ describe('publishSourceMaps time budget', () => {
     expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('upload budget ran out'))
   })
 
+  // Review of #489: the deadline was only read before a map was dequeued, so a
+  // request starting just under it still got every attempt and every backoff —
+  // about three more minutes, on all four workers at once.
+  it('aborts a request already in flight rather than letting it outlive the budget', async () => {
+    let settled = 0
+    fetch.mockImplementation((url, init) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { settled++; resolve(accepted) }, 10000)
+      init.signal.addEventListener('abort', () => {
+        clearTimeout(timer)
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+      })
+    }))
+
+    const started = Date.now()
+    const result = await publish({
+      oci: image({ [SOURCEMAPS_LABEL]: VERSION }, maps('a.js.map')),
+      budgetMs: 40,
+      requestTimeoutMs: 10000,
+      attempts: 3,
+      retryDelayMs: 1
+    })
+
+    // Without the phase signal this sat for three 10s attempts.
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(settled).toBe(0)
+    expect(result.status).toBe('failed')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('reports failed, not partial, when the budget expires before anything lands', async () => {
     fetch.mockImplementation(async () => {
       await new Promise(resolve => setTimeout(resolve, 50))
@@ -579,6 +628,19 @@ describe('publishSourceMaps time budget', () => {
 
     expect(fetch).not.toHaveBeenCalled()
     expect(result).toMatchObject({ status: 'failed', uploaded: 0, skipped: 2 })
+  })
+
+  // Review of #489: an app shipping maps that are all unusable uploaded nothing
+  // and reported `skipped`, reading identically to an app that ships none.
+  it('reports failed when maps were shipped but none were usable', async () => {
+    const result = await publish({
+      oci: image({ [SOURCEMAPS_LABEL]: VERSION }, [
+        { path: '/cru/sourcemaps/huge.js.map', name: 'huge.js.map', size: 99000000, contents: null }
+      ])
+    })
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ status: 'failed', reason: 'no-usable-maps', uploaded: 0, skipped: 1 })
   })
 
   it('defaults to three minutes', () => {
