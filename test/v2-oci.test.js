@@ -270,3 +270,138 @@ describe('openImage readFile byte caps', () => {
     await expect(image.readFile(`/${SIGNIN}`)).rejects.toThrow(/over the .*-byte limit/)
   })
 })
+
+describe('openImage readDir', () => {
+  const MAPS = 'cru/sourcemaps'
+  const MAP_A = '{"version":3,"file":"a.js"}'
+  const MAP_B = '{"version":3,"file":"b.js"}'
+
+  it('returns every file under the prefix, named relative to it', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:maps')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:maps': gzipLayer(
+        tarEntry('app/server.js', 'console.log(1)'),
+        tarEntry(`${MAPS}/main.js.map`, MAP_A),
+        tarEntry(`${MAPS}/_next/chunks/abc.js.map`, MAP_B)
+      )
+    })
+    const image = await openImage(IMAGE)
+    const files = await image.readDir(`/${MAPS}`)
+    expect(files.map(file => file.name)).toEqual(['main.js.map', '_next/chunks/abc.js.map'])
+    expect(files[0].contents.toString()).toBe(MAP_A)
+  })
+
+  it('returns [] when no layer has anything under the prefix', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:base')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:base': gzipLayer(tarEntry('app/server.js', 'console.log(1)'))
+    })
+    const image = await openImage(IMAGE)
+    expect(await image.readDir(`/${MAPS}`)).toEqual([])
+  })
+
+  it('takes the newest layer that has anything there and stops', async () => {
+    // Documented, not detected: two COPYs into the same directory means the
+    // older one is invisible. Fine for a directory one build step fills.
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:old'), layer('sha256:new')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:old': gzipLayer(tarEntry(`${MAPS}/old.js.map`, MAP_A)),
+      'blobs/sha256:new': gzipLayer(tarEntry(`${MAPS}/new.js.map`, MAP_B))
+    })
+    const image = await openImage(IMAGE)
+    expect((await image.readDir(`/${MAPS}`)).map(file => file.name)).toEqual(['new.js.map'])
+    expect(layerFetches()).toEqual([expect.stringContaining('sha256:new')])
+  })
+
+  it('keeps scanning past layers that have nothing under the prefix', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:maps'), layer('sha256:top-layer')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:maps': gzipLayer(tarEntry(`${MAPS}/main.js.map`, MAP_A)),
+      'blobs/sha256:top-layer': gzipLayer(tarEntry('etc/hosts', '127.0.0.1'))
+    })
+    const image = await openImage(IMAGE)
+    expect((await image.readDir(`/${MAPS}`)).map(file => file.name)).toEqual(['main.js.map'])
+  })
+
+  it('skips an oversized layer without downloading it', async () => {
+    const huge = { ...layer('sha256:huge'), size: MAX_LAYER_BLOB_BYTES + 1 }
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:maps'), huge] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:maps': gzipLayer(tarEntry(`${MAPS}/main.js.map`, MAP_A))
+    })
+    const image = await openImage(IMAGE)
+    expect((await image.readDir(`/${MAPS}`)).map(file => file.name)).toEqual(['main.js.map'])
+    expect(layerFetches()).toEqual([expect.stringContaining('sha256:maps')])
+  })
+
+  it('reports an over-cap file with null contents rather than failing the listing', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:maps')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:maps': gzipLayer(
+        tarEntry(`${MAPS}/huge.js.map`, Buffer.alloc(4096, 0x61)),
+        tarEntry(`${MAPS}/main.js.map`, MAP_A)
+      )
+    })
+    const image = await openImage(IMAGE)
+    const files = await image.readDir(`/${MAPS}`, { maxBytes: 1024 })
+    expect(files.map(file => [file.name, file.contents === null])).toEqual([
+      ['huge.js.map', true],
+      ['main.js.map', false]
+    ])
+  })
+})
+
+describe('openImage layer cache', () => {
+  it('fetches a layer once across readDir and readFile on the same handle', async () => {
+    // The deploy reads the same image twice — source maps, then the sign-in
+    // page — and both scans start at the newest layer.
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:both')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:both': gzipLayer(
+        tarEntry('cru/sourcemaps/main.js.map', '{"version":3}'),
+        tarEntry(SIGNIN, PAGE)
+      )
+    })
+    const image = await openImage(IMAGE)
+
+    expect((await image.readDir('/cru/sourcemaps')).length).toBe(1)
+    expect((await image.readFile(`/${SIGNIN}`)).toString()).toBe(PAGE)
+
+    expect(layerFetches()).toEqual([expect.stringContaining('sha256:both')])
+  })
+
+  it('caches layers that miss, so a second scan re-fetches nothing', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:page'), layer('sha256:noise')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:page': gzipLayer(tarEntry(SIGNIN, PAGE)),
+      'blobs/sha256:noise': gzipLayer(tarEntry('etc/hosts', '127.0.0.1'))
+    })
+    const image = await openImage(IMAGE)
+
+    expect(await image.readFile(`/${SIGNIN}`)).not.toBeNull()
+    const first = layerFetches().length
+    expect(first).toBe(2) // newest (miss) then the page layer
+
+    expect(await image.readFile(`/${SIGNIN}`)).not.toBeNull()
+    expect(layerFetches().length).toBe(first)
+  })
+
+  it('does not share a cache between handles', async () => {
+    serve({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:page')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:page': gzipLayer(tarEntry(SIGNIN, PAGE))
+    })
+    await (await openImage(IMAGE)).readFile(`/${SIGNIN}`)
+    await (await openImage(IMAGE)).readFile(`/${SIGNIN}`)
+    expect(layerFetches().length).toBe(2)
+  })
+})

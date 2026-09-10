@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // DEFAULT_REGION is re-exported so src/v2/gcp.js loads under the mock.
 vi.mock('../src/gcp.js', () => ({
   DEFAULT_REGION: 'us-central1',
+  accessSecret: vi.fn(),
   cloudrunListServices: vi.fn(),
   cloudrunListJobs: vi.fn(),
   listSecrets: vi.fn(),
@@ -11,6 +12,10 @@ vi.mock('../src/gcp.js', () => ({
   updateJob: vi.fn(),
   updateService: vi.fn()
 }))
+
+// No registry reads: openImage is covered by test/v2-oci.test.js. Mocked here
+// so the gate tests can assert it is NOT called.
+vi.mock('../src/v2/oci.js', () => ({ openImage: vi.fn() }))
 
 // Stub only the publish call; signinBucket stays real so the detection path
 // (Terraform's IAP_SIGNIN_BUCKET on the app container) is exercised for real.
@@ -20,8 +25,18 @@ vi.mock('../src/v2/signin.js', async importOriginal => ({
   publishSigninPage: vi.fn()
 }))
 
+// Same treatment for source maps: publishSourceMaps is stubbed, while
+// sourceMapsEndpoint stays real so the ROLLBAR_ENDPOINT detection path is
+// exercised here too. Covered in depth by test/v2-sourcemaps.test.js.
+vi.mock('../src/v2/sourcemaps.js', async importOriginal => ({
+  ...(await importOriginal()),
+  publishSourceMaps: vi.fn()
+}))
+
 import * as gcp from '../src/gcp.js'
+import { openImage } from '../src/v2/oci.js'
 import { publishSigninPage } from '../src/v2/signin.js'
+import { publishSourceMaps } from '../src/v2/sourcemaps.js'
 import { deployCloudRun } from '../src/v2/deploy-cloudrun.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
@@ -61,11 +76,26 @@ function serviceWithSignin () {
 }
 
 const BUCKET = 'hoax-stage-1234-iap-signin'
+const APP_URL = 'https://hoax.cru.org'
+const TOKEN = 'server-scope-token'
+
+// The RUNTIME secret whose presence says this environment is wired for error
+// tracking. listSecrets returns names, so the gate costs no extra call.
+const SECRETS_WITH_TOKEN = [...SECRETS, { name: 'projects/p/secrets/ROLLBAR_ACCESS_TOKEN' }]
+
+const IMAGE_HANDLE = { labels: {}, readFile: vi.fn(), readDir: vi.fn() }
+
+const UPLOADED = { status: 'uploaded', uploaded: 3, failed: 0, skipped: 0, failures: [] }
 
 beforeEach(() => {
   for (const fn of Object.values(gcp)) fn.mockReset?.()
+  openImage.mockReset()
+  openImage.mockResolvedValue(IMAGE_HANDLE)
   publishSigninPage.mockReset()
   publishSigninPage.mockResolvedValue({ published: true, bucket: BUCKET, objectKey: 'signin', bytes: 42 })
+  publishSourceMaps.mockReset()
+  publishSourceMaps.mockResolvedValue(UPLOADED)
+  gcp.accessSecret.mockResolvedValue(TOKEN)
 })
 
 describe('deployCloudRun digest invariant', () => {
@@ -118,7 +148,9 @@ describe('deployCloudRun orchestration', () => {
       deployedImage: IMAGE,
       services: ['hoax-web'],
       // No IAP_SIGNIN_BUCKET on this service -> nothing to publish.
-      signin: { published: false }
+      signin: { published: false },
+      // No ROLLBAR_ACCESS_TOKEN secret -> not wired for error tracking.
+      sourcemaps: { status: 'skipped', uploaded: 0, failed: 0 }
     })
   })
 
@@ -170,7 +202,7 @@ describe('deployCloudRun publishes the IAP sign-in page', () => {
 
     const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
 
-    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET })
+    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET, oci: IMAGE_HANDLE })
     expect(result.signin).toEqual({ published: true, bucket: BUCKET, objectKey: 'signin', bytes: 42 })
   })
 
@@ -194,7 +226,7 @@ describe('deployCloudRun publishes the IAP sign-in page', () => {
 
     await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
 
-    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET })
+    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET, oci: IMAGE_HANDLE })
   })
 
   it('does not fail the deploy when the page cannot be published', async () => {
@@ -260,5 +292,137 @@ describe('deployCloudRun ignores version (Terraform owns Cloud Run env)', () => 
     const [, containers] = gcp.updateService.mock.calls[0]
     expect(containers[0].env).toContainEqual({ name: 'DD_VERSION', value: 'tf-owned' })
     expect(containers[0].env).toContainEqual({ name: 'FOO', value: 'bar' })
+  })
+})
+
+describe('deployCloudRun uploads browser source maps', () => {
+  // A service whose app container names a non-default ingestion endpoint.
+  function serviceWithEndpoint (endpoint) {
+    const svc = service()
+    svc.template.containers[0].env.push({ name: 'ROLLBAR_ENDPOINT', value: endpoint })
+    return svc
+  }
+
+  beforeEach(() => {
+    gcp.cloudrunListServices.mockResolvedValue([service()])
+    gcp.cloudrunListJobs.mockResolvedValue(jobs())
+    gcp.listSecrets.mockResolvedValue(SECRETS_WITH_TOKEN)
+    gcp.runJob.mockResolvedValue({})
+    gcp.updateJob.mockResolvedValue({})
+    gcp.updateService.mockResolvedValue({})
+  })
+
+  it('does nothing — and reads nothing — when the environment has no token secret', async () => {
+    // The gate is cheapest-first on purpose: listSecrets already told us the
+    // secret NAMES, so an app with no error tracking pays no call at all.
+    gcp.listSecrets.mockResolvedValue(SECRETS)
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    expect(gcp.accessSecret).not.toHaveBeenCalled()
+    expect(openImage).not.toHaveBeenCalled()
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+    expect(result.sourcemaps).toEqual({ status: 'skipped', uploaded: 0, failed: 0 })
+  })
+
+  it('reads labels but no directory when the image carries no source-map label', async () => {
+    // publishSourceMaps owns the label gate; what matters here is that the
+    // handle is opened (config blob = labels) and nothing pulls a layer.
+    publishSourceMaps.mockResolvedValue({ status: 'skipped', uploaded: 0, failed: 0, reason: 'no-label' })
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    expect(openImage).toHaveBeenCalledTimes(1)
+    expect(IMAGE_HANDLE.readDir).not.toHaveBeenCalled()
+    expect(result.sourcemaps.status).toBe('skipped')
+  })
+
+  it('uploads with the environment token, app URL and shared image handle', async () => {
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'hoax-prod-1234', appUrl: APP_URL })
+
+    expect(gcp.accessSecret).toHaveBeenCalledWith('hoax-prod-1234', 'ROLLBAR_ACCESS_TOKEN')
+    expect(publishSourceMaps).toHaveBeenCalledWith({
+      oci: IMAGE_HANDLE,
+      appUrl: APP_URL,
+      token: TOKEN,
+      endpoint: 'https://flightdeck.cru.org/api/1/sourcemap'
+    })
+    expect(result.sourcemaps).toEqual(UPLOADED)
+  })
+
+  it('honours the app container ROLLBAR_ENDPOINT origin', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([serviceWithEndpoint('https://errors.example.org/api/1/item')])
+
+    await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    expect(publishSourceMaps.mock.calls[0][0].endpoint).toBe('https://errors.example.org/api/1/sourcemap')
+  })
+
+  it('uploads AFTER the migration job and BEFORE the first service update', async () => {
+    await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    // Load bearing, and the deliberate opposite of the sign-in page. Occurrences
+    // that arrive before their maps land are never re-processed, so a new
+    // revision's first seconds of errors would stay unresolved forever if this
+    // ran last. Migrations still go first: a failed migration must upload
+    // nothing at all.
+    expect(gcp.runJob.mock.invocationCallOrder[0])
+      .toBeLessThan(publishSourceMaps.mock.invocationCallOrder[0])
+    expect(publishSourceMaps.mock.invocationCallOrder[0])
+      .toBeLessThan(gcp.updateService.mock.invocationCallOrder[0])
+  })
+
+  it('uploads nothing when the migration job fails', async () => {
+    gcp.runJob.mockRejectedValue(new Error('Job execution did not succeed'))
+
+    await expect(deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL }))
+      .rejects.toThrow(/did not succeed/)
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+  })
+
+  it('does not fail the deploy when the upload throws', async () => {
+    publishSourceMaps.mockRejectedValue(new Error('registry unreachable'))
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    expect(result.deployedImage).toBe(IMAGE)
+    expect(result.services).toEqual(['hoax-web'])
+    expect(gcp.updateService).toHaveBeenCalledTimes(1)
+    expect(result.sourcemaps).toEqual({ status: 'failed', uploaded: 0, failed: 0 })
+  })
+
+  it('does not fail the deploy when the token cannot be read', async () => {
+    gcp.accessSecret.mockRejectedValue(new Error('7 PERMISSION_DENIED'))
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    expect(result.services).toEqual(['hoax-web'])
+    expect(result.sourcemaps.status).toBe('failed')
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+  })
+
+  it('skips silently when the secret exists but has no value', async () => {
+    gcp.accessSecret.mockResolvedValue(null)
+
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+    expect(result.sourcemaps).toEqual({ status: 'skipped', uploaded: 0, failed: 0 })
+  })
+
+  it('opens the image ONCE and shares the handle with the sign-in publish, which still runs last', async () => {
+    const svc = service()
+    svc.template.containers[0].env.push({ name: 'IAP_SIGNIN_BUCKET', value: BUCKET })
+    gcp.cloudrunListServices.mockResolvedValue([svc])
+
+    await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
+
+    // One handle, so one set of layer fetches for both readers.
+    expect(openImage).toHaveBeenCalledTimes(1)
+    expect(publishSigninPage).toHaveBeenCalledWith({ image: IMAGE, bucket: BUCKET, oci: IMAGE_HANDLE })
+    expect(publishSigninPage.mock.invocationCallOrder[0])
+      .toBeGreaterThan(gcp.updateService.mock.invocationCallOrder[0])
+    expect(publishSigninPage.mock.invocationCallOrder[0])
+      .toBeGreaterThan(publishSourceMaps.mock.invocationCallOrder[0])
   })
 })

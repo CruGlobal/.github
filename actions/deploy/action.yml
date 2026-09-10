@@ -20,11 +20,26 @@ inputs:
   runtime-project:
     description: GCP project ID of the target environment project. Required for cloudrun.
     required: false
+  app-url:
+    description: >-
+      Public base URL of the app in this environment (app-info AppUrl). Used to
+      turn a source map staged inside the image into the public URL of the
+      minified file it belongs to. Unset means browser source maps are not
+      uploaded.
+    required: false
 outputs:
   deployed-image:
     description: The digest reference that was deployed.
   services:
     description: Comma-separated names of the services that were updated.
+  sourcemaps-status:
+    description: >-
+      Browser source-map upload outcome: skipped | uploaded | partial | failed.
+      The upload never fails the deploy, so this is how the outcome is reported.
+  sourcemaps-uploaded:
+    description: Number of source maps uploaded.
+  sourcemaps-failed:
+    description: Number of source maps that failed to upload.
 
 runs:
   using: 'node24'

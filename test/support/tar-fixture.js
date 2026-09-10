@@ -36,6 +36,39 @@ export function tarEntry (name, contents, { prefix = '', type = '0' } = {}) {
   return Buffer.concat([header, padded])
 }
 
+/**
+ * A PAX extended header carrying `path`, plus the entry it applies to.
+ *
+ * Mirrors what buildkit emits for a name that does not fit the ustar header:
+ * the real name lives in the record, and the header itself carries a
+ * placeholder the reader must ignore.
+ *
+ * @param {string} path      the real entry name
+ * @param {string|Buffer} contents
+ * @param {{placeholder?: string}} [options] name left in the ustar header
+ */
+export function paxEntry (path, contents, { placeholder = 'PaxHeaders/entry' } = {}) {
+  const record = paxRecord('path', path)
+  return Buffer.concat([
+    tarEntry(`PaxHeaders.0/${placeholder}`, record, { type: 'x' }),
+    tarEntry(placeholder, contents)
+  ])
+}
+
+/**
+ * One PAX record: "<len> <key>=<value>\n", where <len> counts its own digits.
+ * Solved rather than guessed, since the length changes the length.
+ */
+export function paxRecord (key, value) {
+  const body = ` ${key}=${value}\n`
+  let length = Buffer.byteLength(body, 'utf8')
+  for (;;) {
+    const candidate = Buffer.from(`${length}${body}`, 'utf8')
+    if (candidate.length === length) return candidate
+    length = candidate.length
+  }
+}
+
 /** Concatenate entries and append the two-zero-block end-of-archive marker. */
 export function tarArchive (...entries) {
   return Buffer.concat([...entries, Buffer.alloc(BLOCK * 2)])

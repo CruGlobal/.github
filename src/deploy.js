@@ -17,18 +17,27 @@ export async function run () {
     const environment = core.getInput('environment', { required: true })
     const image = core.getInput('image', { required: true })
     const runtimeProject = core.getInput('runtime-project', { required: false })
+    const appUrl = core.getInput('app-url', { required: false })
 
     // Enforce the digest invariant before touching any infrastructure.
     assertDigestRef(image)
     // Validate the long environment name eagerly (throws on an unknown name).
     core.info(`environment ${environment} -> ${environmentNickname(environment)}`)
 
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject })
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl })
 
     core.info(`deployed image: ${result.deployedImage}`)
     core.info(`updated services: ${JSON.stringify(result.services)}`)
     core.setOutput('deployed-image', result.deployedImage)
     core.setOutput('services', (result.services ?? []).join(','))
+
+    // Source-map upload is telemetry: it never fails the deploy, so the only
+    // way an operator learns a map did not land is if the outcome is reported.
+    // Counted, not just logged, so a run summary or a later step can act on it.
+    const sourcemaps = result.sourcemaps ?? { status: 'skipped', uploaded: 0, failed: 0 }
+    core.setOutput('sourcemaps-status', sourcemaps.status)
+    core.setOutput('sourcemaps-uploaded', String(sourcemaps.uploaded ?? 0))
+    core.setOutput('sourcemaps-failed', String(sourcemaps.failed ?? 0))
   } catch (error) {
     core.setFailed(error.message)
   }
