@@ -77,26 +77,8 @@ jobs:
       migrations-path: ${{ steps.app-info-prod.outputs.migrations-path }}
       migrations: ${{ steps.app-info-prod.outputs.migrations }}
       app-url: ${{ steps.app-info-prod.outputs.app-url }}
+      repository: ${{ steps.app-info-prod.outputs.repository }}
     steps:
-      # Authorization runs FIRST, before any provider job mutates production: the
-      # human running a production change must have push-level access to the app
-      # repo. TODO: replace PAT with a dedicated GitHub App.
-      - name: Authorize actor
-        env:
-          GH_TOKEN: ${{ secrets.authz-token }}
-          ACTOR: ${{ github.actor }}
-          APP_REPO: CruGlobal/${{ inputs.project-name }}
-        run: |
-          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
-          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
-          case "$permission" in
-            admin|write|maintain) ;;
-            *)
-              echo "::error::$ACTOR is not authorized to promote $APP_REPO (permission: $permission). Requires admin, write, or maintain."
-              exit 1
-              ;;
-          esac
-
       # app-info comes straight from the CruApplicationInfo DynamoDB table rather
       # than the cru-app-info HTTP API -- the pipeline deploys that API itself, so
       # a promote must not depend on it being up. GitHubDeployECS regardless of the
@@ -221,13 +203,37 @@ jobs:
           migrations=$(echo "$item" | jq -r '.Migrations.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           flightdeck_project=$(echo "$item" | jq -r '.FlightdeckProject.S // empty')
+          # Repository is written only when the app repo is not named after the project.
+          repository=$(echo "$item" | jq -r --arg default "CruGlobal/$PROJECT_NAME" '.Repository.S // $default')
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "migrations-path=$migrations_path" >> "$GITHUB_OUTPUT"
           echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
           echo "flightdeck-project=$flightdeck_project" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
+
+      # Authorization runs before any provider job mutates production: the human
+      # running a production change must have push-level access to the app repo.
+      # It follows the app-info lookups only because the repo is read from the
+      # production item (the fleet default CruGlobal/<project-name> otherwise).
+      # TODO: replace PAT with a dedicated GitHub App.
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          ACTOR: ${{ github.actor }}
+          APP_REPO: ${{ steps.app-info-prod.outputs.repository }}
+        run: |
+          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
+          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          case "$permission" in
+            admin|write|maintain) ;;
+            *)
+              echo "::error::$ACTOR is not authorized to promote $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              exit 1
+              ;;
+          esac
 
   promote-gcp:
     name: Promote release-candidate to production (Cloud Run)
@@ -313,14 +319,13 @@ jobs:
       # without any diff at all -- that declaration is the only thing that
       # distinguishes "has no migrations" from "has migrations we can't see".
       # The action NEVER fails; continue-on-error is a belt on top of that.
-      # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
       - name: Classify rollback safety
         id: rollback-safety
         continue-on-error: true
         uses: ./cru-github-actions/actions/classify-rollback-safety
         with:
           github-token: ${{ secrets.authz-token }}
-          repository: CruGlobal/${{ inputs.project-name }}
+          repository: ${{ needs.lookup.outputs.repository }}
           base-sha: ${{ steps.baseline.outputs.prev-sha }}
           head-sha: ${{ steps.baseline.outputs.head-sha }}
           migrations-path: ${{ needs.lookup.outputs.migrations-path }}
@@ -390,7 +395,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
-          APP_REPO: CruGlobal/${{ inputs.project-name }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
           RELEASE: ${{ steps.release.outputs.release }}
           COMMIT_SHA: ${{ steps.baseline.outputs.head-sha }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
@@ -806,14 +811,13 @@ jobs:
       # without any diff at all -- that declaration is the only thing that
       # distinguishes "has no migrations" from "has migrations we can't see".
       # The action NEVER fails; continue-on-error is a belt on top of that.
-      # repository assumes the app repo is CruGlobal/<project-name> (true for the pilots).
       - name: Classify rollback safety
         id: rollback-safety
         continue-on-error: true
         uses: ./cru-github-actions/actions/classify-rollback-safety
         with:
           github-token: ${{ secrets.authz-token }}
-          repository: CruGlobal/${{ inputs.project-name }}
+          repository: ${{ needs.lookup.outputs.repository }}
           base-sha: ${{ steps.baseline.outputs.prev-sha }}
           head-sha: ${{ steps.baseline.outputs.head-sha }}
           migrations-path: ${{ needs.lookup.outputs.migrations-path }}
@@ -875,7 +879,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
-          APP_REPO: CruGlobal/${{ inputs.project-name }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
           RELEASE: ${{ steps.release.outputs.release }}
           COMMIT_SHA: ${{ steps.baseline.outputs.head-sha }}
           DIGEST: ${{ steps.resolve.outputs.digest }}

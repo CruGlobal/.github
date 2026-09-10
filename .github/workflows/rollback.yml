@@ -59,25 +59,8 @@ jobs:
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
       flightdeck-project: ${{ steps.app-info.outputs.flightdeck-project }}
       app-url: ${{ steps.app-info.outputs.app-url }}
+      repository: ${{ steps.app-info.outputs.repository }}
     steps:
-      # Authorization runs FIRST, before any provider job mutates production.
-      # TODO: replace PAT with a dedicated GitHub App.
-      - name: Authorize actor
-        env:
-          GH_TOKEN: ${{ secrets.authz-token }}
-          ACTOR: ${{ github.actor }}
-          APP_REPO: CruGlobal/${{ inputs.project-name }}
-        run: |
-          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
-          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
-          case "$permission" in
-            admin|write|maintain) ;;
-            *)
-              echo "::error::$ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain."
-              exit 1
-              ;;
-          esac
-
       # app-info comes straight from the CruApplicationInfo DynamoDB table rather
       # than the cru-app-info HTTP API -- the pipeline deploys that API itself, so
       # a rollback (the thing you reach for when production is broken) must not
@@ -119,6 +102,8 @@ jobs:
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           flightdeck_project=$(echo "$item" | jq -r '.FlightdeckProject.S // empty')
+          # Repository is written only when the app repo is not named after the project.
+          repository=$(echo "$item" | jq -r --arg default "CruGlobal/$PROJECT_NAME" '.Repository.S // $default')
           case "$provider" in
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
@@ -129,7 +114,29 @@ jobs:
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
           echo "flightdeck-project=$flightdeck_project" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
+
+      # Authorization runs before any provider job mutates production: the human
+      # running a production change must have push-level access to the app repo.
+      # It follows the app-info lookups only because the repo is read from the
+      # production item (the fleet default CruGlobal/<project-name> otherwise).
+      # TODO: replace PAT with a dedicated GitHub App.
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ secrets.authz-token }}
+          ACTOR: ${{ github.actor }}
+          APP_REPO: ${{ steps.app-info.outputs.repository }}
+        run: |
+          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
+          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          case "$permission" in
+            admin|write|maintain) ;;
+            *)
+              echo "::error::$ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              exit 1
+              ;;
+          esac
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
       # prefix, or just the build number: resolve-image finds a dated release by
