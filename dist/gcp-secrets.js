@@ -158203,6 +158203,7 @@ async function listSecrets(project, types3 = PARAM_TYPES) {
   );
   return secrets2;
 }
+var ACCESS_SECRET_TIMEOUT_MS = 30 * 1e3;
 async function secrets(project, types3 = PARAM_TYPES) {
   const client = new import_secret_manager.SecretManagerServiceClient();
   const secrets2 = await listSecrets(project, types3);

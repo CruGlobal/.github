@@ -13485,7 +13485,7 @@ var require_fetch = __commonJS({
     function handleFetchDone(response) {
       finalizeAndReportTiming(response, "fetch");
     }
-    function fetch2(input, init = void 0) {
+    function fetch3(input, init = void 0) {
       webidl.argumentLengthCheck(arguments, 1, "globalThis.fetch");
       let p3 = createDeferredPromise();
       let requestObject;
@@ -14442,7 +14442,7 @@ var require_fetch = __commonJS({
       }
     }
     module2.exports = {
-      fetch: fetch2,
+      fetch: fetch3,
       Fetch,
       fetching,
       finalizeAndReportTiming
@@ -18791,7 +18791,7 @@ var require_undici = __commonJS({
     module2.exports.setGlobalDispatcher = setGlobalDispatcher;
     module2.exports.getGlobalDispatcher = getGlobalDispatcher;
     var fetchImpl = require_fetch().fetch;
-    module2.exports.fetch = async function fetch2(init, options = void 0) {
+    module2.exports.fetch = async function fetch3(init, options = void 0) {
       try {
         return await fetchImpl(init, options);
       } catch (err) {
@@ -26727,12 +26727,12 @@ __export(src_exports, {
   Response: () => Response,
   blobFrom: () => blobFrom,
   blobFromSync: () => blobFromSync,
-  default: () => fetch,
+  default: () => fetch2,
   fileFrom: () => fileFrom,
   fileFromSync: () => fileFromSync,
   isRedirect: () => isRedirect
 });
-async function fetch(url, options_) {
+async function fetch2(url, options_) {
   return new Promise((resolve, reject) => {
     const request = new Request(url, options_);
     const { parsedURL, options } = getNodeRequestOptions(request);
@@ -26864,7 +26864,7 @@ async function fetch(url, options_) {
             if (responseReferrerPolicy) {
               requestOptions.referrerPolicy = responseReferrerPolicy;
             }
-            resolve(fetch(new Request(locationURL, requestOptions)));
+            resolve(fetch2(new Request(locationURL, requestOptions)));
             finalize();
             return;
           }
@@ -49330,24 +49330,24 @@ var require_fs = __commonJS({
 var require_fetch2 = __commonJS({
   "node_modules/@protobufjs/fetch/index.js"(exports2, module2) {
     "use strict";
-    module2.exports = fetch2;
+    module2.exports = fetch3;
     var asPromise = require_aspromise();
     var fs4 = require_fs();
-    function fetch2(filename, options, callback) {
+    function fetch3(filename, options, callback) {
       if (typeof options === "function") {
         callback = options;
         options = {};
       } else if (!options)
         options = {};
       if (!callback)
-        return asPromise(fetch2, this, filename, options);
+        return asPromise(fetch3, this, filename, options);
       if (!options.xhr && fs4 && fs4.readFile)
         return fs4.readFile(filename, function fetchReadFileCallback(err, contents) {
-          return err && typeof XMLHttpRequest !== "undefined" ? fetch2.xhr(filename, options, callback) : err ? callback(err) : callback(null, options.binary ? contents : contents.toString("utf8"));
+          return err && typeof XMLHttpRequest !== "undefined" ? fetch3.xhr(filename, options, callback) : err ? callback(err) : callback(null, options.binary ? contents : contents.toString("utf8"));
         });
-      return fetch2.xhr(filename, options, callback);
+      return fetch3.xhr(filename, options, callback);
     }
-    fetch2.xhr = function fetch_xhr(filename, options, callback) {
+    fetch3.xhr = function fetch_xhr(filename, options, callback) {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function fetchOnReadyStateChange() {
         if (xhr.readyState !== 4)
@@ -50874,12 +50874,12 @@ var require_root = __commonJS({
             if (parsed.imports) {
               for (; i7 < parsed.imports.length; ++i7)
                 if (resolved2 = getBundledFileName(parsed.imports[i7]) || self2.resolvePath(filename2, parsed.imports[i7]))
-                  fetch2(resolved2, false, depth + 1);
+                  fetch3(resolved2, false, depth + 1);
             }
             if (parsed.weakImports) {
               for (i7 = 0; i7 < parsed.weakImports.length; ++i7)
                 if (resolved2 = getBundledFileName(parsed.weakImports[i7]) || self2.resolvePath(filename2, parsed.weakImports[i7]))
-                  fetch2(resolved2, true, depth + 1);
+                  fetch3(resolved2, true, depth + 1);
             }
           }
         } catch (err) {
@@ -50889,7 +50889,7 @@ var require_root = __commonJS({
           finish(null, self2);
         }
       }
-      function fetch2(filename2, weak, depth) {
+      function fetch3(filename2, weak, depth) {
         if (depth === void 0)
           depth = 0;
         filename2 = getBundledFileName(filename2) || filename2;
@@ -50943,7 +50943,7 @@ var require_root = __commonJS({
       }
       for (var i6 = 0, resolved; i6 < filename.length; ++i6)
         if (resolved = self2.resolvePath("", filename[i6]))
-          fetch2(resolved);
+          fetch3(resolved);
       if (sync) {
         self2.resolveAll();
         return self2;
@@ -85104,11 +85104,11 @@ var require_retries = __commonJS({
   "node_modules/google-gax/build/src/normalCalls/retries.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.retryable = retryable;
+    exports2.retryable = retryable2;
     var status_1 = require_status();
     var googleError_1 = require_googleError();
     var timeout_1 = require_timeout();
-    function retryable(func, retry, otherArgs, apiName) {
+    function retryable2(func, retry, otherArgs, apiName) {
       const delayMult = retry.backoffSettings.retryDelayMultiplier;
       const maxDelay = retry.backoffSettings.maxRetryDelayMillis;
       const timeoutMult = retry.backoffSettings.rpcTimeoutMultiplier;
@@ -171515,7 +171515,7 @@ var require_dist_cjs2 = __commonJS({
     var GENERATED_HEADERS = [AUTH_HEADER, AMZ_DATE_HEADER, DATE_HEADER];
     var SIGNATURE_HEADER = SIGNATURE_QUERY_PARAM.toLowerCase();
     var SHA256_HEADER = "x-amz-content-sha256";
-    var TOKEN_HEADER = TOKEN_QUERY_PARAM.toLowerCase();
+    var TOKEN_HEADER2 = TOKEN_QUERY_PARAM.toLowerCase();
     var HOST_HEADER = "host";
     var ALWAYS_UNSIGNABLE_HEADERS = {
       authorization: true,
@@ -171841,7 +171841,7 @@ ${toHex2(hashedRequest)}`;
         const scope = createScope(shortDate, region, signingService ?? this.service);
         request.headers[AMZ_DATE_HEADER] = longDate;
         if (credentials.sessionToken) {
-          request.headers[TOKEN_HEADER] = credentials.sessionToken;
+          request.headers[TOKEN_HEADER2] = credentials.sessionToken;
         }
         const payloadHash = await getPayloadHash(request, this.sha256);
         if (!hasHeader(SHA256_HEADER, request.headers) && this.applyChecksum) {
@@ -171890,7 +171890,7 @@ ${toHex2(hashedRequest)}`;
     exports2.SIGNED_HEADERS_QUERY_PARAM = SIGNED_HEADERS_QUERY_PARAM;
     exports2.SignatureV4 = SignatureV42;
     exports2.SignatureV4Base = SignatureV4Base;
-    exports2.TOKEN_HEADER = TOKEN_HEADER;
+    exports2.TOKEN_HEADER = TOKEN_HEADER2;
     exports2.TOKEN_QUERY_PARAM = TOKEN_QUERY_PARAM;
     exports2.UNSIGNABLE_PATTERNS = UNSIGNABLE_PATTERNS;
     exports2.UNSIGNED_PAYLOAD = UNSIGNED_PAYLOAD;
@@ -217648,6 +217648,9 @@ var ExitCode;
   ExitCode2[ExitCode2["Success"] = 0] = "Success";
   ExitCode2[ExitCode2["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
+function setSecret(secret) {
+  issueCommand("add-mask", {}, secret);
+}
 function getInput(name, options) {
   const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
   if (options && options.required && !val) {
@@ -218038,6 +218041,18 @@ async function listSecrets(project, types3 = PARAM_TYPES) {
   );
   return secrets;
 }
+var ACCESS_SECRET_TIMEOUT_MS = 30 * 1e3;
+async function accessSecret(project, secretId) {
+  const client = new import_secret_manager.SecretManagerServiceClient();
+  const name = `projects/${project}/secrets/${secretId}/versions/latest`;
+  try {
+    const [version] = await client.accessSecretVersion({ name }, { timeout: ACCESS_SECRET_TIMEOUT_MS });
+    return version.payload.data.toString();
+  } catch (error3) {
+    if (error3?.code === GRPC_NOT_FOUND) return null;
+    throw error3;
+  }
+}
 async function cloudrunListServices(project) {
   const client = new ServicesClient();
   const [services] = await client.listServices({ parent: `projects/${project}/locations/${DEFAULT_REGION}` });
@@ -218201,9 +218216,6 @@ async function authClient() {
   return auth.getClient();
 }
 
-// src/v2/signin.js
-var import_node_crypto6 = require("node:crypto");
-
 // src/v2/oci.js
 var import_node_zlib2 = require("node:zlib");
 
@@ -218215,6 +218227,7 @@ var SIZE = [124, 12];
 var TYPE = 156;
 var PREFIX = [345, 155];
 var REGULAR = /* @__PURE__ */ new Set(["0", "\0"]);
+var PAX_EXTENDED = "x";
 function field(block, [offset, length]) {
   const raw = block.subarray(offset, offset + length);
   const end2 = raw.indexOf(0);
@@ -218229,33 +218242,82 @@ function octal(block, spec) {
   }
   return value;
 }
+function parsePaxRecords(body) {
+  const records = {};
+  let offset = 0;
+  while (offset < body.length) {
+    const space = body.indexOf(32, offset);
+    if (space === -1) break;
+    const length = Number.parseInt(body.subarray(offset, space).toString("ascii"), 10);
+    if (!Number.isFinite(length) || length <= space - offset || offset + length > body.length) break;
+    const pair = body.subarray(space + 1, offset + length - 1);
+    const equals = pair.indexOf(61);
+    if (equals !== -1) {
+      records[pair.subarray(0, equals).toString("utf8")] = pair.subarray(equals + 1).toString("utf8");
+    }
+    offset += length;
+  }
+  return records;
+}
 function normalizeTarPath(path) {
   return path.replace(/^(?:\.?\/)+/, "");
 }
 function padded(size) {
   return Math.ceil(size / BLOCK2) * BLOCK2;
 }
-function findInTar(archive, target, { maxBytes = MAX_ENTRY_BYTES } = {}) {
-  const wanted = normalizeTarPath(target);
+function* walkTar(archive) {
   let offset = 0;
+  let overridePath = null;
   while (offset + BLOCK2 <= archive.length) {
     const header = archive.subarray(offset, offset + BLOCK2);
     const name = field(header, NAME2);
-    if (name === "") return null;
+    if (name === "") return;
     const size = octal(header, SIZE);
     const type = String.fromCharCode(header[TYPE]);
-    const prefix = field(header, PREFIX);
-    const path = normalizeTarPath(prefix === "" ? name : `${prefix}/${name}`);
-    const data = offset + BLOCK2;
-    if (REGULAR.has(type) && path === wanted) {
-      if (size > maxBytes) {
-        throw new Error(`Tar entry "${path}" is ${size} bytes, over the ${maxBytes}-byte limit`);
-      }
-      return Buffer.from(archive.subarray(data, data + size));
+    const body = offset + BLOCK2;
+    const next = body + padded(size);
+    if (type === PAX_EXTENDED) {
+      const { path } = parsePaxRecords(archive.subarray(body, body + size));
+      overridePath = typeof path === "string" && path !== "" ? path : null;
+      offset = next;
+      continue;
     }
-    offset = data + padded(size);
+    const prefix = field(header, PREFIX);
+    const stored = prefix === "" ? name : `${prefix}/${name}`;
+    yield { path: normalizeTarPath(overridePath ?? stored), type, size, offset: body };
+    overridePath = null;
+    offset = next;
+  }
+}
+function readEntry(archive, entry) {
+  return Buffer.from(archive.subarray(entry.offset, entry.offset + entry.size));
+}
+function findInTar(archive, target, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  const wanted = normalizeTarPath(target);
+  for (const entry of walkTar(archive)) {
+    if (!REGULAR.has(entry.type) || entry.path !== wanted) continue;
+    if (entry.size > maxBytes) {
+      throw new Error(`Tar entry "${entry.path}" is ${entry.size} bytes, over the ${maxBytes}-byte limit`);
+    }
+    return readEntry(archive, entry);
   }
   return null;
+}
+function listInTar(archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  const base = normalizeTarPath(prefix).replace(/\/+$/, "");
+  const dir = base === "" ? "" : `${base}/`;
+  const files = [];
+  for (const entry of walkTar(archive)) {
+    if (!REGULAR.has(entry.type)) continue;
+    if (!entry.path.startsWith(dir)) continue;
+    files.push({
+      path: entry.path,
+      name: entry.path.slice(dir.length),
+      size: entry.size,
+      contents: entry.size > maxBytes ? null : readEntry(archive, entry)
+    });
+  }
+  return files;
 }
 
 // src/v2/oci.js
@@ -218331,6 +218393,7 @@ function decompressLayer(mediaType, blob) {
 function isReadableLayer(mediaType) {
   return mediaType.includes(".tar") && !mediaType.includes("foreign") && !mediaType.includes("nondistributable");
 }
+var MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024;
 async function openImage(imageRef) {
   const target = parseRegistryRef(imageRef);
   let manifest = await manifestDocument(target, target.reference);
@@ -218347,35 +218410,64 @@ async function openImage(imageRef) {
     responseType: "text"
   });
   const config = typeof configBody === "string" ? JSON.parse(configBody) : configBody;
+  const cache5 = /* @__PURE__ */ new Map();
+  let cached = 0;
+  async function layerTar(layer) {
+    const hit = cache5.get(layer.digest);
+    if (hit) return hit;
+    const blob = await registryGet({
+      ...target,
+      kind: "blobs",
+      reference: layer.digest,
+      responseType: "arraybuffer"
+    });
+    const tar = decompressLayer(layer.mediaType, Buffer.from(blob));
+    if (cached + tar.length <= MAX_CACHED_LAYER_BYTES) {
+      cache5.set(layer.digest, tar);
+      cached += tar.length;
+    }
+    return tar;
+  }
+  async function scanLayers(label, inspect) {
+    const layers = (manifest.layers ?? []).filter((layer) => isReadableLayer(layer.mediaType));
+    for (const [index, layer] of [...layers].reverse().entries()) {
+      const position = `${layers.length - index}/${layers.length}`;
+      if (layer.size > MAX_LAYER_BLOB_BYTES) {
+        info(
+          `skipping layer ${position} (${layer.digest}): ${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
+        );
+        continue;
+      }
+      const found = inspect(await layerTar(layer));
+      if (found !== null) {
+        info(`found ${label} in layer ${position} (${layer.digest})`);
+        return found;
+      }
+    }
+    return null;
+  }
   return {
     labels: config.config?.Labels ?? {},
-    async readFile(path) {
-      const layers = (manifest.layers ?? []).filter((layer) => isReadableLayer(layer.mediaType));
-      for (const [index, layer] of [...layers].reverse().entries()) {
-        if (layer.size > MAX_LAYER_BLOB_BYTES) {
-          info(
-            `skipping layer ${layers.length - index}/${layers.length} (${layer.digest}): ${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
-          );
-          continue;
-        }
-        const blob = await registryGet({
-          ...target,
-          kind: "blobs",
-          reference: layer.digest,
-          responseType: "arraybuffer"
-        });
-        const found = findInTar(decompressLayer(layer.mediaType, Buffer.from(blob)), path);
-        if (found) {
-          info(`found ${path} in layer ${layers.length - index}/${layers.length} (${layer.digest})`);
-          return found;
-        }
-      }
-      return null;
+    /** Contents of one file, or null when no layer contains the path. */
+    readFile(path) {
+      return scanLayers(path, (tar) => findInTar(tar, path));
+    },
+    /**
+     * Every regular file under `prefix`, as tar.js's
+     * `[{ path, name, size, contents }]`. `[]` when no layer has anything there.
+     */
+    async readDir(prefix, { maxBytes } = {}) {
+      const found = await scanLayers(prefix, (tar) => {
+        const files = listInTar(tar, prefix, maxBytes === void 0 ? {} : { maxBytes });
+        return files.length > 0 ? files : null;
+      });
+      return found ?? [];
     }
   };
 }
 
 // src/v2/signin.js
+var import_node_crypto6 = require("node:crypto");
 var SIGNIN_LABEL = "org.cru.iap-signin";
 var SIGNIN_IMAGE_DIR = "/cru/iap-signin";
 var SIGNIN_BUCKET_ENV = "IAP_SIGNIN_BUCKET";
@@ -218443,14 +218535,14 @@ Content-Type: ${contentType}\r
     ...GAXIOS_RETRY2
   });
 }
-async function publishSigninPage({ image, bucket }) {
+async function publishSigninPage({ image, bucket, oci }) {
   if (!bucket) throw new Error("bucket is required to publish the sign-in page");
-  const oci = await openImage(image);
-  const objectKey = signinObjectKey(oci.labels);
+  const handle = oci ?? await openImage(image);
+  const objectKey = signinObjectKey(handle.labels);
   if (objectKey === null) return { published: false, reason: "no-label" };
   const source = signinSourcePath(objectKey);
   info(`extracting ${source} from ${image}`);
-  const body = await oci.readFile(source);
+  const body = await handle.readFile(source);
   if (!body) {
     throw new Error(
       `Image declares ${SIGNIN_LABEL}="${objectKey}" but has no file at ${source}. The Dockerfile must COPY the built page there.`
@@ -218466,10 +218558,222 @@ async function publishSigninPage({ image, bucket }) {
   return { published: true, bucket, objectKey, bytes: body.length };
 }
 
+// src/v2/sourcemaps.js
+var SOURCEMAPS_LABEL = "org.cru.sourcemaps";
+var SOURCEMAPS_IMAGE_DIR = "/cru/sourcemaps";
+var TOKEN_SECRET = "ROLLBAR_ACCESS_TOKEN";
+var ENDPOINT_ENV = "ROLLBAR_ENDPOINT";
+var DEFAULT_ENDPOINT = "https://flightdeck.cru.org";
+var UPLOAD_PATH = "/api/1/sourcemap";
+var TOKEN_HEADER = "X-Rollbar-Access-Token";
+var MAX_VERSION_LENGTH = 40;
+var MAX_MAP_BYTES = 16 * 1024 * 1024;
+var CONCURRENCY = 4;
+var REQUEST_TIMEOUT_MS = 60 * 1e3;
+var BUDGET_MS = 3 * 60 * 1e3;
+var MAX_ATTEMPTS = 3;
+var RETRY_BASE_DELAY_MS = 500;
+var sleep4 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function sourceMapsVersion(labels) {
+  const raw = labels?.[SOURCEMAPS_LABEL];
+  if (raw == null) return null;
+  const version = raw.trim();
+  const invalid = version === "" || version.length > MAX_VERSION_LENGTH || /[\s\u0000-\u001f\u007f]/.test(version);
+  if (invalid) {
+    throw new Error(
+      `Image label ${SOURCEMAPS_LABEL}="${raw}" is not a usable code version \u2014 expected 1-${MAX_VERSION_LENGTH} characters with no whitespace or control characters.`
+    );
+  }
+  return version;
+}
+function minifiedUrl(appUrl, relativePath) {
+  if (!relativePath.endsWith(".map")) {
+    throw new Error(`"${relativePath}" is not a source map (expected a .map file)`);
+  }
+  const target = relativePath.slice(0, -".map".length);
+  const invalid = target === "" || target.startsWith("/") || target.includes("\\") || target.includes(":") || target.split("/").some((segment) => {
+    const decoded = decodeSegment(segment);
+    return decoded === null || decoded === "" || decoded === "." || decoded === "..";
+  });
+  if (invalid) {
+    throw new Error(
+      `"${relativePath}" is not a usable source-map path \u2014 expected a relative path with no empty, ".", ".." or scheme-like segments.`
+    );
+  }
+  const base = appUrl.endsWith("/") ? appUrl : `${appUrl}/`;
+  const composed = new URL(target, base).toString();
+  if (!composed.startsWith(base)) {
+    throw new Error(`"${relativePath}" resolves to ${composed}, which is outside ${base}`);
+  }
+  return composed;
+}
+function decodeSegment(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+function sourceMapsEndpoint(services, repo) {
+  for (const service of services) {
+    const app = findAppContainer(service.template?.containers ?? [], repo);
+    const raw = app?.env?.find((entry) => entry.name === ENDPOINT_ENV)?.value;
+    if (!raw) continue;
+    try {
+      return `${new URL(raw).origin}${UPLOAD_PATH}`;
+    } catch {
+      warning(`${ENDPOINT_ENV}="${raw}" is not a URL; uploading source maps to ${DEFAULT_ENDPOINT} instead.`);
+      break;
+    }
+  }
+  return `${DEFAULT_ENDPOINT}${UPLOAD_PATH}`;
+}
+async function postMap({ url, token, version, minified, name, contents, timeoutMs, phase }) {
+  const form = new FormData();
+  form.append("version", version);
+  form.append("minified_url", minified);
+  form.append("source_map", new Blob([contents], { type: "application/json" }), name);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { [TOKEN_HEADER]: token },
+    body: form,
+    signal: phase ? AbortSignal.any([AbortSignal.timeout(timeoutMs), phase]) : AbortSignal.timeout(timeoutMs)
+  });
+  if (response.ok) return;
+  const body = await response.json().catch(() => null);
+  const error3 = new Error(
+    `HTTP ${response.status}${body?.message ? `: ${body.message}` : ` ${response.statusText || ""}`.trimEnd()}`
+  );
+  error3.status = response.status;
+  throw error3;
+}
+function retryable(error3) {
+  const { status } = error3;
+  if (status === void 0) return true;
+  return status === 429 || status >= 500;
+}
+function fatal(error3) {
+  return error3.status === 401 || error3.status === 403;
+}
+async function uploadWithRetries(request, { attempts, retryDelayMs }) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await postMap(request);
+    } catch (error3) {
+      if (request.phase?.aborted) throw new Error("the upload budget ran out", { cause: error3 });
+      if (attempt >= attempts || !retryable(error3)) throw error3;
+      await sleep4(retryDelayMs * 2 ** (attempt - 1));
+    }
+  }
+}
+async function publishSourceMaps({
+  oci,
+  appUrl,
+  token,
+  endpoint = `${DEFAULT_ENDPOINT}${UPLOAD_PATH}`,
+  maxMapBytes = MAX_MAP_BYTES,
+  concurrency = CONCURRENCY,
+  requestTimeoutMs = REQUEST_TIMEOUT_MS,
+  budgetMs = BUDGET_MS,
+  attempts = MAX_ATTEMPTS,
+  retryDelayMs = RETRY_BASE_DELAY_MS
+} = {}) {
+  if (token) setSecret(token);
+  const result = { status: "skipped", version: null, endpoint, uploaded: 0, failed: 0, skipped: 0, failures: [] };
+  if (!token) return { ...result, reason: "no-token" };
+  let version;
+  try {
+    version = sourceMapsVersion(oci.labels);
+  } catch (error3) {
+    warning(`source maps not uploaded (deploy unaffected): ${error3.message}`);
+    return { ...result, reason: "invalid-label" };
+  }
+  if (version === null) return { ...result, reason: "no-label" };
+  result.version = version;
+  if (!appUrl) {
+    warning(
+      `${SOURCEMAPS_LABEL}="${version}" declares browser source maps, but this environment has no app URL to resolve them against, so they cannot be uploaded.`
+    );
+    return { ...result, reason: "no-app-url" };
+  }
+  const files = await oci.readDir(SOURCEMAPS_IMAGE_DIR, { maxBytes: maxMapBytes });
+  if (files.length === 0) {
+    warning(
+      `Image declares ${SOURCEMAPS_LABEL}="${version}" but has no files under ${SOURCEMAPS_IMAGE_DIR}. The Dockerfile must COPY the built maps there.`
+    );
+    return { ...result, reason: "no-files" };
+  }
+  const deadline = Date.now() + budgetMs;
+  const phase = AbortSignal.timeout(Math.max(0, budgetMs));
+  const queue = [];
+  for (const file of files) {
+    if (!file.name.endsWith(".map")) {
+      warning(`ignoring ${file.path}: not a .map file`);
+      continue;
+    }
+    if (file.contents === null) {
+      warning(`skipping ${file.path}: ${file.size} bytes, over the ${maxMapBytes}-byte limit`);
+      result.skipped++;
+      continue;
+    }
+    try {
+      queue.push({
+        url: endpoint,
+        token,
+        version,
+        minified: minifiedUrl(appUrl, file.name),
+        name: file.name.split("/").pop(),
+        contents: file.contents,
+        timeoutMs: requestTimeoutMs,
+        phase,
+        file: file.path
+      });
+    } catch (error3) {
+      warning(`skipping ${file.path}: ${error3.message}`);
+      result.skipped++;
+    }
+  }
+  const attempted = queue.length;
+  if (attempted === 0) {
+    return result.skipped > 0 ? { ...result, status: "failed", reason: "no-usable-maps" } : { ...result, reason: "no-maps" };
+  }
+  info(`uploading ${attempted} source map(s) for version ${version} to ${endpoint}`);
+  let abort = null;
+  const worker = async () => {
+    for (; ; ) {
+      if (abort) return;
+      if (Date.now() >= deadline) return;
+      const request = queue.shift();
+      if (!request) return;
+      try {
+        await uploadWithRetries(request, { attempts, retryDelayMs });
+        result.uploaded++;
+      } catch (error3) {
+        result.failed++;
+        result.failures.push({ file: request.file, message: error3.message });
+        warning(`source map ${request.file} not uploaded: ${error3.message}`);
+        if (fatal(error3)) abort = error3;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, attempted) }, worker));
+  if (queue.length > 0) {
+    result.skipped += queue.length;
+    warning(
+      abort ? `${queue.length} source map(s) not uploaded: the ingestion token was rejected (${abort.message}), so the remaining uploads would have failed identically.` : `${queue.length} source map(s) not uploaded: the ${Math.round(budgetMs / 1e3)}s upload budget ran out. Every map that did land still resolves its own chunk; the deploy is unaffected.`
+    );
+  }
+  result.status = result.uploaded === 0 ? "failed" : result.failed + result.skipped > 0 ? "partial" : "uploaded";
+  info(
+    `source maps ${result.status}: ${result.uploaded} uploaded, ${result.failed} failed, ${result.skipped} skipped`
+  );
+  return result;
+}
+
 // src/v2/deploy-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
 var shortName = (resource) => resource.split("/").pop();
-async function deployCloudRun({ image, runtimeProject }) {
+async function deployCloudRun({ image, runtimeProject, appUrl }) {
   assertDigestRef(image);
   if (!runtimeProject) {
     throw new Error("runtime-project is required to deploy a cloudrun image");
@@ -218491,6 +218795,12 @@ async function deployCloudRun({ image, runtimeProject }) {
     if (job === migrateJob) continue;
     await updateJobImage(job, image, secrets);
   }
+  let handle = null;
+  const openSharedImage = () => {
+    if (handle === null) handle = openImage(image);
+    return handle;
+  };
+  const sourcemaps = await uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage });
   const updatedServices = [];
   for (const service of services) {
     const containers = service.template.containers;
@@ -218505,7 +218815,7 @@ async function deployCloudRun({ image, runtimeProject }) {
   const bucket = signinBucket(services, repo);
   if (bucket) {
     try {
-      Object.assign(signin, await publishSigninPage({ image, bucket }));
+      Object.assign(signin, await publishSigninPage({ image, bucket, oci: await openSharedImage() }));
       if (signin.published) {
         info(`published sign-in page: gs://${bucket}/${signin.objectKey} (${signin.bytes} bytes)`);
       } else {
@@ -218517,7 +218827,24 @@ async function deployCloudRun({ image, runtimeProject }) {
       warning(`sign-in page not published (deploy unaffected): ${error3.message}`);
     }
   }
-  return { deployedImage: image, services: updatedServices, signin };
+  return { deployedImage: image, services: updatedServices, signin, sourcemaps };
+}
+async function uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage }) {
+  const skipped = { status: "skipped", uploaded: 0, failed: 0 };
+  if (!secrets.some((secret) => shortName(secret.name) === TOKEN_SECRET)) return skipped;
+  try {
+    const token = await accessSecret(runtimeProject, TOKEN_SECRET);
+    if (!token) return skipped;
+    return await publishSourceMaps({
+      oci: await openSharedImage(),
+      appUrl,
+      token,
+      endpoint: sourceMapsEndpoint(services, repo)
+    });
+  } catch (error3) {
+    warning(`source maps not uploaded (deploy unaffected): ${error3.message}`);
+    return { status: "failed", uploaded: 0, failed: 0 };
+  }
 }
 async function updateJobImage(job, image, secrets) {
   const container = job.template.template.containers[0];
@@ -218783,13 +219110,18 @@ async function run() {
     const environment = getInput("environment", { required: true });
     const image = getInput("image", { required: true });
     const runtimeProject = getInput("runtime-project", { required: false });
+    const appUrl = getInput("app-url", { required: false });
     assertDigestRef(image);
     info(`environment ${environment} -> ${environmentNickname(environment)}`);
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject });
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl });
     info(`deployed image: ${result.deployedImage}`);
     info(`updated services: ${JSON.stringify(result.services)}`);
     setOutput("deployed-image", result.deployedImage);
     setOutput("services", (result.services ?? []).join(","));
+    const sourcemaps = result.sourcemaps ?? { status: "skipped", uploaded: 0, failed: 0 };
+    setOutput("sourcemaps-status", sourcemaps.status);
+    setOutput("sourcemaps-uploaded", String(sourcemaps.uploaded ?? 0));
+    setOutput("sourcemaps-failed", String(sourcemaps.failed ?? 0));
   } catch (error3) {
     setFailed(error3.message);
   }

@@ -158198,6 +158198,7 @@ async function listSecrets(project, types3 = PARAM_TYPES) {
   );
   return secrets;
 }
+var ACCESS_SECRET_TIMEOUT_MS = 30 * 1e3;
 async function cloudrunListServices(project) {
   const client = new ServicesClient();
   const [services] = await client.listServices({ parent: `projects/${project}/locations/${DEFAULT_REGION}` });
