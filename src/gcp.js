@@ -63,6 +63,38 @@ export async function listSecrets(project, types = PARAM_TYPES) {
     return secrets
 }
 
+// How long accessSecret will spend on ONE secret, retries included. gax folds a
+// call-option `timeout` into the retry's totalTimeoutMillis, so this bounds the
+// whole call rather than a single attempt.
+//
+// The GAPIC default is TEN MINUTES. That is the right default for a value a
+// deploy cannot proceed without, and the wrong one for accessSecret's caller
+// (src/v2/sourcemaps.js), which is optional telemetry sitting on the rollback
+// path — the emergency path — and must never be what stands between an operator
+// and a restored production.
+export const ACCESS_SECRET_TIMEOUT_MS = 30 * 1000
+
+// Read the current value of ONE secret by short name, e.g. ROLLBAR_ACCESS_TOKEN.
+//
+// Returns null when the secret does not exist in this project, which callers
+// use as a signal rather than an error: `secrets()` below reads whatever
+// listSecrets found, but a caller asking for a specific name is asking a
+// question ("is this environment wired for X?") whose answer may legitimately
+// be no.
+//
+// NOT wrapped in retryTransient, for the reason stated below — bounded instead.
+export async function accessSecret(project, secretId) {
+    const client = new SecretManagerServiceClient()
+    const name = `projects/${project}/secrets/${secretId}/versions/latest`
+    try {
+        const [version] = await client.accessSecretVersion({name}, {timeout: ACCESS_SECRET_TIMEOUT_MS})
+        return version.payload.data.toString()
+    } catch (error) {
+        if (error?.code === GRPC_NOT_FOUND) return null
+        throw error
+    }
+}
+
 // accessSecretVersion is NOT wrapped: its GAPIC config already retries
 // UNAVAILABLE (and RESOURCE_EXHAUSTED) with a 10-minute budget, and stacking a
 // second retry loop on top would multiply the worst case. listSecrets above is

@@ -234,6 +234,7 @@ jobs:
           environment: release-candidate
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
+          app-url: ${{ needs.lookup.outputs.app-url }}
 
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'

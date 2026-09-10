@@ -343,6 +343,7 @@ jobs:
           environment: production
           runtime-project: ${{ needs.lookup.outputs.prod-project-id }}
           image: ${{ steps.resolve.outputs.image }}
+          app-url: ${{ needs.lookup.outputs.app-url }}
 
       # Tag the promoted digest release-<n> in the shared registry (the prod
       # cru-deploy SA holds AR writer there). Replaces the gcloud CLI tagging step

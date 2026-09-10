@@ -147,16 +147,19 @@ async function uploadObject ({ bucket, key, body, contentType, cacheControl }) {
  * (label present but the file is missing, upload rejected); the caller decides
  * whether that is fatal.
  */
-export async function publishSigninPage ({ image, bucket }) {
+export async function publishSigninPage ({ image, bucket, oci }) {
   if (!bucket) throw new Error('bucket is required to publish the sign-in page')
 
-  const oci = await openImage(image)
-  const objectKey = signinObjectKey(oci.labels)
+  // An already-open handle is preferred: the deploy reads this image twice (see
+  // src/v2/sourcemaps.js) and a shared handle shares its layer cache. Opening
+  // one here keeps this function usable on its own.
+  const handle = oci ?? await openImage(image)
+  const objectKey = signinObjectKey(handle.labels)
   if (objectKey === null) return { published: false, reason: 'no-label' }
 
   const source = signinSourcePath(objectKey)
   core.info(`extracting ${source} from ${image}`)
-  const body = await oci.readFile(source)
+  const body = await handle.readFile(source)
   if (!body) {
     throw new Error(
       `Image declares ${SIGNIN_LABEL}="${objectKey}" but has no file at ${source}. ` +

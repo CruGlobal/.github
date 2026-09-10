@@ -3,10 +3,10 @@
 // docker daemon and without materializing the whole image.
 //
 // Why not `docker pull` / `crane`: the deploy runner has neither a daemon warmed
-// up nor a binary to install, and both would download every layer. The only
-// consumer (src/v2/signin.js) wants a ~100KB file that the app's Dockerfile
-// COPYs in a late, tiny layer, so scanning layers newest-first normally reads
-// exactly one small blob.
+// up nor a binary to install, and both would download every layer. The consumers
+// (src/v2/signin.js, src/v2/sourcemaps.js) want a ~100KB file, or a directory of
+// them, that the app's Dockerfile COPYs in a late, tiny layer, so scanning
+// layers newest-first normally reads exactly one small blob.
 //
 // Artifact Registry serves the Docker v2 API at
 // https://<location>-docker.pkg.dev/v2/<project>/<repo>/<image>/... and accepts
@@ -16,7 +16,7 @@
 import * as core from '@actions/core'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { authClient, parseImageRef } from './gcp'
-import { findInTar } from './tar'
+import { findInTar, listInTar } from './tar'
 
 // Manifest media types we can read. Both spellings of both formats, plus the
 // multi-platform index/list wrappers buildx emits even for a single platform.
@@ -130,12 +130,21 @@ function isReadableLayer (mediaType) {
   return mediaType.includes('.tar') && !mediaType.includes('foreign') && !mediaType.includes('nondistributable')
 }
 
+// Total decompressed bytes one handle will keep around for reuse. A deploy now
+// makes two passes over the same image (source maps, then the sign-in page) and
+// both start at the newest layer, so without a cache the second pass re-fetches
+// and re-inflates blobs the first one just read. Bounded because the per-layer
+// caps above permit a lot: past the budget the cache stops admitting layers and
+// reads fall back to fetching, which is slower but never an OOM.
+export const MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024
+
 /**
  * Open a digest-pinned image for reading: resolves the platform manifest and
  * fetches the (small) config blob so labels are available synchronously.
  *
- * Returns { labels, readFile(path) }. `readFile` scans layers newest-first and
- * returns a Buffer, or null when no layer contains the path.
+ * Returns { labels, readFile(path), readDir(prefix) }. Both readers scan layers
+ * newest-first, and layers they inflate are cached on the handle — so pass ONE
+ * handle to everything that reads the same image rather than opening it twice.
  */
 export async function openImage (imageRef) {
   const target = parseRegistryRef(imageRef)
@@ -157,35 +166,79 @@ export async function openImage (imageRef) {
   })
   const config = typeof configBody === 'string' ? JSON.parse(configBody) : configBody
 
+  // Decompressed layers this handle has already read, keyed by digest.
+  const cache = new Map()
+  let cached = 0
+
+  async function layerTar (layer) {
+    const hit = cache.get(layer.digest)
+    if (hit) return hit
+
+    const blob = await registryGet({
+      ...target,
+      kind: 'blobs',
+      reference: layer.digest,
+      responseType: 'arraybuffer'
+    })
+    const tar = decompressLayer(layer.mediaType, Buffer.from(blob))
+    if (cached + tar.length <= MAX_CACHED_LAYER_BYTES) {
+      cache.set(layer.digest, tar)
+      cached += tar.length
+    }
+    return tar
+  }
+
+  /**
+   * Scan layers newest-first, handing each inflated layer to `inspect`, and
+   * return the first non-null result.
+   *
+   * Newest-first is the whole performance story: a file COPYed late in the
+   * Dockerfile is found in the first (and typically tiny) blob we fetch. It is
+   * also the correctness story for readFile — a path rewritten by a later layer
+   * resolves to the version the container would actually see. For readDir it is
+   * a documented approximation rather than a union: whichever layer FIRST has
+   * anything under the prefix wins outright, so an app that COPYs into the same
+   * directory twice sees only the newer COPY. Overlay whiteouts are not
+   * interpreted either. Both are fine for a directory one build step fills.
+   */
+  async function scanLayers (label, inspect) {
+    const layers = (manifest.layers ?? []).filter(layer => isReadableLayer(layer.mediaType))
+    for (const [index, layer] of [...layers].reverse().entries()) {
+      const position = `${layers.length - index}/${layers.length}`
+      if (layer.size > MAX_LAYER_BLOB_BYTES) {
+        core.info(
+          `skipping layer ${position} (${layer.digest}): ` +
+          `${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
+        )
+        continue
+      }
+      const found = inspect(await layerTar(layer))
+      if (found !== null) {
+        core.info(`found ${label} in layer ${position} (${layer.digest})`)
+        return found
+      }
+    }
+    return null
+  }
+
   return {
     labels: config.config?.Labels ?? {},
 
-    async readFile (path) {
-      // Newest layer first: a file COPYed late in the Dockerfile is found in the
-      // first (and typically tiny) blob we fetch, and a path rewritten by a
-      // later layer resolves to the version the container would actually see.
-      const layers = (manifest.layers ?? []).filter(layer => isReadableLayer(layer.mediaType))
-      for (const [index, layer] of [...layers].reverse().entries()) {
-        if (layer.size > MAX_LAYER_BLOB_BYTES) {
-          core.info(
-            `skipping layer ${layers.length - index}/${layers.length} (${layer.digest}): ` +
-            `${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
-          )
-          continue
-        }
-        const blob = await registryGet({
-          ...target,
-          kind: 'blobs',
-          reference: layer.digest,
-          responseType: 'arraybuffer'
-        })
-        const found = findInTar(decompressLayer(layer.mediaType, Buffer.from(blob)), path)
-        if (found) {
-          core.info(`found ${path} in layer ${layers.length - index}/${layers.length} (${layer.digest})`)
-          return found
-        }
-      }
-      return null
+    /** Contents of one file, or null when no layer contains the path. */
+    readFile (path) {
+      return scanLayers(path, tar => findInTar(tar, path))
+    },
+
+    /**
+     * Every regular file under `prefix`, as tar.js's
+     * `[{ path, name, size, contents }]`. `[]` when no layer has anything there.
+     */
+    async readDir (prefix, { maxBytes } = {}) {
+      const found = await scanLayers(prefix, tar => {
+        const files = listInTar(tar, prefix, maxBytes === undefined ? {} : { maxBytes })
+        return files.length > 0 ? files : null
+      })
+      return found ?? []
     }
   }
 }

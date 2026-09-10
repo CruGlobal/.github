@@ -1,8 +1,10 @@
 import * as core from '@actions/core'
-import { cloudrunListJobs, cloudrunListServices, listSecrets, runJob, updateJob, updateService } from '../gcp'
+import { accessSecret, cloudrunListJobs, cloudrunListServices, listSecrets, runJob, updateJob, updateService } from '../gcp'
 import { RUNTIME_PARAM_TYPES } from '../ecs-config'
 import { assertDigestRef, isAppContainer, parseImageRef } from './gcp'
+import { openImage } from './oci'
 import { publishSigninPage, signinBucket } from './signin'
+import { TOKEN_SECRET, publishSourceMaps, sourceMapsEndpoint } from './sourcemaps'
 
 // Name of the optional database-migrations Cloud Run job, created by the
 // gcp/cloudrun/app terraform module when `database_migrations` is enabled.
@@ -21,9 +23,11 @@ const shortName = resource => resource.split('/').pop()
 //   1. if a `db-migrate` job exists, refresh + run it to completion first;
 //      a failure fails the deploy with services untouched.
 //   2. refresh other jobs' image/secrets without executing them.
-//   3. update each service, rewriting ONLY the app container (sidecars such as
+//   3. upload the browser source maps the image carries, if any.
+//   4. update each service, rewriting ONLY the app container (sidecars such as
 //      the Datadog agent are preserved) and re-attaching RUNTIME secrets, then
 //      force a new revision.
+//   5. publish the IAP friendly sign-in page the image carries, if any.
 //
 // DD_VERSION is BAKED into the image at build time (`--build-arg VERSION` ->
 // Dockerfile `ENV DD_VERSION`), never injected at deploy: the service's
@@ -33,7 +37,7 @@ const shortName = resource => resource.split('/').pop()
 // version per build. Sidecars are untouched.
 //
 // Returns { deployedImage, services } (services = short names updated).
-export async function deployCloudRun ({ image, runtimeProject }) {
+export async function deployCloudRun ({ image, runtimeProject, appUrl }) {
   assertDigestRef(image) // defensive; the router validates too
   if (!runtimeProject) {
     throw new Error('runtime-project is required to deploy a cloudrun image')
@@ -65,6 +69,28 @@ export async function deployCloudRun ({ image, runtimeProject }) {
     await updateJobImage(job, image, secrets)
   }
 
+  // ONE registry handle for every read of this image, opened on first use. Both
+  // the source-map upload and the sign-in publish scan layers newest-first, so
+  // sharing the handle means sharing its layer cache and fetching each blob
+  // once instead of twice. Lazy so an app that needs neither never opens it.
+  let handle = null
+  const openSharedImage = () => {
+    if (handle === null) handle = openImage(image)
+    return handle
+  }
+
+  // Upload the browser source maps this image carries, if any.
+  //
+  // ORDER IS LOAD BEARING: this runs AFTER the migration and BEFORE the first
+  // service update, and it must stay there. Occurrences that arrive before
+  // their maps land are not re-processed, so uploading after the revision goes
+  // live would leave the first seconds of a new revision's errors permanently
+  // unresolved — exactly the window a bad deploy produces errors in. This is
+  // the deliberate OPPOSITE of the sign-in page below, which runs last because
+  // a half-deployed page is user-visible; nothing here is visible to anyone
+  // until an error needs symbolicating.
+  const sourcemaps = await uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage })
+
   // Update each Cloud Run service. Refresh only the APP container's image/env
   // and pass ALL containers through, so sidecars are preserved — e.g. the
   // Datadog Agent the gcp/cloudrun/app module adds when datadog_apm = true.
@@ -94,7 +120,7 @@ export async function deployCloudRun ({ image, runtimeProject }) {
   const bucket = signinBucket(services, repo)
   if (bucket) {
     try {
-      Object.assign(signin, await publishSigninPage({ image, bucket }))
+      Object.assign(signin, await publishSigninPage({ image, bucket, oci: await openSharedImage() }))
       if (signin.published) {
         core.info(`published sign-in page: gs://${bucket}/${signin.objectKey} (${signin.bytes} bytes)`)
       } else {
@@ -109,7 +135,44 @@ export async function deployCloudRun ({ image, runtimeProject }) {
     }
   }
 
-  return { deployedImage: image, services: updatedServices, signin }
+  return { deployedImage: image, services: updatedServices, signin, sourcemaps }
+}
+
+// Upload the image's browser source maps, never failing the deploy.
+//
+// Telemetry policy, the same one the ledger, Datadog, Slack and the release
+// event follow: everything in here is wrapped, every failure is a warning, and
+// the deploy carries on. A partial upload is strictly better than none —
+// each map resolves its own chunk independently of the others — so there is no
+// all-or-nothing to preserve. The outputs make the outcome countable rather
+// than leaving it buried in a log line.
+//
+// The gates run cheapest-first so an app that ships no maps pays nothing:
+//
+//   1. TOKEN. listSecrets already told us the RUNTIME secret NAMES, so the
+//      "is this environment wired for error tracking?" question is answered
+//      with no call at all. No secret => silent no-op, and crucially no
+//      registry read.
+//   2. LABEL. Only now is the image opened (one small config blob).
+//   3. APP URL. Needed to turn a staged path into the URL a browser reports.
+//   4. FILES. Only now is a layer downloaded.
+async function uploadSourceMaps ({ services, secrets, repo, runtimeProject, appUrl, openSharedImage }) {
+  const skipped = { status: 'skipped', uploaded: 0, failed: 0 }
+  if (!secrets.some(secret => shortName(secret.name) === TOKEN_SECRET)) return skipped
+
+  try {
+    const token = await accessSecret(runtimeProject, TOKEN_SECRET)
+    if (!token) return skipped
+    return await publishSourceMaps({
+      oci: await openSharedImage(),
+      appUrl,
+      token,
+      endpoint: sourceMapsEndpoint(services, repo)
+    })
+  } catch (error) {
+    core.warning(`source maps not uploaded (deploy unaffected): ${error.message}`)
+    return { status: 'failed', uploaded: 0, failed: 0 }
+  }
 }
 
 // Update a Cloud Run job's container image and secrets in place. A job has a
