@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/CruGlobal/.github/compare/v2.4.0...v2.5.0) (2026-09-11)
+
+
+### Features
+
+* **v2:** record candidate deploys on the Flightdeck release timeline ([#492](https://github.com/CruGlobal/.github/issues/492)) ([dca9819](https://github.com/CruGlobal/.github/commit/dca9819e2c3afca08375af36748dde22998ac155))
+
 ## [2.4.0](https://github.com/CruGlobal/.github/compare/v2.3.1...v2.4.0) (2026-09-11)
 
 
