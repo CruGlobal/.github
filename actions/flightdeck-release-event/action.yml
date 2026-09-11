@@ -25,12 +25,14 @@ inputs:
     required: false
     default: deploy
   release-tag:
-    description: Release tag deployed, e.g. release-2026-09-04-10123.
+    description: >-
+      Tag deployed, e.g. release-2026-09-04-10123 in production or
+      candidate-2026-09-04-10123 in staging.
     required: false
   build-number:
     description: >-
       Build number. Defaults to the numeric tail of release-tag
-      (release-[<yyyy-mm-dd>-]<n> -> <n>).
+      ({candidate,release}-[<yyyy-mm-dd>-]<n> -> <n>).
     required: false
   sha:
     description: Git sha deployed. Defaults to the sha-<40 hex> tag in image-tags.

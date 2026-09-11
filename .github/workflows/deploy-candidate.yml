@@ -50,6 +50,9 @@ on:
       slack-bot-token:
         required: false
         description: Slack bot token for pipeline notifications; unset disables posting.
+      flightdeck-token:
+        required: false
+        description: Flightdeck PAT of the CruDeploy service user, for release-timeline events; unset disables posting.
 
 jobs:
   # app-info: per-app metadata, read straight from the CruApplicationInfo
@@ -70,6 +73,7 @@ jobs:
       project-id: ${{ steps.app-info.outputs.project-id }}
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
       app-url: ${{ steps.app-info.outputs.app-url }}
+      flightdeck-project: ${{ steps.app-info.outputs.flightdeck-project }}
       # Release-candidate gate for this app: "deploy" (stage deploy, the default
       # and the case for every app that has a stage environment) or "verify"
       # (stage-less — run VerifyCommand inside the candidate image instead).
@@ -111,6 +115,7 @@ jobs:
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
+          flightdeck_project=$(echo "$item" | jq -r '.FlightdeckProject.S // empty')
           # RcMode absent = "deploy". Terraform omits the attribute on the
           # default, so every pre-existing app item reads as a stage deploy
           # without being rewritten.
@@ -144,6 +149,7 @@ jobs:
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
+          echo "flightdeck-project=$flightdeck_project" >> "$GITHUB_OUTPUT"
           echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
           echo "verify-command=$verify_command" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id rc-mode=$rc_mode"
@@ -315,6 +321,33 @@ jobs:
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
             || echo "::warning title=Ledger write failed::candidate deploy event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      # Record the candidate on the app's Flightdeck project timeline, under
+      # the environment its error reports carry (release-candidate is `staging`
+      # everywhere off this workflow -- app-info is keyed that way, and so is
+      # the environment bound to the app's ingestion token). Project = app-info
+      # FlightdeckProject; credential = the CruDeploy service user's PAT held by
+      # cru-deploy. Either unset => silent skip.
+      #
+      # No rollback-safety verdict is sent, and that is the decision rather than
+      # an omission: the classifier compares a candidate against the PRODUCTION
+      # baseline, which says nothing about this environment, and a rollback is
+      # not the response we want to a bad candidate -- a fix is. With no opinion
+      # recorded, anything reading the timeline escalates instead of acting.
+      #
+      # Same telemetry policy as the ledger: the action never fails,
+      # continue-on-error is the belt on top.
+      - name: Record release event in Flightdeck
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/flightdeck-release-event
+        with:
+          token: ${{ secrets.flightdeck-token }}
+          project: ${{ needs.lookup.outputs.flightdeck-project }}
+          environment: staging
+          kind: deploy
+          release-tag: ${{ inputs.tag }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
@@ -562,6 +595,33 @@ jobs:
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
             || echo "::warning title=Ledger write failed::candidate deploy event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
+
+      # Record the candidate on the app's Flightdeck project timeline, under
+      # the environment its error reports carry (release-candidate is `staging`
+      # everywhere off this workflow -- app-info is keyed that way, and so is
+      # the environment bound to the app's ingestion token). Project = app-info
+      # FlightdeckProject; credential = the CruDeploy service user's PAT held by
+      # cru-deploy. Either unset => silent skip.
+      #
+      # No rollback-safety verdict is sent, and that is the decision rather than
+      # an omission: the classifier compares a candidate against the PRODUCTION
+      # baseline, which says nothing about this environment, and a rollback is
+      # not the response we want to a bad candidate -- a fix is. With no opinion
+      # recorded, anything reading the timeline escalates instead of acting.
+      #
+      # Same telemetry policy as the ledger: the action never fails,
+      # continue-on-error is the belt on top.
+      - name: Record release event in Flightdeck
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/flightdeck-release-event
+        with:
+          token: ${{ secrets.flightdeck-token }}
+          project: ${{ needs.lookup.outputs.flightdeck-project }}
+          environment: staging
+          kind: deploy
+          release-tag: ${{ inputs.tag }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"

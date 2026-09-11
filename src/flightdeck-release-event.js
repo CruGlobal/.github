@@ -92,9 +92,12 @@ export function buildEvent ({ environment, kind, releaseTag, buildNumber, sha, i
   return event
 }
 
-// release-[<yyyy-mm-dd>-]<n> -> <n>; anything else has no build number.
+// {candidate,release}-[<yyyy-mm-dd>-]<n> -> <n>; anything else has no build
+// number. Both spellings carry the SAME number for one artifact -- promote
+// renames candidate-<suffix> to release-<suffix> -- so a candidate deploy and
+// the promotion that follows it report one build across two environments.
 export function buildNumberFromTag (releaseTag) {
-  const match = /^release-(?:\d{4}-\d{2}-\d{2}-)?(\d+)$/.exec(releaseTag || '')
+  const match = /^(?:candidate|release)-(?:\d{4}-\d{2}-\d{2}-)?(\d+)$/.exec(releaseTag || '')
   return match ? match[1] : ''
 }
 

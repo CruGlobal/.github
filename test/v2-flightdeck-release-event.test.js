@@ -112,10 +112,15 @@ describe('buildEvent', () => {
 })
 
 describe('helpers', () => {
-  it('buildNumberFromTag accepts both release tag spellings only', () => {
+  it('buildNumberFromTag reads the number out of either tag prefix', () => {
     expect(buildNumberFromTag('release-2026-09-04-10123')).toBe('10123')
     expect(buildNumberFromTag('release-10038')).toBe('10038')
-    expect(buildNumberFromTag('candidate-2026-09-04-10123')).toBe('')
+    // A candidate and the release promoted from it share one number, so the
+    // staging and production events on one artifact agree.
+    expect(buildNumberFromTag('candidate-2026-09-04-10123')).toBe('10123')
+    expect(buildNumberFromTag('candidate-10038')).toBe('10038')
+    expect(buildNumberFromTag('preview-10038')).toBe('')
+    expect(buildNumberFromTag('candidate-2026-09-04')).toBe('')
     expect(buildNumberFromTag('')).toBe('')
   })
 
