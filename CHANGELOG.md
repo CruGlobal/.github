@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.4.0](https://github.com/CruGlobal/.github/compare/v2.3.1...v2.4.0) (2026-09-11)
+
+
+### Features
+
+* **v2:** upload browser source maps from the app image on Cloud Run deploys ([#489](https://github.com/CruGlobal/.github/issues/489)) ([9b78d4f](https://github.com/CruGlobal/.github/commit/9b78d4f5f9f6e6f05c49ea78de99701b0e8e940b))
+
+
+### Bug Fixes
+
+* **v2:** promote and rollback read the app repo from app-info ([#491](https://github.com/CruGlobal/.github/issues/491)) ([762cfd5](https://github.com/CruGlobal/.github/commit/762cfd5b61b98f0a8317ff6ebc96110067b137f9))
+
 ## [2.3.1](https://github.com/CruGlobal/.github/compare/v2.3.0...v2.3.1) (2026-09-09)
 
 
