@@ -327,10 +327,10 @@ describe('classifyRubyMigration — CONTRACT (unsafe) calls', () => {
     expect(r.reason).toBe('unrecognized migration call `change_table` — classified unsafe conservatively')
   })
 
-  it('an ActiveRecord model data migration falls to the conservative default', () => {
+  it('an ActiveRecord model data migration is contract', () => {
     const r = rb('User.update_all(status: "active")')
     expect(r.phase).toBe('contract')
-    expect(r.reason).toContain('`update_all`')
+    expect(r.reason).toBe('`update_all` writes rows in a data migration; a rollback would not restore them')
   })
 
   it('a heredoc is contract, naming the call that opened it', () => {
@@ -536,6 +536,100 @@ describe('classifyRubyMigration — iteration headers are transparent', () => {
     expect(results).toHaveLength(1)
     expect(results[0].phase).toBe('contract')
     expect(results[0].reason).toContain('`remove_column`')
+  })
+})
+
+// A block-variable receiver means "this call belongs to the enclosing
+// create_table / change_table", and the statement is discarded on that basis.
+// The test is only lexical, so `m.save` inside a loop looked exactly like
+// `t.string` inside a create_table and a data migration went unreported —
+// including on a loop whose header was already transparent.
+describe('classifyRubyMigration — data mutation on a block variable', () => {
+  const added = (path, content) => ({ path, status: 'added', content })
+
+  it.each([
+    ['save', 'm.save', /writes rows/],
+    ['save!', 'm.save!', /writes rows/],
+    ['update', 'm.update(active: true)', /writes rows/],
+    ['update!', 'm.update!(active: true)', /writes rows/],
+    ['update_all', 'm.update_all(active: true)', /writes rows/],
+    ['update_column', 'm.update_column(:active, true)', /writes rows/],
+    ['insert_all', 'm.insert_all([{ name: "x" }])', /writes rows/],
+    ['upsert_all', 'm.upsert_all([{ name: "x" }])', /writes rows/],
+    ['delete_all', 'm.delete_all', /deletes rows/],
+    ['destroy_all', 'm.destroy_all', /deletes rows/]
+  ])('%s on a block variable is contract', (call, body, reason) => {
+    const r = rb(body)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toMatch(reason)
+    expect(r.reason).toContain(`\`${call}\``)
+    expect(r.reason).toMatch(/a rollback would not restore them$/)
+  })
+
+  it('a constant loop that writes rows is unsafe', () => {
+    const source = [
+      'class ActivateAll < ActiveRecord::Migration[7.1]',
+      '  MODELS = [User, Account]',
+      '',
+      '  def change',
+      '    MODELS.each { |m| m.update_all(active: true) }',
+      '  end',
+      'end',
+      ''
+    ].join('\n')
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason).toContain('`update_all`')
+
+    const path = 'db/migrate/20260107000000_activate_all.rb'
+    expect(classifyMigrationFiles([added(path, source)]).verdict).toBe('unsafe')
+  })
+
+  it('a lowercase-receiver loop that writes rows is unsafe', () => {
+    // The loop header was discarded as a block-variable call long before the
+    // iteration allowlist existed, so this one read safe on its own.
+    const results = classifyRubyMigration(migration([
+      'models.each do |m|',
+      '  m.save',
+      'end'
+    ].join('\n')))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason).toContain('`save`')
+  })
+
+  it('a relation loop that writes rows is unsafe', () => {
+    const r = rb('User.all.each { |u| u.save }')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toContain('`save`')
+  })
+
+  // The guard on checking the table before discarding the statement: a
+  // create_table body must STILL belong to the new table.
+  it('a create_table body is still not classified separately', () => {
+    const source = migration([
+      'create_table :things do |t|',
+      '  t.string :name',
+      '  t.timestamps',
+      'end'
+    ].join('\n'))
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+    expect(results[0].reason).toContain('`create_table`')
+
+    const path = 'db/migrate/20260108000000_create_things.rb'
+    expect(classifyMigrationFiles([added(path, source)]))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a one-line create_table body is still not classified separately', () => {
+    const results = classifyRubyMigration(migration(
+      'create_table :things do |t|\n  t.string :name; t.timestamps\nend'
+    ))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
   })
 })
 

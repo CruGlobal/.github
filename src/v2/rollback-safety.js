@@ -192,7 +192,21 @@ const RUBY_CONTRACT = {
   add_foreign_key: 'adds a constraint; a rollback would still enforce it',
   // A `reversible do |dir|` block hides which half runs on the way up; the
   // contents cannot be attributed to a direction by line scanning.
-  reversible: 'wraps changes in a direction-aware block whose contents cannot be classified'
+  reversible: 'wraps changes in a direction-aware block whose contents cannot be classified',
+  // Data migrations through a model. The rows are the change, and a rollback
+  // reverts code, not rows — so these are unsafe wherever they appear, most of
+  // all inside a loop, where the receiver is a block variable (see
+  // classifyRubyStatement).
+  save: 'writes rows in a data migration; a rollback would not restore them',
+  'save!': 'writes rows in a data migration; a rollback would not restore them',
+  update: 'writes rows in a data migration; a rollback would not restore them',
+  'update!': 'writes rows in a data migration; a rollback would not restore them',
+  update_all: 'writes rows in a data migration; a rollback would not restore them',
+  update_column: 'writes rows in a data migration; a rollback would not restore them',
+  insert_all: 'writes rows in a data migration; a rollback would not restore them',
+  upsert_all: 'writes rows in a data migration; a rollback would not restore them',
+  delete_all: 'deletes rows in a data migration; a rollback would not restore them',
+  destroy_all: 'deletes rows in a data migration; a rollback would not restore them'
 }
 
 // `null: false` with no `default:` makes the column required from here on — the
@@ -378,7 +392,10 @@ function rubyStatements (source) {
 
 // A receiver like `t` / `tbl` / `dir` is a block variable: the call belongs to
 // the enclosing create_table / change_table / reversible call, which is what
-// carries the verdict. `connection` is NOT such a receiver.
+// carries the verdict. `connection` is NOT such a receiver. The test is only
+// lexical, so a model in a loop (`m.save`) is indistinguishable from a table
+// definition (`t.string`) — the caller compensates by checking the unsafe
+// table first.
 function isBlockReceiver (receiver) {
   if (receiver === '') return false
   if (receiver === 'connection' || /(^|\.)connection$/.test(receiver)) return false
@@ -459,10 +476,19 @@ function classifyRubyStatement (statement) {
   }
 
   if (call === null) return null
-  if (call.method === 'execute') return classifyRubyExecute(call.after)
-  if (isBlockReceiver(call.receiver)) return null
-
   const method = call.method
+  if (method === 'execute') return classifyRubyExecute(call.after)
+
+  // A destructive call is destructive whatever it is called on, and
+  // isBlockReceiver is purely lexical — every lowercase receiver looks like a
+  // create_table block variable. So consult the unsafe table BEFORE discarding
+  // the statement, or `models.each { |m| m.save }` is invisible: the loop
+  // header touches no schema and the body would be attributed to a block that
+  // never existed.
+  if (isBlockReceiver(call.receiver)) {
+    if (RUBY_CONTRACT[method]) return { phase: CONTRACT, reason: `\`${method}\` ${RUBY_CONTRACT[method]}` }
+    return null
+  }
 
   // add_timestamps adds NOT NULL created_at/updated_at, so without defaults (or
   // an explicit `null: true`) the columns are required from here on.
