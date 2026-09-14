@@ -43,7 +43,8 @@ inputs:
   rollback-safety:
     description: >-
       classify-rollback-safety verdict: safe | unsafe | unclassified. safe and
-      unsafe become rollback_safe true/false; anything else sends no opinion.
+      unsafe become rollback_safe true/false; unclassified withdraws any stored
+      verdict; unset sends no opinion and leaves a stored verdict alone.
     required: false
   rollback-safety-reasons:
     description: classify-rollback-safety `reasons` (JSON array of strings); sent only with a safe/unsafe verdict.

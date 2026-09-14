@@ -80,12 +80,28 @@ describe('buildEvent', () => {
     })
   })
 
-  it('omits blank optional fields and sends no opinion when unclassified', () => {
-    const event = buildEvent({ environment: 'production', kind: 'rollback', releaseTag: 'release-10038', rollbackSafety: 'unclassified', rollbackSafetyReasons: '["no production baseline"]' })
+  it('omits blank optional fields, and sends nothing at all when no verdict was asked for', () => {
+    const event = buildEvent({ environment: 'production', kind: 'rollback', releaseTag: 'release-10038' })
     expect(event).toEqual({ environment: 'production', kind: 'rollback', release_tag: 'release-10038', build_number: '10038' })
     expect(event).not.toHaveProperty('rollback_safe')
     expect(event).not.toHaveProperty('sha')
     expect(event).not.toHaveProperty('deployed_at')
+  })
+
+  it('withdraws a stored verdict when the classifier ran and returned unclassified', () => {
+    const event = buildEvent({ environment: 'production', kind: 'rollback', releaseTag: 'release-10038', rollbackSafety: 'unclassified', rollbackSafetyReasons: '["no production baseline"]' })
+    // Present and null, not absent: absent means "I did not classify", and a
+    // restate that says nothing leaves a stale verdict standing.
+    expect(event).toHaveProperty('rollback_safe')
+    expect(event.rollback_safe).toBeNull()
+    // The pair is withdrawn together — a cleared verdict beside the previous
+    // run's reasons reads as a contradiction.
+    expect(event.rollback_safe_reasons).toEqual([])
+  })
+
+  it('serialises a withdrawal as an explicit null rather than dropping the key', () => {
+    const event = buildEvent({ environment: 'production', releaseTag: 'release-10038', rollbackSafety: 'unclassified' })
+    expect(JSON.parse(JSON.stringify(event))).toHaveProperty('rollback_safe', null)
   })
 
   it('maps an unsafe verdict to rollback_safe false with its reasons', () => {
