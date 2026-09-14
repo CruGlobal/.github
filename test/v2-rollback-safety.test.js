@@ -559,20 +559,40 @@ describe('classifyRubyMigration — data mutation on a block variable', () => {
     ['touch', 'm.touch', /writes rows/],
     ['increment!', 'm.increment!(:hits)', /writes rows/],
     ['decrement!', 'm.decrement!(:hits)', /writes rows/],
-    ['insert', 'm.insert({ name: "x" })', /writes rows/],
-    ['insert_all', 'm.insert_all([{ name: "x" }])', /writes rows/],
+    ['update_attribute', 'm.update_attribute(:active, true)', /writes rows/],
+    ['update_attributes', 'm.update_attributes(active: true)', /writes rows/],
+    ['toggle!', 'm.toggle!(:active)', /writes rows/],
     ['upsert', 'm.upsert({ name: "x" })', /writes rows/],
     ['upsert_all', 'm.upsert_all([{ name: "x" }])', /writes rows/],
+    ['insert', 'm.insert({ name: "x" })', /adds rows/],
+    ['insert!', 'm.insert!({ name: "x" })', /adds rows/],
+    ['insert_all', 'm.insert_all([{ name: "x" }])', /adds rows/],
+    ['insert_all!', 'm.insert_all!([{ name: "x" }])', /adds rows/],
     ['delete', 'm.delete', /deletes rows/],
     ['delete_all', 'm.delete_all', /deletes rows/],
     ['destroy', 'm.destroy', /deletes rows/],
+    ['destroy!', 'm.destroy!', /deletes rows/],
     ['destroy_all', 'm.destroy_all', /deletes rows/]
   ])('%s on a block variable is contract', (call, body, reason) => {
     const r = rb(body)
     expect(r.phase).toBe('contract')
     expect(r.reason).toMatch(reason)
     expect(r.reason).toContain(`\`${call}\``)
-    expect(r.reason).toMatch(/a rollback would not restore them$/)
+  })
+
+  // An insert takes nothing away, so the removal wording would be false. The
+  // VERDICT is deliberately unchanged: the rows outlive the image swap and the
+  // old code still meets them.
+  it.each(['m.insert({ name: "x" })', 'm.insert_all([{ name: "x" }])'])(
+    'an insert is contract but does not claim a rollback lost anything: %s', (body) => {
+      const r = rb(body)
+      expect(r.phase).toBe('contract')
+      expect(r.reason).toMatch(/adds rows in a data migration; a rollback would leave them in place$/)
+    })
+
+  it('an upsert keeps the removal wording (it can overwrite prior values)', () => {
+    expect(rb('m.upsert({ name: "x" })').reason)
+      .toBe('`upsert` writes rows in a data migration; a rollback would not restore them')
   })
 
   it('a constant loop that writes rows is unsafe', () => {
@@ -628,6 +648,42 @@ describe('classifyRubyMigration — data mutation on a block variable', () => {
     'a non-persisting %s contributes nothing', (body) => {
       expect(classifyRubyMigration(migration(body))).toEqual([])
     })
+
+  // `each(&:destroy)` and `each { |m| m.destroy }` are the same deletion, and
+  // the symbol-to-proc spelling is the commoner of the two. Stepping over the
+  // iteration header leaves `(&:destroy)` as the residue, so the symbol has to
+  // resolve or the statement disappears.
+  it.each([
+    ['each(&:destroy)', 'User.all.each(&:destroy)', '`destroy` deletes rows in a data migration; a rollback would not restore them'],
+    ['each(&:save!)', 'Account.all.each(&:save!)', '`save!` writes rows in a data migration; a rollback would not restore them'],
+    ['map(&:destroy)', 'User.all.map(&:destroy)', '`destroy` deletes rows in a data migration; a rollback would not restore them'],
+    ['each(&:delete_all)', 'MODELS.each(&:delete_all)', '`delete_all` deletes rows in a data migration; a rollback would not restore them']
+  ])('%s resolves the symbol and reports the real call', (_label, body, reason) => {
+    const r = rb(body)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe(reason)
+  })
+
+  it('the symbol-to-proc and block spellings of one deletion agree', () => {
+    expect(rb('User.all.each(&:destroy)').phase).toBe(rb('User.all.each { |u| u.destroy }').phase)
+  })
+
+  // An unresolvable block argument must reach the conservative default, not
+  // vanish the way it would if the scan simply gave up.
+  it.each([
+    ['&block', 'User.all.each(&block)'],
+    ['&method(:x)', 'User.all.each(&method(:purge))']
+  ])('an unresolvable %s argument is contract by the conservative default', (_label, body) => {
+    const r = rb(body)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toMatch(/classified unsafe conservatively$/)
+  })
+
+  it('an unknown symbol still reaches the conservative default', () => {
+    const r = rb('User.all.map(&:to_s)')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('unrecognized migration call `to_s` — classified unsafe conservatively')
+  })
 
   it('a relation loop that writes rows is unsafe', () => {
     const r = rb('User.all.each { |u| u.save }')

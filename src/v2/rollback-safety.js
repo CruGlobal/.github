@@ -168,6 +168,13 @@ const RUBY_EXPAND = {
   remove_check_constraint: 'removes a check constraint (loosening; nothing new is rejected)'
 }
 
+// The three shapes a model data migration takes. Named once so the many method
+// names that share one cannot drift apart, and so which methods share a shape
+// is visible at a glance.
+const WRITES_ROWS = 'writes rows in a data migration; a rollback would not restore them'
+const ADDS_ROWS = 'adds rows in a data migration; a rollback would leave them in place'
+const DELETES_ROWS = 'deletes rows in a data migration; a rollback would not restore them'
+
 // Destructive / tightening calls: the rollback leaves the schema where the
 // migration put it, so what was removed stays removed and what was tightened
 // stays tightened.
@@ -201,27 +208,41 @@ const RUBY_CONTRACT = {
   // the collection-level ones: `destroy_all` unsafe and `destroy` safe would
   // be the same two-halves disagreement the constraint rows above fix, in the
   // spelling — iterate, then mutate one record — that is by far the commonest.
-  save: 'writes rows in a data migration; a rollback would not restore them',
-  'save!': 'writes rows in a data migration; a rollback would not restore them',
-  update: 'writes rows in a data migration; a rollback would not restore them',
-  'update!': 'writes rows in a data migration; a rollback would not restore them',
-  update_all: 'writes rows in a data migration; a rollback would not restore them',
-  update_column: 'writes rows in a data migration; a rollback would not restore them',
-  update_columns: 'writes rows in a data migration; a rollback would not restore them',
-  update_counters: 'writes rows in a data migration; a rollback would not restore them',
-  touch: 'writes rows in a data migration; a rollback would not restore them',
+  save: WRITES_ROWS,
+  'save!': WRITES_ROWS,
+  update: WRITES_ROWS,
+  'update!': WRITES_ROWS,
+  update_all: WRITES_ROWS,
+  update_column: WRITES_ROWS,
+  update_columns: WRITES_ROWS,
+  update_counters: WRITES_ROWS,
+  update_attribute: WRITES_ROWS,
+  // Long gone from Rails, but still live in apps old enough to predate its
+  // removal, and free to catch.
+  update_attributes: WRITES_ROWS,
+  touch: WRITES_ROWS,
   // Only the bang forms: `increment` / `decrement` change the in-memory
   // attribute and never reach the database, so they are not writes.
-  'increment!': 'writes rows in a data migration; a rollback would not restore them',
-  'decrement!': 'writes rows in a data migration; a rollback would not restore them',
-  insert: 'writes rows in a data migration; a rollback would not restore them',
-  insert_all: 'writes rows in a data migration; a rollback would not restore them',
-  upsert: 'writes rows in a data migration; a rollback would not restore them',
-  upsert_all: 'writes rows in a data migration; a rollback would not restore them',
-  delete: 'deletes rows in a data migration; a rollback would not restore them',
-  delete_all: 'deletes rows in a data migration; a rollback would not restore them',
-  destroy: 'deletes rows in a data migration; a rollback would not restore them',
-  destroy_all: 'deletes rows in a data migration; a rollback would not restore them'
+  'increment!': WRITES_ROWS,
+  'decrement!': WRITES_ROWS,
+  'toggle!': WRITES_ROWS,
+  // An upsert can overwrite values that were already there, and a rollback
+  // does not bring those back — so it keeps the removal wording that a plain
+  // insert does not deserve.
+  upsert: WRITES_ROWS,
+  upsert_all: WRITES_ROWS,
+  // An insert only adds. Still CONTRACT — the new rows outlive the image swap
+  // and the old code has to cope with them — but a rollback has nothing to
+  // restore, so the removal wording would simply be false.
+  insert: ADDS_ROWS,
+  'insert!': ADDS_ROWS,
+  insert_all: ADDS_ROWS,
+  'insert_all!': ADDS_ROWS,
+  delete: DELETES_ROWS,
+  delete_all: DELETES_ROWS,
+  destroy: DELETES_ROWS,
+  'destroy!': DELETES_ROWS,
+  destroy_all: DELETES_ROWS
 }
 
 // `null: false` with no `default:` makes the column required from here on — the
@@ -424,6 +445,13 @@ function scanRubyCall (statement) {
     rest = rest.replace(/^[\s{}();,]+/, '')
     // A block parameter list (`|t|`, `|dir|`) is not a call.
     rest = rest.replace(/^\|[^|]*\|\s*/, '')
+    // Once a transparent iteration header has been stepped over, a
+    // symbol-to-proc argument IS the call: `each(&:destroy)` deletes rows just
+    // as `each { |m| m.destroy }` does. Resolve `&:name` to `name` and look it
+    // up like any other leading call. A `&` residue that is NOT a symbol
+    // (`&block`, `&method(:x)`) keeps its token, so it reaches the
+    // conservative default instead of vanishing.
+    rest = rest.replace(/^&\s*:?/, '')
     if (rest === '') return null
     const m = RUBY_LEADING_CALL.exec(rest)
     if (!m) return null
