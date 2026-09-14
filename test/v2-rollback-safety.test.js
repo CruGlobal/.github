@@ -106,13 +106,13 @@ describe('classifySqlStatements — CONTRACT (unsafe) rules', () => {
   it('ADD COLUMN NOT NULL without a DEFAULT is contract', () => {
     const r = one('ALTER TABLE users ADD COLUMN email text NOT NULL')
     expect(r.phase).toBe('contract')
-    expect(r.reason).toMatch(/omit the new required column/)
+    expect(r.reason).toBe('adds a required column; a rollback would still enforce it')
   })
 
   it('DROP COLUMN is contract', () => {
     const r = one('ALTER TABLE users DROP COLUMN email')
     expect(r.phase).toBe('contract')
-    expect(r.reason).toMatch(/drops a column the previous image still selects/)
+    expect(r.reason).toBe('drops a column; a rollback would not restore it')
   })
 
   it.each([
@@ -219,7 +219,9 @@ describe('classifyRubyMigration — EXPAND (safe) calls', () => {
     ['add_belongs_to', 'add_belongs_to :comments, :author', /adds a reference column/],
     ['enable_extension', 'enable_extension "pgcrypto"', /enables an extension/],
     ['add_timestamps', 'add_timestamps :users, default: -> { "now()" }', /adds timestamp columns/],
-    ['remove_index', 'remove_index :users, :email', /removes an index/]
+    ['remove_index', 'remove_index :users, :email', /removes an index/],
+    ['remove_foreign_key', 'remove_foreign_key :comments, :posts', /removes a foreign key/],
+    ['remove_check_constraint', 'remove_check_constraint :users, name: "age_check"', /removes a check constraint/]
   ])('%s is expand', (call, body, reason) => {
     const r = rb(body)
     expect(r.phase).toBe('expand')
@@ -279,25 +281,38 @@ describe('classifyRubyMigration — EXPAND (safe) calls', () => {
 
 describe('classifyRubyMigration — CONTRACT (unsafe) calls', () => {
   it.each([
-    ['remove_column', 'remove_column :users, :email', /drops a column the previous image still selects/],
-    ['remove_columns', 'remove_columns :users, :a, :b', /drops columns the previous image still selects/],
+    ['remove_column', 'remove_column :users, :email', /drops a column; a rollback would not restore it/],
+    ['remove_columns', 'remove_columns :users, :a, :b', /drops columns; a rollback would not restore them/],
     ['remove_reference', 'remove_reference :comments, :post', /drops a reference column/],
     ['remove_belongs_to', 'remove_belongs_to :comments, :author', /drops a reference column/],
-    ['drop_table', 'drop_table :users', /drops a table the previous image still depends on/],
+    ['drop_table', 'drop_table :users', /drops a table; a rollback would not restore it/],
     ['drop_join_table', 'drop_join_table :users, :roles', /drops a join table/],
     ['rename_column', 'rename_column :users, :email, :email_address', /renames a column/],
     ['rename_table', 'rename_table :users, :people', /renames a table/],
     ['change_column', 'change_column :users, :age, :bigint', /changes a column type/],
     ['change_column_null', 'change_column_null :users, :email, false', /NOT NULL/],
     ['change_column_default', 'change_column_default :users, :status, from: nil, to: "a"', /changes a column default/],
-    ['add_check_constraint', 'add_check_constraint :users, "age >= 0"', /can reject the previous image/],
-    ['add_foreign_key', 'add_foreign_key :comments, :posts', /can reject the previous image/],
+    ['add_check_constraint', 'add_check_constraint :users, "age >= 0"', /adds a constraint; a rollback would still enforce it/],
+    ['add_foreign_key', 'add_foreign_key :comments, :posts', /adds a constraint; a rollback would still enforce it/],
     ['reversible', 'reversible do |dir|\n  dir.up { add_column :users, :x, :string }\nend', /direction-aware block/]
   ])('%s is contract', (call, body, reason) => {
     const r = rb(body)
     expect(r.phase).toBe('contract')
     expect(r.reason).toMatch(reason)
     expect(r.reason).toContain(`\`${call}\``)
+  })
+
+  // The two sentence shapes, pinned verbatim: a removal says the thing is not
+  // coming back, a tightening says the restriction outlives the rollback.
+  // Neither makes a claim about what any application image does.
+  it('a removal reads as "a rollback would not restore it"', () => {
+    expect(rb('drop_table :legacy').reason)
+      .toBe('`drop_table` drops a table; a rollback would not restore it')
+  })
+
+  it('a tightening reads as "a rollback would still enforce it"', () => {
+    expect(rb('add_foreign_key :comments, :posts').reason)
+      .toBe('`add_foreign_key` adds a constraint; a rollback would still enforce it')
   })
 
   // Loosening to NULL is unsafe too — the SQL table already treats
@@ -312,10 +327,10 @@ describe('classifyRubyMigration — CONTRACT (unsafe) calls', () => {
     expect(r.reason).toBe('unrecognized migration call `change_table` — classified unsafe conservatively')
   })
 
-  it('an ActiveRecord model data migration falls to the conservative default', () => {
+  it('an ActiveRecord model data migration is contract', () => {
     const r = rb('User.update_all(status: "active")')
     expect(r.phase).toBe('contract')
-    expect(r.reason).toContain('`update_all`')
+    expect(r.reason).toBe('`update_all` writes rows in a data migration; a rollback would not restore them')
   })
 
   it('a heredoc is contract, naming the call that opened it', () => {
@@ -341,8 +356,8 @@ describe('classifyRubyMigration — null: false / default: interplay', () => {
     'null: false without a default is contract: %s', (call) => {
       const r = rb(`${call}, null: false`)
       expect(r.phase).toBe('contract')
-      // Byte-identical to the SQL table's ADD COLUMN NOT NULL reason.
-      expect(r.reason).toMatch(/previous image INSERTs omit the new required column/)
+      // The SQL table's ADD COLUMN NOT NULL reason, prefixed with the call.
+      expect(r.reason).toMatch(/adds a required column; a rollback would still enforce it/)
     })
 
   it.each(['add_column :users, :email, :string', 'add_reference :comments, :post', 'add_belongs_to :comments, :author'])(
@@ -385,6 +400,375 @@ describe('classifyRubyMigration — null: false / default: interplay', () => {
 
   it('add_timestamps null: true is expand', () => {
     expect(rb('add_timestamps :users, null: true').phase).toBe('expand')
+  })
+})
+
+// `RUBY_LEADING_CALL` cannot tell `TABLES = ...` from a call to a method named
+// `TABLES`, so a constant assignment used to fall through to the conservative
+// default and stamp an otherwise additive migration unsafe. The assignment
+// PREFIX is transparent, which is not the same as skipping the statement.
+describe('classifyRubyMigration — assignment is a transparent prefix', () => {
+  it('a constant assigned a literal contributes nothing', () => {
+    const results = classifyRubyMigration([
+      'class BackfillFlags < ActiveRecord::Migration[7.1]',
+      '  TABLES = %i[alpha beta gamma]',
+      '',
+      '  def change',
+      '    add_column :alpha, :flag, :boolean',
+      '  end',
+      'end',
+      ''
+    ].join('\n'))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+    expect(results[0].reason).toContain('`add_column`')
+  })
+
+  it.each([
+    ['string', 'NAME = "index_users_on_email"'],
+    ['number', 'BATCH_SIZE = 1000'],
+    ['array', 'TABLES = %i[alpha beta]'],
+    ['bracketed array', 'TABLES = ["alpha", "beta"]'],
+    ['hash', 'OPTS = { null: false }'],
+    ['local variable', 'batch = 1000'],
+    ['or-assignment', 'batch ||= 1000']
+  ])('an assigned %s contributes nothing', (_label, assignment) => {
+    const results = classifyRubyMigration(migration(`${assignment}\nadd_column :users, :x, :string`))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+  })
+
+  // The whole point of a transparent PREFIX rather than a skipped statement:
+  // the right-hand side is still classified, so a destructive call cannot be
+  // hidden behind an assignment.
+  it('an assigned destructive call is still contract', () => {
+    const r = rb('x = remove_column :a, :b')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('`remove_column` drops a column; a rollback would not restore it')
+  })
+
+  it('an assignment does not make a whole migration safe', () => {
+    const path = 'db/migrate/20260103000000_drop_it.rb'
+    const { verdict } = classifyMigrationFiles([
+      { path, status: 'added', content: migration('removed = remove_column :users, :email') }
+    ])
+    expect(verdict).toBe('unsafe')
+  })
+})
+
+// A loop header touches no schema; the body is classified on its own lines.
+describe('classifyRubyMigration — iteration headers are transparent', () => {
+  it('a constant loop over additive calls is safe end to end', () => {
+    const source = [
+      'class BackfillFlags < ActiveRecord::Migration[7.1]',
+      '  TABLES = %i[alpha beta gamma]',
+      '',
+      '  def change',
+      '    TABLES.each do |t|',
+      '      add_column t, :flag, :boolean',
+      '    end',
+      '  end',
+      'end',
+      ''
+    ].join('\n')
+
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+    // Neither the constant nor the loop header may contribute a reason.
+    expect(results.some((r) => /TABLES|each/.test(r.reason))).toBe(false)
+
+    const path = 'db/migrate/20260104000000_backfill_flags.rb'
+    expect(classifyMigrationFiles([{ path, status: 'added', content: source }]))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a constant index name is not a call either', () => {
+    const source = [
+      'class SwapIndex < ActiveRecord::Migration[7.1]',
+      '  INDEX = "index_users_on_email"',
+      '',
+      '  def change',
+      '    remove_index :users, name: INDEX',
+      '    add_index :users, :email, name: INDEX, unique: true',
+      '  end',
+      'end',
+      ''
+    ].join('\n')
+
+    const results = classifyRubyMigration(source)
+    expect(results.map((r) => r.phase)).toEqual(['expand', 'expand'])
+
+    const path = 'db/migrate/20260105000000_swap_index.rb'
+    expect(classifyMigrationFiles([{ path, status: 'added', content: source }]))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it.each([
+    ['each', 'TABLES.each do |t|'],
+    ['each_with_index', 'TABLES.each_with_index do |t, i|'],
+    ['each_with_object', 'TABLES.each_with_object({}) do |t, acc|'],
+    ['reverse_each', 'TABLES.reverse_each do |t|'],
+    ['map', 'TABLES.map do |t|'],
+    ['flat_map', 'TABLES.flat_map do |t|']
+  ])('%s steps over the header and classifies the body', (_label, header) => {
+    const results = classifyRubyMigration(migration([
+      header,
+      '  add_column t, :flag, :boolean',
+      'end'
+    ].join('\n')))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+  })
+
+  it('a brace-block iteration is classified on its body', () => {
+    expect(rb('COLUMNS.map { |c| add_column :users, c, :string }').phase).toBe('expand')
+  })
+
+  // Transparency means "keep looking", never "discard": a destructive body is
+  // still reported.
+  it('a destructive loop body is still contract', () => {
+    const results = classifyRubyMigration(migration([
+      'TABLES.each do |t|',
+      '  remove_column t, :legacy',
+      'end'
+    ].join('\n')))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason).toContain('`remove_column`')
+  })
+})
+
+// A block-variable receiver means "this call belongs to the enclosing
+// create_table / change_table", and the statement is discarded on that basis.
+// The test is only lexical, so `m.save` inside a loop looked exactly like
+// `t.string` inside a create_table and a data migration went unreported —
+// including on a loop whose header was already transparent.
+describe('classifyRubyMigration — data mutation on a block variable', () => {
+  const added = (path, content) => ({ path, status: 'added', content })
+
+  it.each([
+    ['save', 'm.save', /writes rows/],
+    ['save!', 'm.save!', /writes rows/],
+    ['update', 'm.update(active: true)', /writes rows/],
+    ['update!', 'm.update!(active: true)', /writes rows/],
+    ['update_all', 'm.update_all(active: true)', /writes rows/],
+    ['update_column', 'm.update_column(:active, true)', /writes rows/],
+    ['update_columns', 'm.update_columns(active: true)', /writes rows/],
+    ['update_counters', 'm.update_counters(:id, hits: 1)', /writes rows/],
+    ['touch', 'm.touch', /writes rows/],
+    ['increment!', 'm.increment!(:hits)', /writes rows/],
+    ['decrement!', 'm.decrement!(:hits)', /writes rows/],
+    ['update_attribute', 'm.update_attribute(:active, true)', /writes rows/],
+    ['update_attributes', 'm.update_attributes(active: true)', /writes rows/],
+    ['toggle!', 'm.toggle!(:active)', /writes rows/],
+    ['upsert', 'm.upsert({ name: "x" })', /writes rows/],
+    ['upsert_all', 'm.upsert_all([{ name: "x" }])', /writes rows/],
+    ['insert', 'm.insert({ name: "x" })', /adds rows/],
+    ['insert!', 'm.insert!({ name: "x" })', /adds rows/],
+    ['insert_all', 'm.insert_all([{ name: "x" }])', /adds rows/],
+    ['insert_all!', 'm.insert_all!([{ name: "x" }])', /adds rows/],
+    ['delete', 'm.delete', /deletes rows/],
+    ['delete_all', 'm.delete_all', /deletes rows/],
+    ['destroy', 'm.destroy', /deletes rows/],
+    ['destroy!', 'm.destroy!', /deletes rows/],
+    ['destroy_all', 'm.destroy_all', /deletes rows/]
+  ])('%s on a block variable is contract', (call, body, reason) => {
+    const r = rb(body)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toMatch(reason)
+    expect(r.reason).toContain(`\`${call}\``)
+  })
+
+  // An insert takes nothing away, so the removal wording would be false. The
+  // VERDICT is deliberately unchanged: the rows outlive the image swap and the
+  // old code still meets them.
+  it.each(['m.insert({ name: "x" })', 'm.insert_all([{ name: "x" }])'])(
+    'an insert is contract but does not claim a rollback lost anything: %s', (body) => {
+      const r = rb(body)
+      expect(r.phase).toBe('contract')
+      expect(r.reason).toMatch(/adds rows in a data migration; a rollback would leave them in place$/)
+    })
+
+  it('an upsert keeps the removal wording (it can overwrite prior values)', () => {
+    expect(rb('m.upsert({ name: "x" })').reason)
+      .toBe('`upsert` writes rows in a data migration; a rollback would not restore them')
+  })
+
+  it('a constant loop that writes rows is unsafe', () => {
+    const source = [
+      'class ActivateAll < ActiveRecord::Migration[7.1]',
+      '  MODELS = [User, Account]',
+      '',
+      '  def change',
+      '    MODELS.each { |m| m.update_all(active: true) }',
+      '  end',
+      'end',
+      ''
+    ].join('\n')
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason).toContain('`update_all`')
+
+    const path = 'db/migrate/20260107000000_activate_all.rb'
+    expect(classifyMigrationFiles([added(path, source)]).verdict).toBe('unsafe')
+  })
+
+  it('a lowercase-receiver loop that writes rows is unsafe', () => {
+    // The loop header was discarded as a block-variable call long before the
+    // iteration allowlist existed, so this one read safe on its own.
+    const results = classifyRubyMigration(migration([
+      'models.each do |m|',
+      '  m.save',
+      'end'
+    ].join('\n')))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason).toContain('`save`')
+  })
+
+  // Iterate, then mutate one record: the commonest spelling of a data
+  // migration, and the one the collection-level rows alone would miss.
+  it('a loop that destroys records is unsafe', () => {
+    const source = migration('models.each { |m| m.destroy }')
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason)
+      .toBe('`destroy` deletes rows in a data migration; a rollback would not restore them')
+
+    const path = 'db/migrate/20260109000000_purge.rb'
+    expect(classifyMigrationFiles([added(path, source)]).verdict).toBe('unsafe')
+  })
+
+  // `increment` / `decrement` without the bang change the in-memory attribute
+  // and never reach the database, so they are deliberately NOT writes.
+  it.each(['m.increment(:hits)', 'm.decrement(:hits)'])(
+    'a non-persisting %s contributes nothing', (body) => {
+      expect(classifyRubyMigration(migration(body))).toEqual([])
+    })
+
+  // `each(&:destroy)` and `each { |m| m.destroy }` are the same deletion, and
+  // the symbol-to-proc spelling is the commoner of the two. Stepping over the
+  // iteration header leaves `(&:destroy)` as the residue, so the symbol has to
+  // resolve or the statement disappears.
+  it.each([
+    ['each(&:destroy)', 'User.all.each(&:destroy)', '`destroy` deletes rows in a data migration; a rollback would not restore them'],
+    ['each(&:save!)', 'Account.all.each(&:save!)', '`save!` writes rows in a data migration; a rollback would not restore them'],
+    ['map(&:destroy)', 'User.all.map(&:destroy)', '`destroy` deletes rows in a data migration; a rollback would not restore them'],
+    ['each(&:delete_all)', 'MODELS.each(&:delete_all)', '`delete_all` deletes rows in a data migration; a rollback would not restore them']
+  ])('%s resolves the symbol and reports the real call', (_label, body, reason) => {
+    const r = rb(body)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe(reason)
+  })
+
+  it('the symbol-to-proc and block spellings of one deletion agree', () => {
+    expect(rb('User.all.each(&:destroy)').phase).toBe(rb('User.all.each { |u| u.destroy }').phase)
+  })
+
+  // An unresolvable block argument must reach the conservative default, not
+  // vanish the way it would if the scan simply gave up.
+  it.each([
+    ['&block', 'User.all.each(&block)'],
+    ['&method(:x)', 'User.all.each(&method(:purge))']
+  ])('an unresolvable %s argument is contract by the conservative default', (_label, body) => {
+    const r = rb(body)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toMatch(/classified unsafe conservatively$/)
+  })
+
+  it('an unknown symbol still reaches the conservative default', () => {
+    const r = rb('User.all.map(&:to_s)')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('unrecognized migration call `to_s` — classified unsafe conservatively')
+  })
+
+  it('a relation loop that writes rows is unsafe', () => {
+    const r = rb('User.all.each { |u| u.save }')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toContain('`save`')
+  })
+
+  // The guard on checking the table before discarding the statement: a
+  // create_table body must STILL belong to the new table.
+  it('a create_table body is still not classified separately', () => {
+    const source = migration([
+      'create_table :things do |t|',
+      '  t.string :name',
+      '  t.timestamps',
+      'end'
+    ].join('\n'))
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+    expect(results[0].reason).toContain('`create_table`')
+
+    const path = 'db/migrate/20260108000000_create_things.rb'
+    expect(classifyMigrationFiles([added(path, source)]))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a one-line create_table body is still not classified separately', () => {
+    const results = classifyRubyMigration(migration(
+      'create_table :things do |t|\n  t.string :name; t.timestamps\nend'
+    ))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+  })
+})
+
+// The Ruby table mirrors the SQL one; dropping a constraint is a loosening in
+// both spellings. These two used to fall through to the conservative default,
+// so the two halves of the classifier disagreed about the same operation.
+describe('classifyRubyMigration — constraint removal agrees with the SQL table', () => {
+  const added = (path, content) => ({ path, status: 'added', content })
+
+  it.each([
+    ['remove_foreign_key', 'remove_foreign_key :comments, :posts'],
+    ['remove_check_constraint', 'remove_check_constraint :users, name: "age_check"']
+  ])('%s is expand', (_label, body) => {
+    expect(rb(body).phase).toBe('expand')
+  })
+
+  it('the Ruby verdict matches the SQL DROP CONSTRAINT verdict', () => {
+    const sqlVerdict = classifyMigrationFiles([
+      added('drizzle/0003_drop_constraint.sql', 'ALTER TABLE comments DROP CONSTRAINT fk_comments_posts;')
+    ])
+    const rubyVerdict = classifyMigrationFiles([
+      added('db/migrate/20260106000000_drop_constraint.rb', migration('remove_foreign_key :comments, :posts'))
+    ])
+    expect(sqlVerdict.verdict).toBe('safe')
+    expect(rubyVerdict).toEqual(sqlVerdict)
+  })
+})
+
+// Guard clauses around a call are common in migrations that must tolerate a
+// partially-applied schema. This is EXISTING behaviour — pinned so the
+// tokenizer changes cannot move it.
+describe('classifyRubyMigration — table_exists? guards', () => {
+  it('a trailing `if table_exists?` guard classifies the guarded call', () => {
+    expect(rb('add_column :users, :x, :string if table_exists?(:users)').phase).toBe('expand')
+  })
+
+  it('a `return unless table_exists?` guard contributes nothing', () => {
+    const results = classifyRubyMigration(migration([
+      'return unless table_exists?(:users)',
+      'add_column :users, :x, :string'
+    ].join('\n')))
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+  })
+
+  it('a bare `if table_exists?` block opener is contract (unrecognized call)', () => {
+    const results = classifyRubyMigration(migration([
+      'if table_exists?(:users)',
+      '  add_column :users, :x, :string',
+      'end'
+    ].join('\n')))
+    expect(results.map((r) => r.phase)).toEqual(['contract', 'expand'])
+    expect(results[0].reason).toContain('`table_exists?`')
   })
 })
 
@@ -464,7 +848,7 @@ describe('classifyRubyMigration — execute() raw SQL', () => {
   it('a single-quoted literal is classified with the SQL rules (unsafe)', () => {
     const r = rb('execute \'DROP TABLE users\'')
     expect(r.phase).toBe('contract')
-    expect(r.reason).toBe('`execute` raw SQL — drops a table the previous image still depends on')
+    expect(r.reason).toBe('`execute` raw SQL — drops a table; a rollback would not restore it')
   })
 
   it('parenthesised form is classified', () => {
@@ -602,7 +986,7 @@ describe('classifyMigrationFiles — Rails .rb migrations', () => {
     const path = 'db/migrate/20260102000000_drop_legacy.rb'
     const { verdict, reasons } = classifyMigrationFiles([added(path, migration('drop_table :legacy'))])
     expect(verdict).toBe('unsafe')
-    expect(reasons).toEqual([`${path}: \`drop_table\` drops a table the previous image still depends on`])
+    expect(reasons).toEqual([`${path}: \`drop_table\` drops a table; a rollback would not restore it`])
   })
 
   it.each(['modified', 'removed', 'renamed'])('%s .rb → unsafe (history modified)', (status) => {
