@@ -19341,38 +19341,38 @@ function splitStatements(sql) {
   return sql.split(/-->\s*statement-breakpoint/i).flatMap((chunk) => stripComments(chunk).split(";")).map(normalizeWhitespace).filter((s) => s.length > 0);
 }
 var RULES = [
-  // Renames of ANY object are destructive — the previous image still refers to
-  // the object by its old name. Checked first so it wins over other ALTER rules.
-  rule(/^ALTER\b[\s\S]*\bRENAME\b/i, CONTRACT, "renames an object the previous image still references by its old name"),
+  // Renames of ANY object are destructive — the old name is gone and a rollback
+  // does not bring it back. Checked first so it wins over other ALTER rules.
+  rule(/^ALTER\b[\s\S]*\bRENAME\b/i, CONTRACT, "renames an object; a rollback would not restore the old name"),
   // ALTER TABLE ... ADD COLUMN — additive UNLESS it is NOT NULL without a
-  // DEFAULT, which the previous image's INSERTs cannot satisfy.
+  // DEFAULT, which makes the column required from here on.
   addColumn,
   // ALTER TABLE ... destructive / tightening column & constraint changes.
-  rule(/^ALTER\s+TABLE\b[\s\S]*\bDROP\s+COLUMN\b/i, CONTRACT, "drops a column the previous image still selects"),
-  rule(/^ALTER\s+TABLE\b[\s\S]*\bADD\s+CONSTRAINT\b/i, CONTRACT, "adds a constraint that can reject the previous image's writes"),
+  rule(/^ALTER\s+TABLE\b[\s\S]*\bDROP\s+COLUMN\b/i, CONTRACT, "drops a column; a rollback would not restore it"),
+  rule(/^ALTER\s+TABLE\b[\s\S]*\bADD\s+CONSTRAINT\b/i, CONTRACT, "adds a constraint; a rollback would still enforce it"),
   // Column-level ALTERs: NOT NULL (tighten) and DEFAULT (loosen) are checked
   // before the TYPE rule so a column literally named "type" can't be misread.
-  rule(/^ALTER\s+TABLE\b[\s\S]*\bALTER\s+COLUMN\b[\s\S]*\bSET\s+NOT\s+NULL\b/i, CONTRACT, "tightens a column to NOT NULL; the previous image may still write nulls"),
-  rule(/^ALTER\s+TABLE\b[\s\S]*\bALTER\s+COLUMN\b[\s\S]*\b(SET|DROP)\s+DEFAULT\b/i, EXPAND, "changes a column default (the previous image is unaffected)"),
-  rule(/^ALTER\s+TABLE\b[\s\S]*\bALTER\s+COLUMN\b[\s\S]*\b(SET\s+DATA\s+TYPE|TYPE)\b/i, CONTRACT, "changes a column type; the previous image reads/writes it with the old type"),
-  // ALTER TABLE ... DROP CONSTRAINT is a loosening — old writes still pass.
-  rule(/^ALTER\s+TABLE\b[\s\S]*\bDROP\s+CONSTRAINT\b/i, EXPAND, "drops a constraint (loosening; the previous image's writes still pass)"),
+  rule(/^ALTER\s+TABLE\b[\s\S]*\bALTER\s+COLUMN\b[\s\S]*\bSET\s+NOT\s+NULL\b/i, CONTRACT, "tightens a column to NOT NULL; a rollback would still enforce it"),
+  rule(/^ALTER\s+TABLE\b[\s\S]*\bALTER\s+COLUMN\b[\s\S]*\b(SET|DROP)\s+DEFAULT\b/i, EXPAND, "changes a column default (the column's shape is unchanged)"),
+  rule(/^ALTER\s+TABLE\b[\s\S]*\bALTER\s+COLUMN\b[\s\S]*\b(SET\s+DATA\s+TYPE|TYPE)\b/i, CONTRACT, "changes a column type; a rollback would not restore the old type"),
+  // ALTER TABLE ... DROP CONSTRAINT is a loosening — nothing new is rejected.
+  rule(/^ALTER\s+TABLE\b[\s\S]*\bDROP\s+CONSTRAINT\b/i, EXPAND, "drops a constraint (loosening; nothing new is rejected)"),
   // ALTER TYPE ... ADD VALUE grows an enum — additive (rename handled above).
   rule(/^ALTER\s+TYPE\b[\s\S]*\bADD\s+VALUE\b/i, EXPAND, "adds a new enum value (additive)"),
   // CREATE of any supported object is additive.
   rule(/^CREATE\s+(OR\s+REPLACE\s+)?(UNIQUE\s+)?(MATERIALIZED\s+)?(TABLE|TYPE|INDEX|EXTENSION|SEQUENCE|VIEW|FUNCTION|TRIGGER|POLICY|SCHEMA)\b/i, EXPAND, "creates a new database object (additive)"),
-  // DROP INDEX is safe (the previous image does not require the index to exist);
-  // dropping any OTHER object the previous image depends on is destructive.
-  rule(/^DROP\s+INDEX\b/i, EXPAND, "drops an index (the previous image does not require it)"),
+  // DROP INDEX is safe (an index is a performance structure, not a correctness
+  // one); dropping any OTHER object is destructive.
+  rule(/^DROP\s+INDEX\b/i, EXPAND, "drops an index (correctness does not depend on one)"),
   dropObject,
   // Metadata / privilege / additive-data statements are safe.
   rule(/^COMMENT\s+ON\b/i, EXPAND, "sets a comment (metadata only)"),
   rule(/^(GRANT|REVOKE)\b/i, EXPAND, "grant/revoke (privileges only; no schema shape change)"),
   rule(/^INSERT\s+INTO\b/i, EXPAND, "inserts data (additive)"),
   // Data migrations & bulk deletes are conservatively unsafe.
-  rule(/^TRUNCATE\b/i, CONTRACT, "truncates a table the previous image expects to be populated"),
+  rule(/^TRUNCATE\b/i, CONTRACT, "truncates a table; a rollback would not restore the rows"),
   rule(/^UPDATE\b/i, CONTRACT, "runs a data migration (UPDATE) that cannot be assumed backward-compatible"),
-  rule(/^DELETE\b/i, CONTRACT, "runs a data migration (DELETE) that removes rows the previous image may read")
+  rule(/^DELETE\b/i, CONTRACT, "runs a data migration (DELETE); a rollback would not restore the rows")
 ];
 function rule(regex, phase, reason) {
   return (s) => regex.test(s) ? { phase, reason } : null;
@@ -19380,7 +19380,7 @@ function rule(regex, phase, reason) {
 function addColumn(s) {
   if (!/^ALTER\s+TABLE\b[\s\S]*\bADD\s+COLUMN\b/i.test(s)) return null;
   if (/\bNOT\s+NULL\b/i.test(s) && !/\bDEFAULT\b/i.test(s)) {
-    return { phase: CONTRACT, reason: "previous image INSERTs omit the new required column" };
+    return { phase: CONTRACT, reason: "adds a required column; a rollback would still enforce it" };
   }
   return { phase: EXPAND, reason: "adds a column (additive; nullable or defaulted)" };
 }
@@ -19388,7 +19388,7 @@ function dropObject(s) {
   const m = /^DROP\s+(MATERIALIZED\s+VIEW|TABLE|TYPE|VIEW|FUNCTION|SEQUENCE|SCHEMA|POLICY|TRIGGER)\b/i.exec(s);
   if (!m) return null;
   const obj = m[1].toLowerCase();
-  return { phase: CONTRACT, reason: `drops a ${obj} the previous image still depends on` };
+  return { phase: CONTRACT, reason: `drops a ${obj}; a rollback would not restore it` };
 }
 function classifyStatement(statement) {
   for (const test of RULES) {
@@ -19409,33 +19409,84 @@ var RUBY_EXPAND = {
   add_belongs_to: "adds a reference column (additive; nullable or defaulted)",
   add_timestamps: "adds timestamp columns (additive; nullable or defaulted)",
   enable_extension: "enables an extension (additive)",
-  // Removing an index takes nothing away that the previous image's correctness
-  // depends on: its queries still return the same rows, only slower. Mirrors the
-  // SQL table's `DROP INDEX` → EXPAND.
-  remove_index: "removes an index (the previous image does not require it)"
+  // Removing an index takes nothing away that correctness depends on: the same
+  // queries still return the same rows, only slower. Mirrors the SQL table's
+  // `DROP INDEX` → EXPAND.
+  remove_index: "removes an index (correctness does not depend on one)",
+  // Dropping a constraint only widens what the database accepts. These two are
+  // the Rails spelling of the SQL table's `ALTER TABLE ... DROP CONSTRAINT`,
+  // which is already EXPAND.
+  remove_foreign_key: "removes a foreign key (loosening; nothing new is rejected)",
+  remove_check_constraint: "removes a check constraint (loosening; nothing new is rejected)"
 };
+var WRITES_ROWS = "writes rows in a data migration; a rollback would not restore them";
+var ADDS_ROWS = "adds rows in a data migration; a rollback would leave them in place";
+var DELETES_ROWS = "deletes rows in a data migration; a rollback would not restore them";
 var RUBY_CONTRACT = {
-  remove_column: "drops a column the previous image still selects",
-  remove_columns: "drops columns the previous image still selects",
-  remove_reference: "drops a reference column the previous image still selects",
-  remove_belongs_to: "drops a reference column the previous image still selects",
-  drop_table: "drops a table the previous image still depends on",
-  drop_join_table: "drops a join table the previous image still depends on",
-  rename_column: "renames a column the previous image still references by its old name",
-  rename_table: "renames a table the previous image still references by its old name",
-  change_column: "changes a column type; the previous image reads/writes it with the old type",
-  // Always unsafe, in both directions: tightening rejects the previous image's
-  // null writes, and the SQL table already treats a loosening `DROP NOT NULL` as
+  remove_column: "drops a column; a rollback would not restore it",
+  remove_columns: "drops columns; a rollback would not restore them",
+  remove_reference: "drops a reference column; a rollback would not restore it",
+  remove_belongs_to: "drops a reference column; a rollback would not restore it",
+  drop_table: "drops a table; a rollback would not restore it",
+  drop_join_table: "drops a join table; a rollback would not restore it",
+  rename_column: "renames a column; a rollback would not restore the old name",
+  rename_table: "renames a table; a rollback would not restore the old name",
+  change_column: "changes a column type; a rollback would not restore the old type",
+  // Always unsafe, in both directions: the new nullability outlives the
+  // rollback, and the SQL table already treats a loosening `DROP NOT NULL` as
   // unsafe (it falls through to the conservative default). Same answer here.
-  change_column_null: "changes a column NOT NULL constraint; tightening it rejects the previous image's writes",
-  // Leaning unsafe: the previous image's INSERTs omit the column and silently
-  // take whatever default the new schema now supplies.
-  change_column_default: "changes a column default the previous image may still rely on",
-  add_check_constraint: "adds a constraint that can reject the previous image's writes",
-  add_foreign_key: "adds a constraint that can reject the previous image's writes",
+  change_column_null: "changes a column NOT NULL constraint; a rollback would still enforce it",
+  // Leaning unsafe: the new default is what the database supplies from here on,
+  // rollback or not.
+  change_column_default: "changes a column default; a rollback would still apply the new default",
+  add_check_constraint: "adds a constraint; a rollback would still enforce it",
+  add_foreign_key: "adds a constraint; a rollback would still enforce it",
   // A `reversible do |dir|` block hides which half runs on the way up; the
   // contents cannot be attributed to a direction by line scanning.
-  reversible: "wraps changes in a direction-aware block whose contents cannot be classified"
+  reversible: "wraps changes in a direction-aware block whose contents cannot be classified",
+  // Data migrations through a model. The rows are the change, and a rollback
+  // reverts code, not rows — so these are unsafe wherever they appear, most of
+  // all inside a loop, where the receiver is a block variable (see
+  // classifyRubyStatement). The SQL table treats ANY `UPDATE` / `DELETE` /
+  // `TRUNCATE` as CONTRACT, so the singular mutators have to be here next to
+  // the collection-level ones: `destroy_all` unsafe and `destroy` safe would
+  // be the same two-halves disagreement the constraint rows above fix, in the
+  // spelling — iterate, then mutate one record — that is by far the commonest.
+  save: WRITES_ROWS,
+  "save!": WRITES_ROWS,
+  update: WRITES_ROWS,
+  "update!": WRITES_ROWS,
+  update_all: WRITES_ROWS,
+  update_column: WRITES_ROWS,
+  update_columns: WRITES_ROWS,
+  update_counters: WRITES_ROWS,
+  update_attribute: WRITES_ROWS,
+  // Long gone from Rails, but still live in apps old enough to predate its
+  // removal, and free to catch.
+  update_attributes: WRITES_ROWS,
+  touch: WRITES_ROWS,
+  // Only the bang forms: `increment` / `decrement` change the in-memory
+  // attribute and never reach the database, so they are not writes.
+  "increment!": WRITES_ROWS,
+  "decrement!": WRITES_ROWS,
+  "toggle!": WRITES_ROWS,
+  // An upsert can overwrite values that were already there, and a rollback
+  // does not bring those back — so it keeps the removal wording that a plain
+  // insert does not deserve.
+  upsert: WRITES_ROWS,
+  upsert_all: WRITES_ROWS,
+  // An insert only adds. Still CONTRACT — the new rows outlive the image swap
+  // and the old code has to cope with them — but a rollback has nothing to
+  // restore, so the removal wording would simply be false.
+  insert: ADDS_ROWS,
+  "insert!": ADDS_ROWS,
+  insert_all: ADDS_ROWS,
+  "insert_all!": ADDS_ROWS,
+  delete: DELETES_ROWS,
+  delete_all: DELETES_ROWS,
+  destroy: DELETES_ROWS,
+  "destroy!": DELETES_ROWS,
+  destroy_all: DELETES_ROWS
 };
 var RUBY_NULL_CAVEAT = /* @__PURE__ */ new Set(["add_column", "add_reference", "add_belongs_to"]);
 var RUBY_IGNORED = /* @__PURE__ */ new Set([
@@ -19496,6 +19547,19 @@ var RUBY_TRANSPARENT = /* @__PURE__ */ new Set([
   "nil",
   "self"
 ]);
+var RUBY_ITERATION = /* @__PURE__ */ new Set([
+  "each",
+  "each_with_index",
+  "each_with_object",
+  "each_pair",
+  "each_key",
+  "each_value",
+  "reverse_each",
+  "map",
+  "flat_map",
+  "times"
+]);
+var RUBY_ASSIGN = /^\s*(?:\*\*|\|\||&&|<<|>>|[+\-*/%|&^])?=(?![=~>])/;
 var RUBY_LEADING_CALL = /^([A-Za-z_][A-Za-z0-9_:]*[!?]?(?:\.[A-Za-z_][A-Za-z0-9_]*[!?]?)*)/;
 var RUBY_HEREDOC = /<<[-~]?(['"]?)([A-Z_]+)\1/g;
 var RUBY_CONTINUES = /(,|\\|\(|\[|\+|=|&&|\|\||\.|::)$/;
@@ -19616,17 +19680,27 @@ function scanRubyCall(statement) {
   for (let guard = 0; guard < 64; guard++) {
     rest = rest.replace(/^[\s{}();,]+/, "");
     rest = rest.replace(/^\|[^|]*\|\s*/, "");
+    rest = rest.replace(/^&\s*:?/, "");
     if (rest === "") return null;
     const m = RUBY_LEADING_CALL.exec(rest);
     if (!m) return null;
     const chain = m[1];
     const after = rest.slice(chain.length);
-    if (/^:(?!:)/.test(after)) return null;
+    if (/^:(?!:)/.test(after) || /[^:]:$/.test(chain)) return null;
     const parts = chain.split(".");
     const method = parts[parts.length - 1];
     const receiver = parts.slice(0, -1).join(".");
+    const assign = receiver === "" ? RUBY_ASSIGN.exec(after) : null;
+    if (assign) {
+      rest = after.slice(assign[0].length);
+      continue;
+    }
     if (RUBY_IGNORED.has(method)) return null;
     if (receiver === "" && RUBY_TRANSPARENT.has(method)) {
+      rest = after;
+      continue;
+    }
+    if (RUBY_ITERATION.has(method) && !RUBY_EXPAND[method] && !RUBY_CONTRACT[method]) {
       rest = after;
       continue;
     }
@@ -19659,16 +19733,19 @@ function classifyRubyStatement(statement) {
     return call === null ? { phase: CONTRACT, reason: "heredoc content that cannot be classified" } : { phase: CONTRACT, reason: `\`${call.method}\` uses heredoc SQL that cannot be classified` };
   }
   if (call === null) return null;
-  if (call.method === "execute") return classifyRubyExecute(call.after);
-  if (isBlockReceiver(call.receiver)) return null;
   const method = call.method;
+  if (method === "execute") return classifyRubyExecute(call.after);
+  if (isBlockReceiver(call.receiver)) {
+    if (RUBY_CONTRACT[method]) return { phase: CONTRACT, reason: `\`${method}\` ${RUBY_CONTRACT[method]}` };
+    return null;
+  }
   if (method === "add_timestamps") {
     if (!hasDefaultOption(statement.text) && !/\bnull:\s*true\b|:null\s*=>\s*true\b/.test(statement.text)) {
-      return { phase: CONTRACT, reason: "`add_timestamps` adds required timestamp columns the previous image's INSERTs omit" };
+      return { phase: CONTRACT, reason: "`add_timestamps` adds required timestamp columns; a rollback would still enforce them" };
     }
   }
   if (RUBY_NULL_CAVEAT.has(method) && isNotNullWithoutDefault(statement.text)) {
-    return { phase: CONTRACT, reason: `\`${method}\` \u2014 previous image INSERTs omit the new required column` };
+    return { phase: CONTRACT, reason: `\`${method}\` adds a required column; a rollback would still enforce it` };
   }
   if (RUBY_EXPAND[method]) return { phase: EXPAND, reason: `\`${method}\` ${RUBY_EXPAND[method]}` };
   if (RUBY_CONTRACT[method]) return { phase: CONTRACT, reason: `\`${method}\` ${RUBY_CONTRACT[method]}` };
