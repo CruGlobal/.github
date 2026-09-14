@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.2](https://github.com/CruGlobal/.github/compare/v2.5.1...v2.5.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **v2:** withdraw a stored rollback verdict when the classifier returns unclassified ([#495](https://github.com/CruGlobal/.github/issues/495)) ([8479b88](https://github.com/CruGlobal/.github/commit/8479b88ec34a1a6b4906076c796081f20bbc0b3f))
+
 ## [2.5.1](https://github.com/CruGlobal/.github/compare/v2.5.0...v2.5.1) (2026-09-14)
 
 
