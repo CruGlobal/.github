@@ -554,9 +554,18 @@ describe('classifyRubyMigration — data mutation on a block variable', () => {
     ['update!', 'm.update!(active: true)', /writes rows/],
     ['update_all', 'm.update_all(active: true)', /writes rows/],
     ['update_column', 'm.update_column(:active, true)', /writes rows/],
+    ['update_columns', 'm.update_columns(active: true)', /writes rows/],
+    ['update_counters', 'm.update_counters(:id, hits: 1)', /writes rows/],
+    ['touch', 'm.touch', /writes rows/],
+    ['increment!', 'm.increment!(:hits)', /writes rows/],
+    ['decrement!', 'm.decrement!(:hits)', /writes rows/],
+    ['insert', 'm.insert({ name: "x" })', /writes rows/],
     ['insert_all', 'm.insert_all([{ name: "x" }])', /writes rows/],
+    ['upsert', 'm.upsert({ name: "x" })', /writes rows/],
     ['upsert_all', 'm.upsert_all([{ name: "x" }])', /writes rows/],
+    ['delete', 'm.delete', /deletes rows/],
     ['delete_all', 'm.delete_all', /deletes rows/],
+    ['destroy', 'm.destroy', /deletes rows/],
     ['destroy_all', 'm.destroy_all', /deletes rows/]
   ])('%s on a block variable is contract', (call, body, reason) => {
     const r = rb(body)
@@ -598,6 +607,27 @@ describe('classifyRubyMigration — data mutation on a block variable', () => {
     expect(results[0].phase).toBe('contract')
     expect(results[0].reason).toContain('`save`')
   })
+
+  // Iterate, then mutate one record: the commonest spelling of a data
+  // migration, and the one the collection-level rows alone would miss.
+  it('a loop that destroys records is unsafe', () => {
+    const source = migration('models.each { |m| m.destroy }')
+    const results = classifyRubyMigration(source)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason)
+      .toBe('`destroy` deletes rows in a data migration; a rollback would not restore them')
+
+    const path = 'db/migrate/20260109000000_purge.rb'
+    expect(classifyMigrationFiles([added(path, source)]).verdict).toBe('unsafe')
+  })
+
+  // `increment` / `decrement` without the bang change the in-memory attribute
+  // and never reach the database, so they are deliberately NOT writes.
+  it.each(['m.increment(:hits)', 'm.decrement(:hits)'])(
+    'a non-persisting %s contributes nothing', (body) => {
+      expect(classifyRubyMigration(migration(body))).toEqual([])
+    })
 
   it('a relation loop that writes rows is unsafe', () => {
     const r = rb('User.all.each { |u| u.save }')

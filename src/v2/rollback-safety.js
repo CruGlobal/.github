@@ -196,16 +196,31 @@ const RUBY_CONTRACT = {
   // Data migrations through a model. The rows are the change, and a rollback
   // reverts code, not rows — so these are unsafe wherever they appear, most of
   // all inside a loop, where the receiver is a block variable (see
-  // classifyRubyStatement).
+  // classifyRubyStatement). The SQL table treats ANY `UPDATE` / `DELETE` /
+  // `TRUNCATE` as CONTRACT, so the singular mutators have to be here next to
+  // the collection-level ones: `destroy_all` unsafe and `destroy` safe would
+  // be the same two-halves disagreement the constraint rows above fix, in the
+  // spelling — iterate, then mutate one record — that is by far the commonest.
   save: 'writes rows in a data migration; a rollback would not restore them',
   'save!': 'writes rows in a data migration; a rollback would not restore them',
   update: 'writes rows in a data migration; a rollback would not restore them',
   'update!': 'writes rows in a data migration; a rollback would not restore them',
   update_all: 'writes rows in a data migration; a rollback would not restore them',
   update_column: 'writes rows in a data migration; a rollback would not restore them',
+  update_columns: 'writes rows in a data migration; a rollback would not restore them',
+  update_counters: 'writes rows in a data migration; a rollback would not restore them',
+  touch: 'writes rows in a data migration; a rollback would not restore them',
+  // Only the bang forms: `increment` / `decrement` change the in-memory
+  // attribute and never reach the database, so they are not writes.
+  'increment!': 'writes rows in a data migration; a rollback would not restore them',
+  'decrement!': 'writes rows in a data migration; a rollback would not restore them',
+  insert: 'writes rows in a data migration; a rollback would not restore them',
   insert_all: 'writes rows in a data migration; a rollback would not restore them',
+  upsert: 'writes rows in a data migration; a rollback would not restore them',
   upsert_all: 'writes rows in a data migration; a rollback would not restore them',
+  delete: 'deletes rows in a data migration; a rollback would not restore them',
   delete_all: 'deletes rows in a data migration; a rollback would not restore them',
+  destroy: 'deletes rows in a data migration; a rollback would not restore them',
   destroy_all: 'deletes rows in a data migration; a rollback would not restore them'
 }
 
