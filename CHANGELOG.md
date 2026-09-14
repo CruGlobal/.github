@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1](https://github.com/CruGlobal/.github/compare/v2.5.0...v2.5.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **v2:** stop mis-reading assignments as calls in migration classification ([#494](https://github.com/CruGlobal/.github/issues/494)) ([af826ac](https://github.com/CruGlobal/.github/commit/af826aced2010bfa66d2b503cc9259a24d5517ab))
+
 ## [2.5.0](https://github.com/CruGlobal/.github/compare/v2.4.0...v2.5.0) (2026-09-11)
 
 
