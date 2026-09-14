@@ -19398,6 +19398,9 @@ function buildEvent({ environment, kind, releaseTag, buildNumber, sha, imageTags
   if (safety === "safe" || safety === "unsafe") {
     event.rollback_safe = safety === "safe";
     event.rollback_safe_reasons = parseReasons(rollbackSafetyReasons);
+  } else if (safety === "unclassified") {
+    event.rollback_safe = null;
+    event.rollback_safe_reasons = [];
   }
   deployedAt = (deployedAt || "").trim();
   if (deployedAt) event.deployed_at = deployedAt;
