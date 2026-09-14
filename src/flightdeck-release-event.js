@@ -82,10 +82,22 @@ export function buildEvent ({ environment, kind, releaseTag, buildNumber, sha, i
   const gitSha = (sha || '').trim() || shaFromTags(imageTags)
   if (gitSha) event.sha = gitSha
 
+  // Three cases, and the third is the subtle one. A verdict is applied as sent.
+  // `unclassified` means the classifier RAN and produced nothing, which is a real
+  // statement about this release — so it withdraws any verdict already stored,
+  // rather than staying silent and letting a stale one stand. An absent input is
+  // the different case: the caller never classified at all (deploy-candidate does
+  // not), so it says nothing and leaves whatever is there alone.
+  //
+  // Withdrawing sends the reasons too: the pair is only meaningful together, and a
+  // cleared verdict beside the previous run's reasons reads as a contradiction.
   const safety = (rollbackSafety || '').trim()
   if (safety === 'safe' || safety === 'unsafe') {
     event.rollback_safe = safety === 'safe'
     event.rollback_safe_reasons = parseReasons(rollbackSafetyReasons)
+  } else if (safety === 'unclassified') {
+    event.rollback_safe = null
+    event.rollback_safe_reasons = []
   }
   deployedAt = (deployedAt || '').trim()
   if (deployedAt) event.deployed_at = deployedAt
