@@ -22,7 +22,11 @@ const REGION = 'us-east-1'
 // Media types an image manifest can take. Passed to BatchGetImage so the
 // registry returns the manifest verbatim for a re-tag (covers Docker v2 single
 // manifests, manifest lists, and their OCI equivalents / multi-arch images).
-const MANIFEST_MEDIA_TYPES = [
+//
+// Exported because ./oci.js reads manifests out of the same registry and must
+// accept exactly the same set: one list, so a format we can re-tag but not read
+// (or the reverse) cannot drift into existence.
+export const MANIFEST_MEDIA_TYPES = [
   'application/vnd.docker.distribution.manifest.v2+json',
   'application/vnd.docker.distribution.manifest.list.v2+json',
   'application/vnd.oci.image.manifest.v1+json',

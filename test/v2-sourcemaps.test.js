@@ -30,6 +30,7 @@ import {
   minifiedUrl,
   publishSourceMaps,
   sourceMapsEndpoint,
+  sourceMapsEndpointFor,
   sourceMapsVersion
 } from '../src/v2/sourcemaps.js'
 
@@ -268,6 +269,25 @@ describe('sourceMapsEndpoint', () => {
   it('falls back to the default when the value is not a URL', () => {
     const services = [service([{ name: 'ROLLBAR_ENDPOINT', value: 'not a url' }])]
     expect(sourceMapsEndpoint(services, REPO)).toBe(ENDPOINT)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('not a URL'))
+  })
+})
+
+// The runtime-agnostic core both deploys share: Cloud Run digs the values out
+// of a service, ECS out of a task definition, and this decides what they mean.
+describe('sourceMapsEndpointFor', () => {
+  it('defaults when nothing names an endpoint', () => {
+    expect(sourceMapsEndpointFor([])).toBe(ENDPOINT)
+    expect(sourceMapsEndpointFor([undefined, ''])).toBe(ENDPOINT)
+  })
+
+  it('takes the origin of the first value present', () => {
+    expect(sourceMapsEndpointFor([undefined, 'https://errors.example.org/api/1/item', 'https://other.example.org']))
+      .toBe(`https://errors.example.org${UPLOAD_PATH}`)
+  })
+
+  it('falls back to the default when the value is not a URL', () => {
+    expect(sourceMapsEndpointFor(['not a url'])).toBe(ENDPOINT)
     expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('not a URL'))
   })
 })

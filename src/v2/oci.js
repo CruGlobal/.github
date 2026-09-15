@@ -8,29 +8,51 @@
 // them, that the app's Dockerfile COPYs in a late, tiny layer, so scanning
 // layers newest-first normally reads exactly one small blob.
 //
-// Artifact Registry serves the Docker v2 API at
-// https://<location>-docker.pkg.dev/v2/<project>/<repo>/<image>/... and accepts
-// a plain OAuth bearer token, so the same ADC credentials the rest of the deploy
-// uses work here. Requires roles/artifactregistry.reader, which every env's
-// cru-deploy SA already holds for resolve-image.
+// TWO REGISTRIES, one reader. Everything above the transport — index/platform
+// resolution, layer ordering, decompression, the tar readers, the layer cache —
+// is registry-agnostic; only how a manifest and a blob arrive differs, so the
+// host picks a transport and nothing else changes:
+//
+//   Artifact Registry (GCP) serves the Docker v2 API at
+//   https://<location>-docker.pkg.dev/v2/<project>/<repo>/<image>/... and
+//   accepts a plain OAuth bearer token, so the same ADC credentials the rest of
+//   the deploy uses work here. Requires roles/artifactregistry.reader, which
+//   every env's cru-deploy SA already holds for resolve-image.
+//
+//   ECR (AWS) does NOT serve a usable v2 API to an IAM caller: reaching it means
+//   trading credentials for a registry token first. The SDK exposes the same two
+//   reads directly instead — BatchGetImage returns a manifest verbatim, and
+//   GetDownloadUrlForLayer hands back a presigned S3 link to a blob — so that is
+//   what this uses. Requires ecr:BatchGetImage + ecr:GetDownloadUrlForLayer —
+//   the same pair a `docker pull` needs, which the ECS deploy role already
+//   holds, so reading an image costs no new permission.
 import * as core from '@actions/core'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
+import { ECRClient, BatchGetImageCommand, GetDownloadUrlForLayerCommand } from '@aws-sdk/client-ecr'
 import { authClient, parseImageRef } from './gcp'
+import { MANIFEST_MEDIA_TYPES, RETRY_CONFIG } from './aws'
 import { findInTar, listInTar } from './tar'
 
-// Manifest media types we can read. Both spellings of both formats, plus the
+// Manifest media types we can read: both spellings of both formats, plus the
 // multi-platform index/list wrappers buildx emits even for a single platform.
-const MANIFEST_ACCEPT = [
-  'application/vnd.oci.image.manifest.v1+json',
-  'application/vnd.docker.distribution.manifest.v2+json',
-  'application/vnd.oci.image.index.v1+json',
-  'application/vnd.docker.distribution.manifest.list.v2+json'
-].join(', ')
+// Shared with the re-tag path (./aws.js) so the two cannot drift.
+const MANIFEST_ACCEPT = MANIFEST_MEDIA_TYPES.join(', ')
 
-// Platform we deploy. Cloud Run runs linux/amd64; an index's other entries
-// (notably buildx attestation manifests, which carry `unknown/unknown`) are
-// skipped.
+// Platform we deploy. Cloud Run and ECS both run linux/amd64; an index's other
+// entries (notably buildx attestation manifests, which carry `unknown/unknown`)
+// are skipped.
 const PLATFORM = { os: 'linux', architecture: 'amd64' }
+
+// <account>.dkr.ecr.<region>.amazonaws.com — the host tells us which transport
+// to use, and carries the registry account and region the SDK call needs.
+const ECR_HOST = /^(\d{12})\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$/
+
+// A blob download from ECR is a plain HTTPS GET against S3, outside any SDK
+// client, so it gets its own bounds. Registry reads are pure GETs (see
+// GAXIOS_RETRY below), so replaying one is unconditionally safe.
+const ECR_BLOB_TIMEOUT_MS = 60 * 1000
+const ECR_BLOB_ATTEMPTS = 3
+const ECR_BLOB_RETRY_DELAY_MS = 500
 
 // Byte caps on what one readFile() will pull into memory. Both blob and
 // decompressed layer are held whole (the tar reader wants random access), so
@@ -73,30 +95,130 @@ export function parseRegistryRef (ref) {
   return { host: name.slice(0, slash), repository: name.slice(slash + 1), reference }
 }
 
-// GET a registry URL. `responseType` is 'text' for JSON documents (the registry
-// labels them application/vnd.*+json, which gaxios will not auto-parse) and
-// 'arraybuffer' for blobs.
-async function registryGet ({ host, repository, kind, reference, accept, responseType }) {
-  const client = await authClient()
-  const res = await client.request({
-    url: `https://${host}/v2/${repository}/${kind}/${reference}`,
-    method: 'GET',
-    headers: accept ? { Accept: accept } : {},
-    responseType,
-    ...GAXIOS_RETRY
-  })
-  return res.data
+// A JSON document the registry handed us as bytes. gaxios will not auto-parse
+// the application/vnd.*+json types a registry labels manifests and configs
+// with, but it sometimes does; accept either.
+function asDocument (body) {
+  return typeof body === 'string' ? JSON.parse(body) : body
 }
 
-async function manifestDocument (target, reference) {
-  const body = await registryGet({
-    ...target,
-    kind: 'manifests',
-    reference,
-    accept: MANIFEST_ACCEPT,
-    responseType: 'text'
-  })
-  return typeof body === 'string' ? JSON.parse(body) : body
+/**
+ * How manifests and blobs arrive for one image. Two implementations, one shape:
+ *
+ *   manifest(reference) -> the parsed manifest/index document
+ *   blobText(digest)    -> the blob as text (the config document)
+ *   blobBytes(digest)   -> the blob as a Buffer (a layer)
+ */
+function transportFor (target) {
+  const ecr = ECR_HOST.exec(target.host)
+  return ecr ? ecrTransport(target, ecr[1], ecr[2]) : artifactRegistryTransport(target)
+}
+
+// --- Artifact Registry: the Docker Registry v2 API over ADC ----------------
+
+function artifactRegistryTransport (target) {
+  // GET a registry URL. `responseType` is 'text' for JSON documents and
+  // 'arraybuffer' for blobs.
+  const registryGet = async ({ kind, reference, accept, responseType }) => {
+    const client = await authClient()
+    const res = await client.request({
+      url: `https://${target.host}/v2/${target.repository}/${kind}/${reference}`,
+      method: 'GET',
+      headers: accept ? { Accept: accept } : {},
+      responseType,
+      ...GAXIOS_RETRY
+    })
+    return res.data
+  }
+
+  return {
+    manifest: reference =>
+      registryGet({ kind: 'manifests', reference, accept: MANIFEST_ACCEPT, responseType: 'text' }).then(asDocument),
+    blobText: digest => registryGet({ kind: 'blobs', reference: digest, responseType: 'text' }),
+    blobBytes: digest =>
+      registryGet({ kind: 'blobs', reference: digest, responseType: 'arraybuffer' }).then(blob => Buffer.from(blob))
+  }
+}
+
+// --- ECR: the two SDK reads that stand in for the v2 API --------------------
+
+function ecrTransport (target, registryId, region) {
+  const client = new ECRClient({ region, ...RETRY_CONFIG })
+  const repositoryName = target.repository
+
+  // BatchGetImage takes a digest OR a tag, and returns the manifest as the exact
+  // bytes that were pushed — which is what makes a digest reference verifiable
+  // and an index resolvable. It answers for a CHILD manifest of an index too,
+  // even though nothing tags one.
+  const manifest = async reference => {
+    const imageId = reference.startsWith('sha256:') ? { imageDigest: reference } : { imageTag: reference }
+    const response = await client.send(new BatchGetImageCommand({
+      registryId,
+      repositoryName,
+      imageIds: [imageId],
+      acceptedMediaTypes: MANIFEST_MEDIA_TYPES
+    }))
+    const body = response.images?.[0]?.imageManifest
+    if (!body) {
+      // A miss comes back as a `failures` entry, not an exception. The code says
+      // whether the reference is absent or its media type was refused — worth
+      // repeating, since those are very different problems.
+      const failure = response.failures?.[0]
+      throw new Error(
+        `ECR returned no manifest for ${repositoryName}@${reference}` +
+        `${failure ? `: ${failure.failureCode} ${failure.failureReason ?? ''}`.trimEnd() : ''}`
+      )
+    }
+    return JSON.parse(body)
+  }
+
+  // GetDownloadUrlForLayer serves CONFIG blobs as well as layer blobs, verified
+  // against a real image: ECR stores both as content-addressed blobs of the
+  // repository and the call does not care which kind a digest names. That is
+  // what keeps this transport to two calls and no registry-token exchange.
+  const blob = async digest => {
+    const { downloadUrl } = await client.send(new GetDownloadUrlForLayerCommand({
+      registryId,
+      repositoryName,
+      layerDigest: digest
+    }))
+    if (!downloadUrl) {
+      throw new Error(`ECR returned no download URL for ${repositoryName}@${digest}`)
+    }
+    return fetchBlob(downloadUrl, `${repositoryName}@${digest}`)
+  }
+
+  return {
+    manifest,
+    blobText: digest => blob(digest).then(bytes => bytes.toString('utf8')),
+    blobBytes: blob
+  }
+}
+
+// Fetch a presigned blob URL.
+//
+// The URL carries its own credentials in the query string, so it is fetched with
+// NO Authorization header — adding one makes S3 reject the signature. Bounded
+// and retried here rather than by a client: this hop is outside the SDK, and an
+// S3 hiccup must not be what costs an app its source maps.
+async function fetchBlob (url, label) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(ECR_BLOB_TIMEOUT_MS) })
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} downloading ${label}`)
+        error.status = response.status
+        throw error
+      }
+      return Buffer.from(await response.arrayBuffer())
+    } catch (error) {
+      // A 4xx is the server's considered answer about this request — an expired
+      // or malformed signature — and asking again produces it more slowly.
+      const permanent = error.status !== undefined && error.status < 500 && error.status !== 429
+      if (attempt >= ECR_BLOB_ATTEMPTS || permanent) throw error
+      await new Promise(resolve => setTimeout(resolve, ECR_BLOB_RETRY_DELAY_MS * 2 ** (attempt - 1)))
+    }
+  }
 }
 
 // Pick this platform's manifest out of an index/list.
@@ -142,29 +264,27 @@ export const MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024
  * Open a digest-pinned image for reading: resolves the platform manifest and
  * fetches the (small) config blob so labels are available synchronously.
  *
+ * Works against Artifact Registry and ECR alike — the reference's host picks the
+ * transport, and callers never say which.
+ *
  * Returns { labels, readFile(path), readDir(prefix) }. Both readers scan layers
  * newest-first, and layers they inflate are cached on the handle — so pass ONE
  * handle to everything that reads the same image rather than opening it twice.
  */
 export async function openImage (imageRef) {
   const target = parseRegistryRef(imageRef)
+  const transport = transportFor(target)
 
-  let manifest = await manifestDocument(target, target.reference)
+  let manifest = await transport.manifest(target.reference)
   // An index/list wraps per-platform manifests; resolve one more hop.
   if (manifest.manifests) {
-    manifest = await manifestDocument(target, selectPlatform(manifest))
+    manifest = await transport.manifest(selectPlatform(manifest))
   }
   if (!manifest.config?.digest) {
     throw new Error(`Image manifest for ${imageRef} has no config descriptor`)
   }
 
-  const configBody = await registryGet({
-    ...target,
-    kind: 'blobs',
-    reference: manifest.config.digest,
-    responseType: 'text'
-  })
-  const config = typeof configBody === 'string' ? JSON.parse(configBody) : configBody
+  const config = asDocument(await transport.blobText(manifest.config.digest))
 
   // Decompressed layers this handle has already read, keyed by digest.
   const cache = new Map()
@@ -174,13 +294,8 @@ export async function openImage (imageRef) {
     const hit = cache.get(layer.digest)
     if (hit) return hit
 
-    const blob = await registryGet({
-      ...target,
-      kind: 'blobs',
-      reference: layer.digest,
-      responseType: 'arraybuffer'
-    })
-    const tar = decompressLayer(layer.mediaType, Buffer.from(blob))
+    const blob = await transport.blobBytes(layer.digest)
+    const tar = decompressLayer(layer.mediaType, blob)
     if (cached + tar.length <= MAX_CACHED_LAYER_BYTES) {
       cache.set(layer.digest, tar)
       cached += tar.length

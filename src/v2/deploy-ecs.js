@@ -12,12 +12,15 @@ import {
   ecsUpdateService,
   eventBridgeListRules,
   eventBridgeListTargets,
-  eventBridgeUpdateTarget
+  eventBridgeUpdateTarget,
+  ssmParameterValue
 } from '../aws'
 import { ecsCluster, runtimeSecrets } from '../ecs-config'
 import { environmentNickname, legacyEnvironment } from './env'
-import { composeTaskDefinition, ecsServiceRegExp } from './aws'
+import { composeTaskDefinition, ecsServiceRegExp, isEcsAppContainer } from './aws'
 import { assertDigestRef } from './image-ref'
+import { openImage } from './oci'
+import { ENDPOINT_ENV, TOKEN_SECRET, publishSourceMaps, sourceMapsEndpointFor } from './sourcemaps'
 
 const DB_MIGRATE_CONTAINER = 'db-migrate'
 
@@ -35,8 +38,9 @@ const DB_MIGRATE_CONTAINER = 'db-migrate'
 // ECS derives everything from the env nickname + naming conventions, so
 // runtime-project (a GCP-only input) is ignored here.
 //
-// Returns { deployedImage, services } (services = short names updated).
-export async function deployEcs ({ projectName, environment, image }) {
+// Returns { deployedImage, services, sourcemaps } (services = short names
+// updated).
+export async function deployEcs ({ projectName, environment, image, appUrl }) {
   assertDigestRef(image) // defensive; the router validates too
 
   const nickname = environmentNickname(environment)
@@ -55,14 +59,90 @@ export async function deployEcs ({ projectName, environment, image }) {
   const serviceArns = await ecsListServices(regexp, cluster)
   core.info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName))}`)
 
+  // The services' CURRENT (pinned) task definitions. updateServices needs them
+  // for the family name, and the source-map phase reads the app container's
+  // declared ingestion endpoint off them — as they are BEFORE anything is
+  // re-registered. Same reason serviceArns is fetched once above: two consumers,
+  // one read.
+  const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster)
+
   // Pre-deploy migration phase — runs to completion BEFORE any service is
   // updated, so a failure fails the deploy with the running services untouched.
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns })
 
-  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns })
+  // Upload the browser source maps this image carries, if any.
+  //
+  // ORDER IS LOAD BEARING: this runs AFTER the migration and BEFORE the first
+  // service update, and it must stay there. Occurrences that arrive before their
+  // maps land are not re-processed, so uploading after the new tasks are serving
+  // would leave the first seconds of a deployment's errors permanently
+  // unresolved — exactly the window a bad deploy produces errors in. Same
+  // placement, and the same reasoning, as the Cloud Run path.
+  const sourcemaps = await uploadSourceMaps({ projectName, image, appUrl, secrets, taskDefinitions })
+
+  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns, taskDefinitions })
   await updateScheduledTasks({ projectName, nickname, image, secrets })
 
-  return { deployedImage: image, services }
+  return { deployedImage: image, services, sourcemaps }
+}
+
+// Upload the image's browser source maps, never failing the deploy.
+//
+// Telemetry policy, identical to the Cloud Run path: everything in here is
+// wrapped, every failure is a warning, and the deploy carries on. A partial
+// upload is strictly better than none — each map resolves its own chunk
+// independently of the others — so there is no all-or-nothing to preserve.
+//
+// The gates run cheapest-first so an app that ships no maps pays nothing:
+//
+//   1. TOKEN. runtimeSecrets already told us the RUNTIME parameter NAMES (it
+//      reads the path undecrypted to build `valueFrom` references), so the "is
+//      this environment wired for error tracking?" question is answered with no
+//      call at all — and crucially no registry read. Its absence is the signal
+//      that it is not, which is the overwhelmingly common case and must stay
+//      silent.
+//   2. LABEL. Only now is the image opened (one small config blob).
+//   3. APP URL. Needed to turn a staged path into the URL a browser reports.
+//   4. FILES. Only now is a layer downloaded.
+//
+// The secret's SSM path is taken from `valueFrom` rather than rebuilt here.
+// /ecs/<project>/<nick>/<KEY> is spelled with the Terraform env nickname, which
+// is neither the v2 environment name nor the legacy one, and runtimeSecrets has
+// already resolved it correctly — so reading it back is one fewer place for the
+// three spellings to be confused.
+async function uploadSourceMaps ({ projectName, image, appUrl, secrets, taskDefinitions }) {
+  const skipped = { status: 'skipped', uploaded: 0, failed: 0 }
+  const parameter = secrets.find(secret => secret.name === TOKEN_SECRET)?.valueFrom
+  if (!parameter) return skipped
+
+  try {
+    const token = await ssmParameterValue(parameter)
+    if (!token) return skipped
+    return await publishSourceMaps({
+      oci: await openImage(image),
+      appUrl,
+      token,
+      endpoint: sourceMapsEndpoint(taskDefinitions, projectName)
+    })
+  } catch (error) {
+    core.warning(`source maps not uploaded (deploy unaffected): ${error.message}`)
+    return { status: 'failed', uploaded: 0, failed: 0 }
+  }
+}
+
+// ROLLBAR_ENDPOINT as the app container declares it in the task definitions the
+// services are running right now. An ECS container definition spells plain env
+// vars `environment: [{ name, value }]` (its `secrets` are SSM references, which
+// hold no value here), so that is what is read; sourcemaps.js decides what the
+// value means.
+function sourceMapsEndpoint (taskDefinitions, projectName) {
+  return sourceMapsEndpointFor(
+    Object.values(taskDefinitions).flatMap(taskDefinition =>
+      (taskDefinition?.containerDefinitions ?? [])
+        .filter(container => isEcsAppContainer(container, projectName))
+        .map(container => container.environment?.find(entry => entry.name === ENDPOINT_ENV)?.value)
+    )
+  )
 }
 
 // Run database migrations to completion as a discrete pre-deploy step, mirroring
@@ -200,14 +280,13 @@ function ecsNetworkConfigFromEventBridge (networkConfiguration) {
   }
 }
 
-async function updateServices ({ projectName, cluster, image, secrets, serviceArns }) {
-  // The service's current task def only tells us which FAMILY to compose from;
-  // we then register from that family's latest revision, not this one.
-  const current = await ecsServiceTaskDefinitions(serviceArns, cluster)
-
+// `taskDefinitions` are the services' CURRENT (pinned) revisions, fetched by the
+// caller. Each one only tells us which FAMILY to compose from; we then register
+// from that family's latest revision, not this one.
+async function updateServices ({ projectName, cluster, image, secrets, serviceArns, taskDefinitions }) {
   const updated = []
   for (const serviceArn of serviceArns) {
-    const family = current[serviceArn]?.family
+    const family = taskDefinitions[serviceArn]?.family
     if (!family) {
       throw new Error(`Could not determine the task-definition family for service ${shortName(serviceArn)}`)
     }

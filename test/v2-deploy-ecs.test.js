@@ -17,7 +17,20 @@ vi.mock('../src/aws.js', () => ({
   ecsUpdateService: vi.fn(),
   eventBridgeListRules: vi.fn(),
   eventBridgeListTargets: vi.fn(),
-  eventBridgeUpdateTarget: vi.fn()
+  eventBridgeUpdateTarget: vi.fn(),
+  ssmParameterValue: vi.fn()
+}))
+
+// No registry reads: openImage is covered by test/v2-oci.test.js (ECR transport
+// included). Mocked here so the gate tests can assert it is NOT called.
+vi.mock('../src/v2/oci.js', () => ({ openImage: vi.fn() }))
+
+// Stub only the publish call; sourceMapsEndpointFor and TOKEN_SECRET stay real
+// so the ROLLBAR_ENDPOINT detection path is exercised here for real. The upload
+// itself is covered in depth by test/v2-sourcemaps.test.js.
+vi.mock('../src/v2/sourcemaps.js', async importOriginal => ({
+  ...(await importOriginal()),
+  publishSourceMaps: vi.fn()
 }))
 
 vi.mock('../src/ecs-config.js', async (importOriginal) => ({
@@ -30,12 +43,45 @@ vi.mock('../src/ecs-config.js', async (importOriginal) => ({
 import { ClientException } from '@aws-sdk/client-ecs'
 import * as aws from '../src/aws.js'
 import { runtimeSecrets } from '../src/ecs-config.js'
+import { openImage } from '../src/v2/oci.js'
+import { publishSourceMaps } from '../src/v2/sourcemaps.js'
 import { deployEcs } from '../src/v2/deploy-ecs.js'
 
 const REGISTRY = '056154071827.dkr.ecr.us-east-1.amazonaws.com'
 const IMAGE = `${REGISTRY}/hoax@sha256:new`
 const SERVICE_ARN = 'arn:aws:ecs:us-east-1:056154071827:service/prod/hoax-production-web'
 const SECRETS = [{ name: 'DATABASE_URL', valueFrom: '/ecs/hoax/prod/DATABASE_URL' }]
+
+// No ROLLBAR_ACCESS_TOKEN in SECRETS, so every test that does not opt in to the
+// source-map suite below reports a skip.
+const SKIPPED = { status: 'skipped', uploaded: 0, failed: 0 }
+
+// The RUNTIME parameter whose presence says this environment is wired for error
+// tracking. runtimeSecrets returns names AND their SSM paths, so the gate costs
+// no extra call and the path never has to be rebuilt here.
+const TOKEN_PARAMETER = '/ecs/hoax/prod/ROLLBAR_ACCESS_TOKEN'
+const SECRETS_WITH_TOKEN = [...SECRETS, { name: 'ROLLBAR_ACCESS_TOKEN', valueFrom: TOKEN_PARAMETER }]
+
+const APP_URL = 'https://hoax.cru.org'
+const TOKEN = 'server-scope-token'
+const IMAGE_HANDLE = { labels: {}, readFile: vi.fn(), readDir: vi.fn() }
+const UPLOADED = { status: 'uploaded', uploaded: 3, failed: 0, skipped: 0, failures: [] }
+
+// A CURRENT task definition whose app container declares an ingestion endpoint.
+// ECS spells plain env vars `environment`, not `env`.
+function currentTaskDefinition (environment) {
+  return {
+    family: 'hoax-prod-web',
+    containerDefinitions: [
+      { name: 'app', image: `${REGISTRY}/hoax@sha256:old`, environment },
+      {
+        name: 'datadog',
+        image: 'public.ecr.aws/datadog/agent:latest',
+        environment: [{ name: 'ROLLBAR_ENDPOINT', value: 'https://wrong.example.org' }]
+      }
+    ]
+  }
+}
 
 // The db-migrate family is absent by default: DescribeTaskDefinition on a missing
 // family throws ClientException, which the migration phase treats as "not opted
@@ -71,6 +117,11 @@ beforeEach(() => {
   for (const fn of Object.values(aws)) fn.mockReset()
   runtimeSecrets.mockReset()
   runtimeSecrets.mockResolvedValue(SECRETS)
+  openImage.mockReset()
+  openImage.mockResolvedValue(IMAGE_HANDLE)
+  publishSourceMaps.mockReset()
+  publishSourceMaps.mockResolvedValue(UPLOADED)
+  IMAGE_HANDLE.readDir.mockReset()
   aws.ecsRegisterTaskDefinition.mockImplementation(td => Promise.resolve(`arn:aws:ecs:us-east-1:1:task-definition/${td.family}:10`))
   aws.ecsUpdateService.mockResolvedValue({})
   aws.eventBridgeUpdateTarget.mockResolvedValue({})
@@ -124,7 +175,7 @@ describe('deployEcs compose-from-family-latest semantics', () => {
 
     // service updated to the newly-registered revision
     expect(aws.ecsUpdateService).toHaveBeenCalledWith(SERVICE_ARN, 'prod', 'arn:aws:ecs:us-east-1:1:task-definition/hoax-prod-web:10')
-    expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-production-web'] })
+    expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-production-web'], sourcemaps: SKIPPED })
   })
 
   it('fails clearly when a service has no resolvable task-definition family', async () => {
@@ -234,7 +285,7 @@ describe('deployEcs pre-deploy database migrations', () => {
 
     expect(aws.ecsRunTask).not.toHaveBeenCalled()
     // the deploy still updates the app's services
-    expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-production-web'] })
+    expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-production-web'], sourcemaps: SKIPPED })
   })
 
   it('composes from family latest, runs one task, waits, and requires exit 0 BEFORE updating services', async () => {
@@ -393,5 +444,166 @@ describe('deployEcs pre-deploy database migrations', () => {
 
     expect(aws.ecsRunTask).not.toHaveBeenCalled()
     expect(aws.ecsUpdateService).not.toHaveBeenCalled()
+  })
+})
+
+describe('deployEcs source maps', () => {
+  beforeEach(() => {
+    aws.ecsListServices.mockResolvedValue([SERVICE_ARN])
+    aws.ecsServiceTaskDefinitions.mockResolvedValue({ [SERVICE_ARN]: { family: 'hoax-prod-web' } })
+    aws.ecsDescribeTaskDefinition.mockImplementation(family =>
+      family.endsWith('-db-migrate')
+        ? Promise.reject(taskDefinitionNotFound())
+        : Promise.resolve(familyLatest(family))
+    )
+    aws.eventBridgeListRules.mockResolvedValue([])
+    aws.eventBridgeListTargets.mockResolvedValue([])
+    runtimeSecrets.mockResolvedValue(SECRETS_WITH_TOKEN)
+    aws.ssmParameterValue.mockResolvedValue(TOKEN)
+  })
+
+  it('does nothing — and reads nothing — when the environment has no token parameter', async () => {
+    // The gate is cheapest-first on purpose: runtimeSecrets already told us the
+    // parameter NAMES, so an app with no error tracking pays no call at all.
+    runtimeSecrets.mockResolvedValue(SECRETS)
+
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(aws.ssmParameterValue).not.toHaveBeenCalled()
+    expect(openImage).not.toHaveBeenCalled()
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+    expect(result.sourcemaps).toEqual(SKIPPED)
+  })
+
+  it('reads the token from the SSM path runtimeSecrets already resolved', async () => {
+    // Not rebuilt here: /ecs/<project>/<nick>/<KEY> uses the Terraform nickname
+    // (prod), which is neither the v2 name (production) nor the legacy one.
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(aws.ssmParameterValue).toHaveBeenCalledWith(TOKEN_PARAMETER)
+    expect(publishSourceMaps).toHaveBeenCalledWith({
+      oci: IMAGE_HANDLE,
+      appUrl: APP_URL,
+      token: TOKEN,
+      endpoint: 'https://flightdeck.cru.org/api/1/sourcemap'
+    })
+    expect(result.sourcemaps).toEqual(UPLOADED)
+  })
+
+  it('spells the release-candidate path with the stage nickname', async () => {
+    runtimeSecrets.mockResolvedValue([{ name: 'ROLLBAR_ACCESS_TOKEN', valueFrom: '/ecs/hoax/stage/ROLLBAR_ACCESS_TOKEN' }])
+
+    await deployEcs({ projectName: 'hoax', environment: 'release-candidate', image: IMAGE, appUrl: APP_URL })
+
+    expect(runtimeSecrets).toHaveBeenCalledWith('hoax', 'stage')
+    expect(aws.ssmParameterValue).toHaveBeenCalledWith('/ecs/hoax/stage/ROLLBAR_ACCESS_TOKEN')
+  })
+
+  it('reads labels but no directory when the image carries no source-map label', async () => {
+    // publishSourceMaps owns the label gate; what matters here is that the
+    // handle is opened (config blob = labels) and nothing pulls a layer.
+    publishSourceMaps.mockResolvedValue({ ...SKIPPED, reason: 'no-label' })
+
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(openImage).toHaveBeenCalledTimes(1)
+    expect(openImage).toHaveBeenCalledWith(IMAGE)
+    expect(IMAGE_HANDLE.readDir).not.toHaveBeenCalled()
+    expect(result.sourcemaps.status).toBe('skipped')
+  })
+
+  it('skips with a reason when the environment has no app URL', async () => {
+    // app-url is fed from the app-info lookup; an app with no AppUrl row cannot
+    // have its staged paths turned into the URLs a browser reports.
+    publishSourceMaps.mockResolvedValue({ ...SKIPPED, reason: 'no-app-url' })
+
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE })
+
+    expect(publishSourceMaps.mock.calls[0][0].appUrl).toBeUndefined()
+    expect(result.sourcemaps.reason).toBe('no-app-url')
+  })
+
+  it('honours the app container ROLLBAR_ENDPOINT origin, ignoring a sidecar that sets the same var', async () => {
+    aws.ecsServiceTaskDefinitions.mockResolvedValue({
+      [SERVICE_ARN]: currentTaskDefinition([{ name: 'ROLLBAR_ENDPOINT', value: 'https://errors.example.org/api/1/item' }])
+    })
+
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(publishSourceMaps.mock.calls[0][0].endpoint).toBe('https://errors.example.org/api/1/sourcemap')
+  })
+
+  it('defaults the endpoint when the app container names none', async () => {
+    aws.ecsServiceTaskDefinitions.mockResolvedValue({ [SERVICE_ARN]: currentTaskDefinition([{ name: 'FOO', value: 'bar' }]) })
+
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(publishSourceMaps.mock.calls[0][0].endpoint).toBe('https://flightdeck.cru.org/api/1/sourcemap')
+  })
+
+  it('uploads AFTER the migration task and BEFORE the first service update', async () => {
+    // Load bearing. Occurrences that arrive before their maps land are never
+    // re-processed, so a new task's first seconds of errors would stay
+    // unresolved forever if this ran last. Migrations still go first: a failed
+    // migration must upload nothing at all.
+    aws.ecsDescribeTaskDefinition.mockImplementation(family => Promise.resolve(familyLatest(family)))
+    aws.ecsRunTask.mockResolvedValue({ tasks: [{ taskArn: 'arn:task/1' }] })
+    aws.ecsWaitUntilTasksStopped.mockResolvedValue({ state: 'SUCCESS' })
+    aws.ecsDescribeTasks.mockResolvedValue({ tasks: [{ containers: [{ name: 'db-migrate', exitCode: 0 }] }] })
+    aws.ecsDescribeServices.mockResolvedValue([{ launchType: 'EC2' }])
+
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(aws.ecsRunTask.mock.invocationCallOrder[0])
+      .toBeLessThan(publishSourceMaps.mock.invocationCallOrder[0])
+    expect(publishSourceMaps.mock.invocationCallOrder[0])
+      .toBeLessThan(aws.ecsUpdateService.mock.invocationCallOrder[0])
+  })
+
+  it('uploads nothing when the migration task fails', async () => {
+    aws.ecsDescribeTaskDefinition.mockImplementation(family => Promise.resolve(familyLatest(family)))
+    aws.ecsDescribeServices.mockResolvedValue([{ launchType: 'EC2' }])
+    aws.ecsRunTask.mockResolvedValue({ tasks: [], failures: [{ reason: 'RESOURCE:MEMORY' }] })
+
+    await expect(deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL }))
+      .rejects.toThrow(/Failed to start db-migrate task/)
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+  })
+
+  it('does not fail the deploy when the upload throws', async () => {
+    publishSourceMaps.mockRejectedValue(new Error('registry unreachable'))
+
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(result.deployedImage).toBe(IMAGE)
+    expect(result.services).toEqual(['hoax-production-web'])
+    expect(aws.ecsUpdateService).toHaveBeenCalledTimes(1)
+    expect(result.sourcemaps).toEqual({ status: 'failed', uploaded: 0, failed: 0 })
+  })
+
+  it('does not fail the deploy when the token cannot be read', async () => {
+    aws.ssmParameterValue.mockRejectedValue(new Error('AccessDeniedException'))
+
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(result.services).toEqual(['hoax-production-web'])
+    expect(result.sourcemaps.status).toBe('failed')
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+  })
+
+  it('skips silently when the parameter exists but has no value', async () => {
+    aws.ssmParameterValue.mockResolvedValue(null)
+
+    const result = await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(publishSourceMaps).not.toHaveBeenCalled()
+    expect(result.sourcemaps).toEqual(SKIPPED)
+  })
+
+  it('describes the service task definitions ONCE for both the endpoint read and the update', async () => {
+    await deployEcs({ projectName: 'hoax', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(aws.ecsServiceTaskDefinitions).toHaveBeenCalledTimes(1)
+    expect(aws.ecsUpdateService).toHaveBeenCalledTimes(1)
   })
 })

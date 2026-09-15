@@ -14,6 +14,7 @@ import {
 import {
   SSMClient,
   paginateGetParametersByPath,
+  GetParametersCommand,
   ListTagsForResourceCommand
 } from '@aws-sdk/client-ssm'
 
@@ -160,6 +161,42 @@ export async function ssmParameters (prefix, decrypt = true) {
     })))
   }
   return results
+}
+
+// How long ssmParameterValue will spend on ONE parameter, retries included.
+//
+// The client below already retries; this bounds the whole call instead of
+// stacking a second retry loop on top of it — the same reasoning src/gcp.js
+// applies to accessSecret, and for the same caller. The ECS source-map upload
+// (src/v2/sourcemaps.js) is optional telemetry sitting on the rollback path —
+// the emergency path — so a read that hangs is strictly worse than a source map
+// that never lands.
+export const SSM_PARAMETER_TIMEOUT_MS = 30 * 1000
+
+// Read the decrypted value of ONE SSM parameter by full name, e.g.
+// /ecs/<project>/<env>/ROLLBAR_ACCESS_TOKEN.
+//
+// Returns null when the parameter does not exist, which callers use as a signal
+// rather than an error: ssmParameters above reads a whole path, but a caller
+// asking for a specific name is asking a question ("is this environment wired
+// for X?") whose answer may legitimately be no.
+//
+// GetParameters (plural) with a single name, NOT GetParameter: they are separate
+// IAM actions, and ssm:GetParameters is the one the deploy roles already hold.
+// The plural call is also the one that answers a miss with an InvalidParameters
+// entry instead of throwing, which is exactly the signal wanted here.
+//
+// SecureStrings under /ecs/ are encrypted with the AWS-managed alias/aws/ssm
+// key, whose policy admits any same-account principal calling through SSM — so
+// WithDecryption needs no kms:Decrypt grant of its own. The v1 build path
+// (secrets() in src/ecs-config.js) has read these the same way all along.
+export async function ssmParameterValue (name, { timeoutMs = SSM_PARAMETER_TIMEOUT_MS } = {}) {
+  const client = new SSMClient({ region: 'us-east-1', ...RETRY_CONFIG })
+  const response = await client.send(
+    new GetParametersCommand({ Names: [name], WithDecryption: true }),
+    { abortSignal: AbortSignal.timeout(timeoutMs) }
+  )
+  return response.Parameters?.[0]?.Value ?? null
 }
 
 export async function ecsBuildNumber (projectName) {
