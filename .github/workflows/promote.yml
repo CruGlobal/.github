@@ -833,6 +833,7 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
           image: ${{ steps.resolve.outputs.image }}
+          app-url: ${{ needs.lookup.outputs.app-url }}
 
       # Tag the promoted digest release-<n> in ECR (manifest re-tag; the ECR path
       # is shared by ecs and lambda). Requires ecr:PutImage on the deploy role

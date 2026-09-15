@@ -10,6 +10,30 @@ vi.mock('google-auth-library', () => ({
   }
 }))
 
+// Same treatment for the ECR transport: the SDK is canned, so BatchGetImage and
+// GetDownloadUrlForLayer are asserted on directly. Every command src/v2/aws.js
+// imports has to exist here too, or its named import fails under the mock.
+const { ecrSend, ecrConfigs } = vi.hoisted(() => ({ ecrSend: vi.fn(), ecrConfigs: [] }))
+vi.mock('@aws-sdk/client-ecr', () => {
+  const command = op => class {
+    constructor (input) {
+      this.op = op
+      this.input = input
+    }
+  }
+  return {
+    ECRClient: class {
+      constructor (config) { ecrConfigs.push(config) }
+      send (cmd) { return ecrSend(cmd) }
+    },
+    BatchGetImageCommand: command('BatchGetImage'),
+    GetDownloadUrlForLayerCommand: command('GetDownloadUrlForLayer'),
+    DescribeImagesCommand: command('DescribeImages'),
+    PutImageCommand: command('PutImage'),
+    ImageAlreadyExistsException: class extends Error {}
+  }
+})
+
 import { MAX_LAYER_BLOB_BYTES, openImage, parseRegistryRef } from '../src/v2/oci.js'
 import { MAX_ENTRY_BYTES } from '../src/v2/tar.js'
 import { tarArchive, tarEntry } from './support/tar-fixture.js'
@@ -62,8 +86,57 @@ function layerFetches () {
     .filter(url => url.includes('/blobs/') && !url.includes('sha256:config'))
 }
 
+// --- ECR fixtures -----------------------------------------------------------
+
+const ECR_HOST = '056154071827.dkr.ecr.us-east-1.amazonaws.com'
+const ECR_IMAGE = `${ECR_HOST}/smaug@sha256:top`
+
+// Canned ECR: manifests come back from BatchGetImage as the verbatim JSON string
+// the registry stores, and blobs through a presigned URL that `fetch` then
+// serves. Keyed exactly like serve() above so the two transports can be given
+// the same image.
+function serveEcr (documents) {
+  const blobUrl = digest => `https://starport-layer-bucket.s3.example/${encodeURIComponent(digest)}?X-Amz-Signature=abc`
+
+  ecrSend.mockImplementation(async cmd => {
+    if (cmd.op === 'BatchGetImage') {
+      const { imageDigest, imageTag } = cmd.input.imageIds[0]
+      const key = `manifests/${imageDigest ?? imageTag}`
+      if (!(key in documents)) {
+        return { images: [], failures: [{ failureCode: 'ImageNotFound', failureReason: 'Requested image not found' }] }
+      }
+      return {
+        images: [{ imageManifest: JSON.stringify(documents[key]), imageManifestMediaType: 'application/vnd.oci.image.manifest.v1+json' }]
+      }
+    }
+    if (cmd.op === 'GetDownloadUrlForLayer') {
+      return { downloadUrl: blobUrl(cmd.input.layerDigest) }
+    }
+    throw new Error(`unexpected ECR command: ${cmd.op}`)
+  })
+
+  vi.stubGlobal('fetch', vi.fn(async url => {
+    const digest = decodeURIComponent(new URL(url).pathname.slice(1))
+    const key = `blobs/${digest}`
+    if (!(key in documents)) return new Response(null, { status: 404 })
+    const value = documents[key]
+    return new Response(Buffer.isBuffer(value) ? value : JSON.stringify(value), { status: 200 })
+  }))
+}
+
+// Blob downloads ECR was asked for, config blob included, in order.
+function ecrLayerRequests () {
+  return ecrSend.mock.calls
+    .map(([cmd]) => cmd)
+    .filter(cmd => cmd.op === 'GetDownloadUrlForLayer')
+    .map(cmd => cmd.input.layerDigest)
+}
+
 beforeEach(() => {
   requestMock.mockReset()
+  ecrSend.mockReset()
+  ecrConfigs.length = 0
+  vi.unstubAllGlobals()
 })
 
 describe('parseRegistryRef', () => {
@@ -403,5 +476,137 @@ describe('openImage layer cache', () => {
     await (await openImage(IMAGE)).readFile(`/${SIGNIN}`)
     await (await openImage(IMAGE)).readFile(`/${SIGNIN}`)
     expect(layerFetches().length).toBe(2)
+  })
+})
+
+describe('openImage against ECR', () => {
+  // The ECR transport exists because ECR serves no usable v2 API to an IAM
+  // caller. Everything above it — index resolution, newest-first layer order,
+  // the cache — is shared with Artifact Registry and covered above; these
+  // exercise the two SDK reads that replace the HTTP ones.
+
+  it('reads labels, serving the CONFIG blob through GetDownloadUrlForLayer', async () => {
+    // Load bearing and verified against a real ECR image: ECR stores an image's
+    // config as a blob of the repository like any layer, so one call serves
+    // both kinds and no registry-token exchange is needed. If this ever stops
+    // being true the fallback is the v2 API via GetAuthorizationToken.
+    serveEcr({
+      'manifests/sha256:top': manifest(),
+      'blobs/sha256:config': config({ 'org.cru.sourcemaps': 'release-10187' })
+    })
+    const image = await openImage(ECR_IMAGE)
+
+    expect(image.labels).toEqual({ 'org.cru.sourcemaps': 'release-10187' })
+    expect(ecrLayerRequests()).toEqual(['sha256:config'])
+  })
+
+  it('takes the registry account and region from the image host', async () => {
+    serveEcr({ 'manifests/sha256:top': manifest(), 'blobs/sha256:config': config() })
+    await openImage(ECR_IMAGE)
+
+    expect(ecrConfigs[0]).toMatchObject({ region: 'us-east-1' })
+    expect(ecrSend.mock.calls[0][0].input).toMatchObject({
+      registryId: '056154071827',
+      repositoryName: 'smaug',
+      imageIds: [{ imageDigest: 'sha256:top' }]
+    })
+  })
+
+  it('asks by tag when the reference is a tag', async () => {
+    serveEcr({ 'manifests/release-10187': manifest(), 'blobs/sha256:config': config() })
+    await openImage(`${ECR_HOST}/smaug:release-10187`)
+
+    expect(ecrSend.mock.calls[0][0].input.imageIds).toEqual([{ imageTag: 'release-10187' }])
+  })
+
+  it('resolves an image index through a second BatchGetImage on the child digest', async () => {
+    // Nothing tags an index's children, so this only works because
+    // BatchGetImage answers for an untagged digest — verified against a real
+    // multi-arch image.
+    serveEcr({
+      'manifests/sha256:top': {
+        manifests: [
+          { digest: 'sha256:att', platform: { os: 'unknown', architecture: 'unknown' } },
+          { digest: 'sha256:amd', platform: { os: 'linux', architecture: 'amd64' } }
+        ]
+      },
+      'manifests/sha256:amd': manifest(),
+      'blobs/sha256:config': config({ 'org.cru.sourcemaps': 'release-10187' })
+    })
+    const image = await openImage(ECR_IMAGE)
+
+    expect(image.labels['org.cru.sourcemaps']).toBe('release-10187')
+    expect(ecrSend.mock.calls.filter(([cmd]) => cmd.op === 'BatchGetImage').map(([cmd]) => cmd.input.imageIds[0]))
+      .toEqual([{ imageDigest: 'sha256:top' }, { imageDigest: 'sha256:amd' }])
+  })
+
+  it('lists the source maps out of the newest layer that has any', async () => {
+    const MAPS = 'cru/sourcemaps'
+    serveEcr({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:base'), layer('sha256:maps')] }),
+      'blobs/sha256:config': config({ 'org.cru.sourcemaps': 'release-10187' }),
+      'blobs/sha256:maps': gzipLayer(tarEntry(`${MAPS}/main.js.map`, '{"version":3}'))
+    })
+    const image = await openImage(ECR_IMAGE)
+
+    expect((await image.readDir(`/${MAPS}`)).map(file => file.name)).toEqual(['main.js.map'])
+    // Newest-first: the base layer is never downloaded.
+    expect(ecrLayerRequests()).toEqual(['sha256:config', 'sha256:maps'])
+  })
+
+  it('fetches the presigned URL with no Authorization header', async () => {
+    // The URL carries its own credentials in the query string; an Authorization
+    // header makes S3 reject the signature.
+    serveEcr({ 'manifests/sha256:top': manifest(), 'blobs/sha256:config': config() })
+    await openImage(ECR_IMAGE)
+
+    const [, init] = fetch.mock.calls[0]
+    expect(init?.headers).toBeUndefined()
+    expect(fetch.mock.calls[0][0]).toContain('X-Amz-Signature')
+  })
+
+  it('caches inflated layers on the handle, as the Artifact Registry path does', async () => {
+    serveEcr({
+      'manifests/sha256:top': manifest({ layers: [layer('sha256:both')] }),
+      'blobs/sha256:config': config(),
+      'blobs/sha256:both': gzipLayer(
+        tarEntry('cru/sourcemaps/main.js.map', '{"version":3}'),
+        tarEntry(SIGNIN, PAGE)
+      )
+    })
+    const image = await openImage(ECR_IMAGE)
+
+    expect((await image.readDir('/cru/sourcemaps')).length).toBe(1)
+    expect((await image.readFile(`/${SIGNIN}`)).toString()).toBe(PAGE)
+
+    expect(ecrLayerRequests()).toEqual(['sha256:config', 'sha256:both'])
+  })
+
+  it('names the failure code when the reference is not in the repository', async () => {
+    // A miss is a `failures` entry, not an exception, so it has to be read out
+    // or it presents as a manifest with no config descriptor.
+    serveEcr({})
+    await expect(openImage(ECR_IMAGE)).rejects.toThrow(/no manifest for smaug@sha256:top: ImageNotFound/)
+  })
+
+  it('retries a blob download that fails transiently', async () => {
+    serveEcr({ 'manifests/sha256:top': manifest(), 'blobs/sha256:config': config({ a: 'b' }) })
+    const serve503Once = fetch.getMockImplementation()
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async url => {
+      calls++
+      return calls === 1 ? new Response(null, { status: 503 }) : serve503Once(url)
+    }))
+
+    expect((await openImage(ECR_IMAGE)).labels).toEqual({ a: 'b' })
+    expect(calls).toBe(2)
+  })
+
+  it('does not retry a blob download the server refused outright', async () => {
+    serveEcr({ 'manifests/sha256:top': manifest(), 'blobs/sha256:config': config() })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 403 })))
+
+    await expect(openImage(ECR_IMAGE)).rejects.toThrow(/HTTP 403 downloading smaug@sha256:config/)
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

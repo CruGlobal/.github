@@ -186,18 +186,22 @@ function decodeSegment (segment) {
 }
 
 /**
- * Full upload URL for this environment.
+ * Full upload URL for this environment, given the ROLLBAR_ENDPOINT values the
+ * app container declares — one per place it could be declared, best first.
  *
- * Read from the app container's ROLLBAR_ENDPOINT, keeping only its ORIGIN: the
- * var holds whatever ingestion path the app's own reporter posts occurrences
- * to, which is not the source-map path. Falls back to the shared default when
- * the var is unset — the common case, since only apps pointed at something
- * other than the default set it.
+ * Only the ORIGIN of the first value present is kept: the var holds whatever
+ * ingestion path the app's own reporter posts occurrences to, which is not the
+ * source-map path. Falls back to the shared default when nothing names one —
+ * the common case, since only apps pointed at something other than the default
+ * set it.
+ *
+ * Takes raw values rather than a service or a task definition, because the two
+ * runtimes shape their container definitions differently and neither shape
+ * belongs in here. Each runtime's deploy digs out its own values; this decides
+ * what they mean.
  */
-export function sourceMapsEndpoint (services, repo) {
-  for (const service of services) {
-    const app = findAppContainer(service.template?.containers ?? [], repo)
-    const raw = app?.env?.find(entry => entry.name === ENDPOINT_ENV)?.value
+export function sourceMapsEndpointFor (rawValues) {
+  for (const raw of rawValues) {
     if (!raw) continue
     try {
       return `${new URL(raw).origin}${UPLOAD_PATH}`
@@ -207,6 +211,14 @@ export function sourceMapsEndpoint (services, repo) {
     }
   }
   return `${DEFAULT_ENDPOINT}${UPLOAD_PATH}`
+}
+
+/** sourceMapsEndpointFor, reading Cloud Run services. */
+export function sourceMapsEndpoint (services, repo) {
+  return sourceMapsEndpointFor(services.map(service => {
+    const app = findAppContainer(service.template?.containers ?? [], repo)
+    return app?.env?.find(entry => entry.name === ENDPOINT_ENV)?.value
+  }))
 }
 
 // POST one map. Rollbar-compatible multipart: the token rides in a header, the

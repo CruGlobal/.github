@@ -537,6 +537,7 @@ jobs:
           project-name: ${{ inputs.project-name }}
           environment: production
           image: ${{ steps.resolve.outputs.image }}
+          app-url: ${{ needs.lookup.outputs.app-url }}
 
       - name: Record deployment event in Datadog
         continue-on-error: true
