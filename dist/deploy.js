@@ -203520,7 +203520,7 @@ var require_dist_cjs17 = __commonJS({
     };
     var GetParametersByPathCommand = class extends command5(_ep05, _mw05, "GetParametersByPath", GetParametersByPath$) {
     };
-    var GetParametersCommand = class extends command5(_ep05, _mw05, "GetParameters", GetParameters$) {
+    var GetParametersCommand2 = class extends command5(_ep05, _mw05, "GetParameters", GetParameters$) {
     };
     var GetPatchBaselineCommand = class extends command5(_ep05, _mw05, "GetPatchBaseline", GetPatchBaseline$) {
     };
@@ -203882,7 +203882,7 @@ var require_dist_cjs17 = __commonJS({
       GetOpsSummaryCommand,
       GetParameterCommand,
       GetParameterHistoryCommand,
-      GetParametersCommand,
+      GetParametersCommand: GetParametersCommand2,
       GetParametersByPathCommand,
       GetPatchBaselineCommand,
       GetPatchBaselineForPatchGroupCommand,
@@ -205223,7 +205223,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.GetParametersByPathCommand = GetParametersByPathCommand;
     exports2.GetParametersByPathRequest$ = GetParametersByPathRequest$;
     exports2.GetParametersByPathResult$ = GetParametersByPathResult$;
-    exports2.GetParametersCommand = GetParametersCommand;
+    exports2.GetParametersCommand = GetParametersCommand2;
     exports2.GetParametersRequest$ = GetParametersRequest$;
     exports2.GetParametersResult$ = GetParametersResult$;
     exports2.GetPatchBaseline$ = GetPatchBaseline$;
@@ -209922,8 +209922,4867 @@ var require_dist_cjs18 = __commonJS({
   }
 });
 
-// node_modules/@aws-sdk/client-lambda/dist-cjs/index.js
+// node_modules/@aws-sdk/client-ecr/dist-cjs/index.js
 var require_dist_cjs19 = __commonJS({
+  "node_modules/@aws-sdk/client-ecr/dist-cjs/index.js"(exports2) {
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
+    var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
+    var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
+    exports2.$Command = $Command;
+    exports2.__Client = Client2;
+    var { resolveDefaultsModeConfig: resolveDefaultsModeConfig2, loadConfig: loadConfig2, NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS: NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS2, NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS: NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS2, NODE_REGION_CONFIG_OPTIONS: NODE_REGION_CONFIG_OPTIONS2, NODE_REGION_CONFIG_FILE_OPTIONS: NODE_REGION_CONFIG_FILE_OPTIONS2, resolveRegionConfig: resolveRegionConfig2 } = (init_config2(), __toCommonJS(config_exports));
+    var { BinaryDecisionDiagram: BinaryDecisionDiagram2, EndpointCache: EndpointCache2, decideEndpoint: decideEndpoint2, customEndpointFunctions: customEndpointFunctions2, resolveEndpointConfig: resolveEndpointConfig2, getEndpointPlugin: getEndpointPlugin2 } = (init_endpoints(), __toCommonJS(endpoints_exports));
+    var { parseUrl: parseUrl2, getHttpHandlerExtensionConfiguration: getHttpHandlerExtensionConfiguration2, resolveHttpHandlerRuntimeConfig: resolveHttpHandlerRuntimeConfig2, getContentLengthPlugin: getContentLengthPlugin2 } = (init_protocols(), __toCommonJS(protocols_exports));
+    var { DEFAULT_RETRY_MODE: DEFAULT_RETRY_MODE2, NODE_RETRY_MODE_CONFIG_OPTIONS: NODE_RETRY_MODE_CONFIG_OPTIONS2, NODE_MAX_ATTEMPT_CONFIG_OPTIONS: NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, resolveRetryConfig: resolveRetryConfig2, getRetryPlugin: getRetryPlugin2 } = (init_retry2(), __toCommonJS(retry_exports));
+    var { TypeRegistry: TypeRegistry2, getSchemaSerdePlugin: getSchemaSerdePlugin2 } = (init_schema(), __toCommonJS(schema_exports));
+    var { resolveAwsSdkSigV4Config: resolveAwsSdkSigV4Config2, AwsSdkSigV4Signer: AwsSdkSigV4Signer2, NODE_AUTH_SCHEME_PREFERENCE_OPTIONS: NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2 } = (init_httpAuthSchemes2(), __toCommonJS(httpAuthSchemes_exports));
+    var { defaultProvider } = require_dist_cjs15();
+    var { toUtf8: toUtf83, fromUtf8: fromUtf83, toBase64: toBase643, fromBase64: fromBase642, calculateBodyLength: calculateBodyLength2 } = (init_serde(), __toCommonJS(serde_exports));
+    var { streamCollector: streamCollector7, NodeHttpHandler } = require_dist_cjs5();
+    var { AwsJson1_1Protocol: AwsJson1_1Protocol2 } = (init_protocols2(), __toCommonJS(protocols_exports2));
+    var { Sha256 } = (init_checksum2(), __toCommonJS(checksum_exports));
+    var defaultECRHttpAuthSchemeParametersProvider = async (config, context, input) => {
+      return {
+        operation: getSmithyContext2(context).operation,
+        region: await normalizeProvider3(config.region)() || (() => {
+          throw new Error("expected `region` to be configured for `aws.auth#sigv4`");
+        })()
+      };
+    };
+    function createAwsAuthSigv4HttpAuthOption5(authParameters) {
+      return {
+        schemeId: "aws.auth#sigv4",
+        signingProperties: {
+          name: "ecr",
+          region: authParameters.region
+        },
+        propertiesExtractor: (config, context) => ({
+          signingProperties: {
+            config,
+            context
+          }
+        })
+      };
+    }
+    var defaultECRHttpAuthSchemeProvider = (authParameters) => {
+      const options = [];
+      switch (authParameters.operation) {
+        default: {
+          options.push(createAwsAuthSigv4HttpAuthOption5(authParameters));
+        }
+      }
+      return options;
+    };
+    var resolveHttpAuthSchemeConfig5 = (config) => {
+      const config_0 = resolveAwsSdkSigV4Config2(config);
+      return Object.assign(config_0, {
+        authSchemePreference: normalizeProvider3(config.authSchemePreference ?? [])
+      });
+    };
+    var resolveClientEndpointParameters5 = (options) => {
+      return Object.assign(options, {
+        useDualstackEndpoint: options.useDualstackEndpoint ?? false,
+        useFipsEndpoint: options.useFipsEndpoint ?? false,
+        defaultSigningName: "ecr"
+      });
+    };
+    var commonParams5 = {
+      UseFIPS: { type: "builtInParams", name: "useFipsEndpoint" },
+      Endpoint: { type: "builtInParams", name: "endpoint" },
+      Region: { type: "builtInParams", name: "region" },
+      UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
+    };
+    var version = "3.1126.0";
+    var packageInfo = {
+      version
+    };
+    var m4 = "ref";
+    var a5 = -1;
+    var b5 = true;
+    var c5 = "isSet";
+    var d5 = "PartitionResult";
+    var e6 = "stringEquals";
+    var f7 = "booleanEquals";
+    var g5 = "getAttr";
+    var h6 = { [m4]: "Endpoint" };
+    var i6 = { "fn": g5, "argv": [{ [m4]: d5 }, "name"] };
+    var j5 = { [m4]: d5 };
+    var k5 = {};
+    var l3 = [{ [m4]: "Region" }];
+    var _data5 = {
+      conditions: [
+        [c5, [h6]],
+        [c5, l3],
+        ["aws.partition", l3, d5],
+        [e6, [i6, "aws-eusc"]],
+        [e6, [i6, "aws-iso-f"]],
+        [e6, [i6, "aws-iso-e"]],
+        [e6, [i6, "aws-iso-b"]],
+        [e6, [i6, "aws-iso"]],
+        [e6, [i6, "aws-cn"]],
+        [e6, [i6, "aws-us-gov"]],
+        [e6, [i6, "aws"]],
+        [f7, [{ [m4]: "UseFIPS" }, b5]],
+        [f7, [{ fn: g5, argv: [j5, "supportsFIPS"] }, b5]],
+        [f7, [{ [m4]: "UseDualStack" }, b5]],
+        [f7, [{ fn: g5, argv: [j5, "supportsDualStack"] }, b5]]
+      ],
+      results: [
+        [a5],
+        [a5, "Invalid Configuration: FIPS and custom endpoint are not supported"],
+        [a5, "Invalid Configuration: Dualstack and custom endpoint are not supported"],
+        [h6, k5],
+        ["https://api.ecr.{Region}.{PartitionResult#dnsSuffix}", k5],
+        ["https://ecr.{Region}.{PartitionResult#dualStackDnsSuffix}", k5],
+        ["https://api.ecr-fips.{Region}.{PartitionResult#dnsSuffix}", k5],
+        ["https://ecr-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", k5],
+        ["https://api.ecr-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", k5],
+        [a5, "FIPS and DualStack are enabled, but this partition does not support one or both"],
+        [a5, "FIPS is enabled but this partition does not support FIPS"],
+        ["https://api.ecr.{Region}.{PartitionResult#dualStackDnsSuffix}", k5],
+        [a5, "DualStack is enabled but this partition does not support DualStack"],
+        [a5, "Invalid Configuration: Missing Region"]
+      ]
+    };
+    var root5 = 2;
+    var r6 = 1e8;
+    var nodes5 = new Int32Array([
+      -1,
+      1,
+      -1,
+      0,
+      23,
+      3,
+      1,
+      4,
+      r6 + 13,
+      2,
+      5,
+      r6 + 13,
+      3,
+      20,
+      6,
+      4,
+      20,
+      7,
+      5,
+      20,
+      8,
+      6,
+      20,
+      9,
+      7,
+      20,
+      10,
+      8,
+      20,
+      11,
+      9,
+      20,
+      12,
+      10,
+      20,
+      13,
+      11,
+      16,
+      14,
+      13,
+      15,
+      r6 + 4,
+      14,
+      r6 + 11,
+      r6 + 12,
+      12,
+      18,
+      17,
+      13,
+      r6 + 9,
+      r6 + 10,
+      13,
+      19,
+      r6 + 6,
+      14,
+      r6 + 8,
+      r6 + 9,
+      11,
+      22,
+      21,
+      13,
+      r6 + 5,
+      r6 + 4,
+      13,
+      r6 + 7,
+      r6 + 6,
+      11,
+      r6 + 1,
+      24,
+      13,
+      r6 + 2,
+      r6 + 3
+    ]);
+    var bdd5 = BinaryDecisionDiagram2.from(nodes5, root5, _data5.conditions, _data5.results);
+    var cache5 = new EndpointCache2({
+      size: 50,
+      params: ["Endpoint", "Region", "UseDualStack", "UseFIPS"]
+    });
+    var defaultEndpointResolver5 = (endpointParams, context = {}) => {
+      return cache5.get(endpointParams, () => decideEndpoint2(bdd5, {
+        endpointParams,
+        logger: context.logger
+      }));
+    };
+    customEndpointFunctions2.aws = awsEndpointFunctions2;
+    var ECRServiceException = class _ECRServiceException extends ServiceException2 {
+      constructor(options) {
+        super(options);
+        Object.setPrototypeOf(this, _ECRServiceException.prototype);
+      }
+    };
+    var InvalidParameterException = class _InvalidParameterException extends ECRServiceException {
+      name = "InvalidParameterException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "InvalidParameterException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _InvalidParameterException.prototype);
+      }
+    };
+    var RepositoryNotFoundException = class _RepositoryNotFoundException extends ECRServiceException {
+      name = "RepositoryNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "RepositoryNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _RepositoryNotFoundException.prototype);
+      }
+    };
+    var ServerException = class _ServerException extends ECRServiceException {
+      name = "ServerException";
+      $fault = "server";
+      constructor(opts) {
+        super({
+          name: "ServerException",
+          $fault: "server",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ServerException.prototype);
+      }
+    };
+    var LimitExceededException = class _LimitExceededException extends ECRServiceException {
+      name = "LimitExceededException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LimitExceededException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LimitExceededException.prototype);
+      }
+    };
+    var UnableToGetUpstreamImageException = class _UnableToGetUpstreamImageException extends ECRServiceException {
+      name = "UnableToGetUpstreamImageException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnableToGetUpstreamImageException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnableToGetUpstreamImageException.prototype);
+      }
+    };
+    var ValidationException2 = class _ValidationException extends ECRServiceException {
+      name = "ValidationException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ValidationException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ValidationException.prototype);
+      }
+    };
+    var EmptyUploadException = class _EmptyUploadException extends ECRServiceException {
+      name = "EmptyUploadException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "EmptyUploadException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _EmptyUploadException.prototype);
+      }
+    };
+    var InvalidLayerException = class _InvalidLayerException extends ECRServiceException {
+      name = "InvalidLayerException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "InvalidLayerException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _InvalidLayerException.prototype);
+      }
+    };
+    var KmsException = class _KmsException extends ECRServiceException {
+      name = "KmsException";
+      $fault = "client";
+      kmsError;
+      constructor(opts) {
+        super({
+          name: "KmsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _KmsException.prototype);
+        this.kmsError = opts.kmsError;
+      }
+    };
+    var LayerAlreadyExistsException = class _LayerAlreadyExistsException extends ECRServiceException {
+      name = "LayerAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LayerAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LayerAlreadyExistsException.prototype);
+      }
+    };
+    var LayerPartTooSmallException = class _LayerPartTooSmallException extends ECRServiceException {
+      name = "LayerPartTooSmallException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LayerPartTooSmallException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LayerPartTooSmallException.prototype);
+      }
+    };
+    var UploadNotFoundException = class _UploadNotFoundException extends ECRServiceException {
+      name = "UploadNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UploadNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UploadNotFoundException.prototype);
+      }
+    };
+    var PullThroughCacheRuleAlreadyExistsException = class _PullThroughCacheRuleAlreadyExistsException extends ECRServiceException {
+      name = "PullThroughCacheRuleAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "PullThroughCacheRuleAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _PullThroughCacheRuleAlreadyExistsException.prototype);
+      }
+    };
+    var SecretNotFoundException = class _SecretNotFoundException extends ECRServiceException {
+      name = "SecretNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "SecretNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _SecretNotFoundException.prototype);
+      }
+    };
+    var UnableToAccessSecretException = class _UnableToAccessSecretException extends ECRServiceException {
+      name = "UnableToAccessSecretException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnableToAccessSecretException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnableToAccessSecretException.prototype);
+      }
+    };
+    var UnableToDecryptSecretValueException = class _UnableToDecryptSecretValueException extends ECRServiceException {
+      name = "UnableToDecryptSecretValueException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnableToDecryptSecretValueException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnableToDecryptSecretValueException.prototype);
+      }
+    };
+    var UnsupportedUpstreamRegistryException = class _UnsupportedUpstreamRegistryException extends ECRServiceException {
+      name = "UnsupportedUpstreamRegistryException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnsupportedUpstreamRegistryException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnsupportedUpstreamRegistryException.prototype);
+      }
+    };
+    var InvalidTagParameterException = class _InvalidTagParameterException extends ECRServiceException {
+      name = "InvalidTagParameterException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "InvalidTagParameterException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _InvalidTagParameterException.prototype);
+      }
+    };
+    var RepositoryAlreadyExistsException = class _RepositoryAlreadyExistsException extends ECRServiceException {
+      name = "RepositoryAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "RepositoryAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _RepositoryAlreadyExistsException.prototype);
+      }
+    };
+    var TooManyTagsException = class _TooManyTagsException extends ECRServiceException {
+      name = "TooManyTagsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "TooManyTagsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _TooManyTagsException.prototype);
+      }
+    };
+    var TemplateAlreadyExistsException = class _TemplateAlreadyExistsException extends ECRServiceException {
+      name = "TemplateAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "TemplateAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _TemplateAlreadyExistsException.prototype);
+      }
+    };
+    var LifecyclePolicyNotFoundException = class _LifecyclePolicyNotFoundException extends ECRServiceException {
+      name = "LifecyclePolicyNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LifecyclePolicyNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LifecyclePolicyNotFoundException.prototype);
+      }
+    };
+    var PullThroughCacheRuleNotFoundException = class _PullThroughCacheRuleNotFoundException extends ECRServiceException {
+      name = "PullThroughCacheRuleNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "PullThroughCacheRuleNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _PullThroughCacheRuleNotFoundException.prototype);
+      }
+    };
+    var RegistryPolicyNotFoundException = class _RegistryPolicyNotFoundException extends ECRServiceException {
+      name = "RegistryPolicyNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "RegistryPolicyNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _RegistryPolicyNotFoundException.prototype);
+      }
+    };
+    var RepositoryNotEmptyException = class _RepositoryNotEmptyException extends ECRServiceException {
+      name = "RepositoryNotEmptyException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "RepositoryNotEmptyException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _RepositoryNotEmptyException.prototype);
+      }
+    };
+    var TemplateNotFoundException = class _TemplateNotFoundException extends ECRServiceException {
+      name = "TemplateNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "TemplateNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _TemplateNotFoundException.prototype);
+      }
+    };
+    var RepositoryPolicyNotFoundException = class _RepositoryPolicyNotFoundException extends ECRServiceException {
+      name = "RepositoryPolicyNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "RepositoryPolicyNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _RepositoryPolicyNotFoundException.prototype);
+      }
+    };
+    var SigningConfigurationNotFoundException = class _SigningConfigurationNotFoundException extends ECRServiceException {
+      name = "SigningConfigurationNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "SigningConfigurationNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _SigningConfigurationNotFoundException.prototype);
+      }
+    };
+    var ExclusionNotFoundException = class _ExclusionNotFoundException extends ECRServiceException {
+      name = "ExclusionNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ExclusionNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ExclusionNotFoundException.prototype);
+      }
+    };
+    var ImageNotFoundException = class _ImageNotFoundException extends ECRServiceException {
+      name = "ImageNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ImageNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ImageNotFoundException.prototype);
+      }
+    };
+    var ScanNotFoundException = class _ScanNotFoundException extends ECRServiceException {
+      name = "ScanNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ScanNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ScanNotFoundException.prototype);
+      }
+    };
+    var LayerInaccessibleException = class _LayerInaccessibleException extends ECRServiceException {
+      name = "LayerInaccessibleException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LayerInaccessibleException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LayerInaccessibleException.prototype);
+      }
+    };
+    var LayersNotFoundException = class _LayersNotFoundException extends ECRServiceException {
+      name = "LayersNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LayersNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LayersNotFoundException.prototype);
+      }
+    };
+    var UnableToGetUpstreamLayerException = class _UnableToGetUpstreamLayerException extends ECRServiceException {
+      name = "UnableToGetUpstreamLayerException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnableToGetUpstreamLayerException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnableToGetUpstreamLayerException.prototype);
+      }
+    };
+    var LifecyclePolicyPreviewNotFoundException = class _LifecyclePolicyPreviewNotFoundException extends ECRServiceException {
+      name = "LifecyclePolicyPreviewNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LifecyclePolicyPreviewNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LifecyclePolicyPreviewNotFoundException.prototype);
+      }
+    };
+    var UnableToListUpstreamImageReferrersException = class _UnableToListUpstreamImageReferrersException extends ECRServiceException {
+      name = "UnableToListUpstreamImageReferrersException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnableToListUpstreamImageReferrersException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnableToListUpstreamImageReferrersException.prototype);
+      }
+    };
+    var ImageAlreadyExistsException = class _ImageAlreadyExistsException extends ECRServiceException {
+      name = "ImageAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ImageAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ImageAlreadyExistsException.prototype);
+      }
+    };
+    var ImageDigestDoesNotMatchException = class _ImageDigestDoesNotMatchException extends ECRServiceException {
+      name = "ImageDigestDoesNotMatchException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ImageDigestDoesNotMatchException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ImageDigestDoesNotMatchException.prototype);
+      }
+    };
+    var ImageTagAlreadyExistsException = class _ImageTagAlreadyExistsException extends ECRServiceException {
+      name = "ImageTagAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ImageTagAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ImageTagAlreadyExistsException.prototype);
+      }
+    };
+    var ReferencedImagesNotFoundException = class _ReferencedImagesNotFoundException extends ECRServiceException {
+      name = "ReferencedImagesNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ReferencedImagesNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ReferencedImagesNotFoundException.prototype);
+      }
+    };
+    var BlockedByOrganizationPolicyException = class _BlockedByOrganizationPolicyException extends ECRServiceException {
+      name = "BlockedByOrganizationPolicyException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "BlockedByOrganizationPolicyException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _BlockedByOrganizationPolicyException.prototype);
+      }
+    };
+    var ExclusionAlreadyExistsException = class _ExclusionAlreadyExistsException extends ECRServiceException {
+      name = "ExclusionAlreadyExistsException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ExclusionAlreadyExistsException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ExclusionAlreadyExistsException.prototype);
+      }
+    };
+    var ImageArchivedException = class _ImageArchivedException extends ECRServiceException {
+      name = "ImageArchivedException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ImageArchivedException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ImageArchivedException.prototype);
+      }
+    };
+    var UnsupportedImageTypeException = class _UnsupportedImageTypeException extends ECRServiceException {
+      name = "UnsupportedImageTypeException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "UnsupportedImageTypeException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _UnsupportedImageTypeException.prototype);
+      }
+    };
+    var LifecyclePolicyPreviewInProgressException = class _LifecyclePolicyPreviewInProgressException extends ECRServiceException {
+      name = "LifecyclePolicyPreviewInProgressException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "LifecyclePolicyPreviewInProgressException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _LifecyclePolicyPreviewInProgressException.prototype);
+      }
+    };
+    var ImageStorageClassUpdateNotSupportedException = class _ImageStorageClassUpdateNotSupportedException extends ECRServiceException {
+      name = "ImageStorageClassUpdateNotSupportedException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ImageStorageClassUpdateNotSupportedException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ImageStorageClassUpdateNotSupportedException.prototype);
+      }
+    };
+    var InvalidLayerPartException = class _InvalidLayerPartException extends ECRServiceException {
+      name = "InvalidLayerPartException";
+      $fault = "client";
+      registryId;
+      repositoryName;
+      uploadId;
+      lastValidByteReceived;
+      constructor(opts) {
+        super({
+          name: "InvalidLayerPartException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _InvalidLayerPartException.prototype);
+        this.registryId = opts.registryId;
+        this.repositoryName = opts.repositoryName;
+        this.uploadId = opts.uploadId;
+        this.lastValidByteReceived = opts.lastValidByteReceived;
+      }
+    };
+    var _A2 = "Attribute";
+    var _AD = "AuthorizationData";
+    var _ADL = "AuthorizationDataList";
+    var _AECID = "AwsEcrContainerImageDetails";
+    var _AL = "AttributeList";
+    var _BBOPE = "BlockedByOrganizationPolicyException";
+    var _BCLA = "BatchCheckLayerAvailability";
+    var _BCLAR = "BatchCheckLayerAvailabilityRequest";
+    var _BCLARa = "BatchCheckLayerAvailabilityResponse";
+    var _BDI = "BatchDeleteImage";
+    var _BDIR = "BatchDeleteImageRequest";
+    var _BDIRa = "BatchDeleteImageResponse";
+    var _BGI = "BatchGetImage";
+    var _BGIR = "BatchGetImageRequest";
+    var _BGIRa = "BatchGetImageResponse";
+    var _BGRSC = "BatchGetRepositoryScanningConfiguration";
+    var _BGRSCR = "BatchGetRepositoryScanningConfigurationRequest";
+    var _BGRSCRa = "BatchGetRepositoryScanningConfigurationResponse";
+    var _CLU = "CompleteLayerUpload";
+    var _CLUR = "CompleteLayerUploadRequest";
+    var _CLURo = "CompleteLayerUploadResponse";
+    var _CPTCR = "CreatePullThroughCacheRule";
+    var _CPTCRR = "CreatePullThroughCacheRuleRequest";
+    var _CPTCRRr = "CreatePullThroughCacheRuleResponse";
+    var _CR = "CreateRepository";
+    var _CRCT = "CreateRepositoryCreationTemplate";
+    var _CRCTR = "CreateRepositoryCreationTemplateRequest";
+    var _CRCTRr = "CreateRepositoryCreationTemplateResponse";
+    var _CRR = "CreateRepositoryRequest";
+    var _CRRr = "CreateRepositoryResponse";
+    var _CS2 = "CvssScore";
+    var _CSA = "CvssScoreAdjustment";
+    var _CSAL = "CvssScoreAdjustmentList";
+    var _CSD = "CvssScoreDetails";
+    var _CSL = "CvssScoreList";
+    var _DI = "DescribeImages";
+    var _DIF = "DescribeImagesFilter";
+    var _DIR = "DescribeImagesRequest";
+    var _DIRS = "DescribeImageReplicationStatus";
+    var _DIRSR = "DescribeImageReplicationStatusRequest";
+    var _DIRSRe = "DescribeImageReplicationStatusResponse";
+    var _DIRe = "DescribeImagesResponse";
+    var _DISF = "DescribeImageScanFindings";
+    var _DISFR = "DescribeImageScanFindingsRequest";
+    var _DISFRe = "DescribeImageScanFindingsResponse";
+    var _DISS = "DescribeImageSigningStatus";
+    var _DISSR = "DescribeImageSigningStatusRequest";
+    var _DISSRe = "DescribeImageSigningStatusResponse";
+    var _DLP = "DeleteLifecyclePolicy";
+    var _DLPR = "DeleteLifecyclePolicyRequest";
+    var _DLPRe = "DeleteLifecyclePolicyResponse";
+    var _DPTCR = "DeletePullThroughCacheRule";
+    var _DPTCRR = "DeletePullThroughCacheRuleRequest";
+    var _DPTCRRe = "DeletePullThroughCacheRuleResponse";
+    var _DPTCRRes = "DescribePullThroughCacheRulesRequest";
+    var _DPTCRResc = "DescribePullThroughCacheRulesResponse";
+    var _DPTCRe = "DescribePullThroughCacheRules";
+    var _DPTUE = "DeregisterPullTimeUpdateExclusion";
+    var _DPTUER = "DeregisterPullTimeUpdateExclusionRequest";
+    var _DPTUERe = "DeregisterPullTimeUpdateExclusionResponse";
+    var _DR = "DeleteRepository";
+    var _DRCT = "DeleteRepositoryCreationTemplate";
+    var _DRCTR = "DeleteRepositoryCreationTemplateRequest";
+    var _DRCTRe = "DeleteRepositoryCreationTemplateResponse";
+    var _DRCTRes = "DescribeRepositoryCreationTemplatesRequest";
+    var _DRCTResc = "DescribeRepositoryCreationTemplatesResponse";
+    var _DRCTe = "DescribeRepositoryCreationTemplates";
+    var _DRP = "DeleteRegistryPolicy";
+    var _DRPR = "DeleteRegistryPolicyRequest";
+    var _DRPRe = "DeleteRegistryPolicyResponse";
+    var _DRPRel = "DeleteRepositoryPolicyRequest";
+    var _DRPRele = "DeleteRepositoryPolicyResponse";
+    var _DRPe = "DeleteRepositoryPolicy";
+    var _DRR = "DeleteRepositoryRequest";
+    var _DRRe = "DeleteRepositoryResponse";
+    var _DRRes = "DescribeRegistryRequest";
+    var _DRResc = "DescribeRegistryResponse";
+    var _DRRescr = "DescribeRepositoriesRequest";
+    var _DRRescri = "DescribeRepositoriesResponse";
+    var _DRe = "DescribeRegistry";
+    var _DRes = "DescribeRepositories";
+    var _DSC = "DeleteSigningConfiguration";
+    var _DSCR = "DeleteSigningConfigurationRequest";
+    var _DSCRe = "DeleteSigningConfigurationResponse";
+    var _EAEE = "ExclusionAlreadyExistsException";
+    var _EC = "EncryptionConfiguration";
+    var _ECFRCT = "EncryptionConfigurationForRepositoryCreationTemplate";
+    var _EISF = "EnhancedImageScanFinding";
+    var _EISFL = "EnhancedImageScanFindingList";
+    var _ENFE = "ExclusionNotFoundException";
+    var _EUE = "EmptyUploadException";
+    var _GAS = "GetAccountSetting";
+    var _GASR = "GetAccountSettingRequest";
+    var _GASRe = "GetAccountSettingResponse";
+    var _GAT = "GetAuthorizationToken";
+    var _GATR = "GetAuthorizationTokenRequest";
+    var _GATRe = "GetAuthorizationTokenResponse";
+    var _GDUFL = "GetDownloadUrlForLayer";
+    var _GDUFLR = "GetDownloadUrlForLayerRequest";
+    var _GDUFLRe = "GetDownloadUrlForLayerResponse";
+    var _GLP = "GetLifecyclePolicy";
+    var _GLPP = "GetLifecyclePolicyPreview";
+    var _GLPPR = "GetLifecyclePolicyPreviewRequest";
+    var _GLPPRe = "GetLifecyclePolicyPreviewResponse";
+    var _GLPR = "GetLifecyclePolicyRequest";
+    var _GLPRe = "GetLifecyclePolicyResponse";
+    var _GRP = "GetRegistryPolicy";
+    var _GRPR = "GetRegistryPolicyRequest";
+    var _GRPRe = "GetRegistryPolicyResponse";
+    var _GRPRet = "GetRepositoryPolicyRequest";
+    var _GRPRete = "GetRepositoryPolicyResponse";
+    var _GRPe = "GetRepositoryPolicy";
+    var _GRSC = "GetRegistryScanningConfiguration";
+    var _GRSCR = "GetRegistryScanningConfigurationRequest";
+    var _GRSCRe = "GetRegistryScanningConfigurationResponse";
+    var _GSC = "GetSigningConfiguration";
+    var _GSCR = "GetSigningConfigurationRequest";
+    var _GSCRe = "GetSigningConfigurationResponse";
+    var _I = "Image";
+    var _IAE = "ImageArchivedException";
+    var _IAEE = "ImageAlreadyExistsException";
+    var _ID = "ImageDetail";
+    var _IDDNME = "ImageDigestDoesNotMatchException";
+    var _IDL = "ImageDetailList";
+    var _IF = "ImageFailure";
+    var _IFL = "ImageFailureList";
+    var _II = "ImageIdentifier";
+    var _IIL = "ImageIdentifierList";
+    var _IL = "ImageList";
+    var _ILE = "InvalidLayerException";
+    var _ILPE = "InvalidLayerPartException";
+    var _ILU = "InitiateLayerUpload";
+    var _ILUR = "InitiateLayerUploadRequest";
+    var _ILURn = "InitiateLayerUploadResponse";
+    var _INFE = "ImageNotFoundException";
+    var _IPE = "InvalidParameterException";
+    var _IR = "ImageReferrer";
+    var _IRL = "ImageReferrerList";
+    var _IRS = "ImageReplicationStatus";
+    var _IRSL = "ImageReplicationStatusList";
+    var _ISC = "ImageScanningConfiguration";
+    var _ISCUNSE = "ImageStorageClassUpdateNotSupportedException";
+    var _ISF = "ImageScanFinding";
+    var _ISFL = "ImageScanFindingList";
+    var _ISFS = "ImageScanFindingsSummary";
+    var _ISFm = "ImageScanFindings";
+    var _ISS = "ImageScanStatus";
+    var _ISSL = "ImageSigningStatusList";
+    var _ISSm = "ImageSigningStatus";
+    var _ITAEE = "ImageTagAlreadyExistsException";
+    var _ITMEF = "ImageTagMutabilityExclusionFilter";
+    var _ITMEFm = "ImageTagMutabilityExclusionFilters";
+    var _ITPE = "InvalidTagParameterException";
+    var _K2 = "Key";
+    var _KE = "KmsException";
+    var _L = "Layer";
+    var _LAEE = "LayerAlreadyExistsException";
+    var _LEE = "LimitExceededException";
+    var _LF = "LayerFailure";
+    var _LFL = "LayerFailureList";
+    var _LI = "ListImages";
+    var _LIE = "LayerInaccessibleException";
+    var _LIF = "ListImagesFilter";
+    var _LIR = "ListImagesRequest";
+    var _LIRF = "ListImageReferrersFilter";
+    var _LIRR = "ListImageReferrersRequest";
+    var _LIRRi = "ListImageReferrersResponse";
+    var _LIRi = "ListImagesResponse";
+    var _LIRis = "ListImageReferrers";
+    var _LL = "LayerList";
+    var _LNFE = "LayersNotFoundException";
+    var _LPNFE = "LifecyclePolicyNotFoundException";
+    var _LPPF = "LifecyclePolicyPreviewFilter";
+    var _LPPIPE = "LifecyclePolicyPreviewInProgressException";
+    var _LPPNFE = "LifecyclePolicyPreviewNotFoundException";
+    var _LPPR = "LifecyclePolicyPreviewResult";
+    var _LPPRL = "LifecyclePolicyPreviewResultList";
+    var _LPPS = "LifecyclePolicyPreviewSummary";
+    var _LPRA = "LifecyclePolicyRuleAction";
+    var _LPTSE = "LayerPartTooSmallException";
+    var _LPTUE = "ListPullTimeUpdateExclusions";
+    var _LPTUER = "ListPullTimeUpdateExclusionsRequest";
+    var _LPTUERi = "ListPullTimeUpdateExclusionsResponse";
+    var _LTFR = "ListTagsForResource";
+    var _LTFRR = "ListTagsForResourceRequest";
+    var _LTFRRi = "ListTagsForResourceResponse";
+    var _PAS = "PutAccountSetting";
+    var _PASR = "PutAccountSettingRequest";
+    var _PASRu = "PutAccountSettingResponse";
+    var _PI2 = "PutImage";
+    var _PIR = "PutImageRequest";
+    var _PIRu = "PutImageResponse";
+    var _PISC = "PutImageScanningConfiguration";
+    var _PISCR = "PutImageScanningConfigurationRequest";
+    var _PISCRu = "PutImageScanningConfigurationResponse";
+    var _PITM = "PutImageTagMutability";
+    var _PITMR = "PutImageTagMutabilityRequest";
+    var _PITMRu = "PutImageTagMutabilityResponse";
+    var _PLP = "PutLifecyclePolicy";
+    var _PLPR = "PutLifecyclePolicyRequest";
+    var _PLPRu = "PutLifecyclePolicyResponse";
+    var _PRC = "PutReplicationConfiguration";
+    var _PRCR = "PutReplicationConfigurationRequest";
+    var _PRCRu = "PutReplicationConfigurationResponse";
+    var _PRP = "PutRegistryPolicy";
+    var _PRPR = "PutRegistryPolicyRequest";
+    var _PRPRu = "PutRegistryPolicyResponse";
+    var _PRSC = "PutRegistryScanningConfiguration";
+    var _PRSCR = "PutRegistryScanningConfigurationRequest";
+    var _PRSCRu = "PutRegistryScanningConfigurationResponse";
+    var _PSC = "PutSigningConfiguration";
+    var _PSCR = "PutSigningConfigurationRequest";
+    var _PSCRu = "PutSigningConfigurationResponse";
+    var _PTCR = "PullThroughCacheRule";
+    var _PTCRAEE = "PullThroughCacheRuleAlreadyExistsException";
+    var _PTCRL = "PullThroughCacheRuleList";
+    var _PTCRNFE = "PullThroughCacheRuleNotFoundException";
+    var _PVD = "PackageVulnerabilityDetails";
+    var _R = "Recommendation";
+    var _RAEE = "RepositoryAlreadyExistsException";
+    var _RC2 = "ReplicationConfiguration";
+    var _RCT = "RepositoryCreationTemplate";
+    var _RCTL = "RepositoryCreationTemplateList";
+    var _RD = "ReplicationDestination";
+    var _RDL = "ReplicationDestinationList";
+    var _RDe = "ResourceDetails";
+    var _RF = "RepositoryFilter";
+    var _RFL = "RepositoryFilterList";
+    var _RINFE = "ReferencedImagesNotFoundException";
+    var _RL = "RepositoryList";
+    var _RLe = "ResourceList";
+    var _RNEE = "RepositoryNotEmptyException";
+    var _RNFE2 = "RepositoryNotFoundException";
+    var _RPNFE = "RegistryPolicyNotFoundException";
+    var _RPNFEe = "RepositoryPolicyNotFoundException";
+    var _RPTUE = "RegisterPullTimeUpdateExclusion";
+    var _RPTUER = "RegisterPullTimeUpdateExclusionRequest";
+    var _RPTUERe = "RegisterPullTimeUpdateExclusionResponse";
+    var _RR = "ReplicationRule";
+    var _RRL = "ReplicationRuleList";
+    var _RSC = "RegistryScanningConfiguration";
+    var _RSCF = "RepositoryScanningConfigurationFailure";
+    var _RSCFL = "RepositoryScanningConfigurationFailureList";
+    var _RSCL = "RepositoryScanningConfigurationList";
+    var _RSCe = "RepositoryScanningConfiguration";
+    var _RSR = "RegistryScanningRule";
+    var _RSRL = "RegistryScanningRuleList";
+    var _Re = "Remediation";
+    var _Rep = "Repository";
+    var _Res = "Resource";
+    var _SC = "SigningConfiguration";
+    var _SCNFE = "SigningConfigurationNotFoundException";
+    var _SD = "ScoreDetails";
+    var _SE = "ServerException";
+    var _SI2 = "SubjectIdentifier";
+    var _SIS = "StartImageScan";
+    var _SISR = "StartImageScanRequest";
+    var _SISRt = "StartImageScanResponse";
+    var _SLPP = "StartLifecyclePolicyPreview";
+    var _SLPPR = "StartLifecyclePolicyPreviewRequest";
+    var _SLPPRt = "StartLifecyclePolicyPreviewResponse";
+    var _SNFE = "ScanNotFoundException";
+    var _SNFEe = "SecretNotFoundException";
+    var _SR = "SigningRule";
+    var _SRF = "ScanningRepositoryFilter";
+    var _SRFL = "ScanningRepositoryFilterList";
+    var _SRFLi = "SigningRepositoryFilterList";
+    var _SRFi = "SigningRepositoryFilter";
+    var _SRL = "SigningRuleList";
+    var _SRP = "SetRepositoryPolicy";
+    var _SRPR = "SetRepositoryPolicyRequest";
+    var _SRPRe = "SetRepositoryPolicyResponse";
+    var _T2 = "Tag";
+    var _TAEE = "TemplateAlreadyExistsException";
+    var _TITC = "TransitioningImageTotalCount";
+    var _TITCr = "TransitioningImageTotalCounts";
+    var _TL = "TagList";
+    var _TMTE = "TooManyTagsException";
+    var _TNFE = "TemplateNotFoundException";
+    var _TR = "TagResource";
+    var _TRR = "TagResourceRequest";
+    var _TRRa = "TagResourceResponse";
+    var _UISC = "UpdateImageStorageClass";
+    var _UISCR = "UpdateImageStorageClassRequest";
+    var _UISCRp = "UpdateImageStorageClassResponse";
+    var _UITE = "UnsupportedImageTypeException";
+    var _ULP = "UploadLayerPart";
+    var _ULPR = "UploadLayerPartRequest";
+    var _ULPRp = "UploadLayerPartResponse";
+    var _UNFE = "UploadNotFoundException";
+    var _UPTCR = "UpdatePullThroughCacheRule";
+    var _UPTCRR = "UpdatePullThroughCacheRuleRequest";
+    var _UPTCRRp = "UpdatePullThroughCacheRuleResponse";
+    var _UR = "UntagResource";
+    var _URCT = "UpdateRepositoryCreationTemplate";
+    var _URCTR = "UpdateRepositoryCreationTemplateRequest";
+    var _URCTRp = "UpdateRepositoryCreationTemplateResponse";
+    var _URR = "UntagResourceRequest";
+    var _URRn = "UntagResourceResponse";
+    var _UTASE = "UnableToAccessSecretException";
+    var _UTDSVE = "UnableToDecryptSecretValueException";
+    var _UTGUIE = "UnableToGetUpstreamImageException";
+    var _UTGULE = "UnableToGetUpstreamLayerException";
+    var _UTLUIRE = "UnableToListUpstreamImageReferrersException";
+    var _UURE = "UnsupportedUpstreamRegistryException";
+    var _V2 = "Value";
+    var _VE2 = "ValidationException";
+    var _VP = "VulnerablePackage";
+    var _VPL = "VulnerablePackagesList";
+    var _VPTCR = "ValidatePullThroughCacheRule";
+    var _VPTCRR = "ValidatePullThroughCacheRuleRequest";
+    var _VPTCRRa = "ValidatePullThroughCacheRuleResponse";
+    var _a2 = "architecture";
+    var _aAI = "awsAccountId";
+    var _aD = "authorizationData";
+    var _aECI = "awsEcrContainerImage";
+    var _aF = "appliedFor";
+    var _aMT = "acceptedMediaTypes";
+    var _aMTr = "artifactMediaType";
+    var _aRP = "appliedRulePriority";
+    var _aS = "artifactStatus";
+    var _aSF = "appliedScanFilters";
+    var _aT4 = "authorizationToken";
+    var _aTr = "artifactType";
+    var _aTrt = "artifactTypes";
+    var _ac = "action";
+    var _ad = "adjustments";
+    var _an = "annotations";
+    var _ar = "arch";
+    var _at2 = "attributes";
+    var _au = "author";
+    var _bS = "baseScore";
+    var _c5 = "client";
+    var _cA = "credentialArn";
+    var _cAr = "createdAt";
+    var _cRA = "customRoleArn";
+    var _cv = "cvss";
+    var _d = "description";
+    var _dU = "downloadUrl";
+    var _de = "destinations";
+    var _det = "details";
+    var _di = "digest";
+    var _e5 = "error";
+    var _eA = "expiresAt";
+    var _eAx = "exploitAvailable";
+    var _eC = "encryptionConfiguration";
+    var _eF = "enhancedFindings";
+    var _eITC = "expiringImageTotalCount";
+    var _eRP = "ecrRepositoryPrefix";
+    var _eRPc = "ecrRepositoryPrefixes";
+    var _eT = "encryptionType";
+    var _ep = "epoch";
+    var _f = "failures";
+    var _fA = "findingArn";
+    var _fAi = "fixAvailable";
+    var _fC = "failureCode";
+    var _fIV = "fixedInVersion";
+    var _fOA = "firstObservedAt";
+    var _fP = "filePath";
+    var _fR = "failureReason";
+    var _fSC = "findingSeverityCounts";
+    var _fT = "filterType";
+    var _fa = "failure";
+    var _fi = "filter";
+    var _fin = "findings";
+    var _fo = "force";
+    var _hE5 = "httpError";
+    var _i = "images";
+    var _iD = "imageDetails";
+    var _iDm = "imageDigest";
+    var _iH = "imageHash";
+    var _iI = "imageIds";
+    var _iIm = "imageId";
+    var _iM = "imageManifest";
+    var _iMMT = "imageManifestMediaType";
+    var _iPA = "imagePushedAt";
+    var _iS = "imageStatus";
+    var _iSC = "imageScanningConfiguration";
+    var _iSCA = "imageScanCompletedAt";
+    var _iSF = "imageScanFindings";
+    var _iSFS = "imageScanFindingsSummary";
+    var _iSIB = "imageSizeInBytes";
+    var _iSS = "imageScanStatus";
+    var _iT3 = "imageTags";
+    var _iTC = "imageTotalCount";
+    var _iTM = "imageTagMutability";
+    var _iTMEF = "imageTagMutabilityExclusionFilters";
+    var _iTm = "imageTag";
+    var _iUC = "inUseCount";
+    var _iV = "isValid";
+    var _id = "id";
+    var _im = "image";
+    var _k = "key";
+    var _kE = "kmsError";
+    var _kK = "kmsKey";
+    var _l = "layers";
+    var _lA = "layerAvailability";
+    var _lAA = "lastArchivedAt";
+    var _lAAa = "lastActivatedAt";
+    var _lBR = "lastByteReceived";
+    var _lD = "layerDigests";
+    var _lDa = "layerDigest";
+    var _lEA = "lastEvaluatedAt";
+    var _lIUA = "lastInUseAt";
+    var _lOA = "lastObservedAt";
+    var _lP = "lifecyclePolicy";
+    var _lPB = "layerPartBlob";
+    var _lPT = "lifecyclePolicyText";
+    var _lRPT = "lastRecordedPullTime";
+    var _lS = "layerSize";
+    var _lVBR = "lastValidByteReceived";
+    var _m4 = "message";
+    var _mR = "maxResults";
+    var _mT = "mediaType";
+    var _me = "metric";
+    var _n = "name";
+    var _nT = "nextToken";
+    var _p = "platform";
+    var _pA = "pushedAt";
+    var _pAr = "principalArn";
+    var _pE = "proxyEndpoint";
+    var _pFB = "partFirstByte";
+    var _pLB = "partLastByte";
+    var _pM = "packageManager";
+    var _pR = "previewResults";
+    var _pS = "partSize";
+    var _pT = "policyText";
+    var _pTCR = "pullThroughCacheRules";
+    var _pTUE = "pullTimeUpdateExclusions";
+    var _pVD = "packageVulnerabilityDetails";
+    var _pr = "prefix";
+    var _pre = "prefixes";
+    var _r3 = "registry";
+    var _rA = "resourceArn";
+    var _rAe = "repositoryArn";
+    var _rC2 = "replicationConfiguration";
+    var _rCT = "repositoryCreationTemplate";
+    var _rCTe = "repositoryCreationTemplates";
+    var _rF = "repositoryFilters";
+    var _rI = "registryId";
+    var _rIe = "registryIds";
+    var _rN2 = "repositoryName";
+    var _rNe = "repositoryNames";
+    var _rP = "repositoryPolicy";
+    var _rS = "replicationStatuses";
+    var _rSC = "registryScanningConfiguration";
+    var _rT3 = "resourceTags";
+    var _rU3 = "referenceUrls";
+    var _rUe = "repositoryUri";
+    var _rV = "relatedVulnerabilities";
+    var _re = "repository";
+    var _rea = "reason";
+    var _rec = "recommendation";
+    var _ref = "referrers";
+    var _reg = "region";
+    var _rel = "release";
+    var _rem = "remediation";
+    var _rep = "repositories";
+    var _res = "resources";
+    var _ru = "rules";
+    var _s5 = "smithy.ts.sdk.synthetic.com.amazonaws.ecr";
+    var _sC = "scanningConfigurations";
+    var _sCc = "scanningConfiguration";
+    var _sCi = "signingConfiguration";
+    var _sCt = "storageClass";
+    var _sD = "scoreDetails";
+    var _sF = "scanFrequency";
+    var _sI = "subjectId";
+    var _sLH = "sourceLayerHash";
+    var _sMD = "subjectManifestDigest";
+    var _sOP = "scanOnPush";
+    var _sPA = "signingProfileArn";
+    var _sS = "scoreSource";
+    var _sSi = "signingStatuses";
+    var _sT3 = "scanType";
+    var _sU = "sourceUrl";
+    var _sV = "scoringVector";
+    var _sc2 = "score";
+    var _se3 = "server";
+    var _sev = "severity";
+    var _si = "size";
+    var _so = "source";
+    var _st = "status";
+    var _su = "summary";
+    var _t = "tags";
+    var _tITC = "transitioningImageTotalCounts";
+    var _tK = "tagKeys";
+    var _tS = "tagStatus";
+    var _tSC = "targetStorageClass";
+    var _te = "text";
+    var _ti = "title";
+    var _ty = "type";
+    var _u = "uri";
+    var _uA = "updatedAt";
+    var _uI = "uploadId";
+    var _uR = "upstreamRegistry";
+    var _uRP = "upstreamRepositoryPrefix";
+    var _uRU = "upstreamRegistryUrl";
+    var _ur = "url";
+    var _v = "value";
+    var _vCA = "vendorCreatedAt";
+    var _vI = "vulnerabilityId";
+    var _vP = "vulnerablePackages";
+    var _vS = "vendorSeverity";
+    var _vSUA = "vulnerabilitySourceUpdatedAt";
+    var _vUA = "vendorUpdatedAt";
+    var _ve = "version";
+    var n05 = "com.amazonaws.ecr";
+    var _s_registry5 = TypeRegistry2.for(_s5);
+    var ECRServiceException$ = [-3, _s5, "ECRServiceException", 0, [], []];
+    _s_registry5.registerError(ECRServiceException$, ECRServiceException);
+    var n0_registry5 = TypeRegistry2.for(n05);
+    var BlockedByOrganizationPolicyException$ = [
+      -3,
+      n05,
+      _BBOPE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(BlockedByOrganizationPolicyException$, BlockedByOrganizationPolicyException);
+    var EmptyUploadException$ = [
+      -3,
+      n05,
+      _EUE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(EmptyUploadException$, EmptyUploadException);
+    var ExclusionAlreadyExistsException$ = [
+      -3,
+      n05,
+      _EAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ExclusionAlreadyExistsException$, ExclusionAlreadyExistsException);
+    var ExclusionNotFoundException$ = [
+      -3,
+      n05,
+      _ENFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ExclusionNotFoundException$, ExclusionNotFoundException);
+    var ImageAlreadyExistsException$ = [
+      -3,
+      n05,
+      _IAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ImageAlreadyExistsException$, ImageAlreadyExistsException);
+    var ImageArchivedException$ = [
+      -3,
+      n05,
+      _IAE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ImageArchivedException$, ImageArchivedException);
+    var ImageDigestDoesNotMatchException$ = [
+      -3,
+      n05,
+      _IDDNME,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ImageDigestDoesNotMatchException$, ImageDigestDoesNotMatchException);
+    var ImageNotFoundException$ = [
+      -3,
+      n05,
+      _INFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException);
+    var ImageStorageClassUpdateNotSupportedException$ = [
+      -3,
+      n05,
+      _ISCUNSE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ImageStorageClassUpdateNotSupportedException$, ImageStorageClassUpdateNotSupportedException);
+    var ImageTagAlreadyExistsException$ = [
+      -3,
+      n05,
+      _ITAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ImageTagAlreadyExistsException$, ImageTagAlreadyExistsException);
+    var InvalidLayerException$ = [
+      -3,
+      n05,
+      _ILE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(InvalidLayerException$, InvalidLayerException);
+    var InvalidLayerPartException$ = [
+      -3,
+      n05,
+      _ILPE,
+      { [_e5]: _c5 },
+      [_rI, _rN2, _uI, _lVBR, _m4],
+      [0, 0, 0, 1, 0]
+    ];
+    n0_registry5.registerError(InvalidLayerPartException$, InvalidLayerPartException);
+    var InvalidParameterException$ = [
+      -3,
+      n05,
+      _IPE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(InvalidParameterException$, InvalidParameterException);
+    var InvalidTagParameterException$ = [
+      -3,
+      n05,
+      _ITPE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(InvalidTagParameterException$, InvalidTagParameterException);
+    var KmsException$ = [
+      -3,
+      n05,
+      _KE,
+      { [_e5]: _c5 },
+      [_m4, _kE],
+      [0, 0]
+    ];
+    n0_registry5.registerError(KmsException$, KmsException);
+    var LayerAlreadyExistsException$ = [
+      -3,
+      n05,
+      _LAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LayerAlreadyExistsException$, LayerAlreadyExistsException);
+    var LayerInaccessibleException$ = [
+      -3,
+      n05,
+      _LIE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LayerInaccessibleException$, LayerInaccessibleException);
+    var LayerPartTooSmallException$ = [
+      -3,
+      n05,
+      _LPTSE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LayerPartTooSmallException$, LayerPartTooSmallException);
+    var LayersNotFoundException$ = [
+      -3,
+      n05,
+      _LNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LayersNotFoundException$, LayersNotFoundException);
+    var LifecyclePolicyNotFoundException$ = [
+      -3,
+      n05,
+      _LPNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LifecyclePolicyNotFoundException$, LifecyclePolicyNotFoundException);
+    var LifecyclePolicyPreviewInProgressException$ = [
+      -3,
+      n05,
+      _LPPIPE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LifecyclePolicyPreviewInProgressException$, LifecyclePolicyPreviewInProgressException);
+    var LifecyclePolicyPreviewNotFoundException$ = [
+      -3,
+      n05,
+      _LPPNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LifecyclePolicyPreviewNotFoundException$, LifecyclePolicyPreviewNotFoundException);
+    var LimitExceededException$ = [
+      -3,
+      n05,
+      _LEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(LimitExceededException$, LimitExceededException);
+    var PullThroughCacheRuleAlreadyExistsException$ = [
+      -3,
+      n05,
+      _PTCRAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(PullThroughCacheRuleAlreadyExistsException$, PullThroughCacheRuleAlreadyExistsException);
+    var PullThroughCacheRuleNotFoundException$ = [
+      -3,
+      n05,
+      _PTCRNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(PullThroughCacheRuleNotFoundException$, PullThroughCacheRuleNotFoundException);
+    var ReferencedImagesNotFoundException$ = [
+      -3,
+      n05,
+      _RINFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ReferencedImagesNotFoundException$, ReferencedImagesNotFoundException);
+    var RegistryPolicyNotFoundException$ = [
+      -3,
+      n05,
+      _RPNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(RegistryPolicyNotFoundException$, RegistryPolicyNotFoundException);
+    var RepositoryAlreadyExistsException$ = [
+      -3,
+      n05,
+      _RAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(RepositoryAlreadyExistsException$, RepositoryAlreadyExistsException);
+    var RepositoryNotEmptyException$ = [
+      -3,
+      n05,
+      _RNEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(RepositoryNotEmptyException$, RepositoryNotEmptyException);
+    var RepositoryNotFoundException$ = [
+      -3,
+      n05,
+      _RNFE2,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException);
+    var RepositoryPolicyNotFoundException$ = [
+      -3,
+      n05,
+      _RPNFEe,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(RepositoryPolicyNotFoundException$, RepositoryPolicyNotFoundException);
+    var ScanNotFoundException$ = [
+      -3,
+      n05,
+      _SNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ScanNotFoundException$, ScanNotFoundException);
+    var SecretNotFoundException$ = [
+      -3,
+      n05,
+      _SNFEe,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(SecretNotFoundException$, SecretNotFoundException);
+    var ServerException$ = [
+      -3,
+      n05,
+      _SE,
+      { [_e5]: _se3 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ServerException$, ServerException);
+    var SigningConfigurationNotFoundException$ = [
+      -3,
+      n05,
+      _SCNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(SigningConfigurationNotFoundException$, SigningConfigurationNotFoundException);
+    var TemplateAlreadyExistsException$ = [
+      -3,
+      n05,
+      _TAEE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(TemplateAlreadyExistsException$, TemplateAlreadyExistsException);
+    var TemplateNotFoundException$ = [
+      -3,
+      n05,
+      _TNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(TemplateNotFoundException$, TemplateNotFoundException);
+    var TooManyTagsException$ = [
+      -3,
+      n05,
+      _TMTE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(TooManyTagsException$, TooManyTagsException);
+    var UnableToAccessSecretException$ = [
+      -3,
+      n05,
+      _UTASE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnableToAccessSecretException$, UnableToAccessSecretException);
+    var UnableToDecryptSecretValueException$ = [
+      -3,
+      n05,
+      _UTDSVE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnableToDecryptSecretValueException$, UnableToDecryptSecretValueException);
+    var UnableToGetUpstreamImageException$ = [
+      -3,
+      n05,
+      _UTGUIE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnableToGetUpstreamImageException$, UnableToGetUpstreamImageException);
+    var UnableToGetUpstreamLayerException$ = [
+      -3,
+      n05,
+      _UTGULE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnableToGetUpstreamLayerException$, UnableToGetUpstreamLayerException);
+    var UnableToListUpstreamImageReferrersException$ = [
+      -3,
+      n05,
+      _UTLUIRE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnableToListUpstreamImageReferrersException$, UnableToListUpstreamImageReferrersException);
+    var UnsupportedImageTypeException$ = [
+      -3,
+      n05,
+      _UITE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnsupportedImageTypeException$, UnsupportedImageTypeException);
+    var UnsupportedUpstreamRegistryException$ = [
+      -3,
+      n05,
+      _UURE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UnsupportedUpstreamRegistryException$, UnsupportedUpstreamRegistryException);
+    var UploadNotFoundException$ = [
+      -3,
+      n05,
+      _UNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(UploadNotFoundException$, UploadNotFoundException);
+    var ValidationException$2 = [
+      -3,
+      n05,
+      _VE2,
+      { [_e5]: _c5, [_hE5]: 400 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ValidationException$2, ValidationException2);
+    var errorTypeRegistries5 = [
+      _s_registry5,
+      n0_registry5
+    ];
+    var Attribute$ = [
+      3,
+      n05,
+      _A2,
+      0,
+      [_k, _v],
+      [0, 0],
+      1
+    ];
+    var AuthorizationData$ = [
+      3,
+      n05,
+      _AD,
+      0,
+      [_aT4, _eA, _pE],
+      [0, 4, 0]
+    ];
+    var AwsEcrContainerImageDetails$ = [
+      3,
+      n05,
+      _AECID,
+      0,
+      [_a2, _au, _iH, _iT3, _p, _pA, _lIUA, _iUC, _r3, _rN2],
+      [0, 0, 0, 64 | 0, 0, 4, 4, 1, 0, 0]
+    ];
+    var BatchCheckLayerAvailabilityRequest$ = [
+      3,
+      n05,
+      _BCLAR,
+      0,
+      [_rN2, _lD, _rI],
+      [0, 64 | 0, 0],
+      2
+    ];
+    var BatchCheckLayerAvailabilityResponse$ = [
+      3,
+      n05,
+      _BCLARa,
+      0,
+      [_l, _f],
+      [() => LayerList, () => LayerFailureList]
+    ];
+    var BatchDeleteImageRequest$ = [
+      3,
+      n05,
+      _BDIR,
+      0,
+      [_rN2, _iI, _rI],
+      [0, () => ImageIdentifierList, 0],
+      2
+    ];
+    var BatchDeleteImageResponse$ = [
+      3,
+      n05,
+      _BDIRa,
+      0,
+      [_iI, _f],
+      [() => ImageIdentifierList, () => ImageFailureList]
+    ];
+    var BatchGetImageRequest$ = [
+      3,
+      n05,
+      _BGIR,
+      0,
+      [_rN2, _iI, _rI, _aMT],
+      [0, () => ImageIdentifierList, 0, 64 | 0],
+      2
+    ];
+    var BatchGetImageResponse$ = [
+      3,
+      n05,
+      _BGIRa,
+      0,
+      [_i, _f],
+      [() => ImageList, () => ImageFailureList]
+    ];
+    var BatchGetRepositoryScanningConfigurationRequest$ = [
+      3,
+      n05,
+      _BGRSCR,
+      0,
+      [_rNe],
+      [64 | 0],
+      1
+    ];
+    var BatchGetRepositoryScanningConfigurationResponse$ = [
+      3,
+      n05,
+      _BGRSCRa,
+      0,
+      [_sC, _f],
+      [() => RepositoryScanningConfigurationList, () => RepositoryScanningConfigurationFailureList]
+    ];
+    var CompleteLayerUploadRequest$ = [
+      3,
+      n05,
+      _CLUR,
+      0,
+      [_rN2, _uI, _lD, _rI],
+      [0, 0, 64 | 0, 0],
+      3
+    ];
+    var CompleteLayerUploadResponse$ = [
+      3,
+      n05,
+      _CLURo,
+      0,
+      [_rI, _rN2, _uI, _lDa],
+      [0, 0, 0, 0]
+    ];
+    var CreatePullThroughCacheRuleRequest$ = [
+      3,
+      n05,
+      _CPTCRR,
+      0,
+      [_eRP, _uRU, _rI, _uR, _cA, _cRA, _uRP],
+      [0, 0, 0, 0, 0, 0, 0],
+      2
+    ];
+    var CreatePullThroughCacheRuleResponse$ = [
+      3,
+      n05,
+      _CPTCRRr,
+      0,
+      [_eRP, _uRU, _cAr, _rI, _uR, _cA, _cRA, _uRP],
+      [0, 0, 4, 0, 0, 0, 0, 0]
+    ];
+    var CreateRepositoryCreationTemplateRequest$ = [
+      3,
+      n05,
+      _CRCTR,
+      0,
+      [_pr, _aF, _d, _eC, _rT3, _iTM, _iTMEF, _rP, _lP, _cRA],
+      [0, 64 | 0, 0, () => EncryptionConfigurationForRepositoryCreationTemplate$, () => TagList, 0, () => ImageTagMutabilityExclusionFilters, 0, 0, 0],
+      2
+    ];
+    var CreateRepositoryCreationTemplateResponse$ = [
+      3,
+      n05,
+      _CRCTRr,
+      0,
+      [_rI, _rCT],
+      [0, () => RepositoryCreationTemplate$]
+    ];
+    var CreateRepositoryRequest$ = [
+      3,
+      n05,
+      _CRR,
+      0,
+      [_rN2, _rI, _t, _iTM, _iTMEF, _iSC, _eC],
+      [0, 0, () => TagList, 0, () => ImageTagMutabilityExclusionFilters, () => ImageScanningConfiguration$, () => EncryptionConfiguration$],
+      1
+    ];
+    var CreateRepositoryResponse$ = [
+      3,
+      n05,
+      _CRRr,
+      0,
+      [_re],
+      [() => Repository$]
+    ];
+    var CvssScore$ = [
+      3,
+      n05,
+      _CS2,
+      0,
+      [_bS, _sV, _so, _ve],
+      [1, 0, 0, 0]
+    ];
+    var CvssScoreAdjustment$ = [
+      3,
+      n05,
+      _CSA,
+      0,
+      [_me, _rea],
+      [0, 0]
+    ];
+    var CvssScoreDetails$ = [
+      3,
+      n05,
+      _CSD,
+      0,
+      [_ad, _sc2, _sS, _sV, _ve],
+      [() => CvssScoreAdjustmentList, 1, 0, 0, 0]
+    ];
+    var DeleteLifecyclePolicyRequest$ = [
+      3,
+      n05,
+      _DLPR,
+      0,
+      [_rN2, _rI],
+      [0, 0],
+      1
+    ];
+    var DeleteLifecyclePolicyResponse$ = [
+      3,
+      n05,
+      _DLPRe,
+      0,
+      [_rI, _rN2, _lPT, _lEA],
+      [0, 0, 0, 4]
+    ];
+    var DeletePullThroughCacheRuleRequest$ = [
+      3,
+      n05,
+      _DPTCRR,
+      0,
+      [_eRP, _rI],
+      [0, 0],
+      1
+    ];
+    var DeletePullThroughCacheRuleResponse$ = [
+      3,
+      n05,
+      _DPTCRRe,
+      0,
+      [_eRP, _uRU, _cAr, _rI, _cA, _cRA, _uRP],
+      [0, 0, 4, 0, 0, 0, 0]
+    ];
+    var DeleteRegistryPolicyRequest$ = [
+      3,
+      n05,
+      _DRPR,
+      0,
+      [],
+      []
+    ];
+    var DeleteRegistryPolicyResponse$ = [
+      3,
+      n05,
+      _DRPRe,
+      0,
+      [_rI, _pT],
+      [0, 0]
+    ];
+    var DeleteRepositoryCreationTemplateRequest$ = [
+      3,
+      n05,
+      _DRCTR,
+      0,
+      [_pr],
+      [0],
+      1
+    ];
+    var DeleteRepositoryCreationTemplateResponse$ = [
+      3,
+      n05,
+      _DRCTRe,
+      0,
+      [_rI, _rCT],
+      [0, () => RepositoryCreationTemplate$]
+    ];
+    var DeleteRepositoryPolicyRequest$ = [
+      3,
+      n05,
+      _DRPRel,
+      0,
+      [_rN2, _rI],
+      [0, 0],
+      1
+    ];
+    var DeleteRepositoryPolicyResponse$ = [
+      3,
+      n05,
+      _DRPRele,
+      0,
+      [_rI, _rN2, _pT],
+      [0, 0, 0]
+    ];
+    var DeleteRepositoryRequest$ = [
+      3,
+      n05,
+      _DRR,
+      0,
+      [_rN2, _rI, _fo],
+      [0, 0, 2],
+      1
+    ];
+    var DeleteRepositoryResponse$ = [
+      3,
+      n05,
+      _DRRe,
+      0,
+      [_re],
+      [() => Repository$]
+    ];
+    var DeleteSigningConfigurationRequest$ = [
+      3,
+      n05,
+      _DSCR,
+      0,
+      [],
+      []
+    ];
+    var DeleteSigningConfigurationResponse$ = [
+      3,
+      n05,
+      _DSCRe,
+      0,
+      [_rI, _sCi],
+      [0, () => SigningConfiguration$]
+    ];
+    var DeregisterPullTimeUpdateExclusionRequest$ = [
+      3,
+      n05,
+      _DPTUER,
+      0,
+      [_pAr],
+      [0],
+      1
+    ];
+    var DeregisterPullTimeUpdateExclusionResponse$ = [
+      3,
+      n05,
+      _DPTUERe,
+      0,
+      [_pAr],
+      [0]
+    ];
+    var DescribeImageReplicationStatusRequest$ = [
+      3,
+      n05,
+      _DIRSR,
+      0,
+      [_rN2, _iIm, _rI],
+      [0, () => ImageIdentifier$, 0],
+      2
+    ];
+    var DescribeImageReplicationStatusResponse$ = [
+      3,
+      n05,
+      _DIRSRe,
+      0,
+      [_rN2, _iIm, _rS],
+      [0, () => ImageIdentifier$, () => ImageReplicationStatusList]
+    ];
+    var DescribeImageScanFindingsRequest$ = [
+      3,
+      n05,
+      _DISFR,
+      0,
+      [_rN2, _iIm, _rI, _nT, _mR],
+      [0, () => ImageIdentifier$, 0, 0, 1],
+      2
+    ];
+    var DescribeImageScanFindingsResponse$ = [
+      3,
+      n05,
+      _DISFRe,
+      0,
+      [_rI, _rN2, _iIm, _iSS, _iSF, _nT],
+      [0, 0, () => ImageIdentifier$, () => ImageScanStatus$, () => ImageScanFindings$, 0]
+    ];
+    var DescribeImagesFilter$ = [
+      3,
+      n05,
+      _DIF,
+      0,
+      [_tS, _iS],
+      [0, 0]
+    ];
+    var DescribeImageSigningStatusRequest$ = [
+      3,
+      n05,
+      _DISSR,
+      0,
+      [_rN2, _iIm, _rI],
+      [0, () => ImageIdentifier$, 0],
+      2
+    ];
+    var DescribeImageSigningStatusResponse$ = [
+      3,
+      n05,
+      _DISSRe,
+      0,
+      [_rN2, _iIm, _rI, _sSi],
+      [0, () => ImageIdentifier$, 0, () => ImageSigningStatusList]
+    ];
+    var DescribeImagesRequest$ = [
+      3,
+      n05,
+      _DIR,
+      0,
+      [_rN2, _rI, _iI, _nT, _mR, _fi],
+      [0, 0, () => ImageIdentifierList, 0, 1, () => DescribeImagesFilter$],
+      1
+    ];
+    var DescribeImagesResponse$ = [
+      3,
+      n05,
+      _DIRe,
+      0,
+      [_iD, _nT],
+      [() => ImageDetailList, 0]
+    ];
+    var DescribePullThroughCacheRulesRequest$ = [
+      3,
+      n05,
+      _DPTCRRes,
+      0,
+      [_rI, _eRPc, _nT, _mR],
+      [0, 64 | 0, 0, 1]
+    ];
+    var DescribePullThroughCacheRulesResponse$ = [
+      3,
+      n05,
+      _DPTCRResc,
+      0,
+      [_pTCR, _nT],
+      [() => PullThroughCacheRuleList, 0]
+    ];
+    var DescribeRegistryRequest$ = [
+      3,
+      n05,
+      _DRRes,
+      0,
+      [],
+      []
+    ];
+    var DescribeRegistryResponse$ = [
+      3,
+      n05,
+      _DRResc,
+      0,
+      [_rI, _rC2],
+      [0, () => ReplicationConfiguration$]
+    ];
+    var DescribeRepositoriesRequest$ = [
+      3,
+      n05,
+      _DRRescr,
+      0,
+      [_rI, _rNe, _nT, _mR],
+      [0, 64 | 0, 0, 1]
+    ];
+    var DescribeRepositoriesResponse$ = [
+      3,
+      n05,
+      _DRRescri,
+      0,
+      [_rep, _nT],
+      [() => RepositoryList, 0]
+    ];
+    var DescribeRepositoryCreationTemplatesRequest$ = [
+      3,
+      n05,
+      _DRCTRes,
+      0,
+      [_pre, _nT, _mR],
+      [64 | 0, 0, 1]
+    ];
+    var DescribeRepositoryCreationTemplatesResponse$ = [
+      3,
+      n05,
+      _DRCTResc,
+      0,
+      [_rI, _rCTe, _nT],
+      [0, () => RepositoryCreationTemplateList, 0]
+    ];
+    var EncryptionConfiguration$ = [
+      3,
+      n05,
+      _EC,
+      0,
+      [_eT, _kK],
+      [0, 0],
+      1
+    ];
+    var EncryptionConfigurationForRepositoryCreationTemplate$ = [
+      3,
+      n05,
+      _ECFRCT,
+      0,
+      [_eT, _kK],
+      [0, 0],
+      1
+    ];
+    var EnhancedImageScanFinding$ = [
+      3,
+      n05,
+      _EISF,
+      0,
+      [_aAI, _d, _fA, _fOA, _lOA, _pVD, _rem, _res, _sc2, _sD, _sev, _st, _ti, _ty, _uA, _fAi, _eAx],
+      [0, 0, 0, 4, 4, () => PackageVulnerabilityDetails$, () => Remediation$, () => ResourceList, 1, () => ScoreDetails$, 0, 0, 0, 0, 4, 0, 0]
+    ];
+    var GetAccountSettingRequest$ = [
+      3,
+      n05,
+      _GASR,
+      0,
+      [_n],
+      [0],
+      1
+    ];
+    var GetAccountSettingResponse$ = [
+      3,
+      n05,
+      _GASRe,
+      0,
+      [_n, _v],
+      [0, 0]
+    ];
+    var GetAuthorizationTokenRequest$ = [
+      3,
+      n05,
+      _GATR,
+      0,
+      [_rIe],
+      [64 | 0]
+    ];
+    var GetAuthorizationTokenResponse$ = [
+      3,
+      n05,
+      _GATRe,
+      0,
+      [_aD],
+      [() => AuthorizationDataList]
+    ];
+    var GetDownloadUrlForLayerRequest$ = [
+      3,
+      n05,
+      _GDUFLR,
+      0,
+      [_rN2, _lDa, _rI],
+      [0, 0, 0],
+      2
+    ];
+    var GetDownloadUrlForLayerResponse$ = [
+      3,
+      n05,
+      _GDUFLRe,
+      0,
+      [_dU, _lDa],
+      [0, 0]
+    ];
+    var GetLifecyclePolicyPreviewRequest$ = [
+      3,
+      n05,
+      _GLPPR,
+      0,
+      [_rN2, _rI, _iI, _nT, _mR, _fi],
+      [0, 0, () => ImageIdentifierList, 0, 1, () => LifecyclePolicyPreviewFilter$],
+      1
+    ];
+    var GetLifecyclePolicyPreviewResponse$ = [
+      3,
+      n05,
+      _GLPPRe,
+      0,
+      [_rI, _rN2, _lPT, _st, _nT, _pR, _su],
+      [0, 0, 0, 0, 0, () => LifecyclePolicyPreviewResultList, () => LifecyclePolicyPreviewSummary$]
+    ];
+    var GetLifecyclePolicyRequest$ = [
+      3,
+      n05,
+      _GLPR,
+      0,
+      [_rN2, _rI],
+      [0, 0],
+      1
+    ];
+    var GetLifecyclePolicyResponse$ = [
+      3,
+      n05,
+      _GLPRe,
+      0,
+      [_rI, _rN2, _lPT, _lEA],
+      [0, 0, 0, 4]
+    ];
+    var GetRegistryPolicyRequest$ = [
+      3,
+      n05,
+      _GRPR,
+      0,
+      [],
+      []
+    ];
+    var GetRegistryPolicyResponse$ = [
+      3,
+      n05,
+      _GRPRe,
+      0,
+      [_rI, _pT],
+      [0, 0]
+    ];
+    var GetRegistryScanningConfigurationRequest$ = [
+      3,
+      n05,
+      _GRSCR,
+      0,
+      [],
+      []
+    ];
+    var GetRegistryScanningConfigurationResponse$ = [
+      3,
+      n05,
+      _GRSCRe,
+      0,
+      [_rI, _sCc],
+      [0, () => RegistryScanningConfiguration$]
+    ];
+    var GetRepositoryPolicyRequest$ = [
+      3,
+      n05,
+      _GRPRet,
+      0,
+      [_rN2, _rI],
+      [0, 0],
+      1
+    ];
+    var GetRepositoryPolicyResponse$ = [
+      3,
+      n05,
+      _GRPRete,
+      0,
+      [_rI, _rN2, _pT],
+      [0, 0, 0]
+    ];
+    var GetSigningConfigurationRequest$ = [
+      3,
+      n05,
+      _GSCR,
+      0,
+      [],
+      []
+    ];
+    var GetSigningConfigurationResponse$ = [
+      3,
+      n05,
+      _GSCRe,
+      0,
+      [_rI, _sCi],
+      [0, () => SigningConfiguration$]
+    ];
+    var Image$ = [
+      3,
+      n05,
+      _I,
+      0,
+      [_rI, _rN2, _iIm, _iM, _iMMT],
+      [0, 0, () => ImageIdentifier$, 0, 0]
+    ];
+    var ImageDetail$ = [
+      3,
+      n05,
+      _ID,
+      0,
+      [_rI, _rN2, _iDm, _iT3, _iSIB, _iPA, _iSS, _iSFS, _iMMT, _aMTr, _lRPT, _sMD, _iS, _lAA, _lAAa],
+      [0, 0, 0, 64 | 0, 1, 4, () => ImageScanStatus$, () => ImageScanFindingsSummary$, 0, 0, 4, 0, 0, 4, 4]
+    ];
+    var ImageFailure$ = [
+      3,
+      n05,
+      _IF,
+      0,
+      [_iIm, _fC, _fR],
+      [() => ImageIdentifier$, 0, 0]
+    ];
+    var ImageIdentifier$ = [
+      3,
+      n05,
+      _II,
+      0,
+      [_iDm, _iTm],
+      [0, 0]
+    ];
+    var ImageReferrer$ = [
+      3,
+      n05,
+      _IR,
+      0,
+      [_di, _mT, _si, _aTr, _an, _aS],
+      [0, 0, 1, 0, 128 | 0, 0],
+      3
+    ];
+    var ImageReplicationStatus$ = [
+      3,
+      n05,
+      _IRS,
+      0,
+      [_reg, _rI, _st, _fC],
+      [0, 0, 0, 0]
+    ];
+    var ImageScanFinding$ = [
+      3,
+      n05,
+      _ISF,
+      0,
+      [_n, _d, _u, _sev, _at2],
+      [0, 0, 0, 0, () => AttributeList]
+    ];
+    var ImageScanFindings$ = [
+      3,
+      n05,
+      _ISFm,
+      0,
+      [_iSCA, _vSUA, _fSC, _fin, _eF],
+      [4, 4, 128 | 1, () => ImageScanFindingList, () => EnhancedImageScanFindingList]
+    ];
+    var ImageScanFindingsSummary$ = [
+      3,
+      n05,
+      _ISFS,
+      0,
+      [_iSCA, _vSUA, _fSC],
+      [4, 4, 128 | 1]
+    ];
+    var ImageScanningConfiguration$ = [
+      3,
+      n05,
+      _ISC,
+      0,
+      [_sOP],
+      [2]
+    ];
+    var ImageScanStatus$ = [
+      3,
+      n05,
+      _ISS,
+      0,
+      [_st, _d],
+      [0, 0]
+    ];
+    var ImageSigningStatus$ = [
+      3,
+      n05,
+      _ISSm,
+      0,
+      [_sPA, _fC, _fR, _st],
+      [0, 0, 0, 0]
+    ];
+    var ImageTagMutabilityExclusionFilter$ = [
+      3,
+      n05,
+      _ITMEF,
+      0,
+      [_fT, _fi],
+      [0, 0],
+      2
+    ];
+    var InitiateLayerUploadRequest$ = [
+      3,
+      n05,
+      _ILUR,
+      0,
+      [_rN2, _rI],
+      [0, 0],
+      1
+    ];
+    var InitiateLayerUploadResponse$ = [
+      3,
+      n05,
+      _ILURn,
+      0,
+      [_uI, _pS],
+      [0, 1]
+    ];
+    var Layer$ = [
+      3,
+      n05,
+      _L,
+      0,
+      [_lDa, _lA, _lS, _mT],
+      [0, 0, 1, 0]
+    ];
+    var LayerFailure$ = [
+      3,
+      n05,
+      _LF,
+      0,
+      [_lDa, _fC, _fR],
+      [0, 0, 0]
+    ];
+    var LifecyclePolicyPreviewFilter$ = [
+      3,
+      n05,
+      _LPPF,
+      0,
+      [_tS],
+      [0]
+    ];
+    var LifecyclePolicyPreviewResult$ = [
+      3,
+      n05,
+      _LPPR,
+      0,
+      [_iT3, _iDm, _iPA, _ac, _aRP, _sCt],
+      [64 | 0, 0, 4, () => LifecyclePolicyRuleAction$, 1, 0]
+    ];
+    var LifecyclePolicyPreviewSummary$ = [
+      3,
+      n05,
+      _LPPS,
+      0,
+      [_eITC, _tITC],
+      [1, () => TransitioningImageTotalCounts]
+    ];
+    var LifecyclePolicyRuleAction$ = [
+      3,
+      n05,
+      _LPRA,
+      0,
+      [_ty, _tSC],
+      [0, 0]
+    ];
+    var ListImageReferrersFilter$ = [
+      3,
+      n05,
+      _LIRF,
+      0,
+      [_aTrt, _aS],
+      [64 | 0, 0]
+    ];
+    var ListImageReferrersRequest$ = [
+      3,
+      n05,
+      _LIRR,
+      0,
+      [_rN2, _sI, _rI, _fi, _nT, _mR],
+      [0, () => SubjectIdentifier$, 0, () => ListImageReferrersFilter$, 0, 1],
+      2
+    ];
+    var ListImageReferrersResponse$ = [
+      3,
+      n05,
+      _LIRRi,
+      0,
+      [_ref, _nT],
+      [() => ImageReferrerList, 0]
+    ];
+    var ListImagesFilter$ = [
+      3,
+      n05,
+      _LIF,
+      0,
+      [_tS, _iS],
+      [0, 0]
+    ];
+    var ListImagesRequest$ = [
+      3,
+      n05,
+      _LIR,
+      0,
+      [_rN2, _rI, _nT, _mR, _fi],
+      [0, 0, 0, 1, () => ListImagesFilter$],
+      1
+    ];
+    var ListImagesResponse$ = [
+      3,
+      n05,
+      _LIRi,
+      0,
+      [_iI, _nT],
+      [() => ImageIdentifierList, 0]
+    ];
+    var ListPullTimeUpdateExclusionsRequest$ = [
+      3,
+      n05,
+      _LPTUER,
+      0,
+      [_mR, _nT],
+      [1, 0]
+    ];
+    var ListPullTimeUpdateExclusionsResponse$ = [
+      3,
+      n05,
+      _LPTUERi,
+      0,
+      [_pTUE, _nT],
+      [64 | 0, 0]
+    ];
+    var ListTagsForResourceRequest$ = [
+      3,
+      n05,
+      _LTFRR,
+      0,
+      [_rA],
+      [0],
+      1
+    ];
+    var ListTagsForResourceResponse$ = [
+      3,
+      n05,
+      _LTFRRi,
+      0,
+      [_t],
+      [() => TagList]
+    ];
+    var PackageVulnerabilityDetails$ = [
+      3,
+      n05,
+      _PVD,
+      0,
+      [_cv, _rU3, _rV, _so, _sU, _vCA, _vS, _vUA, _vI, _vP],
+      [() => CvssScoreList, 64 | 0, 64 | 0, 0, 0, 4, 0, 4, 0, () => VulnerablePackagesList]
+    ];
+    var PullThroughCacheRule$ = [
+      3,
+      n05,
+      _PTCR,
+      0,
+      [_eRP, _uRU, _cAr, _rI, _cA, _cRA, _uRP, _uR, _uA],
+      [0, 0, 4, 0, 0, 0, 0, 0, 4]
+    ];
+    var PutAccountSettingRequest$ = [
+      3,
+      n05,
+      _PASR,
+      0,
+      [_n, _v],
+      [0, 0],
+      2
+    ];
+    var PutAccountSettingResponse$ = [
+      3,
+      n05,
+      _PASRu,
+      0,
+      [_n, _v],
+      [0, 0]
+    ];
+    var PutImageRequest$ = [
+      3,
+      n05,
+      _PIR,
+      0,
+      [_rN2, _iM, _rI, _iMMT, _iTm, _iDm],
+      [0, 0, 0, 0, 0, 0],
+      2
+    ];
+    var PutImageResponse$ = [
+      3,
+      n05,
+      _PIRu,
+      0,
+      [_im],
+      [() => Image$]
+    ];
+    var PutImageScanningConfigurationRequest$ = [
+      3,
+      n05,
+      _PISCR,
+      0,
+      [_rN2, _iSC, _rI],
+      [0, () => ImageScanningConfiguration$, 0],
+      2
+    ];
+    var PutImageScanningConfigurationResponse$ = [
+      3,
+      n05,
+      _PISCRu,
+      0,
+      [_rI, _rN2, _iSC],
+      [0, 0, () => ImageScanningConfiguration$]
+    ];
+    var PutImageTagMutabilityRequest$ = [
+      3,
+      n05,
+      _PITMR,
+      0,
+      [_rN2, _iTM, _rI, _iTMEF],
+      [0, 0, 0, () => ImageTagMutabilityExclusionFilters],
+      2
+    ];
+    var PutImageTagMutabilityResponse$ = [
+      3,
+      n05,
+      _PITMRu,
+      0,
+      [_rI, _rN2, _iTM, _iTMEF],
+      [0, 0, 0, () => ImageTagMutabilityExclusionFilters]
+    ];
+    var PutLifecyclePolicyRequest$ = [
+      3,
+      n05,
+      _PLPR,
+      0,
+      [_rN2, _lPT, _rI],
+      [0, 0, 0],
+      2
+    ];
+    var PutLifecyclePolicyResponse$ = [
+      3,
+      n05,
+      _PLPRu,
+      0,
+      [_rI, _rN2, _lPT],
+      [0, 0, 0]
+    ];
+    var PutRegistryPolicyRequest$ = [
+      3,
+      n05,
+      _PRPR,
+      0,
+      [_pT],
+      [0],
+      1
+    ];
+    var PutRegistryPolicyResponse$ = [
+      3,
+      n05,
+      _PRPRu,
+      0,
+      [_rI, _pT],
+      [0, 0]
+    ];
+    var PutRegistryScanningConfigurationRequest$ = [
+      3,
+      n05,
+      _PRSCR,
+      0,
+      [_sT3, _ru],
+      [0, () => RegistryScanningRuleList]
+    ];
+    var PutRegistryScanningConfigurationResponse$ = [
+      3,
+      n05,
+      _PRSCRu,
+      0,
+      [_rSC],
+      [() => RegistryScanningConfiguration$]
+    ];
+    var PutReplicationConfigurationRequest$ = [
+      3,
+      n05,
+      _PRCR,
+      0,
+      [_rC2],
+      [() => ReplicationConfiguration$],
+      1
+    ];
+    var PutReplicationConfigurationResponse$ = [
+      3,
+      n05,
+      _PRCRu,
+      0,
+      [_rC2],
+      [() => ReplicationConfiguration$]
+    ];
+    var PutSigningConfigurationRequest$ = [
+      3,
+      n05,
+      _PSCR,
+      0,
+      [_sCi],
+      [() => SigningConfiguration$],
+      1
+    ];
+    var PutSigningConfigurationResponse$ = [
+      3,
+      n05,
+      _PSCRu,
+      0,
+      [_sCi],
+      [() => SigningConfiguration$]
+    ];
+    var Recommendation$ = [
+      3,
+      n05,
+      _R,
+      0,
+      [_ur, _te],
+      [0, 0]
+    ];
+    var RegisterPullTimeUpdateExclusionRequest$ = [
+      3,
+      n05,
+      _RPTUER,
+      0,
+      [_pAr],
+      [0],
+      1
+    ];
+    var RegisterPullTimeUpdateExclusionResponse$ = [
+      3,
+      n05,
+      _RPTUERe,
+      0,
+      [_pAr, _cAr],
+      [0, 4]
+    ];
+    var RegistryScanningConfiguration$ = [
+      3,
+      n05,
+      _RSC,
+      0,
+      [_sT3, _ru],
+      [0, () => RegistryScanningRuleList]
+    ];
+    var RegistryScanningRule$ = [
+      3,
+      n05,
+      _RSR,
+      0,
+      [_sF, _rF],
+      [0, () => ScanningRepositoryFilterList],
+      2
+    ];
+    var Remediation$ = [
+      3,
+      n05,
+      _Re,
+      0,
+      [_rec],
+      [() => Recommendation$]
+    ];
+    var ReplicationConfiguration$ = [
+      3,
+      n05,
+      _RC2,
+      0,
+      [_ru],
+      [() => ReplicationRuleList],
+      1
+    ];
+    var ReplicationDestination$ = [
+      3,
+      n05,
+      _RD,
+      0,
+      [_reg, _rI],
+      [0, 0],
+      2
+    ];
+    var ReplicationRule$ = [
+      3,
+      n05,
+      _RR,
+      0,
+      [_de, _rF],
+      [() => ReplicationDestinationList, () => RepositoryFilterList],
+      1
+    ];
+    var Repository$ = [
+      3,
+      n05,
+      _Rep,
+      0,
+      [_rAe, _rI, _rN2, _rUe, _cAr, _iTM, _iTMEF, _iSC, _eC],
+      [0, 0, 0, 0, 4, 0, () => ImageTagMutabilityExclusionFilters, () => ImageScanningConfiguration$, () => EncryptionConfiguration$]
+    ];
+    var RepositoryCreationTemplate$ = [
+      3,
+      n05,
+      _RCT,
+      0,
+      [_pr, _d, _eC, _rT3, _iTM, _iTMEF, _rP, _lP, _aF, _cRA, _cAr, _uA],
+      [0, 0, () => EncryptionConfigurationForRepositoryCreationTemplate$, () => TagList, 0, () => ImageTagMutabilityExclusionFilters, 0, 0, 64 | 0, 0, 4, 4]
+    ];
+    var RepositoryFilter$ = [
+      3,
+      n05,
+      _RF,
+      0,
+      [_fi, _fT],
+      [0, 0],
+      2
+    ];
+    var RepositoryScanningConfiguration$ = [
+      3,
+      n05,
+      _RSCe,
+      0,
+      [_rAe, _rN2, _sOP, _sF, _aSF],
+      [0, 0, 2, 0, () => ScanningRepositoryFilterList]
+    ];
+    var RepositoryScanningConfigurationFailure$ = [
+      3,
+      n05,
+      _RSCF,
+      0,
+      [_rN2, _fC, _fR],
+      [0, 0, 0]
+    ];
+    var Resource$ = [
+      3,
+      n05,
+      _Res,
+      0,
+      [_det, _id, _t, _ty],
+      [() => ResourceDetails$, 0, 128 | 0, 0]
+    ];
+    var ResourceDetails$ = [
+      3,
+      n05,
+      _RDe,
+      0,
+      [_aECI],
+      [() => AwsEcrContainerImageDetails$]
+    ];
+    var ScanningRepositoryFilter$ = [
+      3,
+      n05,
+      _SRF,
+      0,
+      [_fi, _fT],
+      [0, 0],
+      2
+    ];
+    var ScoreDetails$ = [
+      3,
+      n05,
+      _SD,
+      0,
+      [_cv],
+      [() => CvssScoreDetails$]
+    ];
+    var SetRepositoryPolicyRequest$ = [
+      3,
+      n05,
+      _SRPR,
+      0,
+      [_rN2, _pT, _rI, _fo],
+      [0, 0, 0, 2],
+      2
+    ];
+    var SetRepositoryPolicyResponse$ = [
+      3,
+      n05,
+      _SRPRe,
+      0,
+      [_rI, _rN2, _pT],
+      [0, 0, 0]
+    ];
+    var SigningConfiguration$ = [
+      3,
+      n05,
+      _SC,
+      0,
+      [_ru],
+      [() => SigningRuleList],
+      1
+    ];
+    var SigningRepositoryFilter$ = [
+      3,
+      n05,
+      _SRFi,
+      0,
+      [_fi, _fT],
+      [0, 0],
+      2
+    ];
+    var SigningRule$ = [
+      3,
+      n05,
+      _SR,
+      0,
+      [_sPA, _rF],
+      [0, () => SigningRepositoryFilterList],
+      1
+    ];
+    var StartImageScanRequest$ = [
+      3,
+      n05,
+      _SISR,
+      0,
+      [_rN2, _iIm, _rI],
+      [0, () => ImageIdentifier$, 0],
+      2
+    ];
+    var StartImageScanResponse$ = [
+      3,
+      n05,
+      _SISRt,
+      0,
+      [_rI, _rN2, _iIm, _iSS],
+      [0, 0, () => ImageIdentifier$, () => ImageScanStatus$]
+    ];
+    var StartLifecyclePolicyPreviewRequest$ = [
+      3,
+      n05,
+      _SLPPR,
+      0,
+      [_rN2, _rI, _lPT],
+      [0, 0, 0],
+      1
+    ];
+    var StartLifecyclePolicyPreviewResponse$ = [
+      3,
+      n05,
+      _SLPPRt,
+      0,
+      [_rI, _rN2, _lPT, _st],
+      [0, 0, 0, 0]
+    ];
+    var SubjectIdentifier$ = [
+      3,
+      n05,
+      _SI2,
+      0,
+      [_iDm],
+      [0],
+      1
+    ];
+    var Tag$2 = [
+      3,
+      n05,
+      _T2,
+      0,
+      [_K2, _V2],
+      [0, 0],
+      2
+    ];
+    var TagResourceRequest$ = [
+      3,
+      n05,
+      _TRR,
+      0,
+      [_rA, _t],
+      [0, () => TagList],
+      2
+    ];
+    var TagResourceResponse$ = [
+      3,
+      n05,
+      _TRRa,
+      0,
+      [],
+      []
+    ];
+    var TransitioningImageTotalCount$ = [
+      3,
+      n05,
+      _TITC,
+      0,
+      [_tSC, _iTC],
+      [0, 1]
+    ];
+    var UntagResourceRequest$ = [
+      3,
+      n05,
+      _URR,
+      0,
+      [_rA, _tK],
+      [0, 64 | 0],
+      2
+    ];
+    var UntagResourceResponse$ = [
+      3,
+      n05,
+      _URRn,
+      0,
+      [],
+      []
+    ];
+    var UpdateImageStorageClassRequest$ = [
+      3,
+      n05,
+      _UISCR,
+      0,
+      [_rN2, _iIm, _tSC, _rI],
+      [0, () => ImageIdentifier$, 0, 0],
+      3
+    ];
+    var UpdateImageStorageClassResponse$ = [
+      3,
+      n05,
+      _UISCRp,
+      0,
+      [_rI, _rN2, _iIm, _iS],
+      [0, 0, () => ImageIdentifier$, 0]
+    ];
+    var UpdatePullThroughCacheRuleRequest$ = [
+      3,
+      n05,
+      _UPTCRR,
+      0,
+      [_eRP, _rI, _cA, _cRA],
+      [0, 0, 0, 0],
+      1
+    ];
+    var UpdatePullThroughCacheRuleResponse$ = [
+      3,
+      n05,
+      _UPTCRRp,
+      0,
+      [_eRP, _rI, _uA, _cA, _cRA, _uRP],
+      [0, 0, 4, 0, 0, 0]
+    ];
+    var UpdateRepositoryCreationTemplateRequest$ = [
+      3,
+      n05,
+      _URCTR,
+      0,
+      [_pr, _d, _eC, _rT3, _iTM, _iTMEF, _rP, _lP, _aF, _cRA],
+      [0, 0, () => EncryptionConfigurationForRepositoryCreationTemplate$, () => TagList, 0, () => ImageTagMutabilityExclusionFilters, 0, 0, 64 | 0, 0],
+      1
+    ];
+    var UpdateRepositoryCreationTemplateResponse$ = [
+      3,
+      n05,
+      _URCTRp,
+      0,
+      [_rI, _rCT],
+      [0, () => RepositoryCreationTemplate$]
+    ];
+    var UploadLayerPartRequest$ = [
+      3,
+      n05,
+      _ULPR,
+      0,
+      [_rN2, _uI, _pFB, _pLB, _lPB, _rI],
+      [0, 0, 1, 1, 21, 0],
+      5
+    ];
+    var UploadLayerPartResponse$ = [
+      3,
+      n05,
+      _ULPRp,
+      0,
+      [_rI, _rN2, _uI, _lBR],
+      [0, 0, 0, 1]
+    ];
+    var ValidatePullThroughCacheRuleRequest$ = [
+      3,
+      n05,
+      _VPTCRR,
+      0,
+      [_eRP, _rI],
+      [0, 0],
+      1
+    ];
+    var ValidatePullThroughCacheRuleResponse$ = [
+      3,
+      n05,
+      _VPTCRRa,
+      0,
+      [_eRP, _rI, _uRU, _cA, _cRA, _uRP, _iV, _fa],
+      [0, 0, 0, 0, 0, 0, 2, 0]
+    ];
+    var VulnerablePackage$ = [
+      3,
+      n05,
+      _VP,
+      0,
+      [_ar, _ep, _fP, _n, _pM, _rel, _sLH, _ve, _fIV],
+      [0, 1, 0, 0, 0, 0, 0, 0, 0]
+    ];
+    var AttributeList = [
+      1,
+      n05,
+      _AL,
+      0,
+      () => Attribute$
+    ];
+    var AuthorizationDataList = [
+      1,
+      n05,
+      _ADL,
+      0,
+      () => AuthorizationData$
+    ];
+    var CvssScoreAdjustmentList = [
+      1,
+      n05,
+      _CSAL,
+      0,
+      () => CvssScoreAdjustment$
+    ];
+    var CvssScoreList = [
+      1,
+      n05,
+      _CSL,
+      0,
+      () => CvssScore$
+    ];
+    var EnhancedImageScanFindingList = [
+      1,
+      n05,
+      _EISFL,
+      0,
+      () => EnhancedImageScanFinding$
+    ];
+    var ImageDetailList = [
+      1,
+      n05,
+      _IDL,
+      0,
+      () => ImageDetail$
+    ];
+    var ImageFailureList = [
+      1,
+      n05,
+      _IFL,
+      0,
+      () => ImageFailure$
+    ];
+    var ImageIdentifierList = [
+      1,
+      n05,
+      _IIL,
+      0,
+      () => ImageIdentifier$
+    ];
+    var ImageList = [
+      1,
+      n05,
+      _IL,
+      0,
+      () => Image$
+    ];
+    var ImageReferrerList = [
+      1,
+      n05,
+      _IRL,
+      0,
+      () => ImageReferrer$
+    ];
+    var ImageReplicationStatusList = [
+      1,
+      n05,
+      _IRSL,
+      0,
+      () => ImageReplicationStatus$
+    ];
+    var ImageScanFindingList = [
+      1,
+      n05,
+      _ISFL,
+      0,
+      () => ImageScanFinding$
+    ];
+    var ImageSigningStatusList = [
+      1,
+      n05,
+      _ISSL,
+      0,
+      () => ImageSigningStatus$
+    ];
+    var ImageTagMutabilityExclusionFilters = [
+      1,
+      n05,
+      _ITMEFm,
+      0,
+      () => ImageTagMutabilityExclusionFilter$
+    ];
+    var LayerFailureList = [
+      1,
+      n05,
+      _LFL,
+      0,
+      () => LayerFailure$
+    ];
+    var LayerList = [
+      1,
+      n05,
+      _LL,
+      0,
+      () => Layer$
+    ];
+    var LifecyclePolicyPreviewResultList = [
+      1,
+      n05,
+      _LPPRL,
+      0,
+      () => LifecyclePolicyPreviewResult$
+    ];
+    var PullThroughCacheRuleList = [
+      1,
+      n05,
+      _PTCRL,
+      0,
+      () => PullThroughCacheRule$
+    ];
+    var RegistryScanningRuleList = [
+      1,
+      n05,
+      _RSRL,
+      0,
+      () => RegistryScanningRule$
+    ];
+    var ReplicationDestinationList = [
+      1,
+      n05,
+      _RDL,
+      0,
+      () => ReplicationDestination$
+    ];
+    var ReplicationRuleList = [
+      1,
+      n05,
+      _RRL,
+      0,
+      () => ReplicationRule$
+    ];
+    var RepositoryCreationTemplateList = [
+      1,
+      n05,
+      _RCTL,
+      0,
+      () => RepositoryCreationTemplate$
+    ];
+    var RepositoryFilterList = [
+      1,
+      n05,
+      _RFL,
+      0,
+      () => RepositoryFilter$
+    ];
+    var RepositoryList = [
+      1,
+      n05,
+      _RL,
+      0,
+      () => Repository$
+    ];
+    var RepositoryScanningConfigurationFailureList = [
+      1,
+      n05,
+      _RSCFL,
+      0,
+      () => RepositoryScanningConfigurationFailure$
+    ];
+    var RepositoryScanningConfigurationList = [
+      1,
+      n05,
+      _RSCL,
+      0,
+      () => RepositoryScanningConfiguration$
+    ];
+    var ResourceList = [
+      1,
+      n05,
+      _RLe,
+      0,
+      () => Resource$
+    ];
+    var ScanningRepositoryFilterList = [
+      1,
+      n05,
+      _SRFL,
+      0,
+      () => ScanningRepositoryFilter$
+    ];
+    var SigningRepositoryFilterList = [
+      1,
+      n05,
+      _SRFLi,
+      0,
+      () => SigningRepositoryFilter$
+    ];
+    var SigningRuleList = [
+      1,
+      n05,
+      _SRL,
+      0,
+      () => SigningRule$
+    ];
+    var TagList = [
+      1,
+      n05,
+      _TL,
+      0,
+      () => Tag$2
+    ];
+    var TransitioningImageTotalCounts = [
+      1,
+      n05,
+      _TITCr,
+      0,
+      () => TransitioningImageTotalCount$
+    ];
+    var VulnerablePackagesList = [
+      1,
+      n05,
+      _VPL,
+      0,
+      () => VulnerablePackage$
+    ];
+    var BatchCheckLayerAvailability$ = [
+      9,
+      n05,
+      _BCLA,
+      0,
+      () => BatchCheckLayerAvailabilityRequest$,
+      () => BatchCheckLayerAvailabilityResponse$
+    ];
+    var BatchDeleteImage$ = [
+      9,
+      n05,
+      _BDI,
+      0,
+      () => BatchDeleteImageRequest$,
+      () => BatchDeleteImageResponse$
+    ];
+    var BatchGetImage$ = [
+      9,
+      n05,
+      _BGI,
+      0,
+      () => BatchGetImageRequest$,
+      () => BatchGetImageResponse$
+    ];
+    var BatchGetRepositoryScanningConfiguration$ = [
+      9,
+      n05,
+      _BGRSC,
+      0,
+      () => BatchGetRepositoryScanningConfigurationRequest$,
+      () => BatchGetRepositoryScanningConfigurationResponse$
+    ];
+    var CompleteLayerUpload$ = [
+      9,
+      n05,
+      _CLU,
+      0,
+      () => CompleteLayerUploadRequest$,
+      () => CompleteLayerUploadResponse$
+    ];
+    var CreatePullThroughCacheRule$ = [
+      9,
+      n05,
+      _CPTCR,
+      0,
+      () => CreatePullThroughCacheRuleRequest$,
+      () => CreatePullThroughCacheRuleResponse$
+    ];
+    var CreateRepository$ = [
+      9,
+      n05,
+      _CR,
+      0,
+      () => CreateRepositoryRequest$,
+      () => CreateRepositoryResponse$
+    ];
+    var CreateRepositoryCreationTemplate$ = [
+      9,
+      n05,
+      _CRCT,
+      0,
+      () => CreateRepositoryCreationTemplateRequest$,
+      () => CreateRepositoryCreationTemplateResponse$
+    ];
+    var DeleteLifecyclePolicy$ = [
+      9,
+      n05,
+      _DLP,
+      0,
+      () => DeleteLifecyclePolicyRequest$,
+      () => DeleteLifecyclePolicyResponse$
+    ];
+    var DeletePullThroughCacheRule$ = [
+      9,
+      n05,
+      _DPTCR,
+      0,
+      () => DeletePullThroughCacheRuleRequest$,
+      () => DeletePullThroughCacheRuleResponse$
+    ];
+    var DeleteRegistryPolicy$ = [
+      9,
+      n05,
+      _DRP,
+      0,
+      () => DeleteRegistryPolicyRequest$,
+      () => DeleteRegistryPolicyResponse$
+    ];
+    var DeleteRepository$ = [
+      9,
+      n05,
+      _DR,
+      0,
+      () => DeleteRepositoryRequest$,
+      () => DeleteRepositoryResponse$
+    ];
+    var DeleteRepositoryCreationTemplate$ = [
+      9,
+      n05,
+      _DRCT,
+      0,
+      () => DeleteRepositoryCreationTemplateRequest$,
+      () => DeleteRepositoryCreationTemplateResponse$
+    ];
+    var DeleteRepositoryPolicy$ = [
+      9,
+      n05,
+      _DRPe,
+      0,
+      () => DeleteRepositoryPolicyRequest$,
+      () => DeleteRepositoryPolicyResponse$
+    ];
+    var DeleteSigningConfiguration$ = [
+      9,
+      n05,
+      _DSC,
+      0,
+      () => DeleteSigningConfigurationRequest$,
+      () => DeleteSigningConfigurationResponse$
+    ];
+    var DeregisterPullTimeUpdateExclusion$ = [
+      9,
+      n05,
+      _DPTUE,
+      0,
+      () => DeregisterPullTimeUpdateExclusionRequest$,
+      () => DeregisterPullTimeUpdateExclusionResponse$
+    ];
+    var DescribeImageReplicationStatus$ = [
+      9,
+      n05,
+      _DIRS,
+      0,
+      () => DescribeImageReplicationStatusRequest$,
+      () => DescribeImageReplicationStatusResponse$
+    ];
+    var DescribeImages$ = [
+      9,
+      n05,
+      _DI,
+      0,
+      () => DescribeImagesRequest$,
+      () => DescribeImagesResponse$
+    ];
+    var DescribeImageScanFindings$ = [
+      9,
+      n05,
+      _DISF,
+      0,
+      () => DescribeImageScanFindingsRequest$,
+      () => DescribeImageScanFindingsResponse$
+    ];
+    var DescribeImageSigningStatus$ = [
+      9,
+      n05,
+      _DISS,
+      0,
+      () => DescribeImageSigningStatusRequest$,
+      () => DescribeImageSigningStatusResponse$
+    ];
+    var DescribePullThroughCacheRules$ = [
+      9,
+      n05,
+      _DPTCRe,
+      0,
+      () => DescribePullThroughCacheRulesRequest$,
+      () => DescribePullThroughCacheRulesResponse$
+    ];
+    var DescribeRegistry$ = [
+      9,
+      n05,
+      _DRe,
+      0,
+      () => DescribeRegistryRequest$,
+      () => DescribeRegistryResponse$
+    ];
+    var DescribeRepositories$ = [
+      9,
+      n05,
+      _DRes,
+      0,
+      () => DescribeRepositoriesRequest$,
+      () => DescribeRepositoriesResponse$
+    ];
+    var DescribeRepositoryCreationTemplates$ = [
+      9,
+      n05,
+      _DRCTe,
+      0,
+      () => DescribeRepositoryCreationTemplatesRequest$,
+      () => DescribeRepositoryCreationTemplatesResponse$
+    ];
+    var GetAccountSetting$ = [
+      9,
+      n05,
+      _GAS,
+      0,
+      () => GetAccountSettingRequest$,
+      () => GetAccountSettingResponse$
+    ];
+    var GetAuthorizationToken$ = [
+      9,
+      n05,
+      _GAT,
+      0,
+      () => GetAuthorizationTokenRequest$,
+      () => GetAuthorizationTokenResponse$
+    ];
+    var GetDownloadUrlForLayer$ = [
+      9,
+      n05,
+      _GDUFL,
+      0,
+      () => GetDownloadUrlForLayerRequest$,
+      () => GetDownloadUrlForLayerResponse$
+    ];
+    var GetLifecyclePolicy$ = [
+      9,
+      n05,
+      _GLP,
+      0,
+      () => GetLifecyclePolicyRequest$,
+      () => GetLifecyclePolicyResponse$
+    ];
+    var GetLifecyclePolicyPreview$ = [
+      9,
+      n05,
+      _GLPP,
+      0,
+      () => GetLifecyclePolicyPreviewRequest$,
+      () => GetLifecyclePolicyPreviewResponse$
+    ];
+    var GetRegistryPolicy$ = [
+      9,
+      n05,
+      _GRP,
+      0,
+      () => GetRegistryPolicyRequest$,
+      () => GetRegistryPolicyResponse$
+    ];
+    var GetRegistryScanningConfiguration$ = [
+      9,
+      n05,
+      _GRSC,
+      0,
+      () => GetRegistryScanningConfigurationRequest$,
+      () => GetRegistryScanningConfigurationResponse$
+    ];
+    var GetRepositoryPolicy$ = [
+      9,
+      n05,
+      _GRPe,
+      0,
+      () => GetRepositoryPolicyRequest$,
+      () => GetRepositoryPolicyResponse$
+    ];
+    var GetSigningConfiguration$ = [
+      9,
+      n05,
+      _GSC,
+      0,
+      () => GetSigningConfigurationRequest$,
+      () => GetSigningConfigurationResponse$
+    ];
+    var InitiateLayerUpload$ = [
+      9,
+      n05,
+      _ILU,
+      0,
+      () => InitiateLayerUploadRequest$,
+      () => InitiateLayerUploadResponse$
+    ];
+    var ListImageReferrers$ = [
+      9,
+      n05,
+      _LIRis,
+      0,
+      () => ListImageReferrersRequest$,
+      () => ListImageReferrersResponse$
+    ];
+    var ListImages$ = [
+      9,
+      n05,
+      _LI,
+      0,
+      () => ListImagesRequest$,
+      () => ListImagesResponse$
+    ];
+    var ListPullTimeUpdateExclusions$ = [
+      9,
+      n05,
+      _LPTUE,
+      0,
+      () => ListPullTimeUpdateExclusionsRequest$,
+      () => ListPullTimeUpdateExclusionsResponse$
+    ];
+    var ListTagsForResource$ = [
+      9,
+      n05,
+      _LTFR,
+      0,
+      () => ListTagsForResourceRequest$,
+      () => ListTagsForResourceResponse$
+    ];
+    var PutAccountSetting$ = [
+      9,
+      n05,
+      _PAS,
+      0,
+      () => PutAccountSettingRequest$,
+      () => PutAccountSettingResponse$
+    ];
+    var PutImage$ = [
+      9,
+      n05,
+      _PI2,
+      0,
+      () => PutImageRequest$,
+      () => PutImageResponse$
+    ];
+    var PutImageScanningConfiguration$ = [
+      9,
+      n05,
+      _PISC,
+      0,
+      () => PutImageScanningConfigurationRequest$,
+      () => PutImageScanningConfigurationResponse$
+    ];
+    var PutImageTagMutability$ = [
+      9,
+      n05,
+      _PITM,
+      0,
+      () => PutImageTagMutabilityRequest$,
+      () => PutImageTagMutabilityResponse$
+    ];
+    var PutLifecyclePolicy$ = [
+      9,
+      n05,
+      _PLP,
+      0,
+      () => PutLifecyclePolicyRequest$,
+      () => PutLifecyclePolicyResponse$
+    ];
+    var PutRegistryPolicy$ = [
+      9,
+      n05,
+      _PRP,
+      0,
+      () => PutRegistryPolicyRequest$,
+      () => PutRegistryPolicyResponse$
+    ];
+    var PutRegistryScanningConfiguration$ = [
+      9,
+      n05,
+      _PRSC,
+      0,
+      () => PutRegistryScanningConfigurationRequest$,
+      () => PutRegistryScanningConfigurationResponse$
+    ];
+    var PutReplicationConfiguration$ = [
+      9,
+      n05,
+      _PRC,
+      0,
+      () => PutReplicationConfigurationRequest$,
+      () => PutReplicationConfigurationResponse$
+    ];
+    var PutSigningConfiguration$ = [
+      9,
+      n05,
+      _PSC,
+      0,
+      () => PutSigningConfigurationRequest$,
+      () => PutSigningConfigurationResponse$
+    ];
+    var RegisterPullTimeUpdateExclusion$ = [
+      9,
+      n05,
+      _RPTUE,
+      0,
+      () => RegisterPullTimeUpdateExclusionRequest$,
+      () => RegisterPullTimeUpdateExclusionResponse$
+    ];
+    var SetRepositoryPolicy$ = [
+      9,
+      n05,
+      _SRP,
+      0,
+      () => SetRepositoryPolicyRequest$,
+      () => SetRepositoryPolicyResponse$
+    ];
+    var StartImageScan$ = [
+      9,
+      n05,
+      _SIS,
+      0,
+      () => StartImageScanRequest$,
+      () => StartImageScanResponse$
+    ];
+    var StartLifecyclePolicyPreview$ = [
+      9,
+      n05,
+      _SLPP,
+      0,
+      () => StartLifecyclePolicyPreviewRequest$,
+      () => StartLifecyclePolicyPreviewResponse$
+    ];
+    var TagResource$ = [
+      9,
+      n05,
+      _TR,
+      0,
+      () => TagResourceRequest$,
+      () => TagResourceResponse$
+    ];
+    var UntagResource$ = [
+      9,
+      n05,
+      _UR,
+      0,
+      () => UntagResourceRequest$,
+      () => UntagResourceResponse$
+    ];
+    var UpdateImageStorageClass$ = [
+      9,
+      n05,
+      _UISC,
+      0,
+      () => UpdateImageStorageClassRequest$,
+      () => UpdateImageStorageClassResponse$
+    ];
+    var UpdatePullThroughCacheRule$ = [
+      9,
+      n05,
+      _UPTCR,
+      0,
+      () => UpdatePullThroughCacheRuleRequest$,
+      () => UpdatePullThroughCacheRuleResponse$
+    ];
+    var UpdateRepositoryCreationTemplate$ = [
+      9,
+      n05,
+      _URCT,
+      0,
+      () => UpdateRepositoryCreationTemplateRequest$,
+      () => UpdateRepositoryCreationTemplateResponse$
+    ];
+    var UploadLayerPart$ = [
+      9,
+      n05,
+      _ULP,
+      0,
+      () => UploadLayerPartRequest$,
+      () => UploadLayerPartResponse$
+    ];
+    var ValidatePullThroughCacheRule$ = [
+      9,
+      n05,
+      _VPTCR,
+      0,
+      () => ValidatePullThroughCacheRuleRequest$,
+      () => ValidatePullThroughCacheRuleResponse$
+    ];
+    var getRuntimeConfig$1 = (config) => {
+      return {
+        apiVersion: "2015-09-21",
+        base64Decoder: config?.base64Decoder ?? fromBase642,
+        base64Encoder: config?.base64Encoder ?? toBase643,
+        disableHostPrefix: config?.disableHostPrefix ?? false,
+        endpointProvider: config?.endpointProvider ?? defaultEndpointResolver5,
+        extensions: config?.extensions ?? [],
+        httpAuthSchemeProvider: config?.httpAuthSchemeProvider ?? defaultECRHttpAuthSchemeProvider,
+        httpAuthSchemes: config?.httpAuthSchemes ?? [
+          {
+            schemeId: "aws.auth#sigv4",
+            identityProvider: (ipc) => ipc.getIdentityProvider("aws.auth#sigv4"),
+            signer: new AwsSdkSigV4Signer2()
+          }
+        ],
+        logger: config?.logger ?? new NoOpLogger2(),
+        protocol: config?.protocol ?? AwsJson1_1Protocol2,
+        protocolSettings: config?.protocolSettings ?? {
+          defaultNamespace: "com.amazonaws.ecr",
+          errorTypeRegistries: errorTypeRegistries5,
+          xmlNamespace: "http://ecr.amazonaws.com/doc/2015-09-21/",
+          version: "2015-09-21",
+          serviceTarget: "AmazonEC2ContainerRegistry_V20150921"
+        },
+        serviceId: config?.serviceId ?? "ECR",
+        sha256: config?.sha256 ?? Sha256,
+        urlParser: config?.urlParser ?? parseUrl2,
+        utf8Decoder: config?.utf8Decoder ?? fromUtf83,
+        utf8Encoder: config?.utf8Encoder ?? toUtf83
+      };
+    };
+    var getRuntimeConfig9 = (config) => {
+      emitWarningIfUnsupportedVersion3(process.version);
+      const defaultsMode = resolveDefaultsModeConfig2(config);
+      const defaultConfigProvider = () => defaultsMode().then(loadConfigsForDefaultMode2);
+      const clientSharedValues = getRuntimeConfig$1(config);
+      emitWarningIfUnsupportedVersion$1(process.version);
+      const loaderConfig = {
+        profile: config?.profile,
+        logger: clientSharedValues.logger
+      };
+      return {
+        ...clientSharedValues,
+        ...config,
+        runtime: "node",
+        defaultsMode,
+        authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
+        bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
+        credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
+        maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
+        region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
+        requestHandler: NodeHttpHandler.create(config?.requestHandler ?? defaultConfigProvider),
+        retryMode: config?.retryMode ?? loadConfig2({
+          ...NODE_RETRY_MODE_CONFIG_OPTIONS2,
+          default: async () => (await defaultConfigProvider()).retryMode || DEFAULT_RETRY_MODE2
+        }, config),
+        streamCollector: config?.streamCollector ?? streamCollector7,
+        useDualstackEndpoint: config?.useDualstackEndpoint ?? loadConfig2(NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS2, loaderConfig),
+        useFipsEndpoint: config?.useFipsEndpoint ?? loadConfig2(NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS2, loaderConfig),
+        userAgentAppId: config?.userAgentAppId ?? loadConfig2(NODE_APP_ID_CONFIG_OPTIONS2, loaderConfig)
+      };
+    };
+    var getHttpAuthExtensionConfiguration5 = (runtimeConfig) => {
+      const _httpAuthSchemes = runtimeConfig.httpAuthSchemes;
+      let _httpAuthSchemeProvider = runtimeConfig.httpAuthSchemeProvider;
+      let _credentials = runtimeConfig.credentials;
+      return {
+        setHttpAuthScheme(httpAuthScheme) {
+          const index = _httpAuthSchemes.findIndex((scheme) => scheme.schemeId === httpAuthScheme.schemeId);
+          if (index === -1) {
+            _httpAuthSchemes.push(httpAuthScheme);
+          } else {
+            _httpAuthSchemes.splice(index, 1, httpAuthScheme);
+          }
+        },
+        httpAuthSchemes() {
+          return _httpAuthSchemes;
+        },
+        setHttpAuthSchemeProvider(httpAuthSchemeProvider) {
+          _httpAuthSchemeProvider = httpAuthSchemeProvider;
+        },
+        httpAuthSchemeProvider() {
+          return _httpAuthSchemeProvider;
+        },
+        setCredentials(credentials) {
+          _credentials = credentials;
+        },
+        credentials() {
+          return _credentials;
+        }
+      };
+    };
+    var resolveHttpAuthRuntimeConfig5 = (config) => {
+      return {
+        httpAuthSchemes: config.httpAuthSchemes(),
+        httpAuthSchemeProvider: config.httpAuthSchemeProvider(),
+        credentials: config.credentials()
+      };
+    };
+    var resolveRuntimeExtensions5 = (runtimeConfig, extensions) => {
+      const extensionConfiguration = Object.assign(getAwsRegionExtensionConfiguration2(runtimeConfig), getDefaultExtensionConfiguration2(runtimeConfig), getHttpHandlerExtensionConfiguration2(runtimeConfig), getHttpAuthExtensionConfiguration5(runtimeConfig));
+      extensions.forEach((extension) => extension.configure(extensionConfiguration));
+      return Object.assign(runtimeConfig, resolveAwsRegionExtensionConfiguration2(extensionConfiguration), resolveDefaultRuntimeConfig2(extensionConfiguration), resolveHttpHandlerRuntimeConfig2(extensionConfiguration), resolveHttpAuthRuntimeConfig5(extensionConfiguration));
+    };
+    var ECRClient2 = class extends Client2 {
+      config;
+      constructor(...[configuration]) {
+        const _config_0 = getRuntimeConfig9(configuration || {});
+        super(_config_0);
+        this.initConfig = _config_0;
+        const _config_1 = resolveClientEndpointParameters5(_config_0);
+        const _config_2 = resolveUserAgentConfig2(_config_1);
+        const _config_3 = resolveRetryConfig2(_config_2);
+        const _config_4 = resolveRegionConfig2(_config_3);
+        const _config_5 = resolveHostHeaderConfig2(_config_4);
+        const _config_6 = resolveEndpointConfig2(_config_5);
+        const _config_7 = resolveHttpAuthSchemeConfig5(_config_6);
+        const _config_8 = resolveRuntimeExtensions5(_config_7, configuration?.extensions || []);
+        this.config = _config_8;
+        this.middlewareStack.use(getSchemaSerdePlugin2(this.config));
+        this.middlewareStack.use(getUserAgentPlugin2(this.config));
+        this.middlewareStack.use(getRetryPlugin2(this.config));
+        this.middlewareStack.use(getContentLengthPlugin2(this.config));
+        this.middlewareStack.use(getHostHeaderPlugin2(this.config));
+        this.middlewareStack.use(getLoggerPlugin2(this.config));
+        this.middlewareStack.use(getRecursionDetectionPlugin2(this.config));
+        this.middlewareStack.use(getHttpAuthSchemeEndpointRuleSetPlugin2(this.config, {
+          httpAuthSchemeParametersProvider: defaultECRHttpAuthSchemeParametersProvider,
+          identityProviderConfigProvider: async (config) => new DefaultIdentityProviderConfig2({
+            "aws.auth#sigv4": config.credentials
+          })
+        }));
+        this.middlewareStack.use(getHttpSigningPlugin2(this.config));
+      }
+      destroy() {
+        super.destroy();
+      }
+    };
+    var command5 = makeBuilder2(commonParams5, "AmazonEC2ContainerRegistry_V20150921", "ECRClient", getEndpointPlugin2);
+    var _ep05 = {};
+    var _mw05 = (Command3, cs, config, o3) => [];
+    var BatchCheckLayerAvailabilityCommand = class extends command5(_ep05, _mw05, "BatchCheckLayerAvailability", BatchCheckLayerAvailability$) {
+    };
+    var BatchDeleteImageCommand = class extends command5(_ep05, _mw05, "BatchDeleteImage", BatchDeleteImage$) {
+    };
+    var BatchGetImageCommand2 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
+    };
+    var BatchGetRepositoryScanningConfigurationCommand = class extends command5(_ep05, _mw05, "BatchGetRepositoryScanningConfiguration", BatchGetRepositoryScanningConfiguration$) {
+    };
+    var CompleteLayerUploadCommand = class extends command5(_ep05, _mw05, "CompleteLayerUpload", CompleteLayerUpload$) {
+    };
+    var CreatePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "CreatePullThroughCacheRule", CreatePullThroughCacheRule$) {
+    };
+    var CreateRepositoryCommand = class extends command5(_ep05, _mw05, "CreateRepository", CreateRepository$) {
+    };
+    var CreateRepositoryCreationTemplateCommand = class extends command5(_ep05, _mw05, "CreateRepositoryCreationTemplate", CreateRepositoryCreationTemplate$) {
+    };
+    var DeleteLifecyclePolicyCommand = class extends command5(_ep05, _mw05, "DeleteLifecyclePolicy", DeleteLifecyclePolicy$) {
+    };
+    var DeletePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "DeletePullThroughCacheRule", DeletePullThroughCacheRule$) {
+    };
+    var DeleteRegistryPolicyCommand = class extends command5(_ep05, _mw05, "DeleteRegistryPolicy", DeleteRegistryPolicy$) {
+    };
+    var DeleteRepositoryCommand = class extends command5(_ep05, _mw05, "DeleteRepository", DeleteRepository$) {
+    };
+    var DeleteRepositoryCreationTemplateCommand = class extends command5(_ep05, _mw05, "DeleteRepositoryCreationTemplate", DeleteRepositoryCreationTemplate$) {
+    };
+    var DeleteRepositoryPolicyCommand = class extends command5(_ep05, _mw05, "DeleteRepositoryPolicy", DeleteRepositoryPolicy$) {
+    };
+    var DeleteSigningConfigurationCommand = class extends command5(_ep05, _mw05, "DeleteSigningConfiguration", DeleteSigningConfiguration$) {
+    };
+    var DeregisterPullTimeUpdateExclusionCommand = class extends command5(_ep05, _mw05, "DeregisterPullTimeUpdateExclusion", DeregisterPullTimeUpdateExclusion$) {
+    };
+    var DescribeImageReplicationStatusCommand = class extends command5(_ep05, _mw05, "DescribeImageReplicationStatus", DescribeImageReplicationStatus$) {
+    };
+    var DescribeImageScanFindingsCommand = class extends command5(_ep05, _mw05, "DescribeImageScanFindings", DescribeImageScanFindings$) {
+    };
+    var DescribeImagesCommand = class extends command5(_ep05, _mw05, "DescribeImages", DescribeImages$) {
+    };
+    var DescribeImageSigningStatusCommand = class extends command5(_ep05, _mw05, "DescribeImageSigningStatus", DescribeImageSigningStatus$) {
+    };
+    var DescribePullThroughCacheRulesCommand = class extends command5(_ep05, _mw05, "DescribePullThroughCacheRules", DescribePullThroughCacheRules$) {
+    };
+    var DescribeRegistryCommand = class extends command5(_ep05, _mw05, "DescribeRegistry", DescribeRegistry$) {
+    };
+    var DescribeRepositoriesCommand = class extends command5(_ep05, _mw05, "DescribeRepositories", DescribeRepositories$) {
+    };
+    var DescribeRepositoryCreationTemplatesCommand = class extends command5(_ep05, _mw05, "DescribeRepositoryCreationTemplates", DescribeRepositoryCreationTemplates$) {
+    };
+    var GetAccountSettingCommand = class extends command5(_ep05, _mw05, "GetAccountSetting", GetAccountSetting$) {
+    };
+    var GetAuthorizationTokenCommand = class extends command5(_ep05, _mw05, "GetAuthorizationToken", GetAuthorizationToken$) {
+    };
+    var GetDownloadUrlForLayerCommand2 = class extends command5(_ep05, _mw05, "GetDownloadUrlForLayer", GetDownloadUrlForLayer$) {
+    };
+    var GetLifecyclePolicyCommand = class extends command5(_ep05, _mw05, "GetLifecyclePolicy", GetLifecyclePolicy$) {
+    };
+    var GetLifecyclePolicyPreviewCommand = class extends command5(_ep05, _mw05, "GetLifecyclePolicyPreview", GetLifecyclePolicyPreview$) {
+    };
+    var GetRegistryPolicyCommand = class extends command5(_ep05, _mw05, "GetRegistryPolicy", GetRegistryPolicy$) {
+    };
+    var GetRegistryScanningConfigurationCommand = class extends command5(_ep05, _mw05, "GetRegistryScanningConfiguration", GetRegistryScanningConfiguration$) {
+    };
+    var GetRepositoryPolicyCommand = class extends command5(_ep05, _mw05, "GetRepositoryPolicy", GetRepositoryPolicy$) {
+    };
+    var GetSigningConfigurationCommand = class extends command5(_ep05, _mw05, "GetSigningConfiguration", GetSigningConfiguration$) {
+    };
+    var InitiateLayerUploadCommand = class extends command5(_ep05, _mw05, "InitiateLayerUpload", InitiateLayerUpload$) {
+    };
+    var ListImageReferrersCommand = class extends command5(_ep05, _mw05, "ListImageReferrers", ListImageReferrers$) {
+    };
+    var ListImagesCommand = class extends command5(_ep05, _mw05, "ListImages", ListImages$) {
+    };
+    var ListPullTimeUpdateExclusionsCommand = class extends command5(_ep05, _mw05, "ListPullTimeUpdateExclusions", ListPullTimeUpdateExclusions$) {
+    };
+    var ListTagsForResourceCommand2 = class extends command5(_ep05, _mw05, "ListTagsForResource", ListTagsForResource$) {
+    };
+    var PutAccountSettingCommand = class extends command5(_ep05, _mw05, "PutAccountSetting", PutAccountSetting$) {
+    };
+    var PutImageCommand = class extends command5(_ep05, _mw05, "PutImage", PutImage$) {
+    };
+    var PutImageScanningConfigurationCommand = class extends command5(_ep05, _mw05, "PutImageScanningConfiguration", PutImageScanningConfiguration$) {
+    };
+    var PutImageTagMutabilityCommand = class extends command5(_ep05, _mw05, "PutImageTagMutability", PutImageTagMutability$) {
+    };
+    var PutLifecyclePolicyCommand = class extends command5(_ep05, _mw05, "PutLifecyclePolicy", PutLifecyclePolicy$) {
+    };
+    var PutRegistryPolicyCommand = class extends command5(_ep05, _mw05, "PutRegistryPolicy", PutRegistryPolicy$) {
+    };
+    var PutRegistryScanningConfigurationCommand = class extends command5(_ep05, _mw05, "PutRegistryScanningConfiguration", PutRegistryScanningConfiguration$) {
+    };
+    var PutReplicationConfigurationCommand = class extends command5(_ep05, _mw05, "PutReplicationConfiguration", PutReplicationConfiguration$) {
+    };
+    var PutSigningConfigurationCommand = class extends command5(_ep05, _mw05, "PutSigningConfiguration", PutSigningConfiguration$) {
+    };
+    var RegisterPullTimeUpdateExclusionCommand = class extends command5(_ep05, _mw05, "RegisterPullTimeUpdateExclusion", RegisterPullTimeUpdateExclusion$) {
+    };
+    var SetRepositoryPolicyCommand = class extends command5(_ep05, _mw05, "SetRepositoryPolicy", SetRepositoryPolicy$) {
+    };
+    var StartImageScanCommand = class extends command5(_ep05, _mw05, "StartImageScan", StartImageScan$) {
+    };
+    var StartLifecyclePolicyPreviewCommand = class extends command5(_ep05, _mw05, "StartLifecyclePolicyPreview", StartLifecyclePolicyPreview$) {
+    };
+    var TagResourceCommand = class extends command5(_ep05, _mw05, "TagResource", TagResource$) {
+    };
+    var UntagResourceCommand = class extends command5(_ep05, _mw05, "UntagResource", UntagResource$) {
+    };
+    var UpdateImageStorageClassCommand = class extends command5(_ep05, _mw05, "UpdateImageStorageClass", UpdateImageStorageClass$) {
+    };
+    var UpdatePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "UpdatePullThroughCacheRule", UpdatePullThroughCacheRule$) {
+    };
+    var UpdateRepositoryCreationTemplateCommand = class extends command5(_ep05, _mw05, "UpdateRepositoryCreationTemplate", UpdateRepositoryCreationTemplate$) {
+    };
+    var UploadLayerPartCommand = class extends command5(_ep05, _mw05, "UploadLayerPart", UploadLayerPart$) {
+    };
+    var ValidatePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "ValidatePullThroughCacheRule", ValidatePullThroughCacheRule$) {
+    };
+    var paginateDescribeImageScanFindings = createPaginator2(ECRClient2, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImages = createPaginator2(ECRClient2, DescribeImagesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient2, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositories = createPaginator2(ECRClient2, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient2, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient2, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListImages = createPaginator2(ECRClient2, ListImagesCommand, "nextToken", "nextToken", "maxResults");
+    var checkState$1 = async (client, input) => {
+      let reason;
+      try {
+        let result = await client.send(new DescribeImageScanFindingsCommand(input));
+        reason = result;
+        try {
+          const returnComparator = () => {
+            return result.imageScanStatus.status;
+          };
+          if (returnComparator() === "COMPLETE") {
+            return { state: WaiterState2.SUCCESS, reason };
+          }
+        } catch (e7) {
+        }
+        try {
+          const returnComparator = () => {
+            return result.imageScanStatus.status;
+          };
+          if (returnComparator() === "FAILED") {
+            return { state: WaiterState2.FAILURE, reason };
+          }
+        } catch (e7) {
+        }
+      } catch (exception) {
+        reason = exception;
+      }
+      return { state: WaiterState2.RETRY, reason };
+    };
+    var waitForImageScanComplete = async (params, input) => {
+      const serviceDefaults = { minDelay: 5, maxDelay: 120 };
+      return createWaiter2({ ...serviceDefaults, ...params }, input, checkState$1);
+    };
+    var waitUntilImageScanComplete = async (params, input) => {
+      const serviceDefaults = { minDelay: 5, maxDelay: 120 };
+      const result = await createWaiter2({ ...serviceDefaults, ...params }, input, checkState$1);
+      return checkExceptions2(result);
+    };
+    var checkState = async (client, input) => {
+      let reason;
+      try {
+        let result = await client.send(new GetLifecyclePolicyPreviewCommand(input));
+        reason = result;
+        try {
+          const returnComparator = () => {
+            return result.status;
+          };
+          if (returnComparator() === "COMPLETE") {
+            return { state: WaiterState2.SUCCESS, reason };
+          }
+        } catch (e7) {
+        }
+        try {
+          const returnComparator = () => {
+            return result.status;
+          };
+          if (returnComparator() === "FAILED") {
+            return { state: WaiterState2.FAILURE, reason };
+          }
+        } catch (e7) {
+        }
+      } catch (exception) {
+        reason = exception;
+      }
+      return { state: WaiterState2.RETRY, reason };
+    };
+    var waitForLifecyclePolicyPreviewComplete = async (params, input) => {
+      const serviceDefaults = { minDelay: 5, maxDelay: 120 };
+      return createWaiter2({ ...serviceDefaults, ...params }, input, checkState);
+    };
+    var waitUntilLifecyclePolicyPreviewComplete = async (params, input) => {
+      const serviceDefaults = { minDelay: 5, maxDelay: 120 };
+      const result = await createWaiter2({ ...serviceDefaults, ...params }, input, checkState);
+      return checkExceptions2(result);
+    };
+    var commands5 = {
+      BatchCheckLayerAvailabilityCommand,
+      BatchDeleteImageCommand,
+      BatchGetImageCommand: BatchGetImageCommand2,
+      BatchGetRepositoryScanningConfigurationCommand,
+      CompleteLayerUploadCommand,
+      CreatePullThroughCacheRuleCommand,
+      CreateRepositoryCommand,
+      CreateRepositoryCreationTemplateCommand,
+      DeleteLifecyclePolicyCommand,
+      DeletePullThroughCacheRuleCommand,
+      DeleteRegistryPolicyCommand,
+      DeleteRepositoryCommand,
+      DeleteRepositoryCreationTemplateCommand,
+      DeleteRepositoryPolicyCommand,
+      DeleteSigningConfigurationCommand,
+      DeregisterPullTimeUpdateExclusionCommand,
+      DescribeImageReplicationStatusCommand,
+      DescribeImagesCommand,
+      DescribeImageScanFindingsCommand,
+      DescribeImageSigningStatusCommand,
+      DescribePullThroughCacheRulesCommand,
+      DescribeRegistryCommand,
+      DescribeRepositoriesCommand,
+      DescribeRepositoryCreationTemplatesCommand,
+      GetAccountSettingCommand,
+      GetAuthorizationTokenCommand,
+      GetDownloadUrlForLayerCommand: GetDownloadUrlForLayerCommand2,
+      GetLifecyclePolicyCommand,
+      GetLifecyclePolicyPreviewCommand,
+      GetRegistryPolicyCommand,
+      GetRegistryScanningConfigurationCommand,
+      GetRepositoryPolicyCommand,
+      GetSigningConfigurationCommand,
+      InitiateLayerUploadCommand,
+      ListImageReferrersCommand,
+      ListImagesCommand,
+      ListPullTimeUpdateExclusionsCommand,
+      ListTagsForResourceCommand: ListTagsForResourceCommand2,
+      PutAccountSettingCommand,
+      PutImageCommand,
+      PutImageScanningConfigurationCommand,
+      PutImageTagMutabilityCommand,
+      PutLifecyclePolicyCommand,
+      PutRegistryPolicyCommand,
+      PutRegistryScanningConfigurationCommand,
+      PutReplicationConfigurationCommand,
+      PutSigningConfigurationCommand,
+      RegisterPullTimeUpdateExclusionCommand,
+      SetRepositoryPolicyCommand,
+      StartImageScanCommand,
+      StartLifecyclePolicyPreviewCommand,
+      TagResourceCommand,
+      UntagResourceCommand,
+      UpdateImageStorageClassCommand,
+      UpdatePullThroughCacheRuleCommand,
+      UpdateRepositoryCreationTemplateCommand,
+      UploadLayerPartCommand,
+      ValidatePullThroughCacheRuleCommand
+    };
+    var paginators = {
+      paginateDescribeImages,
+      paginateDescribeImageScanFindings,
+      paginateDescribePullThroughCacheRules,
+      paginateDescribeRepositories,
+      paginateDescribeRepositoryCreationTemplates,
+      paginateGetLifecyclePolicyPreview,
+      paginateListImages
+    };
+    var waiters = {
+      waitUntilImageScanComplete,
+      waitUntilLifecyclePolicyPreviewComplete
+    };
+    var ECR = class extends ECRClient2 {
+    };
+    createAggregatedClient2(commands5, ECR, { paginators, waiters });
+    var LayerFailureCode = {
+      InvalidLayerDigest: "InvalidLayerDigest",
+      MissingLayerDigest: "MissingLayerDigest"
+    };
+    var LayerAvailability = {
+      ARCHIVED: "ARCHIVED",
+      AVAILABLE: "AVAILABLE",
+      UNAVAILABLE: "UNAVAILABLE"
+    };
+    var ImageFailureCode = {
+      ImageInaccessible: "ImageInaccessible",
+      ImageNotFound: "ImageNotFound",
+      ImageReferencedByManifestList: "ImageReferencedByManifestList",
+      ImageTagDoesNotMatchDigest: "ImageTagDoesNotMatchDigest",
+      InvalidImageDigest: "InvalidImageDigest",
+      InvalidImageTag: "InvalidImageTag",
+      KmsError: "KmsError",
+      MissingDigestAndTag: "MissingDigestAndTag",
+      UpstreamAccessDenied: "UpstreamAccessDenied",
+      UpstreamTooManyRequests: "UpstreamTooManyRequests",
+      UpstreamUnavailable: "UpstreamUnavailable"
+    };
+    var ScanningConfigurationFailureCode = {
+      REPOSITORY_NOT_FOUND: "REPOSITORY_NOT_FOUND"
+    };
+    var ScanningRepositoryFilterType = {
+      WILDCARD: "WILDCARD"
+    };
+    var ScanFrequency = {
+      CONTINUOUS_SCAN: "CONTINUOUS_SCAN",
+      MANUAL: "MANUAL",
+      SCAN_ON_PUSH: "SCAN_ON_PUSH"
+    };
+    var UpstreamRegistry = {
+      AzureContainerRegistry: "azure-container-registry",
+      Chainguard: "chainguard",
+      DockerHub: "docker-hub",
+      Ecr: "ecr",
+      EcrPublic: "ecr-public",
+      GitHubContainerRegistry: "github-container-registry",
+      GitLabContainerRegistry: "gitlab-container-registry",
+      K8s: "k8s",
+      Quay: "quay"
+    };
+    var EncryptionType = {
+      AES256: "AES256",
+      KMS: "KMS",
+      KMS_DSSE: "KMS_DSSE"
+    };
+    var ImageTagMutability = {
+      IMMUTABLE: "IMMUTABLE",
+      IMMUTABLE_WITH_EXCLUSION: "IMMUTABLE_WITH_EXCLUSION",
+      MUTABLE: "MUTABLE",
+      MUTABLE_WITH_EXCLUSION: "MUTABLE_WITH_EXCLUSION"
+    };
+    var ImageTagMutabilityExclusionFilterType = {
+      WILDCARD: "WILDCARD"
+    };
+    var RCTAppliedFor = {
+      CREATE_ON_PUSH: "CREATE_ON_PUSH",
+      PULL_THROUGH_CACHE: "PULL_THROUGH_CACHE",
+      REPLICATION: "REPLICATION"
+    };
+    var SigningRepositoryFilterType = {
+      WILDCARD_MATCH: "WILDCARD_MATCH"
+    };
+    var ReplicationStatus = {
+      COMPLETE: "COMPLETE",
+      FAILED: "FAILED",
+      IN_PROGRESS: "IN_PROGRESS"
+    };
+    var ImageStatusFilter = {
+      ACTIVATING: "ACTIVATING",
+      ACTIVE: "ACTIVE",
+      ANY: "ANY",
+      ARCHIVED: "ARCHIVED"
+    };
+    var TagStatus = {
+      ANY: "ANY",
+      TAGGED: "TAGGED",
+      UNTAGGED: "UNTAGGED"
+    };
+    var FindingSeverity = {
+      CRITICAL: "CRITICAL",
+      HIGH: "HIGH",
+      INFORMATIONAL: "INFORMATIONAL",
+      LOW: "LOW",
+      MEDIUM: "MEDIUM",
+      UNDEFINED: "UNDEFINED"
+    };
+    var ScanStatus = {
+      ACTIVE: "ACTIVE",
+      COMPLETE: "COMPLETE",
+      FAILED: "FAILED",
+      FINDINGS_UNAVAILABLE: "FINDINGS_UNAVAILABLE",
+      IMAGE_ARCHIVED: "IMAGE_ARCHIVED",
+      IN_PROGRESS: "IN_PROGRESS",
+      LIMIT_EXCEEDED: "LIMIT_EXCEEDED",
+      PENDING: "PENDING",
+      SCAN_ELIGIBILITY_EXPIRED: "SCAN_ELIGIBILITY_EXPIRED",
+      UNSUPPORTED_IMAGE: "UNSUPPORTED_IMAGE"
+    };
+    var ImageStatus = {
+      ACTIVATING: "ACTIVATING",
+      ACTIVE: "ACTIVE",
+      ARCHIVED: "ARCHIVED"
+    };
+    var SigningStatus = {
+      COMPLETE: "COMPLETE",
+      FAILED: "FAILED",
+      IN_PROGRESS: "IN_PROGRESS"
+    };
+    var RepositoryFilterType = {
+      PREFIX_MATCH: "PREFIX_MATCH"
+    };
+    var LifecyclePolicyTargetStorageClass = {
+      ARCHIVE: "ARCHIVE"
+    };
+    var ImageActionType = {
+      EXPIRE: "EXPIRE",
+      TRANSITION: "TRANSITION"
+    };
+    var LifecyclePolicyStorageClass = {
+      ARCHIVE: "ARCHIVE",
+      STANDARD: "STANDARD"
+    };
+    var LifecyclePolicyPreviewStatus = {
+      COMPLETE: "COMPLETE",
+      EXPIRED: "EXPIRED",
+      FAILED: "FAILED",
+      IN_PROGRESS: "IN_PROGRESS"
+    };
+    var ScanType = {
+      BASIC: "BASIC",
+      ENHANCED: "ENHANCED"
+    };
+    var ArtifactStatusFilter = {
+      ACTIVATING: "ACTIVATING",
+      ACTIVE: "ACTIVE",
+      ANY: "ANY",
+      ARCHIVED: "ARCHIVED"
+    };
+    var ArtifactStatus = {
+      ACTIVATING: "ACTIVATING",
+      ACTIVE: "ACTIVE",
+      ARCHIVED: "ARCHIVED"
+    };
+    var TargetStorageClass = {
+      ARCHIVE: "ARCHIVE",
+      STANDARD: "STANDARD"
+    };
+    exports2.ArtifactStatus = ArtifactStatus;
+    exports2.ArtifactStatusFilter = ArtifactStatusFilter;
+    exports2.Attribute$ = Attribute$;
+    exports2.AuthorizationData$ = AuthorizationData$;
+    exports2.AwsEcrContainerImageDetails$ = AwsEcrContainerImageDetails$;
+    exports2.BatchCheckLayerAvailability$ = BatchCheckLayerAvailability$;
+    exports2.BatchCheckLayerAvailabilityCommand = BatchCheckLayerAvailabilityCommand;
+    exports2.BatchCheckLayerAvailabilityRequest$ = BatchCheckLayerAvailabilityRequest$;
+    exports2.BatchCheckLayerAvailabilityResponse$ = BatchCheckLayerAvailabilityResponse$;
+    exports2.BatchDeleteImage$ = BatchDeleteImage$;
+    exports2.BatchDeleteImageCommand = BatchDeleteImageCommand;
+    exports2.BatchDeleteImageRequest$ = BatchDeleteImageRequest$;
+    exports2.BatchDeleteImageResponse$ = BatchDeleteImageResponse$;
+    exports2.BatchGetImage$ = BatchGetImage$;
+    exports2.BatchGetImageCommand = BatchGetImageCommand2;
+    exports2.BatchGetImageRequest$ = BatchGetImageRequest$;
+    exports2.BatchGetImageResponse$ = BatchGetImageResponse$;
+    exports2.BatchGetRepositoryScanningConfiguration$ = BatchGetRepositoryScanningConfiguration$;
+    exports2.BatchGetRepositoryScanningConfigurationCommand = BatchGetRepositoryScanningConfigurationCommand;
+    exports2.BatchGetRepositoryScanningConfigurationRequest$ = BatchGetRepositoryScanningConfigurationRequest$;
+    exports2.BatchGetRepositoryScanningConfigurationResponse$ = BatchGetRepositoryScanningConfigurationResponse$;
+    exports2.BlockedByOrganizationPolicyException = BlockedByOrganizationPolicyException;
+    exports2.BlockedByOrganizationPolicyException$ = BlockedByOrganizationPolicyException$;
+    exports2.CompleteLayerUpload$ = CompleteLayerUpload$;
+    exports2.CompleteLayerUploadCommand = CompleteLayerUploadCommand;
+    exports2.CompleteLayerUploadRequest$ = CompleteLayerUploadRequest$;
+    exports2.CompleteLayerUploadResponse$ = CompleteLayerUploadResponse$;
+    exports2.CreatePullThroughCacheRule$ = CreatePullThroughCacheRule$;
+    exports2.CreatePullThroughCacheRuleCommand = CreatePullThroughCacheRuleCommand;
+    exports2.CreatePullThroughCacheRuleRequest$ = CreatePullThroughCacheRuleRequest$;
+    exports2.CreatePullThroughCacheRuleResponse$ = CreatePullThroughCacheRuleResponse$;
+    exports2.CreateRepository$ = CreateRepository$;
+    exports2.CreateRepositoryCommand = CreateRepositoryCommand;
+    exports2.CreateRepositoryCreationTemplate$ = CreateRepositoryCreationTemplate$;
+    exports2.CreateRepositoryCreationTemplateCommand = CreateRepositoryCreationTemplateCommand;
+    exports2.CreateRepositoryCreationTemplateRequest$ = CreateRepositoryCreationTemplateRequest$;
+    exports2.CreateRepositoryCreationTemplateResponse$ = CreateRepositoryCreationTemplateResponse$;
+    exports2.CreateRepositoryRequest$ = CreateRepositoryRequest$;
+    exports2.CreateRepositoryResponse$ = CreateRepositoryResponse$;
+    exports2.CvssScore$ = CvssScore$;
+    exports2.CvssScoreAdjustment$ = CvssScoreAdjustment$;
+    exports2.CvssScoreDetails$ = CvssScoreDetails$;
+    exports2.DeleteLifecyclePolicy$ = DeleteLifecyclePolicy$;
+    exports2.DeleteLifecyclePolicyCommand = DeleteLifecyclePolicyCommand;
+    exports2.DeleteLifecyclePolicyRequest$ = DeleteLifecyclePolicyRequest$;
+    exports2.DeleteLifecyclePolicyResponse$ = DeleteLifecyclePolicyResponse$;
+    exports2.DeletePullThroughCacheRule$ = DeletePullThroughCacheRule$;
+    exports2.DeletePullThroughCacheRuleCommand = DeletePullThroughCacheRuleCommand;
+    exports2.DeletePullThroughCacheRuleRequest$ = DeletePullThroughCacheRuleRequest$;
+    exports2.DeletePullThroughCacheRuleResponse$ = DeletePullThroughCacheRuleResponse$;
+    exports2.DeleteRegistryPolicy$ = DeleteRegistryPolicy$;
+    exports2.DeleteRegistryPolicyCommand = DeleteRegistryPolicyCommand;
+    exports2.DeleteRegistryPolicyRequest$ = DeleteRegistryPolicyRequest$;
+    exports2.DeleteRegistryPolicyResponse$ = DeleteRegistryPolicyResponse$;
+    exports2.DeleteRepository$ = DeleteRepository$;
+    exports2.DeleteRepositoryCommand = DeleteRepositoryCommand;
+    exports2.DeleteRepositoryCreationTemplate$ = DeleteRepositoryCreationTemplate$;
+    exports2.DeleteRepositoryCreationTemplateCommand = DeleteRepositoryCreationTemplateCommand;
+    exports2.DeleteRepositoryCreationTemplateRequest$ = DeleteRepositoryCreationTemplateRequest$;
+    exports2.DeleteRepositoryCreationTemplateResponse$ = DeleteRepositoryCreationTemplateResponse$;
+    exports2.DeleteRepositoryPolicy$ = DeleteRepositoryPolicy$;
+    exports2.DeleteRepositoryPolicyCommand = DeleteRepositoryPolicyCommand;
+    exports2.DeleteRepositoryPolicyRequest$ = DeleteRepositoryPolicyRequest$;
+    exports2.DeleteRepositoryPolicyResponse$ = DeleteRepositoryPolicyResponse$;
+    exports2.DeleteRepositoryRequest$ = DeleteRepositoryRequest$;
+    exports2.DeleteRepositoryResponse$ = DeleteRepositoryResponse$;
+    exports2.DeleteSigningConfiguration$ = DeleteSigningConfiguration$;
+    exports2.DeleteSigningConfigurationCommand = DeleteSigningConfigurationCommand;
+    exports2.DeleteSigningConfigurationRequest$ = DeleteSigningConfigurationRequest$;
+    exports2.DeleteSigningConfigurationResponse$ = DeleteSigningConfigurationResponse$;
+    exports2.DeregisterPullTimeUpdateExclusion$ = DeregisterPullTimeUpdateExclusion$;
+    exports2.DeregisterPullTimeUpdateExclusionCommand = DeregisterPullTimeUpdateExclusionCommand;
+    exports2.DeregisterPullTimeUpdateExclusionRequest$ = DeregisterPullTimeUpdateExclusionRequest$;
+    exports2.DeregisterPullTimeUpdateExclusionResponse$ = DeregisterPullTimeUpdateExclusionResponse$;
+    exports2.DescribeImageReplicationStatus$ = DescribeImageReplicationStatus$;
+    exports2.DescribeImageReplicationStatusCommand = DescribeImageReplicationStatusCommand;
+    exports2.DescribeImageReplicationStatusRequest$ = DescribeImageReplicationStatusRequest$;
+    exports2.DescribeImageReplicationStatusResponse$ = DescribeImageReplicationStatusResponse$;
+    exports2.DescribeImageScanFindings$ = DescribeImageScanFindings$;
+    exports2.DescribeImageScanFindingsCommand = DescribeImageScanFindingsCommand;
+    exports2.DescribeImageScanFindingsRequest$ = DescribeImageScanFindingsRequest$;
+    exports2.DescribeImageScanFindingsResponse$ = DescribeImageScanFindingsResponse$;
+    exports2.DescribeImageSigningStatus$ = DescribeImageSigningStatus$;
+    exports2.DescribeImageSigningStatusCommand = DescribeImageSigningStatusCommand;
+    exports2.DescribeImageSigningStatusRequest$ = DescribeImageSigningStatusRequest$;
+    exports2.DescribeImageSigningStatusResponse$ = DescribeImageSigningStatusResponse$;
+    exports2.DescribeImages$ = DescribeImages$;
+    exports2.DescribeImagesCommand = DescribeImagesCommand;
+    exports2.DescribeImagesFilter$ = DescribeImagesFilter$;
+    exports2.DescribeImagesRequest$ = DescribeImagesRequest$;
+    exports2.DescribeImagesResponse$ = DescribeImagesResponse$;
+    exports2.DescribePullThroughCacheRules$ = DescribePullThroughCacheRules$;
+    exports2.DescribePullThroughCacheRulesCommand = DescribePullThroughCacheRulesCommand;
+    exports2.DescribePullThroughCacheRulesRequest$ = DescribePullThroughCacheRulesRequest$;
+    exports2.DescribePullThroughCacheRulesResponse$ = DescribePullThroughCacheRulesResponse$;
+    exports2.DescribeRegistry$ = DescribeRegistry$;
+    exports2.DescribeRegistryCommand = DescribeRegistryCommand;
+    exports2.DescribeRegistryRequest$ = DescribeRegistryRequest$;
+    exports2.DescribeRegistryResponse$ = DescribeRegistryResponse$;
+    exports2.DescribeRepositories$ = DescribeRepositories$;
+    exports2.DescribeRepositoriesCommand = DescribeRepositoriesCommand;
+    exports2.DescribeRepositoriesRequest$ = DescribeRepositoriesRequest$;
+    exports2.DescribeRepositoriesResponse$ = DescribeRepositoriesResponse$;
+    exports2.DescribeRepositoryCreationTemplates$ = DescribeRepositoryCreationTemplates$;
+    exports2.DescribeRepositoryCreationTemplatesCommand = DescribeRepositoryCreationTemplatesCommand;
+    exports2.DescribeRepositoryCreationTemplatesRequest$ = DescribeRepositoryCreationTemplatesRequest$;
+    exports2.DescribeRepositoryCreationTemplatesResponse$ = DescribeRepositoryCreationTemplatesResponse$;
+    exports2.ECR = ECR;
+    exports2.ECRClient = ECRClient2;
+    exports2.ECRServiceException = ECRServiceException;
+    exports2.ECRServiceException$ = ECRServiceException$;
+    exports2.EmptyUploadException = EmptyUploadException;
+    exports2.EmptyUploadException$ = EmptyUploadException$;
+    exports2.EncryptionConfiguration$ = EncryptionConfiguration$;
+    exports2.EncryptionConfigurationForRepositoryCreationTemplate$ = EncryptionConfigurationForRepositoryCreationTemplate$;
+    exports2.EncryptionType = EncryptionType;
+    exports2.EnhancedImageScanFinding$ = EnhancedImageScanFinding$;
+    exports2.ExclusionAlreadyExistsException = ExclusionAlreadyExistsException;
+    exports2.ExclusionAlreadyExistsException$ = ExclusionAlreadyExistsException$;
+    exports2.ExclusionNotFoundException = ExclusionNotFoundException;
+    exports2.ExclusionNotFoundException$ = ExclusionNotFoundException$;
+    exports2.FindingSeverity = FindingSeverity;
+    exports2.GetAccountSetting$ = GetAccountSetting$;
+    exports2.GetAccountSettingCommand = GetAccountSettingCommand;
+    exports2.GetAccountSettingRequest$ = GetAccountSettingRequest$;
+    exports2.GetAccountSettingResponse$ = GetAccountSettingResponse$;
+    exports2.GetAuthorizationToken$ = GetAuthorizationToken$;
+    exports2.GetAuthorizationTokenCommand = GetAuthorizationTokenCommand;
+    exports2.GetAuthorizationTokenRequest$ = GetAuthorizationTokenRequest$;
+    exports2.GetAuthorizationTokenResponse$ = GetAuthorizationTokenResponse$;
+    exports2.GetDownloadUrlForLayer$ = GetDownloadUrlForLayer$;
+    exports2.GetDownloadUrlForLayerCommand = GetDownloadUrlForLayerCommand2;
+    exports2.GetDownloadUrlForLayerRequest$ = GetDownloadUrlForLayerRequest$;
+    exports2.GetDownloadUrlForLayerResponse$ = GetDownloadUrlForLayerResponse$;
+    exports2.GetLifecyclePolicy$ = GetLifecyclePolicy$;
+    exports2.GetLifecyclePolicyCommand = GetLifecyclePolicyCommand;
+    exports2.GetLifecyclePolicyPreview$ = GetLifecyclePolicyPreview$;
+    exports2.GetLifecyclePolicyPreviewCommand = GetLifecyclePolicyPreviewCommand;
+    exports2.GetLifecyclePolicyPreviewRequest$ = GetLifecyclePolicyPreviewRequest$;
+    exports2.GetLifecyclePolicyPreviewResponse$ = GetLifecyclePolicyPreviewResponse$;
+    exports2.GetLifecyclePolicyRequest$ = GetLifecyclePolicyRequest$;
+    exports2.GetLifecyclePolicyResponse$ = GetLifecyclePolicyResponse$;
+    exports2.GetRegistryPolicy$ = GetRegistryPolicy$;
+    exports2.GetRegistryPolicyCommand = GetRegistryPolicyCommand;
+    exports2.GetRegistryPolicyRequest$ = GetRegistryPolicyRequest$;
+    exports2.GetRegistryPolicyResponse$ = GetRegistryPolicyResponse$;
+    exports2.GetRegistryScanningConfiguration$ = GetRegistryScanningConfiguration$;
+    exports2.GetRegistryScanningConfigurationCommand = GetRegistryScanningConfigurationCommand;
+    exports2.GetRegistryScanningConfigurationRequest$ = GetRegistryScanningConfigurationRequest$;
+    exports2.GetRegistryScanningConfigurationResponse$ = GetRegistryScanningConfigurationResponse$;
+    exports2.GetRepositoryPolicy$ = GetRepositoryPolicy$;
+    exports2.GetRepositoryPolicyCommand = GetRepositoryPolicyCommand;
+    exports2.GetRepositoryPolicyRequest$ = GetRepositoryPolicyRequest$;
+    exports2.GetRepositoryPolicyResponse$ = GetRepositoryPolicyResponse$;
+    exports2.GetSigningConfiguration$ = GetSigningConfiguration$;
+    exports2.GetSigningConfigurationCommand = GetSigningConfigurationCommand;
+    exports2.GetSigningConfigurationRequest$ = GetSigningConfigurationRequest$;
+    exports2.GetSigningConfigurationResponse$ = GetSigningConfigurationResponse$;
+    exports2.Image$ = Image$;
+    exports2.ImageActionType = ImageActionType;
+    exports2.ImageAlreadyExistsException = ImageAlreadyExistsException;
+    exports2.ImageAlreadyExistsException$ = ImageAlreadyExistsException$;
+    exports2.ImageArchivedException = ImageArchivedException;
+    exports2.ImageArchivedException$ = ImageArchivedException$;
+    exports2.ImageDetail$ = ImageDetail$;
+    exports2.ImageDigestDoesNotMatchException = ImageDigestDoesNotMatchException;
+    exports2.ImageDigestDoesNotMatchException$ = ImageDigestDoesNotMatchException$;
+    exports2.ImageFailure$ = ImageFailure$;
+    exports2.ImageFailureCode = ImageFailureCode;
+    exports2.ImageIdentifier$ = ImageIdentifier$;
+    exports2.ImageNotFoundException = ImageNotFoundException;
+    exports2.ImageNotFoundException$ = ImageNotFoundException$;
+    exports2.ImageReferrer$ = ImageReferrer$;
+    exports2.ImageReplicationStatus$ = ImageReplicationStatus$;
+    exports2.ImageScanFinding$ = ImageScanFinding$;
+    exports2.ImageScanFindings$ = ImageScanFindings$;
+    exports2.ImageScanFindingsSummary$ = ImageScanFindingsSummary$;
+    exports2.ImageScanStatus$ = ImageScanStatus$;
+    exports2.ImageScanningConfiguration$ = ImageScanningConfiguration$;
+    exports2.ImageSigningStatus$ = ImageSigningStatus$;
+    exports2.ImageStatus = ImageStatus;
+    exports2.ImageStatusFilter = ImageStatusFilter;
+    exports2.ImageStorageClassUpdateNotSupportedException = ImageStorageClassUpdateNotSupportedException;
+    exports2.ImageStorageClassUpdateNotSupportedException$ = ImageStorageClassUpdateNotSupportedException$;
+    exports2.ImageTagAlreadyExistsException = ImageTagAlreadyExistsException;
+    exports2.ImageTagAlreadyExistsException$ = ImageTagAlreadyExistsException$;
+    exports2.ImageTagMutability = ImageTagMutability;
+    exports2.ImageTagMutabilityExclusionFilter$ = ImageTagMutabilityExclusionFilter$;
+    exports2.ImageTagMutabilityExclusionFilterType = ImageTagMutabilityExclusionFilterType;
+    exports2.InitiateLayerUpload$ = InitiateLayerUpload$;
+    exports2.InitiateLayerUploadCommand = InitiateLayerUploadCommand;
+    exports2.InitiateLayerUploadRequest$ = InitiateLayerUploadRequest$;
+    exports2.InitiateLayerUploadResponse$ = InitiateLayerUploadResponse$;
+    exports2.InvalidLayerException = InvalidLayerException;
+    exports2.InvalidLayerException$ = InvalidLayerException$;
+    exports2.InvalidLayerPartException = InvalidLayerPartException;
+    exports2.InvalidLayerPartException$ = InvalidLayerPartException$;
+    exports2.InvalidParameterException = InvalidParameterException;
+    exports2.InvalidParameterException$ = InvalidParameterException$;
+    exports2.InvalidTagParameterException = InvalidTagParameterException;
+    exports2.InvalidTagParameterException$ = InvalidTagParameterException$;
+    exports2.KmsException = KmsException;
+    exports2.KmsException$ = KmsException$;
+    exports2.Layer$ = Layer$;
+    exports2.LayerAlreadyExistsException = LayerAlreadyExistsException;
+    exports2.LayerAlreadyExistsException$ = LayerAlreadyExistsException$;
+    exports2.LayerAvailability = LayerAvailability;
+    exports2.LayerFailure$ = LayerFailure$;
+    exports2.LayerFailureCode = LayerFailureCode;
+    exports2.LayerInaccessibleException = LayerInaccessibleException;
+    exports2.LayerInaccessibleException$ = LayerInaccessibleException$;
+    exports2.LayerPartTooSmallException = LayerPartTooSmallException;
+    exports2.LayerPartTooSmallException$ = LayerPartTooSmallException$;
+    exports2.LayersNotFoundException = LayersNotFoundException;
+    exports2.LayersNotFoundException$ = LayersNotFoundException$;
+    exports2.LifecyclePolicyNotFoundException = LifecyclePolicyNotFoundException;
+    exports2.LifecyclePolicyNotFoundException$ = LifecyclePolicyNotFoundException$;
+    exports2.LifecyclePolicyPreviewFilter$ = LifecyclePolicyPreviewFilter$;
+    exports2.LifecyclePolicyPreviewInProgressException = LifecyclePolicyPreviewInProgressException;
+    exports2.LifecyclePolicyPreviewInProgressException$ = LifecyclePolicyPreviewInProgressException$;
+    exports2.LifecyclePolicyPreviewNotFoundException = LifecyclePolicyPreviewNotFoundException;
+    exports2.LifecyclePolicyPreviewNotFoundException$ = LifecyclePolicyPreviewNotFoundException$;
+    exports2.LifecyclePolicyPreviewResult$ = LifecyclePolicyPreviewResult$;
+    exports2.LifecyclePolicyPreviewStatus = LifecyclePolicyPreviewStatus;
+    exports2.LifecyclePolicyPreviewSummary$ = LifecyclePolicyPreviewSummary$;
+    exports2.LifecyclePolicyRuleAction$ = LifecyclePolicyRuleAction$;
+    exports2.LifecyclePolicyStorageClass = LifecyclePolicyStorageClass;
+    exports2.LifecyclePolicyTargetStorageClass = LifecyclePolicyTargetStorageClass;
+    exports2.LimitExceededException = LimitExceededException;
+    exports2.LimitExceededException$ = LimitExceededException$;
+    exports2.ListImageReferrers$ = ListImageReferrers$;
+    exports2.ListImageReferrersCommand = ListImageReferrersCommand;
+    exports2.ListImageReferrersFilter$ = ListImageReferrersFilter$;
+    exports2.ListImageReferrersRequest$ = ListImageReferrersRequest$;
+    exports2.ListImageReferrersResponse$ = ListImageReferrersResponse$;
+    exports2.ListImages$ = ListImages$;
+    exports2.ListImagesCommand = ListImagesCommand;
+    exports2.ListImagesFilter$ = ListImagesFilter$;
+    exports2.ListImagesRequest$ = ListImagesRequest$;
+    exports2.ListImagesResponse$ = ListImagesResponse$;
+    exports2.ListPullTimeUpdateExclusions$ = ListPullTimeUpdateExclusions$;
+    exports2.ListPullTimeUpdateExclusionsCommand = ListPullTimeUpdateExclusionsCommand;
+    exports2.ListPullTimeUpdateExclusionsRequest$ = ListPullTimeUpdateExclusionsRequest$;
+    exports2.ListPullTimeUpdateExclusionsResponse$ = ListPullTimeUpdateExclusionsResponse$;
+    exports2.ListTagsForResource$ = ListTagsForResource$;
+    exports2.ListTagsForResourceCommand = ListTagsForResourceCommand2;
+    exports2.ListTagsForResourceRequest$ = ListTagsForResourceRequest$;
+    exports2.ListTagsForResourceResponse$ = ListTagsForResourceResponse$;
+    exports2.PackageVulnerabilityDetails$ = PackageVulnerabilityDetails$;
+    exports2.PullThroughCacheRule$ = PullThroughCacheRule$;
+    exports2.PullThroughCacheRuleAlreadyExistsException = PullThroughCacheRuleAlreadyExistsException;
+    exports2.PullThroughCacheRuleAlreadyExistsException$ = PullThroughCacheRuleAlreadyExistsException$;
+    exports2.PullThroughCacheRuleNotFoundException = PullThroughCacheRuleNotFoundException;
+    exports2.PullThroughCacheRuleNotFoundException$ = PullThroughCacheRuleNotFoundException$;
+    exports2.PutAccountSetting$ = PutAccountSetting$;
+    exports2.PutAccountSettingCommand = PutAccountSettingCommand;
+    exports2.PutAccountSettingRequest$ = PutAccountSettingRequest$;
+    exports2.PutAccountSettingResponse$ = PutAccountSettingResponse$;
+    exports2.PutImage$ = PutImage$;
+    exports2.PutImageCommand = PutImageCommand;
+    exports2.PutImageRequest$ = PutImageRequest$;
+    exports2.PutImageResponse$ = PutImageResponse$;
+    exports2.PutImageScanningConfiguration$ = PutImageScanningConfiguration$;
+    exports2.PutImageScanningConfigurationCommand = PutImageScanningConfigurationCommand;
+    exports2.PutImageScanningConfigurationRequest$ = PutImageScanningConfigurationRequest$;
+    exports2.PutImageScanningConfigurationResponse$ = PutImageScanningConfigurationResponse$;
+    exports2.PutImageTagMutability$ = PutImageTagMutability$;
+    exports2.PutImageTagMutabilityCommand = PutImageTagMutabilityCommand;
+    exports2.PutImageTagMutabilityRequest$ = PutImageTagMutabilityRequest$;
+    exports2.PutImageTagMutabilityResponse$ = PutImageTagMutabilityResponse$;
+    exports2.PutLifecyclePolicy$ = PutLifecyclePolicy$;
+    exports2.PutLifecyclePolicyCommand = PutLifecyclePolicyCommand;
+    exports2.PutLifecyclePolicyRequest$ = PutLifecyclePolicyRequest$;
+    exports2.PutLifecyclePolicyResponse$ = PutLifecyclePolicyResponse$;
+    exports2.PutRegistryPolicy$ = PutRegistryPolicy$;
+    exports2.PutRegistryPolicyCommand = PutRegistryPolicyCommand;
+    exports2.PutRegistryPolicyRequest$ = PutRegistryPolicyRequest$;
+    exports2.PutRegistryPolicyResponse$ = PutRegistryPolicyResponse$;
+    exports2.PutRegistryScanningConfiguration$ = PutRegistryScanningConfiguration$;
+    exports2.PutRegistryScanningConfigurationCommand = PutRegistryScanningConfigurationCommand;
+    exports2.PutRegistryScanningConfigurationRequest$ = PutRegistryScanningConfigurationRequest$;
+    exports2.PutRegistryScanningConfigurationResponse$ = PutRegistryScanningConfigurationResponse$;
+    exports2.PutReplicationConfiguration$ = PutReplicationConfiguration$;
+    exports2.PutReplicationConfigurationCommand = PutReplicationConfigurationCommand;
+    exports2.PutReplicationConfigurationRequest$ = PutReplicationConfigurationRequest$;
+    exports2.PutReplicationConfigurationResponse$ = PutReplicationConfigurationResponse$;
+    exports2.PutSigningConfiguration$ = PutSigningConfiguration$;
+    exports2.PutSigningConfigurationCommand = PutSigningConfigurationCommand;
+    exports2.PutSigningConfigurationRequest$ = PutSigningConfigurationRequest$;
+    exports2.PutSigningConfigurationResponse$ = PutSigningConfigurationResponse$;
+    exports2.RCTAppliedFor = RCTAppliedFor;
+    exports2.Recommendation$ = Recommendation$;
+    exports2.ReferencedImagesNotFoundException = ReferencedImagesNotFoundException;
+    exports2.ReferencedImagesNotFoundException$ = ReferencedImagesNotFoundException$;
+    exports2.RegisterPullTimeUpdateExclusion$ = RegisterPullTimeUpdateExclusion$;
+    exports2.RegisterPullTimeUpdateExclusionCommand = RegisterPullTimeUpdateExclusionCommand;
+    exports2.RegisterPullTimeUpdateExclusionRequest$ = RegisterPullTimeUpdateExclusionRequest$;
+    exports2.RegisterPullTimeUpdateExclusionResponse$ = RegisterPullTimeUpdateExclusionResponse$;
+    exports2.RegistryPolicyNotFoundException = RegistryPolicyNotFoundException;
+    exports2.RegistryPolicyNotFoundException$ = RegistryPolicyNotFoundException$;
+    exports2.RegistryScanningConfiguration$ = RegistryScanningConfiguration$;
+    exports2.RegistryScanningRule$ = RegistryScanningRule$;
+    exports2.Remediation$ = Remediation$;
+    exports2.ReplicationConfiguration$ = ReplicationConfiguration$;
+    exports2.ReplicationDestination$ = ReplicationDestination$;
+    exports2.ReplicationRule$ = ReplicationRule$;
+    exports2.ReplicationStatus = ReplicationStatus;
+    exports2.Repository$ = Repository$;
+    exports2.RepositoryAlreadyExistsException = RepositoryAlreadyExistsException;
+    exports2.RepositoryAlreadyExistsException$ = RepositoryAlreadyExistsException$;
+    exports2.RepositoryCreationTemplate$ = RepositoryCreationTemplate$;
+    exports2.RepositoryFilter$ = RepositoryFilter$;
+    exports2.RepositoryFilterType = RepositoryFilterType;
+    exports2.RepositoryNotEmptyException = RepositoryNotEmptyException;
+    exports2.RepositoryNotEmptyException$ = RepositoryNotEmptyException$;
+    exports2.RepositoryNotFoundException = RepositoryNotFoundException;
+    exports2.RepositoryNotFoundException$ = RepositoryNotFoundException$;
+    exports2.RepositoryPolicyNotFoundException = RepositoryPolicyNotFoundException;
+    exports2.RepositoryPolicyNotFoundException$ = RepositoryPolicyNotFoundException$;
+    exports2.RepositoryScanningConfiguration$ = RepositoryScanningConfiguration$;
+    exports2.RepositoryScanningConfigurationFailure$ = RepositoryScanningConfigurationFailure$;
+    exports2.Resource$ = Resource$;
+    exports2.ResourceDetails$ = ResourceDetails$;
+    exports2.ScanFrequency = ScanFrequency;
+    exports2.ScanNotFoundException = ScanNotFoundException;
+    exports2.ScanNotFoundException$ = ScanNotFoundException$;
+    exports2.ScanStatus = ScanStatus;
+    exports2.ScanType = ScanType;
+    exports2.ScanningConfigurationFailureCode = ScanningConfigurationFailureCode;
+    exports2.ScanningRepositoryFilter$ = ScanningRepositoryFilter$;
+    exports2.ScanningRepositoryFilterType = ScanningRepositoryFilterType;
+    exports2.ScoreDetails$ = ScoreDetails$;
+    exports2.SecretNotFoundException = SecretNotFoundException;
+    exports2.SecretNotFoundException$ = SecretNotFoundException$;
+    exports2.ServerException = ServerException;
+    exports2.ServerException$ = ServerException$;
+    exports2.SetRepositoryPolicy$ = SetRepositoryPolicy$;
+    exports2.SetRepositoryPolicyCommand = SetRepositoryPolicyCommand;
+    exports2.SetRepositoryPolicyRequest$ = SetRepositoryPolicyRequest$;
+    exports2.SetRepositoryPolicyResponse$ = SetRepositoryPolicyResponse$;
+    exports2.SigningConfiguration$ = SigningConfiguration$;
+    exports2.SigningConfigurationNotFoundException = SigningConfigurationNotFoundException;
+    exports2.SigningConfigurationNotFoundException$ = SigningConfigurationNotFoundException$;
+    exports2.SigningRepositoryFilter$ = SigningRepositoryFilter$;
+    exports2.SigningRepositoryFilterType = SigningRepositoryFilterType;
+    exports2.SigningRule$ = SigningRule$;
+    exports2.SigningStatus = SigningStatus;
+    exports2.StartImageScan$ = StartImageScan$;
+    exports2.StartImageScanCommand = StartImageScanCommand;
+    exports2.StartImageScanRequest$ = StartImageScanRequest$;
+    exports2.StartImageScanResponse$ = StartImageScanResponse$;
+    exports2.StartLifecyclePolicyPreview$ = StartLifecyclePolicyPreview$;
+    exports2.StartLifecyclePolicyPreviewCommand = StartLifecyclePolicyPreviewCommand;
+    exports2.StartLifecyclePolicyPreviewRequest$ = StartLifecyclePolicyPreviewRequest$;
+    exports2.StartLifecyclePolicyPreviewResponse$ = StartLifecyclePolicyPreviewResponse$;
+    exports2.SubjectIdentifier$ = SubjectIdentifier$;
+    exports2.Tag$ = Tag$2;
+    exports2.TagResource$ = TagResource$;
+    exports2.TagResourceCommand = TagResourceCommand;
+    exports2.TagResourceRequest$ = TagResourceRequest$;
+    exports2.TagResourceResponse$ = TagResourceResponse$;
+    exports2.TagStatus = TagStatus;
+    exports2.TargetStorageClass = TargetStorageClass;
+    exports2.TemplateAlreadyExistsException = TemplateAlreadyExistsException;
+    exports2.TemplateAlreadyExistsException$ = TemplateAlreadyExistsException$;
+    exports2.TemplateNotFoundException = TemplateNotFoundException;
+    exports2.TemplateNotFoundException$ = TemplateNotFoundException$;
+    exports2.TooManyTagsException = TooManyTagsException;
+    exports2.TooManyTagsException$ = TooManyTagsException$;
+    exports2.TransitioningImageTotalCount$ = TransitioningImageTotalCount$;
+    exports2.UnableToAccessSecretException = UnableToAccessSecretException;
+    exports2.UnableToAccessSecretException$ = UnableToAccessSecretException$;
+    exports2.UnableToDecryptSecretValueException = UnableToDecryptSecretValueException;
+    exports2.UnableToDecryptSecretValueException$ = UnableToDecryptSecretValueException$;
+    exports2.UnableToGetUpstreamImageException = UnableToGetUpstreamImageException;
+    exports2.UnableToGetUpstreamImageException$ = UnableToGetUpstreamImageException$;
+    exports2.UnableToGetUpstreamLayerException = UnableToGetUpstreamLayerException;
+    exports2.UnableToGetUpstreamLayerException$ = UnableToGetUpstreamLayerException$;
+    exports2.UnableToListUpstreamImageReferrersException = UnableToListUpstreamImageReferrersException;
+    exports2.UnableToListUpstreamImageReferrersException$ = UnableToListUpstreamImageReferrersException$;
+    exports2.UnsupportedImageTypeException = UnsupportedImageTypeException;
+    exports2.UnsupportedImageTypeException$ = UnsupportedImageTypeException$;
+    exports2.UnsupportedUpstreamRegistryException = UnsupportedUpstreamRegistryException;
+    exports2.UnsupportedUpstreamRegistryException$ = UnsupportedUpstreamRegistryException$;
+    exports2.UntagResource$ = UntagResource$;
+    exports2.UntagResourceCommand = UntagResourceCommand;
+    exports2.UntagResourceRequest$ = UntagResourceRequest$;
+    exports2.UntagResourceResponse$ = UntagResourceResponse$;
+    exports2.UpdateImageStorageClass$ = UpdateImageStorageClass$;
+    exports2.UpdateImageStorageClassCommand = UpdateImageStorageClassCommand;
+    exports2.UpdateImageStorageClassRequest$ = UpdateImageStorageClassRequest$;
+    exports2.UpdateImageStorageClassResponse$ = UpdateImageStorageClassResponse$;
+    exports2.UpdatePullThroughCacheRule$ = UpdatePullThroughCacheRule$;
+    exports2.UpdatePullThroughCacheRuleCommand = UpdatePullThroughCacheRuleCommand;
+    exports2.UpdatePullThroughCacheRuleRequest$ = UpdatePullThroughCacheRuleRequest$;
+    exports2.UpdatePullThroughCacheRuleResponse$ = UpdatePullThroughCacheRuleResponse$;
+    exports2.UpdateRepositoryCreationTemplate$ = UpdateRepositoryCreationTemplate$;
+    exports2.UpdateRepositoryCreationTemplateCommand = UpdateRepositoryCreationTemplateCommand;
+    exports2.UpdateRepositoryCreationTemplateRequest$ = UpdateRepositoryCreationTemplateRequest$;
+    exports2.UpdateRepositoryCreationTemplateResponse$ = UpdateRepositoryCreationTemplateResponse$;
+    exports2.UploadLayerPart$ = UploadLayerPart$;
+    exports2.UploadLayerPartCommand = UploadLayerPartCommand;
+    exports2.UploadLayerPartRequest$ = UploadLayerPartRequest$;
+    exports2.UploadLayerPartResponse$ = UploadLayerPartResponse$;
+    exports2.UploadNotFoundException = UploadNotFoundException;
+    exports2.UploadNotFoundException$ = UploadNotFoundException$;
+    exports2.UpstreamRegistry = UpstreamRegistry;
+    exports2.ValidatePullThroughCacheRule$ = ValidatePullThroughCacheRule$;
+    exports2.ValidatePullThroughCacheRuleCommand = ValidatePullThroughCacheRuleCommand;
+    exports2.ValidatePullThroughCacheRuleRequest$ = ValidatePullThroughCacheRuleRequest$;
+    exports2.ValidatePullThroughCacheRuleResponse$ = ValidatePullThroughCacheRuleResponse$;
+    exports2.ValidationException = ValidationException2;
+    exports2.ValidationException$ = ValidationException$2;
+    exports2.VulnerablePackage$ = VulnerablePackage$;
+    exports2.errorTypeRegistries = errorTypeRegistries5;
+    exports2.paginateDescribeImageScanFindings = paginateDescribeImageScanFindings;
+    exports2.paginateDescribeImages = paginateDescribeImages;
+    exports2.paginateDescribePullThroughCacheRules = paginateDescribePullThroughCacheRules;
+    exports2.paginateDescribeRepositories = paginateDescribeRepositories;
+    exports2.paginateDescribeRepositoryCreationTemplates = paginateDescribeRepositoryCreationTemplates;
+    exports2.paginateGetLifecyclePolicyPreview = paginateGetLifecyclePolicyPreview;
+    exports2.paginateListImages = paginateListImages;
+    exports2.waitForImageScanComplete = waitForImageScanComplete;
+    exports2.waitForLifecyclePolicyPreviewComplete = waitForLifecyclePolicyPreviewComplete;
+    exports2.waitUntilImageScanComplete = waitUntilImageScanComplete;
+    exports2.waitUntilLifecyclePolicyPreviewComplete = waitUntilLifecyclePolicyPreviewComplete;
+  }
+});
+
+// node_modules/@aws-sdk/client-lambda/dist-cjs/index.js
+var require_dist_cjs20 = __commonJS({
   "node_modules/@aws-sdk/client-lambda/dist-cjs/index.js"(exports2) {
     var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
@@ -217724,7 +222583,7 @@ var import_run = __toESM(require_src12());
 var import_client_ecs = __toESM(require_dist_cjs16());
 var import_client_ssm = __toESM(require_dist_cjs17());
 var import_client_eventbridge = __toESM(require_dist_cjs18());
-var import_client_lambda = __toESM(require_dist_cjs19());
+var import_client_lambda = __toESM(require_dist_cjs20());
 var tagReducer = (previousValue, currentValue) => {
   previousValue[currentValue.Key] = currentValue.Value;
   return previousValue;
@@ -217818,6 +222677,15 @@ async function ssmParameters(prefix, decrypt = true) {
     })));
   }
   return results;
+}
+var SSM_PARAMETER_TIMEOUT_MS = 30 * 1e3;
+async function ssmParameterValue(name, { timeoutMs = SSM_PARAMETER_TIMEOUT_MS } = {}) {
+  const client = new import_client_ssm.SSMClient({ region: "us-east-1", ...RETRY_CONFIG });
+  const response = await client.send(
+    new import_client_ssm.GetParametersCommand({ Names: [name], WithDecryption: true }),
+    { abortSignal: AbortSignal.timeout(timeoutMs) }
+  );
+  return response.Parameters?.[0]?.Value ?? null;
 }
 async function eventBridgeListRules(prefix) {
   const client = new import_client_eventbridge.EventBridgeClient({ ...RETRY_CONFIG });
@@ -218218,6 +223086,62 @@ async function authClient() {
 
 // src/v2/oci.js
 var import_node_zlib2 = require("node:zlib");
+var import_client_ecr = __toESM(require_dist_cjs19());
+
+// node_modules/escape-string-regexp/index.js
+function escapeStringRegexp(string) {
+  if (typeof string !== "string") {
+    throw new TypeError("Expected a string");
+  }
+  return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
+}
+
+// src/v2/aws.js
+var RETRY_CONFIG2 = { maxAttempts: 5, retryMode: "standard" };
+var MANIFEST_MEDIA_TYPES = [
+  "application/vnd.docker.distribution.manifest.v2+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.oci.image.index.v1+json"
+];
+function ecrRepo(projectName) {
+  return projectName;
+}
+function ecsServiceRegExp(projectName, legacyEnv, nickname) {
+  return new RegExp(
+    `/${escapeStringRegexp(projectName)}-(${escapeStringRegexp(legacyEnv)}|${escapeStringRegexp(nickname)})-`
+  );
+}
+function isEcsAppContainer(container, projectName) {
+  if (container.image === "scratch") return true;
+  if (!container.image) return false;
+  const { name } = parseImageRef(container.image);
+  return name.split("/").pop() === ecrRepo(projectName);
+}
+var READ_ONLY_TASK_DEF_KEYS = [
+  "taskDefinitionArn",
+  "revision",
+  "status",
+  "requiresAttributes",
+  "compatibilities",
+  "registeredAt",
+  "registeredBy",
+  "deregisteredAt"
+];
+function composeTaskDefinition(taskDefinition, { projectName, image, secrets, tags = [] }) {
+  const taskDef = {};
+  if (tags.length > 0) {
+    taskDef.tags = tags;
+  }
+  for (const [key, value] of Object.entries(taskDefinition)) {
+    if (READ_ONLY_TASK_DEF_KEYS.includes(key)) continue;
+    taskDef[key] = value;
+  }
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(
+    (container) => isEcsAppContainer(container, projectName) ? { ...container, image, secrets } : container
+  );
+  return taskDef;
+}
 
 // src/v2/tar.js
 var BLOCK2 = 512;
@@ -218321,13 +223245,12 @@ function listInTar(archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
 }
 
 // src/v2/oci.js
-var MANIFEST_ACCEPT = [
-  "application/vnd.oci.image.manifest.v1+json",
-  "application/vnd.docker.distribution.manifest.v2+json",
-  "application/vnd.oci.image.index.v1+json",
-  "application/vnd.docker.distribution.manifest.list.v2+json"
-].join(", ");
+var MANIFEST_ACCEPT = MANIFEST_MEDIA_TYPES.join(", ");
 var PLATFORM = { os: "linux", architecture: "amd64" };
+var ECR_HOST = /^(\d{12})\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$/;
+var ECR_BLOB_TIMEOUT_MS = 60 * 1e3;
+var ECR_BLOB_ATTEMPTS = 3;
+var ECR_BLOB_RETRY_DELAY_MS = 500;
 var MAX_LAYER_BLOB_BYTES = 256 * 1024 * 1024;
 var MAX_LAYER_BYTES = 1024 * 1024 * 1024;
 var GAXIOS_RETRY = {
@@ -218351,26 +223274,84 @@ function parseRegistryRef(ref) {
   }
   return { host: name.slice(0, slash), repository: name.slice(slash + 1), reference };
 }
-async function registryGet({ host, repository, kind, reference, accept, responseType }) {
-  const client = await authClient();
-  const res = await client.request({
-    url: `https://${host}/v2/${repository}/${kind}/${reference}`,
-    method: "GET",
-    headers: accept ? { Accept: accept } : {},
-    responseType,
-    ...GAXIOS_RETRY
-  });
-  return res.data;
-}
-async function manifestDocument(target, reference) {
-  const body = await registryGet({
-    ...target,
-    kind: "manifests",
-    reference,
-    accept: MANIFEST_ACCEPT,
-    responseType: "text"
-  });
+function asDocument(body) {
   return typeof body === "string" ? JSON.parse(body) : body;
+}
+function transportFor(target) {
+  const ecr = ECR_HOST.exec(target.host);
+  return ecr ? ecrTransport(target, ecr[1], ecr[2]) : artifactRegistryTransport(target);
+}
+function artifactRegistryTransport(target) {
+  const registryGet = async ({ kind, reference, accept, responseType }) => {
+    const client = await authClient();
+    const res = await client.request({
+      url: `https://${target.host}/v2/${target.repository}/${kind}/${reference}`,
+      method: "GET",
+      headers: accept ? { Accept: accept } : {},
+      responseType,
+      ...GAXIOS_RETRY
+    });
+    return res.data;
+  };
+  return {
+    manifest: (reference) => registryGet({ kind: "manifests", reference, accept: MANIFEST_ACCEPT, responseType: "text" }).then(asDocument),
+    blobText: (digest2) => registryGet({ kind: "blobs", reference: digest2, responseType: "text" }),
+    blobBytes: (digest2) => registryGet({ kind: "blobs", reference: digest2, responseType: "arraybuffer" }).then((blob) => Buffer.from(blob))
+  };
+}
+function ecrTransport(target, registryId, region) {
+  const client = new import_client_ecr.ECRClient({ region, ...RETRY_CONFIG2 });
+  const repositoryName = target.repository;
+  const manifest = async (reference) => {
+    const imageId = reference.startsWith("sha256:") ? { imageDigest: reference } : { imageTag: reference };
+    const response = await client.send(new import_client_ecr.BatchGetImageCommand({
+      registryId,
+      repositoryName,
+      imageIds: [imageId],
+      acceptedMediaTypes: MANIFEST_MEDIA_TYPES
+    }));
+    const body = response.images?.[0]?.imageManifest;
+    if (!body) {
+      const failure = response.failures?.[0];
+      throw new Error(
+        `ECR returned no manifest for ${repositoryName}@${reference}${failure ? `: ${failure.failureCode} ${failure.failureReason ?? ""}`.trimEnd() : ""}`
+      );
+    }
+    return JSON.parse(body);
+  };
+  const blob = async (digest2) => {
+    const { downloadUrl } = await client.send(new import_client_ecr.GetDownloadUrlForLayerCommand({
+      registryId,
+      repositoryName,
+      layerDigest: digest2
+    }));
+    if (!downloadUrl) {
+      throw new Error(`ECR returned no download URL for ${repositoryName}@${digest2}`);
+    }
+    return fetchBlob(downloadUrl, `${repositoryName}@${digest2}`);
+  };
+  return {
+    manifest,
+    blobText: (digest2) => blob(digest2).then((bytes) => bytes.toString("utf8")),
+    blobBytes: blob
+  };
+}
+async function fetchBlob(url, label) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(ECR_BLOB_TIMEOUT_MS) });
+      if (!response.ok) {
+        const error3 = new Error(`HTTP ${response.status} downloading ${label}`);
+        error3.status = response.status;
+        throw error3;
+      }
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error3) {
+      const permanent = error3.status !== void 0 && error3.status < 500 && error3.status !== 429;
+      if (attempt >= ECR_BLOB_ATTEMPTS || permanent) throw error3;
+      await new Promise((resolve) => setTimeout(resolve, ECR_BLOB_RETRY_DELAY_MS * 2 ** (attempt - 1)));
+    }
+  }
 }
 function selectPlatform(index) {
   const candidates = (index.manifests ?? []).filter(
@@ -218396,32 +223377,22 @@ function isReadableLayer(mediaType) {
 var MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024;
 async function openImage(imageRef) {
   const target = parseRegistryRef(imageRef);
-  let manifest = await manifestDocument(target, target.reference);
+  const transport = transportFor(target);
+  let manifest = await transport.manifest(target.reference);
   if (manifest.manifests) {
-    manifest = await manifestDocument(target, selectPlatform(manifest));
+    manifest = await transport.manifest(selectPlatform(manifest));
   }
   if (!manifest.config?.digest) {
     throw new Error(`Image manifest for ${imageRef} has no config descriptor`);
   }
-  const configBody = await registryGet({
-    ...target,
-    kind: "blobs",
-    reference: manifest.config.digest,
-    responseType: "text"
-  });
-  const config = typeof configBody === "string" ? JSON.parse(configBody) : configBody;
+  const config = asDocument(await transport.blobText(manifest.config.digest));
   const cache5 = /* @__PURE__ */ new Map();
   let cached = 0;
   async function layerTar(layer) {
     const hit = cache5.get(layer.digest);
     if (hit) return hit;
-    const blob = await registryGet({
-      ...target,
-      kind: "blobs",
-      reference: layer.digest,
-      responseType: "arraybuffer"
-    });
-    const tar = decompressLayer(layer.mediaType, Buffer.from(blob));
+    const blob = await transport.blobBytes(layer.digest);
+    const tar = decompressLayer(layer.mediaType, blob);
     if (cached + tar.length <= MAX_CACHED_LAYER_BYTES) {
       cache5.set(layer.digest, tar);
       cached += tar.length;
@@ -218614,10 +223585,8 @@ function decodeSegment(segment) {
     return null;
   }
 }
-function sourceMapsEndpoint(services, repo) {
-  for (const service of services) {
-    const app = findAppContainer(service.template?.containers ?? [], repo);
-    const raw = app?.env?.find((entry) => entry.name === ENDPOINT_ENV)?.value;
+function sourceMapsEndpointFor(rawValues) {
+  for (const raw of rawValues) {
     if (!raw) continue;
     try {
       return `${new URL(raw).origin}${UPLOAD_PATH}`;
@@ -218627,6 +223596,12 @@ function sourceMapsEndpoint(services, repo) {
     }
   }
   return `${DEFAULT_ENDPOINT}${UPLOAD_PATH}`;
+}
+function sourceMapsEndpoint(services, repo) {
+  return sourceMapsEndpointFor(services.map((service) => {
+    const app = findAppContainer(service.template?.containers ?? [], repo);
+    return app?.env?.find((entry) => entry.name === ENDPOINT_ENV)?.value;
+  }));
 }
 async function postMap({ url, token, version, minified, name, contents, timeoutMs, phase }) {
   const form = new FormData();
@@ -218879,58 +223854,8 @@ function mergeEnvVars(currentEnv, secrets) {
 
 // src/v2/deploy-ecs.js
 var import_client_ecs2 = __toESM(require_dist_cjs16());
-
-// node_modules/escape-string-regexp/index.js
-function escapeStringRegexp(string) {
-  if (typeof string !== "string") {
-    throw new TypeError("Expected a string");
-  }
-  return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
-}
-
-// src/v2/aws.js
-function ecrRepo(projectName) {
-  return projectName;
-}
-function ecsServiceRegExp(projectName, legacyEnv, nickname) {
-  return new RegExp(
-    `/${escapeStringRegexp(projectName)}-(${escapeStringRegexp(legacyEnv)}|${escapeStringRegexp(nickname)})-`
-  );
-}
-function isEcsAppContainer(container, projectName) {
-  if (container.image === "scratch") return true;
-  if (!container.image) return false;
-  const { name } = parseImageRef(container.image);
-  return name.split("/").pop() === ecrRepo(projectName);
-}
-var READ_ONLY_TASK_DEF_KEYS = [
-  "taskDefinitionArn",
-  "revision",
-  "status",
-  "requiresAttributes",
-  "compatibilities",
-  "registeredAt",
-  "registeredBy",
-  "deregisteredAt"
-];
-function composeTaskDefinition(taskDefinition, { projectName, image, secrets, tags = [] }) {
-  const taskDef = {};
-  if (tags.length > 0) {
-    taskDef.tags = tags;
-  }
-  for (const [key, value] of Object.entries(taskDefinition)) {
-    if (READ_ONLY_TASK_DEF_KEYS.includes(key)) continue;
-    taskDef[key] = value;
-  }
-  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(
-    (container) => isEcsAppContainer(container, projectName) ? { ...container, image, secrets } : container
-  );
-  return taskDef;
-}
-
-// src/v2/deploy-ecs.js
 var DB_MIGRATE_CONTAINER = "db-migrate";
-async function deployEcs({ projectName, environment, image }) {
+async function deployEcs({ projectName, environment, image, appUrl }) {
   assertDigestRef(image);
   const nickname = environmentNickname(environment);
   const legacyEnv = legacyEnvironment(environment);
@@ -218940,10 +223865,37 @@ async function deployEcs({ projectName, environment, image }) {
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
   info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
+  const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster);
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns });
-  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns });
+  const sourcemaps = await uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions });
+  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns, taskDefinitions });
   await updateScheduledTasks({ projectName, nickname, image, secrets });
-  return { deployedImage: image, services };
+  return { deployedImage: image, services, sourcemaps };
+}
+async function uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions }) {
+  const skipped = { status: "skipped", uploaded: 0, failed: 0 };
+  const parameter = secrets.find((secret) => secret.name === TOKEN_SECRET)?.valueFrom;
+  if (!parameter) return skipped;
+  try {
+    const token = await ssmParameterValue(parameter);
+    if (!token) return skipped;
+    return await publishSourceMaps({
+      oci: await openImage(image),
+      appUrl,
+      token,
+      endpoint: sourceMapsEndpoint2(taskDefinitions, projectName)
+    });
+  } catch (error3) {
+    warning(`source maps not uploaded (deploy unaffected): ${error3.message}`);
+    return { status: "failed", uploaded: 0, failed: 0 };
+  }
+}
+function sourceMapsEndpoint2(taskDefinitions, projectName) {
+  return sourceMapsEndpointFor(
+    Object.values(taskDefinitions).flatMap(
+      (taskDefinition) => (taskDefinition?.containerDefinitions ?? []).filter((container) => isEcsAppContainer(container, projectName)).map((container) => container.environment?.find((entry) => entry.name === ENDPOINT_ENV)?.value)
+    )
+  );
 }
 async function runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns }) {
   const family = `${projectName}-${nickname}-db-migrate`;
@@ -219019,11 +223971,10 @@ function ecsNetworkConfigFromEventBridge(networkConfiguration) {
     }
   };
 }
-async function updateServices({ projectName, cluster, image, secrets, serviceArns }) {
-  const current = await ecsServiceTaskDefinitions(serviceArns, cluster);
+async function updateServices({ projectName, cluster, image, secrets, serviceArns, taskDefinitions }) {
   const updated = [];
   for (const serviceArn of serviceArns) {
-    const family = current[serviceArn]?.family;
+    const family = taskDefinitions[serviceArn]?.family;
     if (!family) {
       throw new Error(`Could not determine the task-definition family for service ${shortName2(serviceArn)}`);
     }

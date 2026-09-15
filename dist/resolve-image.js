@@ -204625,6 +204625,7 @@ async function ecsDescribeTaskDefinition(taskDefinition) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
   return client.send(new import_client_ecs.DescribeTaskDefinitionCommand({ taskDefinition, include: [import_client_ecs.TaskDefinitionField.TAGS] }));
 }
+var SSM_PARAMETER_TIMEOUT_MS = 30 * 1e3;
 async function lambdaListFunctionNames(projectName, environment) {
   const client = new import_client_lambda.LambdaClient({ ...RETRY_CONFIG });
   const functionNames = [];

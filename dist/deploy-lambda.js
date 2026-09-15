@@ -52472,6 +52472,7 @@ var import_assert = __toESM(require("assert"));
 // src/aws.js
 var import_client_lambda = __toESM(require_dist_cjs16());
 var RETRY_CONFIG = { maxAttempts: 5, retryMode: "standard" };
+var SSM_PARAMETER_TIMEOUT_MS = 30 * 1e3;
 async function lambdaListFunctionNames(projectName, environment) {
   const client = new import_client_lambda.LambdaClient({ ...RETRY_CONFIG });
   const functionNames = [];

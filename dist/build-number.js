@@ -52613,6 +52613,7 @@ function error(message, properties = {}) {
 // src/aws.js
 var import_client_dynamodb = __toESM(require_dist_cjs19());
 var RETRY_CONFIG = { maxAttempts: 5, retryMode: "standard" };
+var SSM_PARAMETER_TIMEOUT_MS = 30 * 1e3;
 async function ecsBuildNumber(projectName) {
   const client = new import_client_dynamodb.DynamoDBClient({ ...RETRY_CONFIG });
   return (await client.send(new import_client_dynamodb.UpdateItemCommand({

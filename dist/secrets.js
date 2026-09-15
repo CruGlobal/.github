@@ -56351,7 +56351,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var GetParametersByPathCommand = class extends command5(_ep05, _mw05, "GetParametersByPath", GetParametersByPath$) {
     };
-    var GetParametersCommand = class extends command5(_ep05, _mw05, "GetParameters", GetParameters$) {
+    var GetParametersCommand2 = class extends command5(_ep05, _mw05, "GetParameters", GetParameters$) {
     };
     var GetPatchBaselineCommand = class extends command5(_ep05, _mw05, "GetPatchBaseline", GetPatchBaseline$) {
     };
@@ -56713,7 +56713,7 @@ var require_dist_cjs16 = __commonJS({
       GetOpsSummaryCommand,
       GetParameterCommand,
       GetParameterHistoryCommand,
-      GetParametersCommand,
+      GetParametersCommand: GetParametersCommand2,
       GetParametersByPathCommand,
       GetPatchBaselineCommand,
       GetPatchBaselineForPatchGroupCommand,
@@ -58054,7 +58054,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.GetParametersByPathCommand = GetParametersByPathCommand;
     exports2.GetParametersByPathRequest$ = GetParametersByPathRequest$;
     exports2.GetParametersByPathResult$ = GetParametersByPathResult$;
-    exports2.GetParametersCommand = GetParametersCommand;
+    exports2.GetParametersCommand = GetParametersCommand2;
     exports2.GetParametersRequest$ = GetParametersRequest$;
     exports2.GetParametersResult$ = GetParametersResult$;
     exports2.GetPatchBaseline$ = GetPatchBaseline$;
@@ -59301,6 +59301,7 @@ async function ssmParameters(prefix, decrypt = true) {
   }
   return results;
 }
+var SSM_PARAMETER_TIMEOUT_MS = 30 * 1e3;
 
 // src/ecs-config.js
 var PARAM_TYPES = ["BUILD", "RUNTIME", "ALL"];
