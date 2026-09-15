@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/CruGlobal/.github/compare/v2.5.2...v2.6.0) (2026-09-15)
+
+
+### Features
+
+* **v2:** upload browser source maps on ECS deploys ([#498](https://github.com/CruGlobal/.github/issues/498)) ([7af92dd](https://github.com/CruGlobal/.github/commit/7af92dd43d6d4bbdf75160d20018ae5d9bc2a270))
+
 ## [2.5.2](https://github.com/CruGlobal/.github/compare/v2.5.1...v2.5.2) (2026-09-14)
 
 
