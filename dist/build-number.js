@@ -35572,7 +35572,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.44",
+      version: "3.997.45",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -35672,7 +35672,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.977.9",
+        "@aws-sdk/core": "^3.978.0",
         "@aws-sdk/signature-v4-multi-region": "^3.996.46",
         "@aws-sdk/types": "^3.974.5",
         "@smithy/core": "^3.33.3",
@@ -50414,7 +50414,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1126.0";
+    var version = "3.1130.0";
     var packageInfo = {
       version
     };

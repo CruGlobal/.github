@@ -34781,7 +34781,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.44",
+      version: "3.997.45",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -34881,7 +34881,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.977.9",
+        "@aws-sdk/core": "^3.978.0",
         "@aws-sdk/signature-v4-multi-region": "^3.996.46",
         "@aws-sdk/types": "^3.974.5",
         "@smithy/core": "^3.33.3",
@@ -44822,7 +44822,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1126.0";
+    var version = "3.1130.0";
     var packageInfo = {
       version
     };
@@ -47025,8 +47025,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _CEGSR,
       0,
-      [_iRA, _eRA, _sN, _cl, _hCP, _pC, _tRA, _nC, _cp, _me, _sTc, _ta, _tDA],
-      [0, 0, 0, 0, 0, [() => ExpressGatewayContainer$, 0], 0, () => ExpressGatewayServiceNetworkConfiguration$, 0, 0, () => ExpressGatewayScalingTarget$, () => Tags, 0],
+      [_iRA, _eRA, _sN, _cl, _hCP, _pC, _tRA, _nC, _cp, _me, _cAp, _sTc, _ta, _tDA],
+      [0, 0, 0, 0, 0, [() => ExpressGatewayContainer$, 0], 0, () => ExpressGatewayServiceNetworkConfiguration$, 0, 0, 0, () => ExpressGatewayScalingTarget$, () => Tags, 0],
       1
     ];
     var CreateExpressGatewayServiceResponse$ = [
@@ -47930,8 +47930,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _EGSC,
       0,
-      [_sRAe, _eRA, _tRA, _tDA, _cp, _me, _nC, _hCP, _pC, _sTc, _iP, _cAr],
-      [0, 0, 0, 0, 0, 0, () => ExpressGatewayServiceNetworkConfiguration$, 0, [() => ExpressGatewayContainer$, 0], () => ExpressGatewayScalingTarget$, () => IngressPathSummaries, 4]
+      [_sRAe, _eRA, _tRA, _tDA, _cp, _me, _cAp, _nC, _hCP, _pC, _sTc, _iP, _cAr],
+      [0, 0, 0, 0, 0, 0, 0, () => ExpressGatewayServiceNetworkConfiguration$, 0, [() => ExpressGatewayContainer$, 0], () => ExpressGatewayScalingTarget$, () => IngressPathSummaries, 4]
     ];
     var ExpressGatewayServiceNetworkConfiguration$ = [
       3,
@@ -49497,8 +49497,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _UEGSR,
       0,
-      [_sAe, _eRA, _hCP, _pC, _tRA, _nC, _cp, _me, _sTc, _tDA],
-      [0, 0, 0, [() => ExpressGatewayContainer$, 0], 0, () => ExpressGatewayServiceNetworkConfiguration$, 0, 0, () => ExpressGatewayScalingTarget$, 0],
+      [_sAe, _eRA, _hCP, _pC, _tRA, _nC, _cp, _me, _cAp, _sTc, _tDA],
+      [0, 0, 0, [() => ExpressGatewayContainer$, 0], 0, () => ExpressGatewayServiceNetworkConfiguration$, 0, 0, 0, () => ExpressGatewayScalingTarget$, 0],
       1
     ];
     var UpdateExpressGatewayServiceResponse$ = [
@@ -52328,6 +52328,10 @@ var require_dist_cjs16 = __commonJS({
       STOP_REQUESTED: "STOP_REQUESTED",
       SUCCESSFUL: "SUCCESSFUL"
     };
+    var ExpressCpuArchitecture = {
+      ARM64: "ARM64",
+      X86_64: "X86_64"
+    };
     var ExpressGatewayServiceScalingMetric = {
       AverageCPUUtilization: "AVERAGE_CPU",
       AverageMemoryUtilization: "AVERAGE_MEMORY",
@@ -52732,6 +52736,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.ExecuteCommandLogging = ExecuteCommandLogging;
     exports2.ExecuteCommandRequest$ = ExecuteCommandRequest$;
     exports2.ExecuteCommandResponse$ = ExecuteCommandResponse$;
+    exports2.ExpressCpuArchitecture = ExpressCpuArchitecture;
     exports2.ExpressGatewayContainer$ = ExpressGatewayContainer$;
     exports2.ExpressGatewayRepositoryCredentials$ = ExpressGatewayRepositoryCredentials$;
     exports2.ExpressGatewayScalingTarget$ = ExpressGatewayScalingTarget$;
@@ -53219,7 +53224,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1126.0";
+    var version = "3.1130.0";
     var packageInfo = {
       version
     };
@@ -67482,7 +67487,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1126.0";
+    var version = "3.1130.0";
     var packageInfo = {
       version
     };

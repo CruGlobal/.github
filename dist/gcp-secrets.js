@@ -86098,7 +86098,7 @@ var require_package5 = __commonJS({
   "node_modules/@google-cloud/secret-manager/package.json"(exports2, module2) {
     module2.exports = {
       name: "@google-cloud/secret-manager",
-      version: "7.0.0",
+      version: "7.1.0",
       description: "Secrets client for Node.js",
       repository: {
         type: "git",
@@ -117025,7 +117025,7 @@ var require_package6 = __commonJS({
   "node_modules/@google-cloud/run/package.json"(exports2, module2) {
     module2.exports = {
       name: "@google-cloud/run",
-      version: "4.0.0",
+      version: "4.1.0",
       description: "Cloud Run Admin API",
       repository: {
         type: "git",
