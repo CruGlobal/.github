@@ -344,6 +344,7 @@ jobs:
         with:
           token: ${{ secrets.flightdeck-token }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
+          app: ${{ inputs.project-name }}
           environment: staging
           kind: deploy
           release-tag: ${{ inputs.tag }}
@@ -619,6 +620,7 @@ jobs:
         with:
           token: ${{ secrets.flightdeck-token }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
+          app: ${{ inputs.project-name }}
           environment: staging
           kind: deploy
           release-tag: ${{ inputs.tag }}

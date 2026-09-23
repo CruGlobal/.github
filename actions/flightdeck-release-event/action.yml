@@ -17,6 +17,11 @@ inputs:
       Flightdeck project identifier, e.g. BILLS (app-info FlightdeckProject).
       Unset skips posting.
     required: false
+  app:
+    description: >-
+      Pipeline project name the release belongs to (the workflow's
+      project-name), sent as `app`. Unset leaves the key out of the event.
+    required: false
   environment:
     description: Flightdeck environment the release landed in, e.g. production or staging.
     required: true

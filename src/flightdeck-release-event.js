@@ -33,6 +33,7 @@ export async function run () {
   try {
     const endpoint = normalizeEndpoint(core.getInput('endpoint') || DEFAULT_ENDPOINT)
     const event = buildEvent({
+      app: core.getInput('app'),
       environment: core.getInput('environment', { required: true }),
       kind: core.getInput('kind'),
       releaseTag: core.getInput('release-tag'),
@@ -68,13 +69,18 @@ export function normalizeEndpoint (endpoint) {
 // The wrapped body's inner object. Blank optional fields are OMITTED rather
 // than sent empty: the /api/v1 side is strict, and an absent key means "no
 // opinion" for every field but environment.
-export function buildEvent ({ environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt }) {
+export function buildEvent ({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt }) {
   environment = (environment || '').trim()
   if (!environment) throw new Error('environment is required')
   kind = (kind || 'deploy').trim()
   if (!KINDS.includes(kind)) throw new Error(`unknown kind "${kind}" (expected one of ${KINDS.join(', ')})`)
 
   const event = { environment, kind }
+  // The pipeline project name. A blank one leaves the key out entirely, not
+  // sent empty: the endpoint refuses keys it does not know, so a caller that
+  // passes no `app` keeps posting exactly the body it always has.
+  app = (app || '').trim()
+  if (app) event.app = app
   releaseTag = (releaseTag || '').trim()
   if (releaseTag) event.release_tag = releaseTag
   const build = (buildNumber || '').trim() || buildNumberFromTag(releaseTag)

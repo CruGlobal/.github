@@ -125,6 +125,21 @@ describe('buildEvent', () => {
   it('requires environment', () => {
     expect(() => buildEvent({ environment: '  ' })).toThrow(/environment is required/)
   })
+
+  it('sends app, trimmed, when one is given', () => {
+    const event = buildEvent({ app: '  bills ', environment: 'production', kind: 'rollback', releaseTag: 'release-10038' })
+    expect(event).toEqual({ app: 'bills', environment: 'production', kind: 'rollback', release_tag: 'release-10038', build_number: '10038' })
+  })
+
+  it('leaves the app key out entirely when app is unset or blank', () => {
+    // Absent, not empty or null: the endpoint refuses keys it does not know,
+    // so a caller that passes no app must keep posting the body it always has.
+    for (const app of [undefined, '', '   ']) {
+      const event = buildEvent({ app, environment: 'production' })
+      expect(event).not.toHaveProperty('app')
+      expect(JSON.parse(JSON.stringify(event))).not.toHaveProperty('app')
+    }
+  })
 })
 
 describe('helpers', () => {
@@ -216,6 +231,30 @@ describe('run', () => {
     expect(output('event-id')).toBe('901')
     expect(setFailedMock).not.toHaveBeenCalled()
     expect(warningMock).not.toHaveBeenCalled()
+  })
+
+  it('posts the app input as app in the wrapped event', async () => {
+    happyInputs()
+    inputs.app = 'bills'
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(jsonResponse(201, { id: 902 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    const posted = JSON.parse(fetchMock.mock.calls[1][1].body).release_event
+    expect(posted.app).toBe('bills')
+    expect(posted.environment).toBe('production')
+    expect(output('status')).toBe('created')
+  })
+
+  it('posts no app key when the app input is unset', async () => {
+    happyInputs()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(jsonResponse(201, { id: 903 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await run()
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).release_event).not.toHaveProperty('app')
   })
 
   it('reports a restated release as updated (200)', async () => {

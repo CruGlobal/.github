@@ -394,6 +394,7 @@ jobs:
         with:
           token: ${{ secrets.flightdeck-token }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
+          app: ${{ inputs.project-name }}
           environment: production
           kind: rollback
           release-tag: ${{ steps.actual-release.outputs.tag }}
@@ -667,6 +668,7 @@ jobs:
         with:
           token: ${{ secrets.flightdeck-token }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
+          app: ${{ inputs.project-name }}
           environment: production
           kind: rollback
           release-tag: ${{ steps.actual-release.outputs.tag }}
