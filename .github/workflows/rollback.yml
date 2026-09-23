@@ -29,13 +29,20 @@ on:
         type: string
         required: true
         description: Release to roll back to, e.g. release-10012 or bare 10012.
+      trusted-automation-actor-ids:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Comma-separated numeric GitHub user ids of automation accounts allowed
+          to roll back without per-repo push access. Empty allows none.
     secrets:
       datadog-api-key:
         required: true
         description: DataDog API key.
       authz-token:
         required: true
-        description: GitHub token used to verify the actor has push access to the app repo.
+        description: GitHub token used to verify the triggering actor has push access to the app repo.
       slack-bot-token:
         required: false
         description: Slack bot token for pipeline notifications; unset disables posting.
@@ -117,23 +124,67 @@ jobs:
           echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
-      # Authorization runs before any provider job mutates production: the human
-      # running a production change must have push-level access to the app repo.
-      # It follows the app-info lookups only because the repo is read from the
-      # production item (the fleet default CruGlobal/<project-name> otherwise).
+      # Authorization runs before any provider job mutates production. It follows
+      # the app-info lookups only because the repo is read from the production
+      # item (the fleet default CruGlobal/<project-name> otherwise). A run is
+      # allowed in one of two ways:
+      #
+      #   1. Allowlisted automation actor. The run was dispatched by an account
+      #      whose numeric user id (github.actor_id) is in
+      #      trusted-automation-actor-ids, AND this attempt was started by that
+      #      same account. Automation accounts such as a GitHub App's bot user
+      #      are not collaborators on app repos, so the push-access check below
+      #      cannot vouch for them. Matched by id, not login, because the id
+      #      never changes.
+      #   2. Push access. Otherwise the account that started THIS attempt
+      #      (github.triggering_actor) must have push-level access (admin, write
+      #      or maintain) to the app repo. Not github.actor: on a re-run,
+      #      github.actor stays the original dispatcher while triggering_actor is
+      #      whoever clicked re-run, and the re-runner is the one whose access
+      #      matters. That is also why a re-run of an allowlisted actor's run by
+      #      anyone else falls through to this check.
+      #
       # TODO: replace PAT with a dedicated GitHub App.
       - name: Authorize actor
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
           ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          TRUSTED_AUTOMATION_ACTOR_IDS: ${{ inputs.trusted-automation-actor-ids }}
           APP_REPO: ${{ steps.app-info.outputs.repository }}
         run: |
-          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
-          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
+          # Whole entries only, compared as exact strings, so 12 never matches
+          # 123. Commas or newlines separate entries; surrounding whitespace and
+          # blank entries are ignored, and anything else that is not a plain
+          # number is ignored with a warning.
+          allowlisted=false
+          IFS=',' read -ra entries <<< "${TRUSTED_AUTOMATION_ACTOR_IDS//$'\n'/,}"
+          for entry in "${entries[@]}"; do
+            if [[ "$entry" =~ ^[[:space:]]*([0-9]+)[[:space:]]*$ ]]; then
+              if [ "${BASH_REMATCH[1]}" = "$ACTOR_ID" ]; then allowlisted=true; fi
+            elif [[ "$entry" =~ [^[:space:]] ]]; then
+              echo "::warning::ignoring trusted-automation-actor-ids entry '$entry' (not a numeric user id)"
+            fi
+          done
+
+          if [ "$allowlisted" = true ] && [ "$TRIGGERING_ACTOR" = "$ACTOR" ]; then
+            echo "::notice::$ACTOR (user id $ACTOR_ID) is an allowlisted automation actor and dispatched this run, so the push-access check on $APP_REPO does not apply"
+            exit 0
+          fi
+          if [ "$allowlisted" = true ]; then
+            echo "::notice::this run was dispatched by allowlisted automation actor $ACTOR, but this attempt was started by $TRIGGERING_ACTOR, so $TRIGGERING_ACTOR's own access is checked"
+          fi
+
+          if ! permission=$(gh api "repos/${APP_REPO}/collaborators/${TRIGGERING_ACTOR}/permission" --jq '.permission'); then
+            echo "::error::could not read the permission of $TRIGGERING_ACTOR (the account that started this run attempt) on $APP_REPO; refusing to roll back"
+            exit 1
+          fi
+          echo "::notice::$TRIGGERING_ACTOR has '$permission' on $APP_REPO"
           case "$permission" in
             admin|write|maintain) ;;
             *)
-              echo "::error::$ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain."
+              echo "::error::$TRIGGERING_ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain. The account checked is the one that started this run attempt (github.triggering_actor); the run was dispatched by $ACTOR."
               exit 1
               ;;
           esac
