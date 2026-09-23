@@ -44822,7 +44822,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1130.0";
+    var version = "3.1135.0";
     var packageInfo = {
       version
     };
