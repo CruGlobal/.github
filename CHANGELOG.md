@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/CruGlobal/.github/compare/v2.6.0...v2.7.0) (2026-09-24)
+
+
+### Features
+
+* **v2:** let automation actors dispatch rollbacks, and refuse stale ones ([#502](https://github.com/CruGlobal/.github/issues/502)) ([4894659](https://github.com/CruGlobal/.github/commit/4894659e84334503a904eaa1e2474b018beb2454))
+
 ## [2.6.0](https://github.com/CruGlobal/.github/compare/v2.5.2...v2.6.0) (2026-09-15)
 
 
