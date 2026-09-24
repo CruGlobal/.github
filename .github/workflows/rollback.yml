@@ -9,6 +9,11 @@ name: Rollback
 # `lookup`, which every provider job `needs`, so it ALWAYS passes before any
 # provider job mutates production.
 #
+# Stale-rollback guard: a caller that knows which release production was
+# running when it asked for the rollback passes it as expected-current-release.
+# Each provider job checks it first, inside the production lock, and refuses
+# the rollback if production has since moved to a different release.
+#
 # NOTE: automatic "previous release" selection (roll back to release-<n-1>
 # without naming it) lands in a later v2 pass; for now the target release is an
 # explicit input.
@@ -36,6 +41,16 @@ on:
         description: >-
           Comma-separated numeric GitHub user ids of automation accounts allowed
           to roll back without per-repo push access. Empty allows none.
+      expected-current-release:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          When set, the rollback is refused unless production is still running
+          this release (release-[<yyyy-mm-dd>-]<n>, the release- prefix is
+          optional). Automation sets it to the release it saw live, so a
+          rollback that waited behind a newer deploy does not undo it. Empty
+          skips the check.
     secrets:
       datadog-api-key:
         required: true
@@ -226,6 +241,77 @@ jobs:
       ENVIRONMENT: production
       DD_API_KEY: ${{ secrets.datadog-api-key }}
     steps:
+      # --- Stale-rollback guard (inside the production lock) ---------------
+      # FIRST step on purpose. This job's concurrency group is the production
+      # lock it shares with promote, so every step here runs while the job
+      # holds it, and no other promote or rollback of this app can start until
+      # the job ends. A rollback that queued behind a promote sees that
+      # promote's result here, before any image is resolved or deployed. That
+      # is also why the check lives in the provider jobs and not in `lookup`,
+      # which runs outside the lock.
+      #
+      # expected-current-release unset => no check (the usual case for a person
+      # rolling back by hand). Set => the newest production row in the
+      # deployment ledger must name that release, or the rollback is refused.
+      # It fails CLOSED: a ledger that can't be read, or doesn't say what
+      # production runs, is a refusal, not a pass.
+      #
+      # Known, accepted gap: the ledger writes in promote (and in this workflow)
+      # are best-effort (continue-on-error), so a newer deploy whose ledger
+      # write failed is invisible here and the rollback would go ahead.
+      - name: Refuse a stale rollback
+        env:
+          EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
+        run: |
+          if [ -z "$EXPECTED_CURRENT_RELEASE" ]; then
+            echo "::notice::expected-current-release is not set, so this rollback does not check what production is running first"
+            exit 0
+          fi
+
+          # Same normalization as "Normalize release tag": surrounding whitespace is
+          # trimmed and the release- prefix is optional on both sides.
+          expected="$EXPECTED_CURRENT_RELEASE"
+          if [[ "$expected" =~ ^[[:space:]]*([^[:space:]].*[^[:space:]]|[^[:space:]])[[:space:]]*$ ]]; then
+            expected="${BASH_REMATCH[1]}"
+          fi
+          expected="${expected#release-}"
+          if ! [[ "$expected" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]]; then
+            echo "::error::invalid expected-current-release '$EXPECTED_CURRENT_RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional)"
+            exit 1
+          fi
+
+          # Fail closed from here on: without a trustworthy answer to "what is
+          # production running", refuse rather than guess.
+          unconfirmed="cannot confirm production is still running release-$expected; refusing to roll back"
+          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+              "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1"); then
+            echo "::error::could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
+            exit 1
+          fi
+          if ! count=$(printf '%s' "$body" | jq -er '.Items | if type == "array" then length else error("no Items array") end' 2>/dev/null); then
+            echo "::error::the deployment ledger for $PROJECT_NAME returned an unexpected response (not JSON with an Items array), so $unconfirmed"
+            exit 1
+          fi
+          if [ "$count" -eq 0 ]; then
+            echo "::error::the deployment ledger has no production rows for $PROJECT_NAME, so $unconfirmed"
+            exit 1
+          fi
+          current=$(printf '%s' "$body" | jq -r '.Items[0].Revision | if type == "string" then . else "" end' 2>/dev/null) || current=""
+          if [ -z "$current" ]; then
+            echo "::error::the newest production row in the deployment ledger for $PROJECT_NAME has no Revision, so $unconfirmed"
+            exit 1
+          fi
+
+          if [ "${current#release-}" != "$expected" ]; then
+            if [[ "$expected" =~ ^[0-9]+$ ]] && [[ "$current" == *"-$expected" ]]; then
+              echo "::error::expected-current-release '$EXPECTED_CURRENT_RELEASE' is a bare build number, but production's release tag is dated ($current); pass the full tag. Refusing to roll back"
+            else
+              echo "::error::production is now running $current, not release-$expected; refusing a rollback that would undo a newer deploy"
+            fi
+            exit 1
+          fi
+          echo "::notice::production is still running $current, as expected; going ahead with the rollback"
+
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v7
         with:
@@ -502,6 +588,77 @@ jobs:
       ENVIRONMENT: production
       DD_API_KEY: ${{ secrets.datadog-api-key }}
     steps:
+      # --- Stale-rollback guard (inside the production lock) ---------------
+      # FIRST step on purpose. This job's concurrency group is the production
+      # lock it shares with promote, so every step here runs while the job
+      # holds it, and no other promote or rollback of this app can start until
+      # the job ends. A rollback that queued behind a promote sees that
+      # promote's result here, before any image is resolved or deployed. That
+      # is also why the check lives in the provider jobs and not in `lookup`,
+      # which runs outside the lock.
+      #
+      # expected-current-release unset => no check (the usual case for a person
+      # rolling back by hand). Set => the newest production row in the
+      # deployment ledger must name that release, or the rollback is refused.
+      # It fails CLOSED: a ledger that can't be read, or doesn't say what
+      # production runs, is a refusal, not a pass.
+      #
+      # Known, accepted gap: the ledger writes in promote (and in this workflow)
+      # are best-effort (continue-on-error), so a newer deploy whose ledger
+      # write failed is invisible here and the rollback would go ahead.
+      - name: Refuse a stale rollback
+        env:
+          EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
+        run: |
+          if [ -z "$EXPECTED_CURRENT_RELEASE" ]; then
+            echo "::notice::expected-current-release is not set, so this rollback does not check what production is running first"
+            exit 0
+          fi
+
+          # Same normalization as "Normalize release tag": surrounding whitespace is
+          # trimmed and the release- prefix is optional on both sides.
+          expected="$EXPECTED_CURRENT_RELEASE"
+          if [[ "$expected" =~ ^[[:space:]]*([^[:space:]].*[^[:space:]]|[^[:space:]])[[:space:]]*$ ]]; then
+            expected="${BASH_REMATCH[1]}"
+          fi
+          expected="${expected#release-}"
+          if ! [[ "$expected" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]]; then
+            echo "::error::invalid expected-current-release '$EXPECTED_CURRENT_RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional)"
+            exit 1
+          fi
+
+          # Fail closed from here on: without a trustworthy answer to "what is
+          # production running", refuse rather than guess.
+          unconfirmed="cannot confirm production is still running release-$expected; refusing to roll back"
+          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+              "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1"); then
+            echo "::error::could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
+            exit 1
+          fi
+          if ! count=$(printf '%s' "$body" | jq -er '.Items | if type == "array" then length else error("no Items array") end' 2>/dev/null); then
+            echo "::error::the deployment ledger for $PROJECT_NAME returned an unexpected response (not JSON with an Items array), so $unconfirmed"
+            exit 1
+          fi
+          if [ "$count" -eq 0 ]; then
+            echo "::error::the deployment ledger has no production rows for $PROJECT_NAME, so $unconfirmed"
+            exit 1
+          fi
+          current=$(printf '%s' "$body" | jq -r '.Items[0].Revision | if type == "string" then . else "" end' 2>/dev/null) || current=""
+          if [ -z "$current" ]; then
+            echo "::error::the newest production row in the deployment ledger for $PROJECT_NAME has no Revision, so $unconfirmed"
+            exit 1
+          fi
+
+          if [ "${current#release-}" != "$expected" ]; then
+            if [[ "$expected" =~ ^[0-9]+$ ]] && [[ "$current" == *"-$expected" ]]; then
+              echo "::error::expected-current-release '$EXPECTED_CURRENT_RELEASE' is a bare build number, but production's release tag is dated ($current); pass the full tag. Refusing to roll back"
+            else
+              echo "::error::production is now running $current, not release-$expected; refusing a rollback that would undo a newer deploy"
+            fi
+            exit 1
+          fi
+          echo "::notice::production is still running $current, as expected; going ahead with the rollback"
+
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v7
         with:
