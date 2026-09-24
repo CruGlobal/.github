@@ -19352,6 +19352,7 @@ async function run() {
   try {
     const endpoint = normalizeEndpoint(getInput("endpoint") || DEFAULT_ENDPOINT);
     const event = buildEvent({
+      app: getInput("app"),
       environment: getInput("environment", { required: true }),
       kind: getInput("kind"),
       releaseTag: getInput("release-tag"),
@@ -19382,12 +19383,14 @@ async function run() {
 function normalizeEndpoint(endpoint) {
   return endpoint.trim().replace(/\/+$/, "");
 }
-function buildEvent({ environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt }) {
+function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt }) {
   environment = (environment || "").trim();
   if (!environment) throw new Error("environment is required");
   kind = (kind || "deploy").trim();
   if (!KINDS.includes(kind)) throw new Error(`unknown kind "${kind}" (expected one of ${KINDS.join(", ")})`);
   const event = { environment, kind };
+  app = (app || "").trim();
+  if (app) event.app = app;
   releaseTag = (releaseTag || "").trim();
   if (releaseTag) event.release_tag = releaseTag;
   const build = (buildNumber || "").trim() || buildNumberFromTag(releaseTag);
