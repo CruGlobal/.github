@@ -96,8 +96,9 @@ describe('attempt guard', () => {
     expect(() => assertAttemptAuthorized('deploy to production', { GITHUB_RUN_ATTEMPT: '2' })).toThrow(
       'refusing to deploy to production: no authorize-actor check passed earlier in this job for this run attempt (attempt 2). ' +
       'A production change needs the account that started this run attempt to be checked first, in the same job. ' +
-      'This happens when a run made before that check existed is re-run with "Re-run failed jobs" or "Re-run job", ' +
-      "because those re-runs reuse the run's old workflow file. " +
+      'This happens with a run that started on an older release of this workflow: ' +
+      'a re-run with "Re-run failed jobs" or "Re-run job", which reuse the run\'s old workflow file, ' +
+      'or a run that was already queued or running when the release went out. ' +
       'Use "Re-run all jobs", which loads the current workflow file, or start a new run.'
     )
   })

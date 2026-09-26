@@ -7,12 +7,14 @@ import * as core from '@actions/core'
 // or write a record that later counts as trusted (deploy to production, a
 // release tag, a production release event) refuse to run without it.
 //
-// Why the actions check this, and not only the workflow: "Re-run failed jobs"
-// and "Re-run job" reuse the reusable workflow file from the run's first
-// attempt. A run made before promote and rollback checked every attempt inside
-// their production jobs is re-run with that old file, which never checks who
-// started the re-run. The old file still loads these actions from the current
-// release, so this is where such a re-run can still be stopped.
+// Why the actions check this, and not only the workflow: a run keeps the
+// reusable workflow file it started with. "Re-run failed jobs" and "Re-run
+// job" reuse the file from the run's first attempt, and a run that was already
+// queued or running when a release went out keeps its older file too. A file
+// from before promote and rollback checked every attempt inside their
+// production jobs never checks who started the attempt. It still loads these
+// actions from the current release, so this is where such a run can still be
+// stopped.
 //
 // The marker lives in the job's environment, so it does not carry over to
 // another job, and it names the attempt it was set for. A value from another
@@ -57,8 +59,9 @@ export function assertAttemptAuthorized (what, env = process.env) {
     throw new AttemptNotAuthorized(
       `refusing to ${what}: ${why}. ` +
       'A production change needs the account that started this run attempt to be checked first, in the same job. ' +
-      'This happens when a run made before that check existed is re-run with "Re-run failed jobs" or "Re-run job", ' +
-      'because those re-runs reuse the run\'s old workflow file. ' +
+      'This happens with a run that started on an older release of this workflow: ' +
+      'a re-run with "Re-run failed jobs" or "Re-run job", which reuse the run\'s old workflow file, ' +
+      'or a run that was already queued or running when the release went out. ' +
       'Use "Re-run all jobs", which loads the current workflow file, or start a new run.'
     )
   }
