@@ -224079,7 +224079,7 @@ function assertAttemptAuthorized(what, env2 = process.env) {
   }
   if (why) {
     throw new AttemptNotAuthorized(
-      `refusing to ${what}: ${why}. A production change needs the account that started this run attempt to be checked first, in the same job. This happens when a run made before that check existed is re-run with "Re-run failed jobs" or "Re-run job", because those re-runs reuse the run's old workflow file. Use "Re-run all jobs", which loads the current workflow file, or start a new run.`
+      `refusing to ${what}: ${why}. A production change needs the account that started this run attempt to be checked first, in the same job. This happens with a run that started on an older release of this workflow: a re-run with "Re-run failed jobs" or "Re-run job", which reuse the run's old workflow file, or a run that was already queued or running when the release went out. Use "Re-run all jobs", which loads the current workflow file, or start a new run.`
     );
   }
 }
