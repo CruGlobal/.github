@@ -28821,26 +28821,6 @@ var require_float = __commonJS({
   }
 });
 
-// node_modules/@protobufjs/inquire/index.js
-var require_inquire = __commonJS({
-  "node_modules/@protobufjs/inquire/index.js"(exports2, module2) {
-    "use strict";
-    module2.exports = inquire;
-    function inquire(moduleName) {
-      try {
-        if (typeof require !== "function") {
-          return null;
-        }
-        var mod = require(moduleName);
-        if (mod && (mod.length || Object.keys(mod).length)) return mod;
-        return null;
-      } catch (err) {
-        return null;
-      }
-    }
-  }
-});
-
 // node_modules/@protobufjs/utf8/index.js
 var require_utf8 = __commonJS({
   "node_modules/@protobufjs/utf8/index.js"(exports2) {
@@ -30033,7 +30013,6 @@ var require_minimal = __commonJS({
     util.base64 = require_base64();
     util.EventEmitter = require_eventemitter();
     util.float = require_float();
-    util.inquire = require_inquire();
     util.utf8 = require_utf8();
     util.pool = require_pool2();
     util.LongBits = require_longbits();
@@ -30069,7 +30048,7 @@ var require_minimal = __commonJS({
      */
     util.isSet = function isSet(obj, prop) {
       var value = obj[prop];
-      if (value != null && obj.hasOwnProperty(prop))
+      if (value != null && Object.hasOwnProperty.call(obj, prop))
         return typeof value !== "object" || (Array.isArray(value) ? value.length : Object.keys(value).length) > 0;
       return false;
     };
@@ -30504,9 +30483,27 @@ var require_reader = __commonJS({
     Reader.create = create();
     Reader.prototype._slice = util.Array.prototype.subarray || /* istanbul ignore next */
     util.Array.prototype.slice;
+    function readVarint32NearEnd(reader) {
+      var value = 0;
+      for (var i2 = 0; i2 < 4; ++i2) {
+        if (reader.pos >= reader.len)
+          throw indexOutOfRange(reader);
+        var b = reader.buf[reader.pos++];
+        value = (value | (b & 127) << i2 * 7) >>> 0;
+        if (b < 128)
+          return value;
+      }
+      throw indexOutOfRange(reader);
+    }
     Reader.prototype.uint32 = /* @__PURE__ */ (function read_uint32_setup() {
       var value = 4294967295;
       return function read_uint32() {
+        if (this.len - this.pos < 5) {
+          if (this.pos >= this.len)
+            throw indexOutOfRange(this);
+          if (this.buf[this.pos] >= 128)
+            return readVarint32NearEnd(this);
+        }
         value = (this.buf[this.pos] & 127) >>> 0;
         if (this.buf[this.pos++] < 128) return value;
         value = (value | (this.buf[this.pos] & 127) << 7) >>> 0;
@@ -31471,7 +31468,6 @@ var require_service2 = __commonJS({
     var Method = require_method();
     var util = require_util9();
     var rpc = require_rpc();
-    var reservedRe = util.patterns.reservedRe;
     function Service(name, options) {
       Namespace.call(this, name, options);
       this.methods = {};
@@ -31564,11 +31560,11 @@ var require_service2 = __commonJS({
       for (var i2 = 0, method; i2 < /* initializes */
       this.methodsArray.length; ++i2) {
         var methodName = util.lcFirst((method = this._methodsArray[i2]).resolve().name).replace(/[^$\w_]/g, "");
-        rpcService[methodName] = util.codegen(["r", "c"], reservedRe.test(methodName) ? methodName + "_" : methodName)("return this.rpcCall(m,q,s,r,c)")({
-          m: method,
-          q: method.resolvedRequestType.ctor,
-          s: method.resolvedResponseType.ctor
-        });
+        rpcService[methodName] = /* @__PURE__ */ (function(method2, requestType, responseType) {
+          return function rpcMethod(request, callback) {
+            return rpc.Service.prototype.rpcCall.call(this, method2, requestType, responseType, request, callback);
+          };
+        })(method, method.resolvedRequestType.ctor, method.resolvedResponseType.ctor);
       }
       return rpcService;
     };
@@ -31632,16 +31628,16 @@ var require_decoder = __commonJS({
       return "missing required '" + field.name + "'";
     }
     function decoder(mtype) {
-      var gen = util.codegen(["r", "l", "e", "n"], mtype.name + "$decode")("if(!(r instanceof Reader))")("r=Reader.create(r)")("if(n===undefined)n=0")("if(n>Reader.recursionLimit)")('throw Error("maximum nesting depth exceeded")')("var c=l===undefined?r.len:r.pos+l,m=new this.ctor" + (mtype.fieldsArray.filter(function(field2) {
+      var gen = util.codegen(["r", "l", "e", "n"], mtype.name + "$decode")("if(!(r instanceof Reader))")("r=Reader.create(r)")("if(n===undefined)n=0")("if(n>Reader.recursionLimit)")('throw Error("maximum nesting depth exceeded")')("var c,m" + (mtype.fieldsArray.filter(function(field2) {
         return field2.map;
-      }).length ? ",k,value" : ""))("while(r.pos<c){")("var t=r.uint32()")("if(t===e)")("break")("switch(t>>>3){");
+      }).length ? ",k,value" : ""))("if(l===undefined)")("c=r.len")("else{")("c=r.pos+l")("if(c>r.len)")('throw RangeError("index out of range")')("l=r.len")("r.len=c")("}")("m=new this.ctor")("while(r.pos<c){")("var t=r.uint32()")("if(t===e)")("break")("switch(t>>>3){");
       var i2 = 0;
       for (; i2 < /* initializes */
       mtype.fieldsArray.length; ++i2) {
         var field = mtype._fieldsArray[i2].resolve(), type = field.resolvedType instanceof Enum ? "int32" : field.type, ref = "m" + util.safeProp(field.name);
         gen("case %i: {", field.id);
         if (field.map) {
-          gen("if(%s===util.emptyObject)", ref)("%s={}", ref)("var c2 = r.uint32()+r.pos");
+          gen("if(%s===util.emptyObject)", ref)("%s={}", ref)("var c2=r.uint32()+r.pos")("if(c2>r.len)")('throw RangeError("index out of range")')("r.len=c2");
           if (types3.defaults[field.keyType] !== void 0) gen("k=%j", types3.defaults[field.keyType]);
           else gen("k=null");
           if (types3.defaults[type] !== void 0) gen("value=%j", types3.defaults[type]);
@@ -31649,7 +31645,7 @@ var require_decoder = __commonJS({
           gen("while(r.pos<c2){")("var tag2=r.uint32()")("switch(tag2>>>3){")("case 1: k=r.%s(); break", field.keyType)("case 2:");
           if (types3.basic[type] === void 0) gen("value=types[%i].decode(r,r.uint32(),undefined,n+1)", i2);
           else gen("value=r.%s()", type);
-          gen("break")("default:")("r.skipType(tag2&7,n)")("break")("}")("}");
+          gen("break")("default:")("r.skipType(tag2&7,n)")("break")("}")("}")("if(r.pos!==c2)")('throw RangeError("index out of range")')("r.len=c");
           if (types3.long[field.keyType] !== void 0) gen('%s[typeof k==="object"?util.longToHash(k):k]=value', ref);
           else {
             if (field.keyType === "string") gen('if(k==="__proto__")')("util.makeProp(%s,k)", ref);
@@ -31657,7 +31653,7 @@ var require_decoder = __commonJS({
           }
         } else if (field.repeated) {
           gen("if(!(%s&&%s.length))", ref, ref)("%s=[]", ref);
-          if (types3.packed[type] !== void 0) gen("if((t&7)===2){")("var c2=r.uint32()+r.pos")("while(r.pos<c2)")("%s.push(r.%s())", ref, type)("}else");
+          if (types3.packed[type] !== void 0) gen("if((t&7)===2){")("var c2=r.uint32()+r.pos")("if(c2>r.len)")('throw RangeError("index out of range")')("r.len=c2")("while(r.pos<c2)")("%s.push(r.%s())", ref, type)("if(r.pos!==c2)")('throw RangeError("index out of range")')("r.len=c")("}else");
           if (types3.basic[type] === void 0) gen(field.delimited ? "%s.push(types[%i].decode(r,undefined,((t&~7)|4),n+1))" : "%s.push(types[%i].decode(r,r.uint32(),undefined,n+1))", ref, i2);
           else gen("%s.push(r.%s())", ref, type);
         } else if (types3.basic[type] === void 0) gen(field.delimited ? "%s=types[%i].decode(r,undefined,((t&~7)|4),n+1)" : "%s=types[%i].decode(r,r.uint32(),undefined,n+1)", ref, i2);
@@ -31665,9 +31661,10 @@ var require_decoder = __commonJS({
         gen("break")("}");
       }
       gen("default:")("r.skipType(t&7,n)")("break")("}")("}");
+      gen("if(l!==undefined){")("if(r.pos!==c)")('throw RangeError("index out of range")')("r.len=l")("}");
       for (i2 = 0; i2 < mtype._fieldsArray.length; ++i2) {
         var rfield = mtype._fieldsArray[i2];
-        if (rfield.required) gen("if(!m.hasOwnProperty(%j))", rfield.name)("throw util.ProtocolError(%j,{instance:m})", missing(rfield));
+        if (rfield.required) gen("if(!Object.hasOwnProperty.call(m,%j))", rfield.name)("throw util.ProtocolError(%j,{instance:m})", missing(rfield));
       }
       return gen("return m");
     }
@@ -31755,7 +31752,7 @@ var require_verifier = __commonJS({
       for (var i2 = 0; i2 < /* initializes */
       mtype.fieldsArray.length; ++i2) {
         var field = mtype._fieldsArray[i2].resolve(), ref = "m" + util.safeProp(field.name);
-        if (field.optional) gen("if(%s!=null&&m.hasOwnProperty(%j)){", ref, field.name);
+        if (field.optional) gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j)){", ref, field.name);
         if (field.map) {
           gen("if(!util.isObject(%s))", ref)("return%j", invalid(field, "object"))("var k=Object.keys(%s)", ref)("for(var i=0;i<k.length;++i){");
           genVerifyKey(gen, field, "k[i]");
@@ -31841,8 +31838,9 @@ var require_converter = __commonJS({
     }
     converter.fromObject = function fromObject(mtype) {
       var fields = mtype.fieldsArray;
-      var gen = util.codegen(["d", "n"], mtype.name + "$fromObject")("if(d instanceof this.ctor)")("return d")("if(!util.isObject(d))")("throw TypeError(%j)", mtype.fullName + ": object expected")("if(n===undefined)n=0")("if(n>util.recursionLimit)")('throw Error("maximum nesting depth exceeded")');
+      var gen = util.codegen(["d", "n"], mtype.name + "$fromObject")("if(d instanceof this.ctor)")("return d");
       if (!fields.length) return gen("return new this.ctor");
+      gen("if(!util.isObject(d))")("throw TypeError(%j)", mtype.fullName + ": object expected")("if(n===undefined)n=0")("if(n>util.recursionLimit)")('throw Error("maximum nesting depth exceeded")');
       gen("var m=new this.ctor");
       for (var i2 = 0; i2 < fields.length; ++i2) {
         var field = fields[i2].resolve(), prop = util.safeProp(field.name);
@@ -31968,7 +31966,7 @@ var require_converter = __commonJS({
             prop + "[j]"
           )("}");
         } else {
-          gen("if(m%s!=null&&m.hasOwnProperty(%j)){", prop, field.name);
+          gen("if(m%s!=null&&Object.hasOwnProperty.call(m,%j)){", prop, field.name);
           genValuePartial_toObject(
             gen,
             field,
@@ -31994,6 +31992,10 @@ var require_wrappers = __commonJS({
     var util = require_minimal();
     wrappers[".google.protobuf.Any"] = {
       fromObject: function(object, depth) {
+        if (depth === void 0)
+          depth = 0;
+        if (depth > util.recursionLimit)
+          throw Error("max depth exceeded");
         if (object && object["@type"]) {
           var name = object["@type"].substring(object["@type"].lastIndexOf("/") + 1);
           var type = this.lookup(name);
@@ -32004,7 +32006,7 @@ var require_wrappers = __commonJS({
             }
             return this.create({
               type_url,
-              value: type.encode(type.fromObject(object, depth === void 0 ? 1 : depth + 1)).finish()
+              value: type.encode(type.fromObject(object, depth + 1)).finish()
             });
           }
         }
@@ -32274,7 +32276,7 @@ var require_type = __commonJS({
           throw Error("duplicate id " + object.id + " in " + this);
         if (this.isReservedId(object.id))
           throw Error("id " + object.id + " is reserved in " + this);
-        if (this.isReservedName(object.name))
+        if (this.isReservedName(object.name) || object.name.charAt(0) === "$")
           throw Error("name '" + object.name + "' is reserved in " + this);
         if (object.name === "__proto__")
           return this;
@@ -32286,6 +32288,8 @@ var require_type = __commonJS({
         return clearCache(this);
       }
       if (object instanceof OneOf) {
+        if (object.name.charAt(0) === "$")
+          throw Error("name '" + object.name + "' is reserved in " + this);
         if (object.name === "__proto__")
           return this;
         if (!this.oneofs)
@@ -34426,6 +34430,9 @@ var require_parse2 = __commonJS({
           token2 = next();
         }
         while (token2 !== "=") {
+          if (token2 === null) {
+            throw illegal(token2, "end of input");
+          }
           if (token2 === "(") {
             var parensValue = next();
             skip(")");
