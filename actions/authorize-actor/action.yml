@@ -1,0 +1,29 @@
+name: Authorize Actor
+description: >-
+  Refuse a production change unless the account that started this run attempt
+  is allowed to make it (pipeline v2 promote and rollback). The account checked
+  is the runner's GITHUB_TRIGGERING_ACTOR, so a re-run is checked as the person
+  who pressed re-run, not the account that started the first attempt. It
+  passes when that account has admin, maintain or write on the app repo, or
+  when it is an allowlisted automation account that also started the run. It
+  fails closed: an API error or an unexpected response is a refusal.
+inputs:
+  github-token:
+    description: GitHub token that can read collaborator permissions on the app repo.
+    required: true
+  repository:
+    description: App repo in "owner/name" form.
+    required: true
+  operation:
+    description: What the run is about to do, used in messages, e.g. promote or roll back.
+    required: true
+  trusted-automation-actor-ids:
+    description: >-
+      Comma-separated numeric GitHub user ids of automation accounts allowed
+      without push access on the app repo. One passes only when it started the
+      run and also started this attempt. Empty allows none.
+    required: false
+    default: ''
+runs:
+  using: 'node24'
+  main: '../../dist/authorize-actor.js'

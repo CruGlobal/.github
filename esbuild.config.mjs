@@ -17,7 +17,8 @@ const handlerMap = {
     './src/dispatch.js': 'dispatch',
     './src/tag-image.js': 'tag-image',
     './src/classify-rollback-safety.js': 'classify-rollback-safety',
-    './src/flightdeck-release-event.js': 'flightdeck-release-event'
+    './src/flightdeck-release-event.js': 'flightdeck-release-event',
+    './src/authorize-actor.js': 'authorize-actor'
 }
 
 // Build each action as a separate bundle with flat output
