@@ -14,6 +14,13 @@ name: Rollback
 # the second check, that kind of re-run would change production with no check
 # of who started it.
 #
+# The check also marks the attempt as checked for the rest of its job. The
+# deploy, tag-image (release tags) and flightdeck-release-event actions refuse
+# production work without that mark. That covers runs made before this check
+# existed: "Re-run failed jobs" and "Re-run job" reuse such a run's old
+# workflow file, which never calls the check, but it still loads these
+# actions from the current release.
+#
 # Stale-rollback guard: a caller that knows which release production was
 # running when it asked for the rollback passes it as expected-current-release.
 # Each provider job checks it first, inside the production lock, and refuses

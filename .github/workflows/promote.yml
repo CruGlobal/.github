@@ -19,6 +19,13 @@ name: Promote
 # the second check, that kind of re-run would change production with no check
 # of who started it.
 #
+# The check also marks the attempt as checked for the rest of its job. The
+# deploy, tag-image (release tags) and flightdeck-release-event actions refuse
+# production work without that mark. That covers runs made before this check
+# existed: "Re-run failed jobs" and "Re-run job" reuse such a run's old
+# workflow file, which never calls the check, but it still loads these
+# actions from the current release.
+#
 # Stage-less apps (`RcMode` "verify" in app-info) reach production by the same
 # route with ONE substitution: there is no running release-candidate service to
 # read the promotable digest off, so the candidate comes from the DEPLOYMENT
