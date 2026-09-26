@@ -13,7 +13,8 @@ const { getByUsername, getCollaboratorPermissionLevel, core, inputs, tokens } = 
     notice: vi.fn(),
     warning: vi.fn(),
     info: vi.fn(),
-    setFailed: vi.fn()
+    setFailed: vi.fn(),
+    exportVariable: vi.fn()
   },
   inputs: {},
   tokens: []
@@ -31,10 +32,12 @@ vi.mock('@actions/core', () => ({
   notice: core.notice,
   warning: core.warning,
   info: core.info,
-  setFailed: core.setFailed
+  setFailed: core.setFailed,
+  exportVariable: core.exportVariable
 }))
 
-import { authorize, parseActorIds, parseRepo, run, ALLOWED_PERMISSIONS } from '../src/authorize-actor.js'
+import { authorize, parseActorIds, parseRepo, run, ALLOWED_PERMISSIONS, REQUEST_TIMEOUT_MS } from '../src/authorize-actor.js'
+import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
 
 const noSleep = async () => {}
 const BOT = 'release-helper[bot]'
@@ -105,7 +108,9 @@ describe('authorize: push access', () => {
     grant({ alice: level })
     await expect(authorize({ ...base, octokit, actor: 'alice', actorId: '1001', triggeringActor: 'alice', runAttempt: '1' }))
       .resolves.toBe('push-access')
-    expect(getCollaboratorPermissionLevel).toHaveBeenCalledWith({ owner: 'CruGlobal', repo: 'some-app', username: 'alice' })
+    expect(getCollaboratorPermissionLevel).toHaveBeenCalledWith({
+      owner: 'CruGlobal', repo: 'some-app', username: 'alice', request: { signal: expect.any(AbortSignal) }
+    })
     expect(getByUsername).not.toHaveBeenCalled()
   })
 
@@ -140,6 +145,13 @@ describe('authorize: push access', () => {
     grant({ alice: 'admin' })
     await expect(authorize({ ...base, octokit, actor: 'alice', actorId: '1001', triggeringActor: '', runAttempt: '1' }))
       .rejects.toThrow(/GITHUB_TRIGGERING_ACTOR is empty.*refusing to promote/)
+    expect(getCollaboratorPermissionLevel).not.toHaveBeenCalled()
+  })
+
+  it.each(['', '0', 'x', '1.5', undefined])('refuses when the run attempt number is %j', async (runAttempt) => {
+    grant({ alice: 'admin' })
+    await expect(authorize({ ...base, octokit, actor: 'alice', actorId: '1001', triggeringActor: 'alice', runAttempt }))
+      .rejects.toThrow(/did not give a run attempt number.*refusing to promote/)
     expect(getCollaboratorPermissionLevel).not.toHaveBeenCalled()
   })
 
@@ -191,6 +203,47 @@ describe('authorize: fails closed on a bad permission answer', () => {
   })
 })
 
+describe('authorize: a GitHub API that does not answer', () => {
+  const octokit = { rest: { users: { getByUsername }, repos: { getCollaboratorPermissionLevel } } }
+  // Like octokit: a request that runs out of time rejects once its signal
+  // aborts, as an HTTP 500 whose cause is the timeout.
+  const hang = ({ request }) => new Promise((_resolve, reject) => {
+    request.signal.addEventListener('abort', () => reject(Object.assign(new Error(request.signal.reason.message), {
+      name: 'HttpError', status: 500, cause: request.signal.reason
+    })))
+  })
+
+  it('uses a 10 second timeout for each request by default', () => {
+    expect(REQUEST_TIMEOUT_MS).toBe(10000)
+  })
+
+  it('refuses within a bounded time when the permission lookup hangs', async () => {
+    getCollaboratorPermissionLevel.mockImplementation(hang)
+    const started = Date.now()
+    await expect(authorize({
+      octokit, repository: 'CruGlobal/some-app', operation: 'roll back', actor: 'alice', actorId: '1001',
+      triggeringActor: 'alice', runAttempt: '1', sleep: noSleep, timeoutMs: 50
+    })).rejects.toThrow('could not read the permission of alice on CruGlobal/some-app (no answer within 0.05 seconds)')
+    expect(Date.now() - started).toBeLessThan(2000)
+    // Three tries, each with its own signal.
+    expect(getCollaboratorPermissionLevel).toHaveBeenCalledTimes(3)
+    const signals = getCollaboratorPermissionLevel.mock.calls.map(([args]) => args.request.signal)
+    expect(new Set(signals).size).toBe(3)
+  })
+
+  it('refuses within a bounded time when the bot user id lookup hangs', async () => {
+    getByUsername.mockImplementation(hang)
+    const started = Date.now()
+    await expect(authorize({
+      octokit, repository: 'CruGlobal/some-app', operation: 'roll back', actor: BOT, actorId: BOT_ID,
+      triggeringActor: BOT, runAttempt: '1', trustedActorIds: BOT_ID, sleep: noSleep, timeoutMs: 50
+    })).rejects.toThrow(/could not look up the user id of release-helper\[bot\] \(no answer within 0.05 seconds\)/)
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(getByUsername).toHaveBeenCalledTimes(3)
+    expect(getCollaboratorPermissionLevel).not.toHaveBeenCalled()
+  })
+})
+
 describe('authorize: automation allowlist', () => {
   const base = { repository: 'CruGlobal/some-app', operation: 'roll back', sleep: noSleep }
   const octokit = { rest: { users: { getByUsername }, repos: { getCollaboratorPermissionLevel } } }
@@ -199,7 +252,7 @@ describe('authorize: automation allowlist', () => {
     getByUsername.mockResolvedValue(user(Number(BOT_ID)))
     await expect(authorize({ ...base, octokit, actor: BOT, actorId: BOT_ID, triggeringActor: BOT, runAttempt: '1', trustedActorIds: BOT_ID }))
       .resolves.toBe('automation')
-    expect(getByUsername).toHaveBeenCalledWith({ username: BOT })
+    expect(getByUsername).toHaveBeenCalledWith({ username: BOT, request: { signal: expect.any(AbortSignal) } })
     expect(getCollaboratorPermissionLevel).not.toHaveBeenCalled()
   })
 
@@ -275,11 +328,21 @@ describe('run', () => {
     expect(failure()).toMatch(/^mallory is not authorized to promote CruGlobal\/some-app/)
   })
 
-  it('passes a first attempt by an authorized account', async () => {
+  it('passes a first attempt by an authorized account and marks the attempt as checked', async () => {
     Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote' })
     grant({ alice: 'write' })
-    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    await run({ env: env({ actor: 'alice', runAttempt: '3' }), sleep: noSleep })
     expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.exportVariable).toHaveBeenCalledTimes(1)
+    expect(core.exportVariable).toHaveBeenCalledWith(AUTHORIZED_ATTEMPT_MARKER, '3')
+  })
+
+  it('does not mark the attempt when it refuses', async () => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote' })
+    grant({ alice: 'read' })
+    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    expect(core.setFailed).toHaveBeenCalled()
+    expect(core.exportVariable).not.toHaveBeenCalled()
   })
 
   it('refuses when no token is given', async () => {
@@ -332,7 +395,7 @@ async function runStep (step, context, runnerEnv) {
   await run({ env: runnerEnv, sleep: noSleep })
 }
 
-describe.each(Object.entries(workflows))('%s workflow wiring', (_name, { file, operation, allowlist }) => {
+describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { file, operation, allowlist }) => {
   const workflow = load(file)
   const jobs = Object.entries(workflow.jobs)
   const productionJobs = jobs.filter(([id]) => id !== 'lookup')
@@ -342,7 +405,7 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (_name, { file, o
     expect(productionJobs.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('checks the attempt in lookup with the shared action', () => {
+  it('checks the attempt in lookup with the shared action, the app-info repo and no way to skip it', () => {
     const steps = workflow.jobs.lookup.steps
     const index = steps.findIndex((step) => step.name === 'Authorize actor')
     expect(index).toBeGreaterThan(0)
@@ -353,6 +416,32 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (_name, { file, o
     expect(step.with['github-token']).toBe('${{ secrets.authz-token }}')
     expect(step.with.operation).toBe(operation)
     expect(workflow.jobs.lookup.permissions).toMatchObject({ contents: 'read' })
+
+    // The repo comes from the production app-info step, which runs earlier.
+    const repoStep = { promote: 'app-info-prod', rollback: 'app-info' }[workflowName]
+    expect(step.with.repository).toBe(`\${{ steps.${repoStep}.outputs.repository }}`)
+    const producer = steps.findIndex((s) => s.id === repoStep)
+    expect(producer).toBeGreaterThanOrEqual(0)
+    expect(producer).toBeLessThan(index)
+    expect(steps[producer].run).toContain('echo "repository=$repository" >> "$GITHUB_OUTPUT"')
+
+    if (allowlist) {
+      expect(step.with['trusted-automation-actor-ids']).toBe('${{ inputs.trusted-automation-actor-ids }}')
+    } else {
+      expect(step.with['trusted-automation-actor-ids']).toBeUndefined()
+    }
+  })
+
+  it('never makes a check step conditional or allowed to fail', () => {
+    const steps = jobs.flatMap(([, job]) => job.steps).filter((step) => step.uses === ACTION)
+    expect(steps.length).toBe(productionJobs.length + 1)
+    for (const step of steps) {
+      expect(step.if).toBeUndefined()
+      expect(step['continue-on-error']).toBeUndefined()
+      expect(step['timeout-minutes']).toBeUndefined()
+    }
+    // Nor can a job skip its checks as a whole.
+    for (const [, job] of jobs) expect(job['continue-on-error']).toBeUndefined()
   })
 
   it.each(productionJobs.map(([id]) => id))('%s runs the check first, inside the production lock', (id) => {
@@ -412,6 +501,7 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (_name, { file, o
       'inputs.trusted-automation-actor-ids': ''
     }, env({ actor: 'alice', triggeringActor: 'bob', runAttempt: '2' }))
     expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.exportVariable).toHaveBeenCalledWith(AUTHORIZED_ATTEMPT_MARKER, '2')
   })
 
   if (allowlist) {
@@ -438,6 +528,6 @@ describe('authorize-actor action', () => {
   it('runs the bundle the build produces', () => {
     expect(actionYml.runs).toEqual({ using: 'node24', main: '../../dist/authorize-actor.js' })
     const config = readFileSync(path.join(root, 'esbuild.config.mjs'), 'utf8')
-    expect(config).toContain("'./src/authorize-actor.js': 'authorize-actor'")
+    expect(config).toContain("'./src/entry/authorize-actor.js': 'authorize-actor'")
   })
 })

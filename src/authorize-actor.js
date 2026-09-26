@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import { getOctokit } from '@actions/github'
+import { AttemptNotAuthorized, currentRunAttempt, markAttemptAuthorized } from './v2/attempt-guard.js'
 
 // authorize-actor: refuse a production change unless the account that started
 // THIS run attempt is allowed to make it (pipeline v2 promote and rollback).
@@ -26,16 +27,28 @@ import { getOctokit } from '@actions/github'
 //   2. Push access. Otherwise the account that started this attempt must have
 //      admin, maintain or write on the app repo.
 //
-// It fails closed: a missing value, an API error or a response it does not
-// understand is a refusal, never a pass.
+// On a pass it sets the authorized-attempt marker for the rest of the job
+// (src/v2/attempt-guard.js). The deploy, tag-image and release-event actions
+// refuse production work without it.
+//
+// It fails closed: a missing value, an API error, a request that gets no
+// answer in time or a response it does not understand is a refusal, never a
+// pass.
 //
 // The accounts come from the runner's own GITHUB_ACTOR, GITHUB_ACTOR_ID and
 // GITHUB_TRIGGERING_ACTOR, not from inputs, so a caller cannot pass the wrong
 // one by mistake.
+//
+// The action's entry point is src/entry/authorize-actor.js, which always runs
+// the check. This module never runs anything on import, so tests can load it.
 
 export const ALLOWED_PERMISSIONS = ['admin', 'maintain', 'write']
 const ATTEMPTS = 3
 const RETRY_DELAY_MS = 2000
+// Each request gets this long to answer. With the retries, one lookup gives up
+// after about 36 seconds at most, so a GitHub API that hangs cannot hold the
+// production lock for long.
+export const REQUEST_TIMEOUT_MS = 10000
 
 class Refusal extends Error {}
 
@@ -66,22 +79,27 @@ export function parseRepo (repository) {
 
 const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// Retry only what may pass on a second try: a server error or a request that
-// never got an answer. A 4xx is an answer, so it is never retried.
-async function withRetry (label, fn, sleep) {
+// Retry only what may pass on a second try: a server error, a request that
+// never got an answer, or one that ran out of time. A 4xx is an answer, so it
+// is never retried. Each try gets its own timeout.
+async function withRetry (label, call, { sleep, timeoutMs }) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await fn()
+      return await call({ signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
       const retryable = error?.status === undefined || error.status >= 500
       if (!retryable || attempt >= ATTEMPTS) throw error
-      core.info(`${label} failed (${describeError(error)}); trying again (${attempt + 1}/${ATTEMPTS})`)
+      core.info(`${label} failed (${describeError(error, timeoutMs)}); trying again (${attempt + 1}/${ATTEMPTS})`)
       await sleep(RETRY_DELAY_MS * attempt)
     }
   }
 }
 
-function describeError (error) {
+function describeError (error, timeoutMs) {
+  const names = [error?.name, error?.cause?.name]
+  if (names.includes('TimeoutError') || names.includes('AbortError')) {
+    return `no answer within ${timeoutMs / 1000} seconds`
+  }
   if (error?.status !== undefined) return `HTTP ${error.status}: ${error.message}`
   return error?.message || String(error)
 }
@@ -97,7 +115,8 @@ export async function authorize ({
   triggeringActor,
   runAttempt,
   trustedActorIds,
-  sleep = sleepFor
+  sleep = sleepFor,
+  timeoutMs = REQUEST_TIMEOUT_MS
 }) {
   operation = String(operation ?? '').trim() || 'change production for'
   actor = String(actor ?? '').trim()
@@ -105,12 +124,16 @@ export async function authorize ({
   triggeringActor = String(triggeringActor ?? '').trim()
   const { owner, repo } = parseRepo(repository)
   const appRepo = `${owner}/${repo}`
-  const attempt = String(runAttempt ?? '').trim()
-  const thisAttempt = attempt ? `this run attempt (attempt ${attempt})` : 'this run attempt'
+  const retry = { sleep, timeoutMs }
 
   if (!triggeringActor) {
-    throw new Refusal(`the runner did not say which account started ${thisAttempt} (GITHUB_TRIGGERING_ACTOR is empty); refusing to ${operation} ${appRepo}`)
+    throw new Refusal(`the runner did not say which account started this run attempt (GITHUB_TRIGGERING_ACTOR is empty); refusing to ${operation} ${appRepo}`)
   }
+  const attempt = currentRunAttempt({ GITHUB_RUN_ATTEMPT: runAttempt })
+  if (!attempt) {
+    throw new Refusal(`the runner did not give a run attempt number (GITHUB_RUN_ATTEMPT is "${runAttempt ?? ''}"); refusing to ${operation} ${appRepo}`)
+  }
+  const thisAttempt = `this run attempt (attempt ${attempt})`
   const startedBy = actor && actor !== triggeringActor
     ? `; the run was first started by ${actor}`
     : ''
@@ -125,9 +148,9 @@ export async function authorize ({
       let user
       try {
         user = await withRetry(`Looking up the user id of ${triggeringActor}`,
-          () => octokit.rest.users.getByUsername({ username: triggeringActor }), sleep)
+          (request) => octokit.rest.users.getByUsername({ username: triggeringActor, request }), retry)
       } catch (error) {
-        throw new Refusal(`could not look up the user id of ${triggeringActor} (${describeError(error)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be matched to the automation allowlist; refusing to ${operation} ${appRepo}`)
+        throw new Refusal(`could not look up the user id of ${triggeringActor} (${describeError(error, timeoutMs)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be matched to the automation allowlist; refusing to ${operation} ${appRepo}`)
       }
       const id = user?.data?.id
       if (typeof id !== 'number' && typeof id !== 'string') {
@@ -146,9 +169,9 @@ export async function authorize ({
   let response
   try {
     response = await withRetry(`Reading the permission of ${triggeringActor} on ${appRepo}`,
-      () => octokit.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: triggeringActor }), sleep)
+      (request) => octokit.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: triggeringActor, request }), retry)
   } catch (error) {
-    throw new Refusal(`could not read the permission of ${triggeringActor} on ${appRepo} (${describeError(error)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be checked; refusing to ${operation} ${appRepo}`)
+    throw new Refusal(`could not read the permission of ${triggeringActor} on ${appRepo} (${describeError(error, timeoutMs)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be checked; refusing to ${operation} ${appRepo}`)
   }
   const permission = response?.data?.permission
   if (typeof permission !== 'string' || permission === '') {
@@ -161,7 +184,7 @@ export async function authorize ({
   return 'push-access'
 }
 
-export async function run ({ env = process.env, sleep } = {}) {
+export async function run ({ env = process.env, sleep, timeoutMs } = {}) {
   try {
     const operation = core.getInput('operation')
     const token = core.getInput('github-token')
@@ -177,16 +200,16 @@ export async function run ({ env = process.env, sleep } = {}) {
       triggeringActor: env.GITHUB_TRIGGERING_ACTOR,
       runAttempt: env.GITHUB_RUN_ATTEMPT,
       trustedActorIds: core.getInput('trusted-automation-actor-ids'),
-      sleep
+      sleep,
+      timeoutMs
     })
+    // Only a pass reaches here. Later steps in this job can now see that this
+    // attempt was checked.
+    markAttemptAuthorized(env)
   } catch (error) {
     // Anything that is not a pass is a refusal, including a bug in this code.
-    core.setFailed(error instanceof Refusal
+    core.setFailed(error instanceof Refusal || error instanceof AttemptNotAuthorized
       ? error.message
-      : `could not check the account that started this run attempt (${describeError(error)}); refusing to go ahead`)
+      : `could not check the account that started this run attempt (${describeError(error, timeoutMs ?? REQUEST_TIMEOUT_MS)}); refusing to go ahead`)
   }
 }
-
-// Auto-run as the action entrypoint, but stay import-safe under test so specs
-// can drive authorize() and run() with a mocked octokit.
-if (!process.env.VITEST) run()

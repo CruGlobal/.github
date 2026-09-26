@@ -4,12 +4,21 @@ import { assertDigestRef } from './v2/gcp'
 import { deployCloudRun } from './v2/deploy-cloudrun'
 import { deployEcs } from './v2/deploy-ecs'
 import { deployLambda } from './v2/deploy-lambda'
+import { assertAttemptAuthorized } from './v2/attempt-guard'
 
 // deploy: deploy a pre-built, digest-pinned image to a target environment.
 // Enforces the v2 invariant that only digest references are deployed — a tag
 // reference fails the action immediately.
 //
 // The router dispatches on `type` (cloudrun implemented; ecs/lambda stubbed).
+//
+// A deploy to production (anything but the two non-production environments
+// below) is refused unless the authorize-actor check passed earlier in this
+// job for this run attempt (src/v2/attempt-guard.js). That stops a re-run of a
+// run made before promote and rollback checked every attempt: its old
+// workflow file has no such check, but it still loads this action.
+export const NON_PRODUCTION_ENVIRONMENTS = Object.freeze(['release-candidate', 'preview'])
+
 export async function run () {
   try {
     const type = core.getInput('type', { required: true })
@@ -23,6 +32,10 @@ export async function run () {
     assertDigestRef(image)
     // Validate the long environment name eagerly (throws on an unknown name).
     core.info(`environment ${environment} -> ${environmentNickname(environment)}`)
+    // Before anything touches infrastructure.
+    if (!NON_PRODUCTION_ENVIRONMENTS.includes(environment)) {
+      assertAttemptAuthorized(`deploy to ${environment}`)
+    }
 
     const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl })
 
@@ -56,6 +69,4 @@ function dispatch (type, args) {
   }
 }
 
-// Auto-run as the action entrypoint, but stay import-safe under test (matches
-// tag-image.js — lets the router be exercised without firing on import).
-if (!process.env.VITEST) run()
+// The action's entry point is src/entry/deploy.js, which always calls run().
