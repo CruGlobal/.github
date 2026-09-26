@@ -478,24 +478,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
-            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:rollback",
                      "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
@@ -919,24 +928,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
-            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:rollback",
                      "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"

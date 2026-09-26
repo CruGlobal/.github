@@ -427,6 +427,7 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           if [ -z "$COMMIT_SHA" ]; then
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
@@ -438,12 +439,15 @@ jobs:
             --arg target "$COMMIT_SHA" \
             --arg digest "$DIGEST" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
             '{tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
-              body: ("Promoted to production by @\($actor).\n\n"
+              body: ("Promoted to production by @\($actor)"
+                     + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
+                     + ".\n\n"
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
                      + (if $prevsha != ""
@@ -471,24 +475,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
-            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:promote",
                      "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
@@ -926,6 +939,7 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           if [ -z "$COMMIT_SHA" ]; then
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
@@ -937,12 +951,15 @@ jobs:
             --arg target "$COMMIT_SHA" \
             --arg digest "$DIGEST" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
             '{tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
-              body: ("Promoted to production by @\($actor).\n\n"
+              body: ("Promoted to production by @\($actor)"
+                     + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
+                     + ".\n\n"
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
                      + (if $prevsha != ""
@@ -970,24 +987,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
-            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:promote",
                      "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
