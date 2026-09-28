@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/CruGlobal/.github/compare/v2.8.0...v2.8.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **v2:** wait for a rollout that outlives its operation, and stop it when it ends short ([#510](https://github.com/CruGlobal/.github/issues/510)) ([43ddd9d](https://github.com/CruGlobal/.github/commit/43ddd9d541d00c121dca86d0cde3258900d14ecb))
+
 ## [2.8.0](https://github.com/CruGlobal/.github/compare/v2.7.1...v2.8.0) (2026-09-28)
 
 
