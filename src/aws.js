@@ -298,3 +298,31 @@ export async function lambdaWaitForFunctionUpdated(functionName, maxWaitTime = 3
     { FunctionName: functionName }
   )
 }
+
+// Did the waiter above give up on time, rather than see the update fail?
+//
+// The waiter ends in one of the util-waiter result states (the waiter code
+// ships inside @smithy/core), and its checkExceptions turns each into an error
+// whose message is the result as JSON, e.g.
+// {"state":"TIMEOUT",...,"reason":"Waiter has timed out"}. TIMEOUT throws an
+// Error named "TimeoutError", ABORTED one named "AbortError", and FAILURE
+// (LastUpdateStatus Failed) a plain Error. A GetFunction call that fails
+// during the wait never surfaces: the waiter counts it as "retry". So the name
+// alone tells a slow update from a failed one, with no JSON to parse.
+export function isWaiterTimeout(error) {
+  return error?.name === 'TimeoutError'
+}
+
+// Is this AWS error an answer that will not change on a retry? The clients
+// above already retried the passing ones (throttling, 5xx, the network), so
+// what reaches a caller is either one of those that outlasted the retries or
+// a real answer. A 4xx is a real answer (AccessDenied, ResourceNotFound, a
+// bad request), except 429 and the throttling errors some services send with
+// a 400. Anything else, a 5xx, a network error or no status at all, may pass.
+const THROTTLING_ERRORS = ['ThrottlingException', 'TooManyRequestsException', 'RequestLimitExceeded']
+
+export function isPermanentAwsError(error) {
+  const status = error?.$metadata?.httpStatusCode
+  return typeof status === 'number' && status >= 400 && status < 500 && status !== 429 &&
+    !THROTTLING_ERRORS.includes(error?.name)
+}

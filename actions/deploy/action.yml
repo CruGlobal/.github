@@ -29,6 +29,17 @@ inputs:
       minified file it belongs to. Unset means browser source maps are not
       uploaded.
     required: false
+  stop-rollout-on-failure:
+    description: >-
+      What to do when a rollout fails after a service or function was
+      updated, including one that has not landed by the end of the deploy's
+      rollout budget. "true" (the default) sends every service or function the
+      deploy moved back to what served before it, so the app stays on the
+      release the records name. "false" leaves them as they are, for a
+      rollback, where going back would mean the release being rolled back
+      from. The step fails either way.
+    required: false
+    default: 'true'
 outputs:
   deployed-image:
     description: The digest reference that was deployed.

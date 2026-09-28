@@ -12,16 +12,13 @@ import {
   sharedRegistryRepo
 } from './gcp'
 import { platformManifestDigest } from './oci'
+import { servingRevision } from './cloudrun-traffic'
 
 // The database-migrations job (see src/v2/deploy-cloudrun.js) runs the app
 // image too, but it is refreshed *before* the rest of a deploy and executed;
 // it is never a witness of what is currently serving. Skip it when reading a
 // running image back out of an environment.
 const DB_MIGRATE_JOB = 'db-migrate'
-
-// Traffic that follows the service's latest ready revision. The generated
-// client decodes enums as their string names.
-const TRAFFIC_LATEST = 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
 
 // A job's/service's `name` is a full resource path (projects/.../<kind>/<name>).
 const shortName = resource => resource.split('/').pop()
@@ -315,37 +312,3 @@ function templateDiffers (templateImage, image) {
   const serving = parseImageRef(image)
   return template.name !== serving.name || template.digest !== serving.digest
 }
-
-// The full resource name of the revision that takes all of a service's
-// traffic, null when no revision is serving yet, or 'split'.
-//
-// trafficStatuses is the traffic as Cloud Run resolved it, and it keeps
-// describing the last serving revision when a rollout fails. Its entries name
-// a revision by its short id; latestReadyRevision is a full resource name.
-function servingRevision (service) {
-  const statuses = service.trafficStatuses ?? []
-  if (statuses.length > 0) {
-    // Add up the share per revision, since two entries can name the same one.
-    // An entry with no revision name stands for the latest ready revision only
-    // when it follows LATEST; otherwise it names nothing (the '' key).
-    const shares = new Map()
-    for (const status of statuses) {
-      const name = status.revision || (status.type === TRAFFIC_LATEST ? service.latestReadyRevision : '')
-      const key = name ? revisionPath(service, name) : ''
-      shares.set(key, (shares.get(key) ?? 0) + (status.percent ?? 0))
-    }
-    const all = [...shares].find(([, percent]) => percent === 100)
-    if (!all) return 'split'
-    return all[0] || null
-  }
-
-  // No resolved traffic. When traffic follows the latest ready revision (no
-  // traffic block at all means the same), that revision is the one serving.
-  // An empty latestReadyRevision means no revision has become ready yet.
-  const followsLatest = (service.traffic ?? []).every(target => target.type === TRAFFIC_LATEST)
-  const name = followsLatest ? service.latestReadyRevision : ''
-  return name ? revisionPath(service, name) : null
-}
-
-const revisionPath = (service, revision) =>
-  revision.includes('/') ? revision : `${service.name}/revisions/${revision}`

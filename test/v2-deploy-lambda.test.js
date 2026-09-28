@@ -4,7 +4,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // helper). src/ecs-config.js (ecrRegistry — pure) and src/v2/env.js run for real,
 // so the selection semantics are exercised end to end. deploy-lambda touches no
 // ECR, so no ECR SDK mock is needed.
-vi.mock('../src/aws.js', () => ({
+vi.mock('../src/aws.js', async importOriginal => ({
+  // The real predicate: it reads only the error's name, and the wait turns on it.
+  isWaiterTimeout: (await importOriginal()).isWaiterTimeout,
   lambdaListFunctionNames: vi.fn(),
   lambdaGetFunction: vi.fn(),
   lambdaUpdateFunctionCode: vi.fn(),
@@ -25,7 +27,7 @@ function zipFn () {
 }
 
 beforeEach(() => {
-  for (const fn of Object.values(aws)) fn.mockReset()
+  for (const fn of Object.values(aws)) fn.mockReset?.()
   aws.lambdaUpdateFunctionCode.mockResolvedValue({})
   aws.lambdaWaitForFunctionUpdated.mockResolvedValue({})
 })
