@@ -5,7 +5,9 @@ description: >-
   app-info carries as FlightdeckProject, then POSTs
   /api/v1/projects/:id/release-events as the CruDeploy service user. Telemetry
   policy: the action NEVER fails the run. An unset token or project is a
-  silent skip, every error is a warning, and `status` says what happened. One
+  silent skip, every error is a warning, and `status` says what happened. A
+  display-only field (actor, run-url, image-digest) that Flightdeck would
+  refuse is left out with a warning, so it never costs the event. One
   exception: a production event fails the step unless the authorize-actor
   check passed earlier in the same job for this run attempt.
 inputs:
@@ -58,6 +60,25 @@ inputs:
     required: false
   deployed-at:
     description: ISO 8601 deploy time. Unset lets Flightdeck stamp the time of the post.
+    required: false
+  actor:
+    description: >-
+      GitHub login that started this attempt of the run
+      (github.triggering_actor), sent as `actor`. Flightdeck refuses the whole
+      event over a value that is not a GitHub login, so such a value is left
+      out with a warning and the event is still posted. Unset sends no key.
+    required: false
+  run-url:
+    description: >-
+      The GitHub Actions run, https://github.com/<owner>/<repo>/actions/runs/<id>,
+      optionally followed by /attempts/<n>, sent as `run_url`. Any other shape
+      is left out with a warning and the event is still posted. Unset sends no key.
+    required: false
+  image-digest:
+    description: >-
+      Digest of the deployed image (sha256: and 64 lowercase hex characters),
+      sent as `image_digest`. Any other shape is left out with a warning and
+      the event is still posted. Unset sends no key.
     required: false
   endpoint:
     description: Flightdeck base URL.

@@ -43,6 +43,22 @@ on:
           scheduled (nightly-cadence) app workflows safe to dispatch
           unconditionally. Force a same-digest redeploy to pick up out-of-band
           changes (e.g. an applied Terraform task-definition template).
+      flightdeck-url:
+        type: string
+        required: false
+        default: 'https://flightdeck.cru.org'
+        description: >-
+          Flightdeck base URL. Release events are posted there, and changelog
+          links point there when flightdeck-workspace is set.
+      flightdeck-workspace:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Flightdeck workspace slug. When it is set and app-info has a
+          FlightdeckProject, the changelog link in the Slack post opens that
+          project's Flightdeck changelog page. Empty keeps the deploys.cru.org
+          link.
     secrets:
       datadog-api-key:
         required: true
@@ -335,6 +351,11 @@ jobs:
       # not the response we want to a bad candidate -- a fix is. With no opinion
       # recorded, anything reading the timeline escalates instead of acting.
       #
+      # actor is the account that started THIS attempt (github.triggering_actor,
+      # not github.actor), run-url names this attempt, and image-digest is the
+      # digest just deployed. All three are display-only, and the action leaves
+      # out any value Flightdeck would refuse, so none of them can cost the event.
+      #
       # Same telemetry policy as the ledger: the action never fails,
       # continue-on-error is the belt on top.
       - name: Record release event in Flightdeck
@@ -343,12 +364,16 @@ jobs:
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: staging
           kind: deploy
           release-tag: ${{ inputs.tag }}
           image-tags: ${{ steps.resolve.outputs.tags }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
@@ -358,12 +383,17 @@ jobs:
       # user U…); no-ops silently when the channel OR the bot token is unset.
       # The environment name in the message links to the app's AppUrl (also from
       # app-info) when it has one, and is plain text when it doesn't.
-      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
-      # `from` = the sha currently in production (public GET on /deployments),
-      # `to` = this candidate tag -- the page resolves revision names through the
-      # ledger, so a tag is as good as a sha. With no production baseline yet
-      # (first deploy) or a failed ledger query the closing line is simply
-      # omitted -- no link is better than a wrong one.
+      # The closing line is a changelog link: `from` = the sha currently in
+      # production (public GET on /deployments), `to` = this candidate tag. Both
+      # changelog pages resolve release names, so a tag is as good as a sha.
+      # With no production baseline yet (first deploy) or a failed ledger query
+      # the closing line is simply omitted -- no link is better than a wrong one.
+      #
+      # Which page: Flightdeck's changelog page for the app's project when
+      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
+      # a Flightdeck identifier (a capital letter, then up to nine capitals or
+      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -371,6 +401,9 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -382,13 +415,23 @@ jobs:
             --arg tag "${{ inputs.tag }}" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
                      + (if $prodsha != ""
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $prodsha + "&to=" + $tag
-                             + "|what'\''s in this candidate>"
+                        then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -611,6 +654,11 @@ jobs:
       # not the response we want to a bad candidate -- a fix is. With no opinion
       # recorded, anything reading the timeline escalates instead of acting.
       #
+      # actor is the account that started THIS attempt (github.triggering_actor,
+      # not github.actor), run-url names this attempt, and image-digest is the
+      # digest just deployed. All three are display-only, and the action leaves
+      # out any value Flightdeck would refuse, so none of them can cost the event.
+      #
       # Same telemetry policy as the ledger: the action never fails,
       # continue-on-error is the belt on top.
       - name: Record release event in Flightdeck
@@ -619,12 +667,16 @@ jobs:
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: staging
           kind: deploy
           release-tag: ${{ inputs.tag }}
           image-tags: ${{ steps.resolve.outputs.tags }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
 
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
@@ -634,12 +686,17 @@ jobs:
       # user U…); no-ops silently when the channel OR the bot token is unset.
       # The environment name in the message links to the app's AppUrl (also from
       # app-info) when it has one, and is plain text when it doesn't.
-      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
-      # `from` = the sha currently in production (public GET on /deployments),
-      # `to` = this candidate tag -- the page resolves revision names through the
-      # ledger, so a tag is as good as a sha. With no production baseline yet
-      # (first deploy) or a failed ledger query the closing line is simply
-      # omitted -- no link is better than a wrong one.
+      # The closing line is a changelog link: `from` = the sha currently in
+      # production (public GET on /deployments), `to` = this candidate tag. Both
+      # changelog pages resolve release names, so a tag is as good as a sha.
+      # With no production baseline yet (first deploy) or a failed ledger query
+      # the closing line is simply omitted -- no link is better than a wrong one.
+      #
+      # Which page: Flightdeck's changelog page for the app's project when
+      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
+      # a Flightdeck identifier (a capital letter, then up to nine capitals or
+      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -647,6 +704,9 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -658,13 +718,23 @@ jobs:
             --arg tag "${{ inputs.tag }}" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
                      + (if $prodsha != ""
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $prodsha + "&to=" + $tag
-                             + "|what'\''s in this candidate>"
+                        then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -953,6 +1023,31 @@ jobs:
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
             || echo "::warning title=Ledger write failed::candidate verify event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
+      # The same release event a stage deploy posts, with the same inputs, so a
+      # stage-less app's candidates show up on its Flightdeck timeline too. It
+      # runs only after the verify command passed (a failed verification fails
+      # the job before this step) and is skipped with the rest on a no-op run.
+      # `staging` here says the candidate passed its release-candidate gate,
+      # the same thing it says for a stage deploy; production rows are what
+      # decide a production rollback, and this adds none. Same telemetry
+      # policy: the action never fails, continue-on-error is the belt on top.
+      - name: Record release event in Flightdeck
+        if: steps.noop.outputs.skip != 'true'
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/flightdeck-release-event
+        with:
+          token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
+          project: ${{ needs.lookup.outputs.flightdeck-project }}
+          app: ${{ inputs.project-name }}
+          environment: staging
+          kind: deploy
+          release-tag: ${{ inputs.tag }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
+
       - if: steps.noop.outputs.skip != 'true'
         run: echo "::notice title=Candidate Verified::$PROJECT_NAME ${{ inputs.tag }} verified (stage-less) -> release-candidate"
 
@@ -967,12 +1062,20 @@ jobs:
       # running — a stage-less app's AppUrl, if it even has one, points at
       # PRODUCTION, which would be an actively misleading place to send someone
       # reading about a candidate.
+      #
+      # The changelog line follows the stage-deploy message's rule: Flightdeck's
+      # changelog page when flightdeck-workspace and a valid FlightdeckProject
+      # are both there, every value URL-encoded, otherwise the deploys.cru.org
+      # link exactly as it was.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -983,13 +1086,23 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg tag "${{ inputs.tag }}" \
             --arg prodsha "$prod_sha" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":package: *\($project) `\($tag)` verified (stage-less) on release-candidate* — promote when ready"
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
                      + (if $prodsha != ""
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $prodsha + "&to=" + $tag
-                             + "|what'\''s in this candidate>"
+                        then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \

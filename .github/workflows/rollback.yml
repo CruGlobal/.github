@@ -77,6 +77,22 @@ on:
           dispatches a rollback sets it to the release it expects to be rolling
           back to. It does not need expected-current-release. Empty skips the
           check.
+      flightdeck-url:
+        type: string
+        required: false
+        default: 'https://flightdeck.cru.org'
+        description: >-
+          Flightdeck base URL. Release events are posted there, and changelog
+          links point there when flightdeck-workspace is set.
+      flightdeck-workspace:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Flightdeck workspace slug. When it is set and app-info has a
+          FlightdeckProject, the changelog link in the Slack post opens that
+          project's Flightdeck changelog page. Empty keeps the deploys.cru.org
+          link.
     secrets:
       datadog-api-key:
         required: true
@@ -572,16 +588,29 @@ jobs:
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
       # telemetry policy as the ledger: the action never fails, continue-on-error
       # is the belt on top.
+      #
+      # image-tags are the tags on the target release's digest, so the event
+      # carries that release's git sha (its sha-<gitsha> tag), the same sha the
+      # ledger row above records. actor is the account that started THIS
+      # attempt (github.triggering_actor, not github.actor), run-url names this
+      # attempt, and image-digest is the digest now running. Those three are
+      # display-only, and the action leaves out any value Flightdeck would
+      # refuse, so none of them can cost the event.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: production
           kind: rollback
           release-tag: ${{ steps.actual-release.outputs.tag }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
@@ -590,12 +619,18 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
-      # The closing line is a changelog link (deploys.cru.org, ledger-backed) with
-      # from/to INVERTED relative to deploy-candidate / promote: `from` = the
-      # release we are rolling back TO, `to` = what production was running, so the
-      # page shows what production is LOSING. Falls back to the workflow-run URL
-      # when the ledger yields no prior production event (or names this same
-      # release), so the line is never a dead or empty link.
+      # The closing line is a changelog link with from/to INVERTED relative to
+      # deploy-candidate / promote: `from` = the release we are rolling back TO,
+      # `to` = what production was running, so the page shows what production
+      # is LOSING. The line is left out when the ledger yields no prior
+      # production event (or names this same release), so it is never a dead
+      # or empty link.
+      #
+      # Which page: Flightdeck's changelog page for the app's project when
+      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
+      # a Flightdeck identifier (a capital letter, then up to nine capitals or
+      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -607,6 +642,9 @@ jobs:
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -620,13 +658,23 @@ jobs:
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
             --arg safety "$SAFETY_LINE" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + (if $previous != "" and $previous != $release
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $release + "&to=" + $previous
-                             + "|what this rollback reverts>"
+                        then "\n<" + changelog($release; $previous) + "|what this rollback reverts>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -1010,16 +1058,29 @@ jobs:
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
       # telemetry policy as the ledger: the action never fails, continue-on-error
       # is the belt on top.
+      #
+      # image-tags are the tags on the target release's digest, so the event
+      # carries that release's git sha (its sha-<gitsha> tag), the same sha the
+      # ledger row above records. actor is the account that started THIS
+      # attempt (github.triggering_actor, not github.actor), run-url names this
+      # attempt, and image-digest is the digest now running. Those three are
+      # display-only, and the action leaves out any value Flightdeck would
+      # refuse, so none of them can cost the event.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: production
           kind: rollback
           release-tag: ${{ steps.actual-release.outputs.tag }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
 
       - run: echo "::notice title=Rolled Back::$PROJECT_NAME rolled back to ${{ needs.lookup.outputs.release-tag }} in production"
 
@@ -1028,12 +1089,18 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
-      # The closing line is a changelog link (deploys.cru.org, ledger-backed) with
-      # from/to INVERTED relative to deploy-candidate / promote: `from` = the
-      # release we are rolling back TO, `to` = what production was running, so the
-      # page shows what production is LOSING. Falls back to the workflow-run URL
-      # when the ledger yields no prior production event (or names this same
-      # release), so the line is never a dead or empty link.
+      # The closing line is a changelog link with from/to INVERTED relative to
+      # deploy-candidate / promote: `from` = the release we are rolling back TO,
+      # `to` = what production was running, so the page shows what production
+      # is LOSING. The line is left out when the ledger yields no prior
+      # production event (or names this same release), so it is never a dead
+      # or empty link.
+      #
+      # Which page: Flightdeck's changelog page for the app's project when
+      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
+      # a Flightdeck identifier (a capital letter, then up to nine capitals or
+      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -1045,6 +1112,9 @@ jobs:
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1058,13 +1128,23 @@ jobs:
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
             --arg safety "$SAFETY_LINE" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + (if $previous != "" and $previous != $release
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $release + "&to=" + $previous
-                             + "|what this rollback reverts>"
+                        then "\n<" + changelog($release; $previous) + "|what this rollback reverts>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
