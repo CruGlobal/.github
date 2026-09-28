@@ -44,14 +44,20 @@ const INDEX = 'sha256:index14'
 const CHILD = 'sha256:child14'
 const OTHER_INDEX = 'sha256:index15'
 const OTHER_CHILD = 'sha256:child15'
+const ARM_ONLY_INDEX = 'sha256:index16'
 const INDEX_IMAGES = [
   ...IMAGES,
   { uri: `${REPO}@${INDEX}`, tags: ['candidate-10014', 'sha-def456'] },
   { uri: `${REPO}@${CHILD}` },
   { uri: `${REPO}@${OTHER_INDEX}`, tags: ['candidate-10015', 'sha-fed654'] },
-  { uri: `${REPO}@${OTHER_CHILD}` }
+  { uri: `${REPO}@${OTHER_CHILD}` },
+  { uri: `${REPO}@${ARM_ONLY_INDEX}`, tags: ['candidate-10016'] }
 ]
-const INDEXES = { [INDEX]: imageIndex(CHILD), [OTHER_INDEX]: imageIndex(OTHER_CHILD) }
+const INDEXES = {
+  [INDEX]: imageIndex(CHILD),
+  [OTHER_INDEX]: imageIndex(OTHER_CHILD),
+  [ARM_ONLY_INDEX]: imageIndex(null)
+}
 
 const PLACEHOLDER = 'us-docker.pkg.dev/cloudrun/container/hello'
 const LATEST = 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
@@ -514,11 +520,56 @@ describe('resolveCloudRun mode=environment with an image index candidate', () =>
     const attempt = resolveEnv()
 
     await expect(attempt).rejects.toThrow(
-      `(web serves ${REPO}@${CHILD}, an untagged child image that does not belong to the image its template names ` +
-      `(${REPO}@${OTHER_INDEX})). Nothing was resolved, so a deploy to this environment goes ahead and a promote ` +
-      'from it stops here.'
+      `(web serves ${REPO}@${CHILD}, an untagged image that is neither the image its template names ` +
+      `(${REPO}@${OTHER_INDEX}) nor that image's linux/amd64 child). Nothing was resolved, so a deploy to this ` +
+      'environment goes ahead and a promote from it stops here.'
     )
     expect(warnings()[0]).toMatch(/names .*@sha256:index15, but the revision serving its traffic .* runs .*@sha256:child14/)
+  })
+
+  it('resolves nothing for an untagged image that is not the child of an index its template names by tag', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}:candidate-10015`)])
+    revision('web', 'web-00001-aaa', `${REPO}@${CHILD}`)
+
+    await expect(resolveEnv()).rejects.toThrow(
+      `(web serves ${REPO}@${CHILD}, an untagged image that is neither the image its template names ` +
+      `(${REPO}:candidate-10015) nor that image's linux/amd64 child)`
+    )
+  })
+
+  it('reports a tagged image that is serving when the template manifest cannot be read, and warns', async () => {
+    serveRegistry(requestMock, { images: INDEX_IMAGES, indexes: INDEXES, broken: [INDEX] })
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@${INDEX}`)])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa', tags: ['candidate-10012', 'sha-abc123'] })
+    expect(warnings()).toEqual([
+      `${SERVICES}/web: could not read the linux/amd64 image of its template ${REPO}@${INDEX}: Request failed with status code 403`,
+      expect.stringMatching(/names .*@sha256:index14, but the revision serving its traffic .* runs .*@sha256:aaa\. A rollout looks stuck/)
+    ])
+  })
+
+  it('resolves nothing for an untagged image when the template manifest cannot be read, and says why', async () => {
+    serveRegistry(requestMock, { images: INDEX_IMAGES, indexes: INDEXES, broken: [INDEX] })
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@${INDEX}`)])
+    revision('web', 'web-00001-aaa', `${REPO}@${CHILD}`)
+
+    await expect(resolveEnv()).rejects.toThrow(
+      `nor that image's linux/amd64 child (could not read the template's manifest: Request failed with status code 403))`
+    )
+    expect(warnings()[0]).toBe(
+      `${SERVICES}/web: could not read the linux/amd64 image of its template ${REPO}@${INDEX}: Request failed with status code 403`
+    )
+  })
+
+  it('reports an older tagged image when the template is an index with no linux/amd64 child', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@${ARM_ONLY_INDEX}`)])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa', tags: ['candidate-10012', 'sha-abc123'] })
+    expect(warnings()).toHaveLength(2)
+    expect(warnings()[0]).toMatch(/could not read the linux\/amd64 image of its template .*@sha256:index16: Image index has no linux\/amd64 manifest/)
+    expect(warnings()[1]).toMatch(/A rollout looks stuck/)
   })
 
   it('agrees across services that serve the same index, whether a revision reports the child or the index', async () => {

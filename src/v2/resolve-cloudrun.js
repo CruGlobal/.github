@@ -188,8 +188,9 @@ async function servingImage (services, repo, runtimeProject, registry) {
   const untagged = serving.filter(entry => entry.untagged)
   if (untagged.length > 0) {
     const details = untagged.map(entry =>
-      `${shortName(entry.service.name)} serves ${entry.image}, an untagged child image that does not ` +
-      `belong to the image its template names (${entry.templateImage ?? 'none'})`
+      `${shortName(entry.service.name)} serves ${entry.image}, an untagged image that is neither the image ` +
+      `its template names (${entry.templateImage ?? 'none'}) nor that image's linux/amd64 child` +
+      (entry.manifestError ? ` (could not read the template's manifest: ${entry.manifestError})` : '')
     )
     throw new Error(
       `A Cloud Run service in ${runtimeProject} serves an image that cannot be traced to a candidate ` +
@@ -260,7 +261,9 @@ async function servingImageOf (service, repo) {
 //
 // The manifest is read only when it can matter, which is when the serving
 // digest is not the template's digest. A healthy single-manifest service reads
-// nothing extra.
+// nothing extra. A read that fails (or an index with no linux/amd64 child) is
+// logged and treated as "not the template's child", so the checks below still
+// decide: a tagged image is reported, an untagged one fails the resolve.
 async function asDeployedImage (entry, repo, registry) {
   const serving = parseImageRef(entry.image)
   if (serving.name !== repo || !serving.digest) return
@@ -270,10 +273,22 @@ async function asDeployedImage (entry, repo, registry) {
     : null
   if (templateDigest === serving.digest) return
 
-  if (templateDigest && await platformManifestDigest(`${repo}@${templateDigest}`) === serving.digest) {
-    core.info(`${entry.service.name}: ${entry.image} is the linux/amd64 image of the index ${repo}@${templateDigest}`)
-    entry.image = `${repo}@${templateDigest}`
-    return
+  if (templateDigest) {
+    let child = null
+    try {
+      child = await platformManifestDigest(`${repo}@${templateDigest}`)
+    } catch (error) {
+      entry.manifestError = String(error?.message ?? error).split('\n')[0]
+      core.warning(
+        `${entry.service.name}: could not read the linux/amd64 image of its template ${repo}@${templateDigest}: ` +
+        entry.manifestError
+      )
+    }
+    if (child === serving.digest) {
+      core.info(`${entry.service.name}: ${entry.image} is the linux/amd64 image of the index ${repo}@${templateDigest}`)
+      entry.image = `${repo}@${templateDigest}`
+      return
+    }
   }
   if ((await registry.tagsFor(serving.digest)).length === 0) entry.untagged = true
 }

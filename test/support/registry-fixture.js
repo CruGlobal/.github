@@ -2,6 +2,7 @@
 // one mocked google-auth-library client: the Artifact Registry REST listing
 // (the tags on each digest) and the Docker v2 manifest reads (image indexes).
 // A digest in the listing with no index document reads as a single manifest.
+// A reference in `broken` fails its manifest read with a 403.
 
 const SINGLE = {
   schemaVersion: 2,
@@ -10,12 +11,15 @@ const SINGLE = {
   layers: []
 }
 
-export function serveRegistry (requestMock, { images, indexes = {} }) {
+export function serveRegistry (requestMock, { images, indexes = {}, broken = [] }) {
   requestMock.mockImplementation(async ({ url }) => {
     if (url.includes('/dockerImages')) return { data: { dockerImages: images } }
     const manifest = url.match(/\/v2\/.+\/manifests\/(.+)$/)
     if (manifest) {
       const reference = manifest[1]
+      if (broken.includes(reference)) {
+        throw Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } })
+      }
       if (indexes[reference]) return { data: JSON.stringify(indexes[reference]) }
       if (images.some(image => image.uri.endsWith(`@${reference}`))) return { data: JSON.stringify(SINGLE) }
     }
@@ -29,14 +33,15 @@ export function manifestReads (requestMock) {
 }
 
 // An image index for a multi-platform build: an arm64 child listed first, the
-// linux/amd64 child Cloud Run runs, and an attestation manifest.
+// linux/amd64 child Cloud Run runs, and an attestation manifest. Pass null for
+// an index with no linux/amd64 child at all.
 export function imageIndex (amd64) {
   return {
     schemaVersion: 2,
     mediaType: 'application/vnd.oci.image.index.v1+json',
     manifests: [
       { digest: 'sha256:arm64child', platform: { os: 'linux', architecture: 'arm64' } },
-      { digest: amd64, platform: { os: 'linux', architecture: 'amd64' } },
+      ...(amd64 ? [{ digest: amd64, platform: { os: 'linux', architecture: 'amd64' } }] : []),
       { digest: 'sha256:attestation', platform: { os: 'unknown', architecture: 'unknown' } }
     ]
   }
