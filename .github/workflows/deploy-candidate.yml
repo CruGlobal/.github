@@ -312,6 +312,12 @@ jobs:
       # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
       # deployments ledger -- the fleet dashboard / DORA data spine). Same
       # policy as all telemetry: NEVER fails the deploy.
+      #
+      # Actor is github.actor, the account that started the run's first
+      # attempt. TriggeringActor is github.triggering_actor, the account that
+      # started THIS attempt, which is the one the Flightdeck release event
+      # names. Both go on every row, and they differ only when another account
+      # re-ran the run.
       - name: Record deployment in ledger
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -319,6 +325,7 @@ jobs:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           REVISION: ${{ inputs.tag }}
         run: |
           now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
@@ -336,6 +343,7 @@ jobs:
               --arg digest "$DIGEST" \
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
+              --arg triggeringactor "$TRIGGERING_ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg provider gcp \
@@ -343,6 +351,7 @@ jobs:
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                TriggeringActor: {S: $triggeringactor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
@@ -620,6 +629,12 @@ jobs:
       # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
       # deployments ledger -- the fleet dashboard / DORA data spine). Same
       # policy as all telemetry: NEVER fails the deploy.
+      #
+      # Actor is github.actor, the account that started the run's first
+      # attempt. TriggeringActor is github.triggering_actor, the account that
+      # started THIS attempt, which is the one the Flightdeck release event
+      # names. Both go on every row, and they differ only when another account
+      # re-ran the run.
       - name: Record deployment in ledger
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -627,6 +642,7 @@ jobs:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           REVISION: ${{ inputs.tag }}
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
@@ -645,6 +661,7 @@ jobs:
               --arg digest "$DIGEST" \
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
+              --arg triggeringactor "$TRIGGERING_ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg provider aws \
@@ -652,6 +669,7 @@ jobs:
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                TriggeringActor: {S: $triggeringactor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
@@ -997,16 +1015,23 @@ jobs:
             || echo "::warning title=Datadog telemetry failed::candidate verify event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
 
       # The SAME ledger row a stage deploy writes — Action "deploy", Environment
-      # "release-candidate", same Revision/Digest/Sha/Actor/RunId/Provider/Type —
-      # plus `RcMode: "verify"`. That identity is the whole point of the design:
-      # the ledger is what resolves an app's release-candidate head, so promote,
-      # rollback, the CLI and the dashboard keep working on a stage-less app
-      # without learning a new shape. `RcMode` is there so a reader can tell how
-      # the candidate was gated, not so anything has to branch on it.
+      # "release-candidate", same Revision/Digest/Sha/Actor/TriggeringActor/
+      # RunId/Provider/Type, plus `RcMode: "verify"`. That identity is the whole
+      # point of the design: the ledger is what resolves an app's
+      # release-candidate head, so promote, rollback, the CLI and the dashboard
+      # keep working on a stage-less app without learning a new shape. `RcMode`
+      # is there so a reader can tell how the candidate was gated, not so
+      # anything has to branch on it.
       #
       # Same telemetry policy as everywhere else: NEVER fails the run. The
       # verification already happened and its verdict is in the run's status; a
       # missing ledger row is a bookkeeping loss.
+      #
+      # Actor is github.actor, the account that started the run's first
+      # attempt. TriggeringActor is github.triggering_actor, the account that
+      # started THIS attempt, which is the one the Flightdeck release event
+      # names. Both go on every row, and they differ only when another account
+      # re-ran the run.
       - name: Record deployment in ledger
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -1014,6 +1039,7 @@ jobs:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           REVISION: ${{ inputs.tag }}
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
@@ -1032,6 +1058,7 @@ jobs:
               --arg digest "$DIGEST" \
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
+              --arg triggeringactor "$TRIGGERING_ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg provider aws \
@@ -1040,6 +1067,7 @@ jobs:
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                TriggeringActor: {S: $triggeringactor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}, RcMode: {S: $rcmode}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
