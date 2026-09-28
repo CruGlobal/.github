@@ -7,7 +7,7 @@ import yaml from 'js-yaml'
 
 // Helpers for tests that read the real workflow files and run one step the
 // way the runner would: `${{ }}` expressions filled in from a context the
-// test gives, then the step's `run:` script under bash. curl and gh are
+// test gives, then the step's `run:` script under bash. curl, gh and aws are
 // replaced by fakes that record what the step sends and answer like the real
 // services do, so nothing leaves the machine.
 
@@ -51,6 +51,11 @@ case "$url" in
 esac
 `
 
+const FAKE_AWS = `#!/bin/bash
+# Fake aws: answers every call (the app-info get-item) with FAKE_AWS.
+printf '%s' "$FAKE_AWS"
+`
+
 const FAKE_GH = `#!/bin/bash
 # Fake gh: records the release body a step sends on stdin.
 cat > "$FAKE_OUT/release.json"
@@ -68,7 +73,7 @@ let fakeBin = null
 function fakes () {
   if (fakeBin) return fakeBin
   fakeBin = mkdtempSync(path.join(tmpdir(), 'workflow-fakes-'))
-  for (const [name, body] of Object.entries({ curl: FAKE_CURL, gh: FAKE_GH })) {
+  for (const [name, body] of Object.entries({ curl: FAKE_CURL, gh: FAKE_GH, aws: FAKE_AWS })) {
     writeFileSync(path.join(fakeBin, name), body)
     chmodSync(path.join(fakeBin, name), 0o755)
   }
@@ -93,11 +98,21 @@ function spawnBash (script, env) {
   })
 }
 
+// The key=value lines a step wrote to $GITHUB_OUTPUT.
+function readOutputs (file) {
+  if (!existsSync(file)) return {}
+  return Object.fromEntries(readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => {
+    const at = line.indexOf('=')
+    return [line.slice(0, at), line.slice(at + 1)]
+  }))
+}
+
 // Run one `run:` step. `context` resolves every expression in the job env,
 // the step env and the script. `ledger` is what a deploys.cru.org read
-// answers. Resolves to the exit status, the output, and what was sent to
-// Slack and to the GitHub releases API (null when nothing was).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, runnerEnv = {} }) {
+// answers, and `aws` what an aws call prints. Resolves to the exit status,
+// the output, the step's outputs, and what was sent to Slack and to the
+// GitHub releases API (null when nothing was).
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, aws = {}, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -116,14 +131,17 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       ...runnerEnv,
       ...resolveEnv(job.env),
       ...resolveEnv(step.env),
+      GITHUB_OUTPUT: path.join(out, 'github-output'),
       FAKE_OUT: out,
-      FAKE_LEDGER: JSON.stringify(ledger)
+      FAKE_LEDGER: JSON.stringify(ledger),
+      FAKE_AWS: JSON.stringify(aws)
     }
     const result = await spawnBash(script, env)
     return {
       status: result.status,
       stdout: result.stdout,
       stderr: result.stderr,
+      outputs: readOutputs(path.join(out, 'github-output')),
       slack: readJson(path.join(out, 'slack.json')),
       release: readJson(path.join(out, 'release.json'))
     }

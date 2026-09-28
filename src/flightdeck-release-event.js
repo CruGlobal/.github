@@ -23,6 +23,10 @@ import { assertAttemptAuthorized } from './v2/attempt-guard.js'
 // non-blank and passes Flightdeck's rule (DISPLAY_FIELDS below). One that
 // would fail is left out with a warning, and the event is still posted.
 //
+// A Flightdeck older than these fields refuses them as unknown keys, which
+// would refuse every event after a Flightdeck rollback. So a 422 that names
+// them as unknown is retried once without them (postReleaseEvent below).
+//
 // One exception. A production release event is a trusted record, so it is
 // refused, and the step fails, unless the authorize-actor check passed earlier
 // in this job for this run attempt (src/v2/attempt-guard.js). Only the
@@ -106,7 +110,7 @@ export async function run () {
       core.setOutput('status', 'failed')
       return
     }
-    const { status, body } = await client.postReleaseEvent(projectId, event)
+    const { status, body } = await postReleaseEvent(client, projectId, event, core.warning)
     const outcome = status === 201 ? 'created' : 'updated'
     core.info(`Flightdeck: ${outcome} ${event.kind} of ${event.release_tag ?? '(untagged)'} in ${event.environment} on project ${project} (event ${body.id})`)
     core.setOutput('status', outcome)
@@ -203,6 +207,40 @@ export function shaFromTags (imageTags) {
   return ''
 }
 
+// Post the event. A Flightdeck from before the display-only fields answers
+// 422 invalid_attribute with "unknown key(s): <names> (settable: ...)" for
+// them. The display fields are nice to have and the rest of the event is
+// not, so on that answer, and only that one, the event is posted once more
+// without them. Any other refusal, and a refusal of the retry, is thrown as
+// it is.
+export async function postReleaseEvent (client, projectId, event, warn = () => {}) {
+  try {
+    return await client.postReleaseEvent(projectId, event)
+  } catch (error) {
+    const dropped = refusedDisplayFields(error, event)
+    if (dropped.length === 0) throw error
+    const retry = Object.fromEntries(Object.entries(event).filter(([key]) => !dropped.includes(key)))
+    warn(`Flightdeck release event: Flightdeck does not accept ${dropped.join(', ')} yet (${error.message}). Posting the event again without ${dropped.length === 1 ? 'it' : 'them'}.`)
+    return client.postReleaseEvent(projectId, retry)
+  }
+}
+
+// The display-only fields in `event` to drop when `error` is Flightdeck
+// refusing unknown keys and it names at least one of those fields; [] for
+// any other error. Every display field the event carries is dropped, not just
+// the named ones, so the retry cannot fail the same way over another.
+export function refusedDisplayFields (error, event) {
+  if (error?.status !== 422) return []
+  const code = error.body?.code
+  if (code !== undefined && code !== 'invalid_attribute') return []
+  const message = typeof error.body?.error === 'string' ? error.body.error : ''
+  const match = /^\s*unknown keys?:\s*([^(]*)/i.exec(message)
+  if (!match) return []
+  const named = match[1].split(/,|\s+and\s+/).map((name) => name.trim())
+  const carried = Object.keys(DISPLAY_FIELDS).filter((key) => key in event)
+  return carried.some((key) => named.includes(key)) ? carried : []
+}
+
 // classify-rollback-safety emits `reasons` as a JSON array of strings. Anything
 // else (unset, malformed, wrong shape) is sent as no reasons rather than
 // letting a malformed advisory 422 the whole event.
@@ -241,7 +279,8 @@ export class FlightdeckClient {
     const json = await res.json().catch(() => null)
     if (!res.ok) {
       const detail = json?.error ? `${json.error}${json.code ? ` [${json.code}]` : ''}` : res.statusText
-      throw new Error(`${method} ${path}: HTTP ${res.status} ${detail}`)
+      // status and body ride along so a caller can tell one refusal from another.
+      throw Object.assign(new Error(`${method} ${path}: HTTP ${res.status} ${detail}`), { status: res.status, body: json })
     }
     return { status: res.status, body: json }
   }

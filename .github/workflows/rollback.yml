@@ -77,22 +77,22 @@ on:
           dispatches a rollback sets it to the release it expects to be rolling
           back to. It does not need expected-current-release. Empty skips the
           check.
+      # The changelog links' Flightdeck workspace is not an input. It is the
+      # caller's FLIGHTDECK_WORKSPACE configuration variable (in a called
+      # workflow, vars resolve in the caller's repository and organization),
+      # because a caller that passes an input the called release does not
+      # declare fails to start, and a new required-by-the-caller input would
+      # stop it from moving back to an older release. flightdeck-url has a
+      # default, so a caller that leaves it out works with any release.
       flightdeck-url:
         type: string
         required: false
         default: 'https://flightdeck.cru.org'
         description: >-
           Flightdeck base URL. Release events are posted there, and changelog
-          links point there when flightdeck-workspace is set.
-      flightdeck-workspace:
-        type: string
-        required: false
-        default: ''
-        description: >-
-          Flightdeck workspace slug. When it is set and app-info has a
-          FlightdeckProject, the changelog link in the Slack post opens that
-          project's Flightdeck changelog page. Empty keeps the deploys.cru.org
-          link.
+          links point there when the FLIGHTDECK_WORKSPACE variable is set.
+          Leave it unset unless you need another Flightdeck: passing it ties
+          the caller to releases that declare it.
     secrets:
       datadog-api-key:
         required: true
@@ -466,7 +466,7 @@ jobs:
           items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
           # The release this rollback takes production OFF -- the `to` end of the
           # changelog link (revision name preferred, Sha for rows that predate
-          # named revisions). Empty -> the Slack message keeps the run URL.
+          # named revisions). Empty -> the Slack message has no changelog line.
           echo "previous-revision=$(echo "$items" | jq -r '.[0].Revision // .[0].Sha // empty')" >> "$GITHUB_OUTPUT"
           entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
           safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
@@ -627,9 +627,12 @@ jobs:
       # or empty link.
       #
       # Which page: Flightdeck's changelog page for the app's project when
-      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
-      # a Flightdeck identifier (a capital letter, then up to nine capitals or
-      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
+      # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
+      # to nine capitals or digits), and the app's repository is
+      # CruGlobal/<project-name> (Flightdeck's changelog reads the repository
+      # named after the project, so an app-info Repository override keeps the
+      # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
@@ -643,8 +646,9 @@ jobs:
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
-          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -661,11 +665,13 @@ jobs:
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
                     and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
                     and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
                  then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
@@ -949,7 +955,7 @@ jobs:
           items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
           # The release this rollback takes production OFF -- the `to` end of the
           # changelog link (revision name preferred, Sha for rows that predate
-          # named revisions). Empty -> the Slack message keeps the run URL.
+          # named revisions). Empty -> the Slack message has no changelog line.
           echo "previous-revision=$(echo "$items" | jq -r '.[0].Revision // .[0].Sha // empty')" >> "$GITHUB_OUTPUT"
           entry=$(echo "$items" | jq -c 'map(select(.RollbackSafe != null)) | .[0] // empty')
           safe=$(echo "$entry" | jq -r '.RollbackSafe // empty' 2>/dev/null || echo "")
@@ -1097,9 +1103,12 @@ jobs:
       # or empty link.
       #
       # Which page: Flightdeck's changelog page for the app's project when
-      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
-      # a Flightdeck identifier (a capital letter, then up to nine capitals or
-      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
+      # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
+      # to nine capitals or digits), and the app's repository is
+      # CruGlobal/<project-name> (Flightdeck's changelog reads the repository
+      # named after the project, so an app-info Repository override keeps the
+      # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
@@ -1113,8 +1122,9 @@ jobs:
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
-          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1131,11 +1141,13 @@ jobs:
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
                     and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
                     and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
                  then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to

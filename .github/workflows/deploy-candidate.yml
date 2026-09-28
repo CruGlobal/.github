@@ -43,22 +43,22 @@ on:
           scheduled (nightly-cadence) app workflows safe to dispatch
           unconditionally. Force a same-digest redeploy to pick up out-of-band
           changes (e.g. an applied Terraform task-definition template).
+      # The changelog links' Flightdeck workspace is not an input. It is the
+      # caller's FLIGHTDECK_WORKSPACE configuration variable (in a called
+      # workflow, vars resolve in the caller's repository and organization),
+      # because a caller that passes an input the called release does not
+      # declare fails to start, and a new required-by-the-caller input would
+      # stop it from moving back to an older release. flightdeck-url has a
+      # default, so a caller that leaves it out works with any release.
       flightdeck-url:
         type: string
         required: false
         default: 'https://flightdeck.cru.org'
         description: >-
           Flightdeck base URL. Release events are posted there, and changelog
-          links point there when flightdeck-workspace is set.
-      flightdeck-workspace:
-        type: string
-        required: false
-        default: ''
-        description: >-
-          Flightdeck workspace slug. When it is set and app-info has a
-          FlightdeckProject, the changelog link in the Slack post opens that
-          project's Flightdeck changelog page. Empty keeps the deploys.cru.org
-          link.
+          links point there when the FLIGHTDECK_WORKSPACE variable is set.
+          Leave it unset unless you need another Flightdeck: passing it ties
+          the caller to releases that declare it.
     secrets:
       datadog-api-key:
         required: true
@@ -90,6 +90,7 @@ jobs:
       slack-channel: ${{ steps.app-info.outputs.slack-channel }}
       app-url: ${{ steps.app-info.outputs.app-url }}
       flightdeck-project: ${{ steps.app-info.outputs.flightdeck-project }}
+      repository: ${{ steps.app-info.outputs.repository }}
       # Release-candidate gate for this app: "deploy" (stage deploy, the default
       # and the case for every app that has a stage environment) or "verify"
       # (stage-less — run VerifyCommand inside the candidate image instead).
@@ -132,6 +133,8 @@ jobs:
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           flightdeck_project=$(echo "$item" | jq -r '.FlightdeckProject.S // empty')
+          # Repository is written only when the app repo is not named after the project.
+          repository=$(echo "$item" | jq -r --arg default "CruGlobal/$PROJECT_NAME" '.Repository.S // $default')
           # RcMode absent = "deploy". Terraform omits the attribute on the
           # default, so every pre-existing app item reads as a stage deploy
           # without being rewritten.
@@ -166,6 +169,7 @@ jobs:
           echo "slack-channel=$slack_channel" >> "$GITHUB_OUTPUT"
           echo "app-url=$app_url" >> "$GITHUB_OUTPUT"
           echo "flightdeck-project=$flightdeck_project" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
           echo "verify-command=$verify_command" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id rc-mode=$rc_mode"
@@ -390,9 +394,12 @@ jobs:
       # the closing line is simply omitted -- no link is better than a wrong one.
       #
       # Which page: Flightdeck's changelog page for the app's project when
-      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
-      # a Flightdeck identifier (a capital letter, then up to nine capitals or
-      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
+      # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
+      # to nine capitals or digits), and the app's repository is
+      # CruGlobal/<project-name> (Flightdeck's changelog reads the repository
+      # named after the project, so an app-info Repository override keeps the
+      # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
@@ -402,8 +409,9 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
-          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -418,11 +426,13 @@ jobs:
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
                     and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
                     and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
                  then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
@@ -693,9 +703,12 @@ jobs:
       # the closing line is simply omitted -- no link is better than a wrong one.
       #
       # Which page: Flightdeck's changelog page for the app's project when
-      # flightdeck-workspace is a plain slug and app-info's FlightdeckProject is
-      # a Flightdeck identifier (a capital letter, then up to nine capitals or
-      # digits). Every value in that link is URL-encoded. Anything else keeps
+      # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
+      # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
+      # to nine capitals or digits), and the app's repository is
+      # CruGlobal/<project-name> (Flightdeck's changelog reads the repository
+      # named after the project, so an app-info Repository override keeps the
+      # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
@@ -705,8 +718,9 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
-          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -721,11 +735,13 @@ jobs:
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
                     and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
                     and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
                  then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
@@ -1064,9 +1080,10 @@ jobs:
       # reading about a candidate.
       #
       # The changelog line follows the stage-deploy message's rule: Flightdeck's
-      # changelog page when flightdeck-workspace and a valid FlightdeckProject
-      # are both there, every value URL-encoded, otherwise the deploys.cru.org
-      # link exactly as it was.
+      # changelog page when the FLIGHTDECK_WORKSPACE variable and a valid
+      # FlightdeckProject are both there and the app has no Repository
+      # override, every value URL-encoded, otherwise the deploys.cru.org link
+      # exactly as it was.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -1074,8 +1091,9 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
-          FLIGHTDECK_WORKSPACE: ${{ inputs.flightdeck-workspace }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1089,11 +1107,13 @@ jobs:
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
                     and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
                     and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
                  then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to

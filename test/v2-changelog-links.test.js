@@ -5,9 +5,10 @@ import { loadYaml, findStep, runShellStep, removeFakes } from './support/workflo
 // Release body. These run the real workflow steps under bash (see
 // support/workflow-steps.js), so what is checked is the link a reader gets.
 //
-// The rule under test: Flightdeck's changelog page when the workflow was
-// given a workspace slug AND app-info has a FlightdeckProject that is a
-// Flightdeck identifier, with every value URL-encoded. Anything else keeps the
+// The rule under test: Flightdeck's changelog page when the caller's
+// FLIGHTDECK_WORKSPACE variable is a slug, app-info has a FlightdeckProject
+// that is a Flightdeck identifier, and the app's repository is the one named
+// after the project, with every value URL-encoded. Anything else keeps the
 // deploys.cru.org link exactly as it was before Flightdeck links existed.
 
 const WORKFLOW_FILES = {
@@ -54,17 +55,18 @@ const SITES = [
 ]
 const siteName = (site) => `${site.job} / ${site.step}`
 
-// What the runner would supply. The workspace and project are set, so the
-// default is a Flightdeck link; each test takes away what it needs to.
+// What the runner would supply. The workspace variable and project are set,
+// so the default is a Flightdeck link; each test takes away what it needs to.
+// `vars` is the caller's configuration variables, which is where a called
+// workflow reads them from.
 function baseContext (site) {
   return {
     'inputs.project-name': 'shop-web',
     'inputs.flightdeck-url': workflows[site.workflow].on.workflow_call.inputs['flightdeck-url'].default,
-    'inputs.flightdeck-workspace': 'acme',
+    'vars.FLIGHTDECK_WORKSPACE': 'acme',
     'needs.lookup.outputs.flightdeck-project': 'SHOP',
     'needs.lookup.outputs.slack-channel': 'C0TESTCHANNEL',
     'needs.lookup.outputs.app-url': 'https://shop.example.test',
-    'needs.lookup.outputs.repository': 'example-org/shop-web',
     'secrets.slack-bot-token': 'xoxb-test',
     'secrets.datadog-api-key': 'dd-test',
     'secrets.authz-token': 'gh-test',
@@ -86,6 +88,10 @@ async function linkFrom (expect, site, { from, to, ...overrides }) {
   const run = {}
   site.set(context, from, to, run)
   Object.assign(context, overrides)
+  // The lookups default the repository to the one named after the project.
+  if (!('needs.lookup.outputs.repository' in overrides)) {
+    context['needs.lookup.outputs.repository'] = `CruGlobal/${context['inputs.project-name']}`
+  }
   const result = await runShellStep(findStep(workflows[site.workflow], site.job, site.step), { context, ledger: run.ledger })
   expect(result.status, result.stderr).toBe(0)
   expect(result.stdout).not.toMatch(/::warning/)
@@ -129,8 +135,9 @@ describe.concurrent.each(SITES.map((site) => [siteName(site), site]))('%s', (_na
     expect(await linkFrom(expect, site, { from, to, 'needs.lookup.outputs.flightdeck-project': '' })).toBe(oldLink)
   })
 
-  it('keeps the old link exactly when no workspace was given', async ({ expect }) => {
-    expect(await linkFrom(expect, site, { from, to, 'inputs.flightdeck-workspace': '' })).toBe(oldLink)
+  it('keeps the old link exactly when the FLIGHTDECK_WORKSPACE variable is unset', async ({ expect }) => {
+    // An unset variable reads as an empty string.
+    expect(await linkFrom(expect, site, { from, to, 'vars.FLIGHTDECK_WORKSPACE': '' })).toBe(oldLink)
   })
 
   it('keeps the old link for a FlightdeckProject that is not a Flightdeck identifier', async ({ expect }) => {
@@ -138,7 +145,20 @@ describe.concurrent.each(SITES.map((site) => [siteName(site), site]))('%s', (_na
   })
 
   it('keeps the old link for a workspace that is not a plain slug', async ({ expect }) => {
-    expect(await linkFrom(expect, site, { from, to, 'inputs.flightdeck-workspace': 'acme/other' })).toBe(oldLink)
+    expect(await linkFrom(expect, site, { from, to, 'vars.FLIGHTDECK_WORKSPACE': 'acme/other' })).toBe(oldLink)
+  })
+
+  it('keeps the old link when app-info names a repository other than the one named after the project', async ({ expect }) => {
+    // Flightdeck's changelog reads the repository named after the project, so
+    // its page would compare the wrong repository.
+    expect(await linkFrom(expect, site, { from, to, 'needs.lookup.outputs.repository': 'CruGlobal/shop-web-app' })).toBe(oldLink)
+    expect(await linkFrom(expect, site, { from, to, 'needs.lookup.outputs.repository': 'other-org/shop-web' })).toBe(oldLink)
+  })
+
+  it('reads the repository without regard to case, and builds the link when none is known', async ({ expect }) => {
+    const link = `https://flightdeck.cru.org/acme/projects/SHOP/changelog?from=${from}&to=${to}&app=shop-web`
+    expect(await linkFrom(expect, site, { from, to, 'needs.lookup.outputs.repository': 'cruglobal/SHOP-WEB' })).toBe(link)
+    expect(await linkFrom(expect, site, { from, to, 'needs.lookup.outputs.repository': '' })).toBe(link)
   })
 
   it('URL-encodes every value in the Flightdeck link', async ({ expect }) => {
@@ -190,7 +210,7 @@ describe.concurrent.each(REPRESENTATIVE.map((site) => [siteName(site), site]))('
   it.for([
     'Acme', '-acme', 'acme corp', 'acme/other', '../acme', 'acme?x=1', 'acme#x', 'acme\n', 'acmé', 'acme_co'
   ])('workspace %j', async (workspace, { expect }) => {
-    expect(await linkFrom(expect, site, { from, to, 'inputs.flightdeck-workspace': workspace })).toBe(oldLink)
+    expect(await linkFrom(expect, site, { from, to, 'vars.FLIGHTDECK_WORKSPACE': workspace })).toBe(oldLink)
   })
 
   it.for([
@@ -222,22 +242,57 @@ describe('changelog link wiring', () => {
     expect(found.sort()).toEqual(SITES.map((site) => `${site.workflow}:${siteName(site)}`).sort())
   })
 
-  it.each(SITES.map((site) => [siteName(site), site]))('%s reads the workspace, URL and FlightdeckProject from the workflow and lookup', (_name, site) => {
+  it.each(SITES.map((site) => [siteName(site), site]))('%s reads the URL, the workspace variable, FlightdeckProject and the repository', (_name, site) => {
     const { step } = findStep(workflows[site.workflow], site.job, site.step)
     expect(step.env).toMatchObject({
       FLIGHTDECK_URL: '${{ inputs.flightdeck-url }}',
-      FLIGHTDECK_WORKSPACE: '${{ inputs.flightdeck-workspace }}',
-      FLIGHTDECK_PROJECT: '${{ needs.lookup.outputs.flightdeck-project }}'
+      FLIGHTDECK_WORKSPACE: '${{ vars.FLIGHTDECK_WORKSPACE }}',
+      FLIGHTDECK_PROJECT: '${{ needs.lookup.outputs.flightdeck-project }}',
+      APP_REPO: '${{ needs.lookup.outputs.repository }}'
     })
   })
 
-  it.each(Object.entries(workflows))('%s declares the Flightdeck URL and workspace inputs', (_name, workflow) => {
+  it.each(Object.entries(workflows))('%s takes the workspace from a variable, not an input', (_name, workflow) => {
     const inputs = workflow.on.workflow_call.inputs
-    // The same default the release-event action posts to.
+    // The same default the release-event action posts to, so a caller never
+    // has to pass it.
     expect(inputs['flightdeck-url']).toMatchObject({ type: 'string', required: false, default: DEFAULT_ENDPOINT })
-    // No default workspace: which one is the caller's to say.
-    expect(inputs['flightdeck-workspace']).toMatchObject({ type: 'string', required: false, default: '' })
-    // Every job that links reads FlightdeckProject from lookup.
-    expect(workflow.jobs.lookup.outputs['flightdeck-project']).toBeDefined()
+    // A caller that passes an input the called release does not declare
+    // fails to start, so the workspace is a variable: a caller can then move
+    // back to an older release without changing anything.
+    expect(inputs).not.toHaveProperty('flightdeck-workspace')
+    expect(JSON.stringify(workflow)).not.toContain('inputs.flightdeck-workspace')
+    // Every job that links reads FlightdeckProject and the repository from lookup.
+    expect(workflow.jobs.lookup.outputs).toMatchObject({
+      'flightdeck-project': expect.stringContaining('outputs.flightdeck-project'),
+      repository: expect.stringContaining('outputs.repository')
+    })
+  })
+})
+
+// deploy-candidate's lookup had no repository output until the Repository
+// check needed one. It reads the same app-info row as the rest of the lookup,
+// with the same default promote and rollback use.
+describe('deploy-candidate lookup: repository', () => {
+  const { job, step } = findStep(workflows['deploy-candidate'], 'lookup', 'Look up app info')
+  const item = (extra = {}) => ({
+    Item: { Provider: { S: 'aws' }, Type: { S: 'ecs' }, ProjectId: { S: '' }, FlightdeckProject: { S: 'SHOP' }, ...extra }
+  })
+  const lookup = (aws) => runShellStep({ job, step }, { context: { 'inputs.project-name': 'shop-web' }, aws })
+
+  it('is the app-info Repository when there is one', async () => {
+    const result = await lookup(item({ Repository: { S: 'CruGlobal/shop-web-app' } }))
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.outputs).toMatchObject({ repository: 'CruGlobal/shop-web-app', 'flightdeck-project': 'SHOP' })
+  })
+
+  it('is the repository named after the project when app-info has none', async () => {
+    const result = await lookup(item())
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.outputs.repository).toBe('CruGlobal/shop-web')
+  })
+
+  it('is a job output', () => {
+    expect(job.outputs.repository).toBe('${{ steps.app-info.outputs.repository }}')
   })
 })

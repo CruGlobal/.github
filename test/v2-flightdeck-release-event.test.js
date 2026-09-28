@@ -24,7 +24,8 @@ vi.mock('@actions/core', () => ({
 }))
 
 import {
-  run, buildEvent, buildNumberFromTag, shaFromTags, parseReasons, normalizeEndpoint, FlightdeckClient, displayFields, DEFAULT_ENDPOINT
+  run, buildEvent, buildNumberFromTag, shaFromTags, parseReasons, normalizeEndpoint, FlightdeckClient, displayFields, DEFAULT_ENDPOINT,
+  refusedDisplayFields
 } from '../src/flightdeck-release-event.js'
 import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
 import { loadYaml, resolveExpressions } from './support/workflow-steps.js'
@@ -571,6 +572,132 @@ describe('run: display-only fields', () => {
     })
     expect(warningMock).toHaveBeenCalledTimes(3)
     expect(output('status')).toBe('created')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A Flightdeck from before the display-only fields refuses them as unknown
+// keys: 422 invalid_attribute, "unknown key(s): <sorted names> (settable:
+// ...)". Without a retry, a Flightdeck rollback past those fields would get
+// every release event refused, so that refusal, and only that one, is
+// retried once without them.
+
+const SETTABLE = '(settable: environment, kind, release_tag, build_number, sha, rollback_safe, rollback_safe_reasons, deployed_at, app)'
+const unknownKeys = (names) => jsonResponse(422, { error: `unknown key${names.includes(',') ? 's' : ''}: ${names} ${SETTABLE}`, code: 'invalid_attribute' })
+
+describe('run: a Flightdeck that does not know the display-only fields', () => {
+  const displayInputs = () => {
+    happyInputs()
+    inputs.project = 'SHOP'
+    inputs.actor = 'octo-dev'
+    inputs['run-url'] = `${RUN_URL}/attempts/1`
+    inputs['image-digest'] = DIGEST
+  }
+  const answers = (...responses) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'SHOP' }], 1, 1))
+    for (const response of responses) fetchMock.mockResolvedValueOnce(response)
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+  const posted = (fetchMock, n) => JSON.parse(fetchMock.mock.calls[n][1].body).release_event
+  const BASE_EVENT = {
+    environment: 'production',
+    kind: 'deploy',
+    release_tag: 'release-2026-09-04-10123',
+    build_number: '10123',
+    sha: SHA,
+    rollback_safe: true,
+    rollback_safe_reasons: ['2 additive migration(s)']
+  }
+
+  it('posts again once without them, names them in a warning, and records the event', async () => {
+    displayInputs()
+    const fetchMock = answers(unknownKeys('actor, image_digest, run_url'), jsonResponse(201, { id: 902 }))
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(posted(fetchMock, 1)).toMatchObject({ actor: 'octo-dev', image_digest: DIGEST })
+    expect(posted(fetchMock, 2)).toEqual(BASE_EVENT)
+    expect(fetchMock.mock.calls[2][0]).toBe('https://flightdeck.cru.org/api/v1/projects/42/release-events')
+    expect(warningMock).toHaveBeenCalledTimes(1)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('does not accept actor, run_url, image_digest yet'))
+    expect(setFailedMock).not.toHaveBeenCalled()
+    expect(output('status')).toBe('created')
+    expect(output('event-id')).toBe('902')
+  })
+
+  it('retries when only one of them was sent and named', async () => {
+    happyInputs()
+    inputs.project = 'SHOP'
+    inputs['run-url'] = RUN_URL
+    const fetchMock = answers(unknownKeys('run_url'), jsonResponse(200, { id: 903 }))
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(posted(fetchMock, 2)).toEqual(BASE_EVENT)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('does not accept run_url yet'))
+    expect(output('status')).toBe('updated')
+  })
+
+  it('does not retry a second time when the retry is refused too', async () => {
+    displayInputs()
+    const fetchMock = answers(unknownKeys('actor, image_digest, run_url'), unknownKeys('actor, image_digest, run_url'))
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(output('status')).toBe('failed')
+    expect(warningMock).toHaveBeenLastCalledWith(expect.stringContaining('Flightdeck release event not recorded (non-blocking)'))
+    expect(setFailedMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a different invalid attribute', jsonResponse(422, { error: 'environment is required', code: 'invalid_attribute' })],
+    ['an unknown key that is not a display field', unknownKeys('rollback-safe')],
+    ['a bad value in a display field', jsonResponse(422, { error: 'actor must be a GitHub login (1-39 letters, digits or hyphens), got "x y"', code: 'invalid_attribute' })],
+    ['an unknown-keys message under another code', jsonResponse(422, { error: `unknown keys: actor, run_url ${SETTABLE}`, code: 'validation_failed' })],
+    ['an unknown-keys message on another status', jsonResponse(400, { error: `unknown keys: actor, run_url ${SETTABLE}`, code: 'invalid_attribute' })],
+    ['a 422 with no JSON body', { ok: false, status: 422, statusText: 'Unprocessable Content', json: async () => { throw new Error('not json') } }]
+  ])('does not retry %s', async (_name, response) => {
+    displayInputs()
+    const fetchMock = answers(response)
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(output('status')).toBe('failed')
+    expect(warningMock).toHaveBeenCalledTimes(1)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('Flightdeck release event not recorded (non-blocking)'))
+  })
+
+  it('does not retry an unknown-keys refusal when the event carried no display fields', async () => {
+    happyInputs()
+    inputs.project = 'SHOP'
+    const fetchMock = answers(unknownKeys('actor'))
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(output('status')).toBe('failed')
+  })
+})
+
+describe('refusedDisplayFields', () => {
+  const refusal = (status, body) => Object.assign(new Error('x'), { status, body })
+  const event = { environment: 'production', actor: 'a', run_url: RUN_URL, image_digest: DIGEST }
+
+  it('drops every display field the event carries when any of them is named', () => {
+    expect(refusedDisplayFields(refusal(422, { error: `unknown key: image_digest ${SETTABLE}`, code: 'invalid_attribute' }), event))
+      .toEqual(['actor', 'run_url', 'image_digest'])
+  })
+
+  it('reads the list loosely: case, spacing, no settable part, no code', () => {
+    expect(refusedDisplayFields(refusal(422, { error: 'Unknown Keys:  actor ,run_url' }), event)).toEqual(['actor', 'run_url', 'image_digest'])
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown keys: a, b, c, d, run_url and 2 more (settable: x)' }), event)).toEqual(['actor', 'run_url', 'image_digest'])
+  })
+
+  it('matches whole key names only', () => {
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown key: actors (settable: x)', code: 'invalid_attribute' }), event)).toEqual([])
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown key: old_run_url (settable: x)', code: 'invalid_attribute' }), event)).toEqual([])
+  })
+
+  it('ignores anything that is not that refusal', () => {
+    expect(refusedDisplayFields(new Error('ECONNRESET'), event)).toEqual([])
+    expect(refusedDisplayFields(refusal(422, null), event)).toEqual([])
+    expect(refusedDisplayFields(refusal(422, { error: ['unknown keys: actor'] }), event)).toEqual([])
+    expect(refusedDisplayFields(refusal(422, { error: 'the settable list mentions unknown keys: actor' }), event)).toEqual([])
   })
 })
 
