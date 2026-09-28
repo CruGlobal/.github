@@ -19355,6 +19355,20 @@ var PER_PAGE = 100;
 var MAX_PAGES = 50;
 var TIMEOUT_MS = 1e4;
 var NON_PRODUCTION_ENVIRONMENTS = Object.freeze(["staging", "release-candidate", "preview", "lab"]);
+var DISPLAY_FIELDS = Object.freeze({
+  actor: {
+    format: /^(?=[A-Za-z0-9-]{1,39}(?:\[bot\])?$)[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?$/,
+    rule: "a GitHub login (1-39 letters, digits or hyphens, starting with a letter or digit, optionally followed by [bot])"
+  },
+  run_url: {
+    format: /^https:\/\/github\.com\/(?=[A-Za-z0-9-]{1,39}\/)[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?\/)[A-Za-z0-9._-]{1,100}\/actions\/runs\/[0-9]{1,20}(?:\/attempts\/[0-9]{1,20})?$/,
+    rule: "a GitHub Actions run URL (https://github.com/<owner>/<repo>/actions/runs/<id>, optionally followed by /attempts/<n>)"
+  },
+  image_digest: {
+    format: /^sha256:[0-9a-f]{64}$/,
+    rule: "sha256: followed by 64 lowercase hex characters"
+  }
+});
 async function run() {
   const token = getInput("token");
   const project = getInput("project");
@@ -19385,8 +19399,11 @@ async function run() {
       imageTags: getInput("image-tags"),
       rollbackSafety: getInput("rollback-safety"),
       rollbackSafetyReasons: getInput("rollback-safety-reasons"),
-      deployedAt: getInput("deployed-at")
-    });
+      deployedAt: getInput("deployed-at"),
+      actor: getInput("actor"),
+      runUrl: getInput("run-url"),
+      imageDigest: getInput("image-digest")
+    }, { warn: warning });
     const client = new FlightdeckClient(endpoint, token);
     const projectId = await client.findProjectId(project);
     if (projectId === null) {
@@ -19394,7 +19411,7 @@ async function run() {
       setOutput("status", "failed");
       return;
     }
-    const { status, body } = await client.postReleaseEvent(projectId, event);
+    const { status, body } = await postReleaseEvent(client, projectId, event, warning);
     const outcome = status === 201 ? "created" : "updated";
     info(`Flightdeck: ${outcome} ${event.kind} of ${event.release_tag ?? "(untagged)"} in ${event.environment} on project ${project} (event ${body.id})`);
     setOutput("status", outcome);
@@ -19407,7 +19424,8 @@ async function run() {
 function normalizeEndpoint(endpoint) {
   return endpoint.trim().replace(/\/+$/, "");
 }
-function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt }) {
+function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt, actor, runUrl, imageDigest }, { warn = () => {
+} } = {}) {
   environment = (environment || "").trim();
   if (!environment) throw new Error("environment is required");
   kind = (kind || "deploy").trim();
@@ -19431,7 +19449,22 @@ function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imag
   }
   deployedAt = (deployedAt || "").trim();
   if (deployedAt) event.deployed_at = deployedAt;
+  Object.assign(event, displayFields({ actor, run_url: runUrl, image_digest: imageDigest }, warn));
   return event;
+}
+function displayFields(values, warn = () => {
+}) {
+  const fields = {};
+  for (const [key, { format, rule }] of Object.entries(DISPLAY_FIELDS)) {
+    const value = (values[key] || "").trim();
+    if (!value) continue;
+    if (format.test(value)) {
+      fields[key] = value;
+    } else {
+      warn(`Flightdeck release event: leaving out ${key} ${JSON.stringify(value)}, which is not ${rule}. Flightdeck would refuse the whole event over it; the event is still posted without it.`);
+    }
+  }
+  return fields;
 }
 function buildNumberFromTag(releaseTag) {
   const match = /^(?:candidate|release)-(?:\d{4}-\d{2}-\d{2}-)?(\d+)$/.exec(releaseTag || "");
@@ -19443,6 +19476,29 @@ function shaFromTags(imageTags) {
     if (match) return match[1];
   }
   return "";
+}
+async function postReleaseEvent(client, projectId, event, warn = () => {
+}) {
+  try {
+    return await client.postReleaseEvent(projectId, event);
+  } catch (error2) {
+    const dropped = refusedDisplayFields(error2, event);
+    if (dropped.length === 0) throw error2;
+    const retry = Object.fromEntries(Object.entries(event).filter(([key]) => !dropped.includes(key)));
+    warn(`Flightdeck release event: Flightdeck does not accept ${dropped.join(", ")} yet (${error2.message}). Posting the event again without ${dropped.length === 1 ? "it" : "them"}.`);
+    return client.postReleaseEvent(projectId, retry);
+  }
+}
+function refusedDisplayFields(error2, event) {
+  if (error2?.status !== 422) return [];
+  const code = error2.body?.code;
+  if (code !== void 0 && code !== "invalid_attribute") return [];
+  const message = typeof error2.body?.error === "string" ? error2.body.error : "";
+  const match = /^\s*unknown keys?:\s*([^(]*)/i.exec(message);
+  if (!match) return [];
+  const named = match[1].split(/,|\s+and\s+/).map((name) => name.trim());
+  const carried = Object.keys(DISPLAY_FIELDS).filter((key) => key in event);
+  return carried.some((key) => named.includes(key)) ? carried : [];
 }
 function parseReasons(raw) {
   if (!raw || !raw.trim()) return [];
@@ -19476,7 +19532,7 @@ var FlightdeckClient = class {
     const json = await res.json().catch(() => null);
     if (!res.ok) {
       const detail = json?.error ? `${json.error}${json.code ? ` [${json.code}]` : ""}` : res.statusText;
-      throw new Error(`${method} ${path}: HTTP ${res.status} ${detail}`);
+      throw Object.assign(new Error(`${method} ${path}: HTTP ${res.status} ${detail}`), { status: res.status, body: json });
     }
     return { status: res.status, body: json };
   }

@@ -13485,7 +13485,7 @@ var require_fetch = __commonJS({
     function handleFetchDone(response) {
       finalizeAndReportTiming(response, "fetch");
     }
-    function fetch2(input, init = void 0) {
+    function fetch3(input, init = void 0) {
       webidl.argumentLengthCheck(arguments, 1, "globalThis.fetch");
       let p3 = createDeferredPromise();
       let requestObject;
@@ -14442,7 +14442,7 @@ var require_fetch = __commonJS({
       }
     }
     module2.exports = {
-      fetch: fetch2,
+      fetch: fetch3,
       Fetch,
       fetching,
       finalizeAndReportTiming
@@ -18791,7 +18791,7 @@ var require_undici = __commonJS({
     module2.exports.setGlobalDispatcher = setGlobalDispatcher;
     module2.exports.getGlobalDispatcher = getGlobalDispatcher;
     var fetchImpl = require_fetch().fetch;
-    module2.exports.fetch = async function fetch2(init, options = void 0) {
+    module2.exports.fetch = async function fetch3(init, options = void 0) {
       try {
         return await fetchImpl(init, options);
       } catch (err) {
@@ -30927,24 +30927,24 @@ var require_fs = __commonJS({
 var require_fetch2 = __commonJS({
   "node_modules/@protobufjs/fetch/index.js"(exports2, module2) {
     "use strict";
-    module2.exports = fetch2;
+    module2.exports = fetch3;
     var asPromise = require_aspromise();
     var fs4 = require_fs();
-    function fetch2(filename, options, callback) {
+    function fetch3(filename, options, callback) {
       if (typeof options === "function") {
         callback = options;
         options = {};
       } else if (!options)
         options = {};
       if (!callback)
-        return asPromise(fetch2, this, filename, options);
+        return asPromise(fetch3, this, filename, options);
       if (!options.xhr && fs4 && fs4.readFile)
         return fs4.readFile(filename, function fetchReadFileCallback(err, contents) {
-          return err && typeof XMLHttpRequest !== "undefined" ? fetch2.xhr(filename, options, callback) : err ? callback(err) : callback(null, options.binary ? contents : contents.toString("utf8"));
+          return err && typeof XMLHttpRequest !== "undefined" ? fetch3.xhr(filename, options, callback) : err ? callback(err) : callback(null, options.binary ? contents : contents.toString("utf8"));
         });
-      return fetch2.xhr(filename, options, callback);
+      return fetch3.xhr(filename, options, callback);
     }
-    fetch2.xhr = function fetch_xhr(filename, options, callback) {
+    fetch3.xhr = function fetch_xhr(filename, options, callback) {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function fetchOnReadyStateChange() {
         if (xhr.readyState !== 4)
@@ -32478,12 +32478,12 @@ var require_root = __commonJS({
             if (parsed.imports) {
               for (; i7 < parsed.imports.length; ++i7)
                 if (resolved2 = getBundledFileName(parsed.imports[i7]) || self2.resolvePath(filename2, parsed.imports[i7]))
-                  fetch2(resolved2, false, depth + 1);
+                  fetch3(resolved2, false, depth + 1);
             }
             if (parsed.weakImports) {
               for (i7 = 0; i7 < parsed.weakImports.length; ++i7)
                 if (resolved2 = getBundledFileName(parsed.weakImports[i7]) || self2.resolvePath(filename2, parsed.weakImports[i7]))
-                  fetch2(resolved2, true, depth + 1);
+                  fetch3(resolved2, true, depth + 1);
             }
           }
         } catch (err) {
@@ -32493,7 +32493,7 @@ var require_root = __commonJS({
           finish(null, self2);
         }
       }
-      function fetch2(filename2, weak, depth) {
+      function fetch3(filename2, weak, depth) {
         if (depth === void 0)
           depth = 0;
         filename2 = getBundledFileName(filename2) || filename2;
@@ -32547,7 +32547,7 @@ var require_root = __commonJS({
       }
       for (var i6 = 0, resolved; i6 < filename.length; ++i6)
         if (resolved = self2.resolvePath("", filename[i6]))
-          fetch2(resolved);
+          fetch3(resolved);
       if (sync) {
         self2.resolveAll();
         return self2;
@@ -55807,12 +55807,12 @@ __export(src_exports, {
   Response: () => Response,
   blobFrom: () => blobFrom,
   blobFromSync: () => blobFromSync,
-  default: () => fetch,
+  default: () => fetch2,
   fileFrom: () => fileFrom,
   fileFromSync: () => fileFromSync,
   isRedirect: () => isRedirect
 });
-async function fetch(url, options_) {
+async function fetch2(url, options_) {
   return new Promise((resolve, reject) => {
     const request = new Request(url, options_);
     const { parsedURL, options } = getNodeRequestOptions(request);
@@ -55944,7 +55944,7 @@ async function fetch(url, options_) {
             if (responseReferrerPolicy) {
               requestOptions.referrerPolicy = responseReferrerPolicy;
             }
-            resolve(fetch(new Request(locationURL, requestOptions)));
+            resolve(fetch2(new Request(locationURL, requestOptions)));
             finalize();
             return;
           }
@@ -122087,7 +122087,7 @@ var require_revisions_client = __commonJS({
     var google_gax_1 = require_src10();
     var gapicConfig = require_revisions_client_config();
     var version = require_package6().version;
-    var RevisionsClient = class {
+    var RevisionsClient2 = class {
       _terminated = false;
       _opts;
       _providedCustomServicePath;
@@ -123314,7 +123314,7 @@ var require_revisions_client = __commonJS({
         return Promise.resolve();
       }
     };
-    exports2.RevisionsClient = RevisionsClient;
+    exports2.RevisionsClient = RevisionsClient2;
   }
 });
 
@@ -157605,15 +157605,15 @@ var require_src12 = __commonJS({
     exports2.InstancesClient = InstancesClient;
     var JobsClient2 = v22.JobsClient;
     exports2.JobsClient = JobsClient2;
-    var RevisionsClient = v22.RevisionsClient;
-    exports2.RevisionsClient = RevisionsClient;
+    var RevisionsClient2 = v22.RevisionsClient;
+    exports2.RevisionsClient = RevisionsClient2;
     var ServicesClient2 = v22.ServicesClient;
     exports2.ServicesClient = ServicesClient2;
     var TasksClient = v22.TasksClient;
     exports2.TasksClient = TasksClient;
     var WorkerPoolsClient = v22.WorkerPoolsClient;
     exports2.WorkerPoolsClient = WorkerPoolsClient;
-    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
+    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient: RevisionsClient2, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
     var protos = require_protos4();
     exports2.protos = protos;
   }
@@ -195901,7 +195901,7 @@ var require_dist_cjs17 = __commonJS({
       extensions.forEach((extension) => extension.configure(extensionConfiguration));
       return Object.assign(runtimeConfig, resolveAwsRegionExtensionConfiguration2(extensionConfiguration), resolveDefaultRuntimeConfig2(extensionConfiguration), resolveHttpHandlerRuntimeConfig2(extensionConfiguration), resolveHttpAuthRuntimeConfig5(extensionConfiguration));
     };
-    var ECRClient2 = class extends Client2 {
+    var ECRClient3 = class extends Client2 {
       config;
       constructor(...[configuration]) {
         const _config_0 = getRuntimeConfig9(configuration || {});
@@ -195942,7 +195942,7 @@ var require_dist_cjs17 = __commonJS({
     };
     var BatchDeleteImageCommand = class extends command5(_ep05, _mw05, "BatchDeleteImage", BatchDeleteImage$) {
     };
-    var BatchGetImageCommand2 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
+    var BatchGetImageCommand3 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
     };
     var BatchGetRepositoryScanningConfigurationCommand = class extends command5(_ep05, _mw05, "BatchGetRepositoryScanningConfiguration", BatchGetRepositoryScanningConfiguration$) {
     };
@@ -195990,7 +195990,7 @@ var require_dist_cjs17 = __commonJS({
     };
     var GetAuthorizationTokenCommand = class extends command5(_ep05, _mw05, "GetAuthorizationToken", GetAuthorizationToken$) {
     };
-    var GetDownloadUrlForLayerCommand = class extends command5(_ep05, _mw05, "GetDownloadUrlForLayer", GetDownloadUrlForLayer$) {
+    var GetDownloadUrlForLayerCommand2 = class extends command5(_ep05, _mw05, "GetDownloadUrlForLayer", GetDownloadUrlForLayer$) {
     };
     var GetLifecyclePolicyCommand = class extends command5(_ep05, _mw05, "GetLifecyclePolicy", GetLifecyclePolicy$) {
     };
@@ -196054,13 +196054,13 @@ var require_dist_cjs17 = __commonJS({
     };
     var ValidatePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "ValidatePullThroughCacheRule", ValidatePullThroughCacheRule$) {
     };
-    var paginateDescribeImageScanFindings = createPaginator2(ECRClient2, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeImages = createPaginator2(ECRClient2, DescribeImagesCommand2, "nextToken", "nextToken", "maxResults");
-    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient2, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeRepositories = createPaginator2(ECRClient2, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient2, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient2, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListImages = createPaginator2(ECRClient2, ListImagesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImageScanFindings = createPaginator2(ECRClient3, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImages = createPaginator2(ECRClient3, DescribeImagesCommand2, "nextToken", "nextToken", "maxResults");
+    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient3, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositories = createPaginator2(ECRClient3, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient3, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient3, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListImages = createPaginator2(ECRClient3, ListImagesCommand, "nextToken", "nextToken", "maxResults");
     var checkState$1 = async (client, input) => {
       let reason;
       try {
@@ -196138,7 +196138,7 @@ var require_dist_cjs17 = __commonJS({
     var commands5 = {
       BatchCheckLayerAvailabilityCommand,
       BatchDeleteImageCommand,
-      BatchGetImageCommand: BatchGetImageCommand2,
+      BatchGetImageCommand: BatchGetImageCommand3,
       BatchGetRepositoryScanningConfigurationCommand,
       CompleteLayerUploadCommand,
       CreatePullThroughCacheRuleCommand,
@@ -196162,7 +196162,7 @@ var require_dist_cjs17 = __commonJS({
       DescribeRepositoryCreationTemplatesCommand,
       GetAccountSettingCommand,
       GetAuthorizationTokenCommand,
-      GetDownloadUrlForLayerCommand,
+      GetDownloadUrlForLayerCommand: GetDownloadUrlForLayerCommand2,
       GetLifecyclePolicyCommand,
       GetLifecyclePolicyPreviewCommand,
       GetRegistryPolicyCommand,
@@ -196208,7 +196208,7 @@ var require_dist_cjs17 = __commonJS({
       waitUntilImageScanComplete,
       waitUntilLifecyclePolicyPreviewComplete
     };
-    var ECR = class extends ECRClient2 {
+    var ECR = class extends ECRClient3 {
     };
     createAggregatedClient2(commands5, ECR, { paginators, waiters });
     var LayerFailureCode = {
@@ -196376,7 +196376,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.BatchDeleteImageRequest$ = BatchDeleteImageRequest$;
     exports2.BatchDeleteImageResponse$ = BatchDeleteImageResponse$;
     exports2.BatchGetImage$ = BatchGetImage$;
-    exports2.BatchGetImageCommand = BatchGetImageCommand2;
+    exports2.BatchGetImageCommand = BatchGetImageCommand3;
     exports2.BatchGetImageRequest$ = BatchGetImageRequest$;
     exports2.BatchGetImageResponse$ = BatchGetImageResponse$;
     exports2.BatchGetRepositoryScanningConfiguration$ = BatchGetRepositoryScanningConfiguration$;
@@ -196470,7 +196470,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.DescribeRepositoryCreationTemplatesRequest$ = DescribeRepositoryCreationTemplatesRequest$;
     exports2.DescribeRepositoryCreationTemplatesResponse$ = DescribeRepositoryCreationTemplatesResponse$;
     exports2.ECR = ECR;
-    exports2.ECRClient = ECRClient2;
+    exports2.ECRClient = ECRClient3;
     exports2.ECRServiceException = ECRServiceException;
     exports2.ECRServiceException$ = ECRServiceException$;
     exports2.EmptyUploadException = EmptyUploadException;
@@ -196493,7 +196493,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.GetAuthorizationTokenRequest$ = GetAuthorizationTokenRequest$;
     exports2.GetAuthorizationTokenResponse$ = GetAuthorizationTokenResponse$;
     exports2.GetDownloadUrlForLayer$ = GetDownloadUrlForLayer$;
-    exports2.GetDownloadUrlForLayerCommand = GetDownloadUrlForLayerCommand;
+    exports2.GetDownloadUrlForLayerCommand = GetDownloadUrlForLayerCommand2;
     exports2.GetDownloadUrlForLayerRequest$ = GetDownloadUrlForLayerRequest$;
     exports2.GetDownloadUrlForLayerResponse$ = GetDownloadUrlForLayerResponse$;
     exports2.GetLifecyclePolicy$ = GetLifecyclePolicy$;
@@ -204762,7 +204762,7 @@ async function retryTransient(label, fn, options = {}) {
 }
 
 // src/gcp.js
-var { ServicesClient, JobsClient, ExecutionsClient } = import_run.v2;
+var { ServicesClient, JobsClient, ExecutionsClient, RevisionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
 var ACCESS_SECRET_TIMEOUT_MS = 30 * 1e3;
 async function cloudrunListServices(project) {
@@ -204778,6 +204778,14 @@ async function cloudrunListJobs(project) {
     () => client.listJobs(request)
   );
   return jobs;
+}
+async function cloudrunGetRevision(name) {
+  const client = new RevisionsClient();
+  const [revision] = await retryTransient(
+    `cloudrunGetRevision ${name}`,
+    () => client.getRevision({ name })
+  );
+  return revision;
 }
 var START_DEADLINE_MS = 15 * 60 * 1e3;
 var POLL_INTERVAL_MS = 15 * 1e3;
@@ -204873,73 +204881,9 @@ async function resolveTag(projectName, tag) {
     tags: match.tags ?? []
   };
 }
-async function tagsForDigest(projectName, digest2) {
-  const images = await listDockerImages(SHARED_PROJECT, sharedRegistryRepo(projectName));
-  const match = images.find((image) => parseImageRef(image.uri).digest === digest2);
-  return match?.tags ?? [];
-}
 
-// src/v2/resolve-cloudrun.js
-var DB_MIGRATE_JOB = "db-migrate";
-var shortName = (resource) => resource.split("/").pop();
-async function resolveCloudRun({ mode, projectName, tag, runtimeProject }) {
-  if (mode === "tag") {
-    info(`resolving tag "${tag}" for ${projectName} in the shared registry`);
-    return resolveTag(projectName, tag);
-  }
-  if (mode === "environment") {
-    if (!runtimeProject) {
-      throw new Error("runtime-project is required to resolve a cloudrun image by environment");
-    }
-    return resolveRunningImage(projectName, runtimeProject);
-  }
-  throw new Error(`Unknown resolve mode "${mode}". Expected "tag" or "environment".`);
-}
-async function resolveRunningImage(projectName, runtimeProject) {
-  const repo = sharedRegistryImage(projectName);
-  const services = await cloudrunListServices(runtimeProject);
-  info(`services in ${runtimeProject}: ${JSON.stringify(services.map((s3) => s3.name))}`);
-  let runningImage;
-  for (const service of services) {
-    const container = findAppContainer(service.template?.containers ?? [], repo);
-    if (container?.image && !isPlaceholderImage(container.image)) {
-      runningImage = container.image;
-      info(`app container image in ${service.name}: ${runningImage}`);
-      break;
-    }
-  }
-  if (!runningImage) {
-    const jobs = await cloudrunListJobs(runtimeProject);
-    info(`jobs in ${runtimeProject}: ${JSON.stringify(jobs.map((j5) => j5.name))}`);
-    for (const job of jobs) {
-      if (shortName(job.name) === DB_MIGRATE_JOB) continue;
-      const container = findAppContainer(job.template?.template?.containers ?? [], repo);
-      if (container?.image && !isPlaceholderImage(container.image)) {
-        runningImage = container.image;
-        info(`app container image in ${job.name}: ${runningImage}`);
-        break;
-      }
-    }
-  }
-  if (!runningImage) {
-    throw new Error(
-      `Could not find a running app container image in project ${runtimeProject} (checked Cloud Run services and jobs; any job still on the Cloud Run placeholder image has never been deployed)`
-    );
-  }
-  if (isDigestRef(runningImage)) {
-    const { digest: digest2 } = parseImageRef(runningImage);
-    const tags = await tagsForDigest(projectName, digest2).catch(() => []);
-    return { image: runningImage, digest: digest2, tags };
-  }
-  const { name, tag } = parseImageRef(runningImage);
-  if (name !== repo) {
-    info(`running image ${runningImage} is a pre-v2 tag ref outside the shared registry; nothing to compare`);
-    return { image: runningImage, digest: "", tags: [] };
-  }
-  info(`running image is a tag ref (${tag}); resolving to a digest`);
-  const resolved = await resolveTag(projectName, tag);
-  return resolved;
-}
+// src/v2/oci.js
+var import_client_ecr2 = __toESM(require_dist_cjs17());
 
 // node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
@@ -204953,6 +204897,12 @@ function escapeStringRegexp(string) {
 var import_client_ecr = __toESM(require_dist_cjs17());
 var RETRY_CONFIG2 = { maxAttempts: 5, retryMode: "standard" };
 var REGION = "us-east-1";
+var MANIFEST_MEDIA_TYPES = [
+  "application/vnd.docker.distribution.manifest.v2+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.oci.image.index.v1+json"
+];
 function ecrRepo(projectName) {
   return projectName;
 }
@@ -205028,6 +204978,331 @@ function isEcsAppContainer(container, projectName) {
   const { name } = parseImageRef(container.image);
   return name.split("/").pop() === ecrRepo(projectName);
 }
+
+// src/v2/oci.js
+var MANIFEST_ACCEPT = MANIFEST_MEDIA_TYPES.join(", ");
+var PLATFORM = { os: "linux", architecture: "amd64" };
+var ECR_HOST = /^(\d{12})\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$/;
+var ECR_BLOB_TIMEOUT_MS = 60 * 1e3;
+var ECR_BLOB_ATTEMPTS = 3;
+var ECR_BLOB_RETRY_DELAY_MS = 500;
+var MAX_LAYER_BLOB_BYTES = 256 * 1024 * 1024;
+var MAX_LAYER_BYTES = 1024 * 1024 * 1024;
+var GAXIOS_RETRY2 = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ["GET"],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+};
+function parseRegistryRef(ref) {
+  const { name, digest: digest2, tag } = parseImageRef(ref);
+  const slash = name.indexOf("/");
+  if (slash === -1) {
+    throw new Error(`Image reference "${ref}" has no registry host`);
+  }
+  const reference = digest2 ?? tag;
+  if (!reference) {
+    throw new Error(`Image reference "${ref}" is not pinned to a digest or tag`);
+  }
+  return { host: name.slice(0, slash), repository: name.slice(slash + 1), reference };
+}
+function asDocument(body) {
+  return typeof body === "string" ? JSON.parse(body) : body;
+}
+function transportFor(target) {
+  const ecr = ECR_HOST.exec(target.host);
+  return ecr ? ecrTransport(target, ecr[1], ecr[2]) : artifactRegistryTransport(target);
+}
+function artifactRegistryTransport(target) {
+  const registryGet = async ({ kind, reference, accept, responseType }) => {
+    const client = await authClient();
+    const res = await client.request({
+      url: `https://${target.host}/v2/${target.repository}/${kind}/${reference}`,
+      method: "GET",
+      headers: accept ? { Accept: accept } : {},
+      responseType,
+      ...GAXIOS_RETRY2
+    });
+    return res.data;
+  };
+  return {
+    manifest: (reference) => registryGet({ kind: "manifests", reference, accept: MANIFEST_ACCEPT, responseType: "text" }).then(asDocument),
+    blobText: (digest2) => registryGet({ kind: "blobs", reference: digest2, responseType: "text" }),
+    blobBytes: (digest2) => registryGet({ kind: "blobs", reference: digest2, responseType: "arraybuffer" }).then((blob) => Buffer.from(blob))
+  };
+}
+function ecrTransport(target, registryId, region) {
+  const client = new import_client_ecr2.ECRClient({ region, ...RETRY_CONFIG2 });
+  const repositoryName = target.repository;
+  const manifest = async (reference) => {
+    const imageId = reference.startsWith("sha256:") ? { imageDigest: reference } : { imageTag: reference };
+    const response = await client.send(new import_client_ecr2.BatchGetImageCommand({
+      registryId,
+      repositoryName,
+      imageIds: [imageId],
+      acceptedMediaTypes: MANIFEST_MEDIA_TYPES
+    }));
+    const body = response.images?.[0]?.imageManifest;
+    if (!body) {
+      const failure = response.failures?.[0];
+      throw new Error(
+        `ECR returned no manifest for ${repositoryName}@${reference}${failure ? `: ${failure.failureCode} ${failure.failureReason ?? ""}`.trimEnd() : ""}`
+      );
+    }
+    return JSON.parse(body);
+  };
+  const blob = async (digest2) => {
+    const { downloadUrl } = await client.send(new import_client_ecr2.GetDownloadUrlForLayerCommand({
+      registryId,
+      repositoryName,
+      layerDigest: digest2
+    }));
+    if (!downloadUrl) {
+      throw new Error(`ECR returned no download URL for ${repositoryName}@${digest2}`);
+    }
+    return fetchBlob(downloadUrl, `${repositoryName}@${digest2}`);
+  };
+  return {
+    manifest,
+    blobText: (digest2) => blob(digest2).then((bytes) => bytes.toString("utf8")),
+    blobBytes: blob
+  };
+}
+async function fetchBlob(url, label) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(ECR_BLOB_TIMEOUT_MS) });
+      if (!response.ok) {
+        const error3 = new Error(`HTTP ${response.status} downloading ${label}`);
+        error3.status = response.status;
+        throw error3;
+      }
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error3) {
+      const permanent = error3.status !== void 0 && error3.status < 500 && error3.status !== 429;
+      if (attempt >= ECR_BLOB_ATTEMPTS || permanent) throw error3;
+      await new Promise((resolve) => setTimeout(resolve, ECR_BLOB_RETRY_DELAY_MS * 2 ** (attempt - 1)));
+    }
+  }
+}
+function selectPlatform(index) {
+  const candidates = (index.manifests ?? []).filter(
+    (entry) => entry.platform?.os === PLATFORM.os && entry.platform?.architecture === PLATFORM.architecture
+  );
+  if (candidates.length === 0) {
+    const seen = (index.manifests ?? []).map((entry) => `${entry.platform?.os ?? "?"}/${entry.platform?.architecture ?? "?"}`).join(", ");
+    throw new Error(
+      `Image index has no ${PLATFORM.os}/${PLATFORM.architecture} manifest (found: ${seen || "none"})`
+    );
+  }
+  return candidates[0].digest;
+}
+async function platformManifestDigest(imageRef) {
+  const target = parseRegistryRef(imageRef);
+  const manifest = await transportFor(target).manifest(target.reference);
+  return manifest.manifests ? selectPlatform(manifest) : null;
+}
+var MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024;
+
+// src/v2/resolve-cloudrun.js
+var DB_MIGRATE_JOB = "db-migrate";
+var TRAFFIC_LATEST = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST";
+var shortName = (resource) => resource.split("/").pop();
+var NEXT_STEPS = "Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. To promote, re-run deploy-candidate for the candidate, then promote.";
+async function resolveCloudRun({ mode, projectName, tag, runtimeProject }) {
+  if (mode === "tag") {
+    info(`resolving tag "${tag}" for ${projectName} in the shared registry`);
+    return resolveTag(projectName, tag);
+  }
+  if (mode === "environment") {
+    if (!runtimeProject) {
+      throw new Error("runtime-project is required to resolve a cloudrun image by environment");
+    }
+    return resolveRunningImage(projectName, runtimeProject);
+  }
+  throw new Error(`Unknown resolve mode "${mode}". Expected "tag" or "environment".`);
+}
+async function resolveRunningImage(projectName, runtimeProject) {
+  const repo = sharedRegistryImage(projectName);
+  const registry = sharedRegistryListing(projectName);
+  const services = await cloudrunListServices(runtimeProject);
+  info(`services in ${runtimeProject}: ${JSON.stringify(services.map((s3) => s3.name))}`);
+  const appServices = services.filter((service) => findAppContainer(service.template?.containers ?? [], repo));
+  let runningImage;
+  if (appServices.length > 0) {
+    runningImage = await servingImage(appServices, repo, runtimeProject, registry);
+    if (!runningImage) {
+      throw new Error(
+        `Could not find a running app container image in project ${runtimeProject}: no Cloud Run service has a ready revision serving the app image yet (a service still on the Cloud Run placeholder image has never been deployed). ${NEXT_STEPS}`
+      );
+    }
+  } else {
+    const jobs = await cloudrunListJobs(runtimeProject);
+    info(`jobs in ${runtimeProject}: ${JSON.stringify(jobs.map((j5) => j5.name))}`);
+    for (const job of jobs) {
+      if (shortName(job.name) === DB_MIGRATE_JOB) continue;
+      const container = findAppContainer(job.template?.template?.containers ?? [], repo);
+      if (container?.image && !isPlaceholderImage(container.image)) {
+        runningImage = container.image;
+        info(`app container image in ${job.name}: ${runningImage}`);
+        break;
+      }
+    }
+    if (!runningImage) {
+      throw new Error(
+        `Could not find a running app container image in project ${runtimeProject} (checked Cloud Run services and jobs; any job still on the Cloud Run placeholder image has never been deployed)`
+      );
+    }
+  }
+  const { name, digest: digest2, tag } = parseImageRef(runningImage);
+  if (name !== repo) {
+    info(`running image ${runningImage} is a pre-v2 image outside the shared registry; nothing to compare`);
+    return { image: runningImage, digest: "", tags: [] };
+  }
+  if (digest2) {
+    const tags = await registry.tagsFor(digest2).catch(() => []);
+    return { image: runningImage, digest: digest2, tags };
+  }
+  info(`running image is a tag ref (${tag}); resolving to a digest`);
+  const resolved = await resolveTag(projectName, tag);
+  return resolved;
+}
+function sharedRegistryListing(projectName) {
+  let listing;
+  const images = () => {
+    if (!listing) listing = listDockerImages(SHARED_PROJECT, sharedRegistryRepo(projectName));
+    return listing;
+  };
+  return {
+    async tagsFor(digest2) {
+      return (await images()).find((image) => parseImageRef(image.uri).digest === digest2)?.tags ?? [];
+    },
+    async digestFor(tag) {
+      const match = (await images()).find((image) => (image.tags ?? []).includes(tag));
+      return match ? parseImageRef(match.uri).digest : null;
+    }
+  };
+}
+async function servingImage(services, repo, runtimeProject, registry) {
+  const serving = [];
+  for (const service of services) {
+    serving.push(await servingImageOf(service, repo));
+  }
+  for (const entry of serving) {
+    if (entry.state === "serving") await asDeployedImage(entry, repo, registry);
+    if (entry.state !== "split") warnIfTemplateDiffers(entry);
+  }
+  if (serving.every((entry) => entry.state === "none")) return null;
+  const untagged = serving.filter((entry) => entry.untagged);
+  if (untagged.length > 0) {
+    const details2 = untagged.map(
+      (entry) => `${shortName(entry.service.name)} serves ${entry.image}, an untagged image that is neither the image its template names (${entry.templateImage ?? "none"}) nor that image's linux/amd64 child` + (entry.manifestError ? ` (could not read the template's manifest: ${entry.manifestError})` : "")
+    );
+    throw new Error(
+      `A Cloud Run service in ${runtimeProject} serves an image that cannot be traced to a candidate (${details2.join("; ")}). ${NEXT_STEPS}`
+    );
+  }
+  const images = new Set(serving.map((entry) => entry.image));
+  if (serving.every((entry) => entry.state === "serving") && images.size === 1) {
+    return serving[0].image;
+  }
+  const details = serving.map((entry) => {
+    const name = shortName(entry.service.name);
+    if (entry.state === "split") return `${name} splits its traffic between revisions`;
+    if (entry.state === "none") return `${name} ${entry.reason}`;
+    return `${name} serves ${entry.image}`;
+  });
+  const split2 = serving.some((entry) => entry.state === "split");
+  throw new Error(
+    `The Cloud Run services in ${runtimeProject} do not all serve one app image (${details.join("; ")}). ` + NEXT_STEPS + (split2 ? " Where traffic is split by hand, send all of it to one revision first." : "")
+  );
+}
+async function servingImageOf(service, repo) {
+  const templateImage = findAppContainer(service.template?.containers ?? [], repo)?.image;
+  const target = servingRevision(service);
+  if (target === "split") {
+    info(`${service.name}: traffic is split between revisions`);
+    return { service, state: "split" };
+  }
+  let image = null;
+  let reason = "has no ready revision";
+  if (target) {
+    const revision = await cloudrunGetRevision(target);
+    const container = findAppContainer(revision?.containers ?? [], repo);
+    if (!container?.image) {
+      reason = `serves revision ${shortName(target)}, which has no app container`;
+    } else if (isPlaceholderImage(container.image)) {
+      reason = `still serves the Cloud Run placeholder image (revision ${shortName(target)})`;
+    } else {
+      image = container.image;
+    }
+  }
+  if (!image) {
+    info(`${service.name}: ${reason}`);
+    return { service, state: "none", reason, target, templateImage };
+  }
+  info(`app container image serving in ${target}: ${image}`);
+  return { service, state: "serving", image, target, templateImage };
+}
+async function asDeployedImage(entry, repo, registry) {
+  const serving = parseImageRef(entry.image);
+  if (serving.name !== repo || !serving.digest) return;
+  const template = entry.templateImage ? parseImageRef(entry.templateImage) : null;
+  const templateDigest = template?.name === repo ? template.digest ?? await registry.digestFor(template.tag) : null;
+  if (templateDigest === serving.digest) return;
+  if (templateDigest) {
+    let child = null;
+    try {
+      child = await platformManifestDigest(`${repo}@${templateDigest}`);
+    } catch (error3) {
+      entry.manifestError = String(error3?.message ?? error3).split("\n")[0];
+      warning(
+        `${entry.service.name}: could not read the linux/amd64 image of its template ${repo}@${templateDigest}: ` + entry.manifestError
+      );
+    }
+    if (child === serving.digest) {
+      info(`${entry.service.name}: ${entry.image} is the linux/amd64 image of the index ${repo}@${templateDigest}`);
+      entry.image = `${repo}@${templateDigest}`;
+      return;
+    }
+  }
+  if ((await registry.tagsFor(serving.digest)).length === 0) entry.untagged = true;
+}
+function warnIfTemplateDiffers({ service, state: state2, image, reason, target, templateImage }) {
+  if (!templateDiffers(templateImage, image)) return;
+  warning(
+    `${service.name}: the service template names ${templateImage}, but ` + (state2 === "serving" ? `the revision serving its traffic (${shortName(target)}) runs ${image}` : `the service ${reason}`) + ". A rollout looks stuck, failed or still in progress; going by what is serving."
+  );
+}
+function templateDiffers(templateImage, image) {
+  if (!templateImage || isPlaceholderImage(templateImage) || !isDigestRef(templateImage)) return false;
+  if (!image) return true;
+  if (!isDigestRef(image)) return false;
+  const template = parseImageRef(templateImage);
+  const serving = parseImageRef(image);
+  return template.name !== serving.name || template.digest !== serving.digest;
+}
+function servingRevision(service) {
+  const statuses = service.trafficStatuses ?? [];
+  if (statuses.length > 0) {
+    const shares = /* @__PURE__ */ new Map();
+    for (const status of statuses) {
+      const name2 = status.revision || (status.type === TRAFFIC_LATEST ? service.latestReadyRevision : "");
+      const key = name2 ? revisionPath(service, name2) : "";
+      shares.set(key, (shares.get(key) ?? 0) + (status.percent ?? 0));
+    }
+    const all = [...shares].find(([, percent]) => percent === 100);
+    if (!all) return "split";
+    return all[0] || null;
+  }
+  const followsLatest = (service.traffic ?? []).every((target) => target.type === TRAFFIC_LATEST);
+  const name = followsLatest ? service.latestReadyRevision : "";
+  return name ? revisionPath(service, name) : null;
+}
+var revisionPath = (service, revision) => revision.includes("/") ? revision : `${service.name}/revisions/${revision}`;
 
 // src/v2/resolve-ecs.js
 async function resolveEcs({ mode, projectName, tag, environment }) {

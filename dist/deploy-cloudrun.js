@@ -122086,7 +122086,7 @@ var require_revisions_client = __commonJS({
     var google_gax_1 = require_src10();
     var gapicConfig = require_revisions_client_config();
     var version = require_package6().version;
-    var RevisionsClient = class {
+    var RevisionsClient2 = class {
       _terminated = false;
       _opts;
       _providedCustomServicePath;
@@ -123313,7 +123313,7 @@ var require_revisions_client = __commonJS({
         return Promise.resolve();
       }
     };
-    exports2.RevisionsClient = RevisionsClient;
+    exports2.RevisionsClient = RevisionsClient2;
   }
 });
 
@@ -157604,15 +157604,15 @@ var require_src12 = __commonJS({
     exports2.InstancesClient = InstancesClient;
     var JobsClient2 = v22.JobsClient;
     exports2.JobsClient = JobsClient2;
-    var RevisionsClient = v22.RevisionsClient;
-    exports2.RevisionsClient = RevisionsClient;
+    var RevisionsClient2 = v22.RevisionsClient;
+    exports2.RevisionsClient = RevisionsClient2;
     var ServicesClient2 = v22.ServicesClient;
     exports2.ServicesClient = ServicesClient2;
     var TasksClient = v22.TasksClient;
     exports2.TasksClient = TasksClient;
     var WorkerPoolsClient = v22.WorkerPoolsClient;
     exports2.WorkerPoolsClient = WorkerPoolsClient;
-    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
+    exports2.default = { v2: v22, BuildsClient, ExecutionsClient: ExecutionsClient2, InstancesClient, JobsClient: JobsClient2, RevisionsClient: RevisionsClient2, ServicesClient: ServicesClient2, TasksClient, WorkerPoolsClient };
     var protos = require_protos4();
     exports2.protos = protos;
   }
@@ -158168,7 +158168,7 @@ async function retryTransient(label, fn, options = {}) {
 }
 
 // src/gcp.js
-var { ServicesClient, JobsClient, ExecutionsClient } = import_run.v2;
+var { ServicesClient, JobsClient, ExecutionsClient, RevisionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
 function gcrRegistry(project, projectName, region = DEFAULT_REGION) {
   return `${region}-docker.pkg.dev/${project}/container/${projectName}`;
