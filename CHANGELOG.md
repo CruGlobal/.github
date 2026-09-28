@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/CruGlobal/.github/compare/v2.8.1...v2.9.0) (2026-09-28)
+
+
+### Features
+
+* **v2:** record who started each attempt in the deployment ledger ([#512](https://github.com/CruGlobal/.github/issues/512)) ([0814418](https://github.com/CruGlobal/.github/commit/0814418a5f62548449493db458ae9a09f112d81f))
+
 ## [2.8.1](https://github.com/CruGlobal/.github/compare/v2.8.0...v2.8.1) (2026-09-28)
 
 
