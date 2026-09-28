@@ -9,7 +9,6 @@ import {
   ecsRunTask,
   ecsDescribeTasks,
   ecsWaitUntilTasksStopped,
-  ecsUpdateService,
   eventBridgeListRules,
   eventBridgeListTargets,
   eventBridgeUpdateTarget,
@@ -18,6 +17,7 @@ import {
 import { ecsCluster, runtimeSecrets } from '../ecs-config'
 import { environmentNickname, legacyEnvironment } from './env'
 import { composeTaskDefinition, ecsServiceRegExp, isEcsAppContainer } from './aws'
+import { rollOutServices } from './ecs-rollout'
 import { assertDigestRef } from './image-ref'
 import { openImage } from './oci'
 import { ENDPOINT_ENV, TOKEN_SECRET, publishSourceMaps, sourceMapsEndpointFor } from './sourcemaps'
@@ -35,12 +35,22 @@ const DB_MIGRATE_CONTAINER = 'db-migrate'
 // re-point EventBridge scheduled tasks. Sidecars (nginx, fluentbit, …) pass
 // through untouched.
 //
+// Each service update is waited on until its deployment lands, one service
+// after another, within one rollout budget for the whole deploy
+// (./ecs-rollout.js). A rollout that ends short sends the services this deploy
+// moved back to the task definitions they ran before, unless
+// `stopRolloutOnFailure` is false (a rollback), and fails the step, so no
+// record step names a release that is not live.
+//
 // ECS derives everything from the env nickname + naming conventions, so
 // runtime-project (a GCP-only input) is ignored here.
 //
 // Returns { deployedImage, services, sourcemaps } (services = short names
 // updated).
-export async function deployEcs ({ projectName, environment, image, appUrl }) {
+//
+// `rollout` is passed through to rollOutServices; tests use it for a fake
+// clock.
+export async function deployEcs ({ projectName, environment, image, appUrl, stopRolloutOnFailure = true }, rollout = {}) {
   assertDigestRef(image) // defensive; the router validates too
 
   const nickname = environmentNickname(environment)
@@ -52,15 +62,16 @@ export async function deployEcs ({ projectName, environment, image, appUrl }) {
   // container on the new revision, exactly as v1 does.
   const secrets = await runtimeSecrets(projectName, nickname)
 
-  // The matching service list is needed twice — the migration phase borrows a
-  // service's run configuration and updateServices re-points each one — so fetch
+  // The matching service list is needed twice (the migration phase borrows a
+  // service's run configuration, and the rollout updates each one), so fetch
   // it ONCE here and thread it through both.
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname)
   const serviceArns = await ecsListServices(regexp, cluster)
   core.info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName))}`)
 
-  // The services' CURRENT (pinned) task definitions. updateServices needs them
-  // for the family name, and the source-map phase reads the app container's
+  // The services' CURRENT (pinned) task definitions. The rollout needs them
+  // for the family name and as what each service goes back to if its rollout
+  // ends short, and the source-map phase reads the app container's
   // declared ingestion endpoint off them — as they are BEFORE anything is
   // re-registered. Same reason serviceArns is fetched once above: two consumers,
   // one read.
@@ -80,8 +91,22 @@ export async function deployEcs ({ projectName, environment, image, appUrl }) {
   // placement, and the same reasoning, as the Cloud Run path.
   const sourcemaps = await uploadSourceMaps({ projectName, image, appUrl, secrets, taskDefinitions })
 
-  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns, taskDefinitions })
-  await updateScheduledTasks({ projectName, nickname, image, secrets })
+  // Each service's PRIMARY deployment right before any is touched: only one
+  // that had COMPLETED is a release known to have been live, and so the only
+  // one a service may be sent back to if its rollout ends short.
+  const starting = serviceArns.length > 0 ? await ecsDescribeServices(serviceArns, cluster) : []
+  const updates = await registerServiceRevisions({ projectName, image, secrets, serviceArns, taskDefinitions, starting })
+
+  // ORDER IS LOAD BEARING: the scheduled tasks are re-pointed only once every
+  // service has landed. rollOutServices throws on any rollout that ends short,
+  // which leaves them on the task definitions they ran before, so a job never
+  // runs a release no service went live on. (A jobs-only app has no services to
+  // wait on, and goes straight to them.) A rollback is the exception: it moves
+  // them however its rollout ends, except when another update took the service
+  // over, so rollOutServices runs this itself then (see ./ecs-rollout.js).
+  const repointScheduledTasks = () => updateScheduledTasks({ projectName, nickname, image, secrets })
+  const services = await rollOutServices(updates, { cluster, stopRolloutOnFailure, repointScheduledTasks, ...rollout })
+  await repointScheduledTasks()
 
   return { deployedImage: image, services, sourcemaps }
 }
@@ -151,7 +176,7 @@ function sourceMapsEndpoint (taskDefinitions, projectName) {
 // with essential=false: the app raced the migration (serving against the
 // un-migrated schema) and a failed migration never blocked the app. Here the
 // migration is its own task that must finish cleanly first; on any failure we
-// throw and updateServices never runs.
+// throw and no service is updated.
 //
 // Convention-driven, exactly like services and scheduled tasks: the presence of
 // the `<project>-<nick>-db-migrate` task-definition family (created by the
@@ -281,21 +306,43 @@ function ecsNetworkConfigFromEventBridge (networkConfiguration) {
 }
 
 // `taskDefinitions` are the services' CURRENT (pinned) revisions, fetched by the
-// caller. Each one only tells us which FAMILY to compose from; we then register
-// from that family's latest revision, not this one.
-async function updateServices ({ projectName, cluster, image, secrets, serviceArns, taskDefinitions }) {
-  const updated = []
+// caller. Each one tells us which FAMILY to compose from (we then register
+// from that family's latest revision, not this one), and is what the service
+// goes back to if its rollout ends short. Every revision is registered before
+// any service is updated, so a registration that fails leaves every service as
+// it was.
+async function registerServiceRevisions ({ projectName, image, secrets, serviceArns, taskDefinitions, starting }) {
+  const updates = []
   for (const serviceArn of serviceArns) {
-    const family = taskDefinitions[serviceArn]?.family
-    if (!family) {
+    const current = taskDefinitions[serviceArn]
+    if (!current?.family) {
       throw new Error(`Could not determine the task-definition family for service ${shortName(serviceArn)}`)
     }
-    const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets })
-    core.info(`updating ECS service ${shortName(serviceArn)} -> ${taskDefinitionArn}`)
-    await ecsUpdateService(serviceArn, cluster, taskDefinitionArn)
-    updated.push(shortName(serviceArn))
+    const taskDefinitionArn = await registerFromFamilyLatest(current.family, { projectName, image, secrets })
+    const service = starting.find(candidate => candidate.serviceArn === serviceArn)
+    const primary = service?.deployments?.find(deployment => deployment.status === 'PRIMARY')
+    updates.push({
+      serviceArn,
+      taskDefinitionArn,
+      previous: {
+        taskDefinitionArn: current.taskDefinitionArn,
+        // A service no deploy has touched yet runs the scratch placeholder
+        // Terraform gave it, which serves nothing: there is nothing to go
+        // back to.
+        placeholder: (current.containerDefinitions ?? []).some(container =>
+          isEcsAppContainer(container, projectName) && container.image === 'scratch'
+        ),
+        // A PRIMARY still rolling out, or one that failed, may not be what
+        // served. AWS leaves rolloutState out behind a Classic Load Balancer;
+        // there, a PRIMARY that is the only deployment stands in for COMPLETED.
+        live: Boolean(primary) && primary.taskDefinition === current.taskDefinitionArn &&
+          (primary.rolloutState ? primary.rolloutState === 'COMPLETED' : service.deployments.length === 1),
+        deployment: primary?.id,
+        rolloutState: primary?.rolloutState
+      }
+    })
   }
-  return updated
+  return updates
 }
 
 async function updateScheduledTasks ({ projectName, nickname, image, secrets }) {

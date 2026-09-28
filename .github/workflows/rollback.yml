@@ -988,9 +988,11 @@ jobs:
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
-      # A rollback never stops its own rollout (see rollback-gcp): no Lambda
-      # function is sent back to the image being rolled back from. ECS has no
-      # rollout wait yet, so it ignores this.
+      # A rollback never stops its own rollout (see rollback-gcp): ECS and Lambda
+      # both wait for it in full, but never send a service or function back to
+      # the release being rolled back from. An ECS rollback always moves its
+      # scheduled tasks to the rollback target, even when the service rollout
+      # ends short (unless another update took the service over meanwhile).
       - name: Deploy to production
         uses: ./cru-github-actions/actions/deploy
         with:

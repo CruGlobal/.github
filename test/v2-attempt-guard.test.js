@@ -168,6 +168,16 @@ describe('deploy action', () => {
     expect(deployCloudRun).toHaveBeenCalledWith(expect.objectContaining({ stopRolloutOnFailure: expected }))
   })
 
+  it.each([['true', true], ['false', false]])('hands stop-rollout-on-failure "%s" to the ECS deploy as well', async (value, expected) => {
+    jobEnv({ attempt: '1' })
+    deployInputs('release-candidate')
+    Object.assign(inputs, { type: 'ecs', 'stop-rollout-on-failure': value })
+    deployEcs.mockResolvedValue({ deployedImage: IMAGE, services: ['web'] })
+    await deploy()
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(deployEcs).toHaveBeenCalledWith(expect.objectContaining({ stopRolloutOnFailure: expected }))
+  })
+
   it('still rejects an unknown environment by name', async () => {
     jobEnv({ attempt: '1', marker: '1' })
     deployInputs('prod')
