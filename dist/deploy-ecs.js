@@ -71668,11 +71668,15 @@ async function ecsRegisterTaskDefinition(taskDefinition) {
   const response = await client.send(new import_client_ecs.RegisterTaskDefinitionCommand(taskDefinition));
   return response.taskDefinition.taskDefinitionArn;
 }
-async function ecsUpdateService(service, cluster, taskDefinition) {
+async function ecsUpdateService(service, cluster, taskDefinition, { timeoutMs } = {}) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
-  const response = await client.send(new import_client_ecs.UpdateServiceCommand({ service, cluster, taskDefinition }));
+  const response = await client.send(
+    new import_client_ecs.UpdateServiceCommand({ service, cluster, taskDefinition }),
+    timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : void 0
+  );
   return response.service;
 }
+var ECS_QUICK_READ_TIMEOUT_MS = 20 * 1e3;
 async function ssmParameters(prefix, decrypt = true) {
   const client = new import_client_ssm.SSMClient({ region: "us-east-1", maxAttempts: 10, retryMode: "adaptive" });
   const params = [];

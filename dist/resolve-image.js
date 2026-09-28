@@ -177953,8 +177953,8 @@ var init_AwsQueryProtocol = __esm({
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
         }
-        const shortName2 = operationSchema.name.split("#")[1] ?? operationSchema.name;
-        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName2 + "Result" : void 0;
+        const shortName3 = operationSchema.name.split("#")[1] ?? operationSchema.name;
+        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName3 + "Result" : void 0;
         const bytes = await collectBody(response.body, context);
         if (bytes.byteLength > 0) {
           Object.assign(dataObject, await deserializer.read(ns, bytes, awsQueryResultKey));
@@ -204617,26 +204617,20 @@ async function ecsListServices(regexp, cluster) {
   }
   return serviceArns.filter((arn) => regexp.test(arn));
 }
-async function ecsServiceTaskDefinitions(serviceArns, cluster) {
-  const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
-  const services = [];
-  for (const arns of chunk(serviceArns, 10)) {
-    const result = await client.send(new import_client_ecs.DescribeServicesCommand({ cluster, services: arns }));
-    services.push(...result.services);
-  }
-  return await services.reduce(async (acc, key) => {
-    try {
-      const taskDef = await ecsDescribeTaskDefinition(key.taskDefinition);
-      return { ...await acc, [key.serviceArn]: taskDef.taskDefinition };
-    } catch (error3) {
-      return { ...await acc, [key.serviceArn]: { error: error3 } };
-    }
-  }, {});
-}
 async function ecsDescribeTaskDefinition(taskDefinition) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
   return client.send(new import_client_ecs.DescribeTaskDefinitionCommand({ taskDefinition, include: [import_client_ecs.TaskDefinitionField.TAGS] }));
 }
+async function ecsDescribeServices(serviceArns, cluster) {
+  const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
+  const services = [];
+  for (const arns of chunk(serviceArns, 10)) {
+    const response = await client.send(new import_client_ecs.DescribeServicesCommand({ cluster, services: arns }));
+    services.push(...response.services ?? []);
+  }
+  return services;
+}
+var ECS_QUICK_READ_TIMEOUT_MS = 20 * 1e3;
 var SSM_PARAMETER_TIMEOUT_MS = 30 * 1e3;
 async function lambdaListFunctionNames(projectName, environment) {
   const client = new import_client_lambda.LambdaClient({ ...RETRY_CONFIG });
@@ -205330,22 +205324,11 @@ async function resolveRunningImage2(projectName, environment) {
   const cluster = ecsCluster(nickname);
   const regexp = ecsServiceRegExp(projectName, legacyEnvironment(environment), nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
-  info(`services matching ${regexp} in ${cluster}: ${JSON.stringify(serviceArns.map((a5) => a5.split("/").pop()))}`);
+  info(`services matching ${regexp} in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
   if (serviceArns.length === 0) {
     throw new Error(`No ECS services matching ${regexp} found in cluster "${cluster}"`);
   }
-  const taskDefs = await ecsServiceTaskDefinitions(serviceArns, cluster);
-  let runningImage;
-  for (const taskDef of Object.values(taskDefs)) {
-    const container = (taskDef?.containerDefinitions ?? []).find((c5) => isEcsAppContainer(c5, projectName));
-    if (container?.image && container.image !== "scratch") {
-      runningImage = container.image;
-      break;
-    }
-  }
-  if (!runningImage) {
-    throw new Error(`Could not find a running app container image for ${projectName} in cluster "${cluster}"`);
-  }
+  const runningImage = await servingImage2(await ecsDescribeServices(serviceArns, cluster), projectName, cluster);
   info(`running app container image: ${runningImage}`);
   if (isDigestRef(runningImage)) {
     const { digest: digest3 } = parseImageRef(runningImage);
@@ -205356,6 +205339,79 @@ async function resolveRunningImage2(projectName, environment) {
   info(`running image is a tag ref (${tag}); resolving to a digest`);
   const { digest: digest2, tags } = await ecrResolveDigest(projectName, tag);
   return { image: ecrImageRef(projectName, digest2), digest: digest2, tags };
+}
+var NEXT_STEPS2 = "Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. To promote, re-run deploy-candidate for the candidate, then promote.";
+var shortName2 = (arn) => String(arn).split("/").pop();
+async function servingImage2(services, projectName, cluster) {
+  const images = appImages(projectName);
+  const serving = [];
+  for (const service of services) serving.push(await servingImageOf2(service, images));
+  const app = serving.filter((entry) => entry.state !== "other");
+  if (app.length === 0) {
+    throw new Error(
+      `Could not find a running app container image for ${projectName} in cluster "${cluster}" (no matching service runs a container from the ${projectName} repository)`
+    );
+  }
+  if (app.every((entry) => entry.state === "placeholder")) {
+    throw new Error(
+      `Could not find a running app container image for ${projectName} in cluster "${cluster}" (a service still on the scratch placeholder has never been deployed)`
+    );
+  }
+  const distinct = new Set(app.map((entry) => entry.image));
+  if (app.every((entry) => entry.state === "serving") && distinct.size === 1) return app[0].image;
+  const details = app.map((entry) => entry.detail).join("; ");
+  if (app.some((entry) => entry.state === "unsettled")) {
+    throw new Error(`No single app image is serving for ${projectName} in cluster "${cluster}": ${details}. ${NEXT_STEPS2}`);
+  }
+  throw new Error(
+    `The ECS services for ${projectName} in cluster "${cluster}" do not all serve one app image (${details}). ` + NEXT_STEPS2
+  );
+}
+async function servingImageOf2(service, images) {
+  const name = service.serviceName ?? shortName2(service.serviceArn);
+  const deployments = service.deployments ?? [];
+  const primary = deployments.find((deployment) => deployment.status === "PRIMARY");
+  if (!primary) return { name, state: "unsettled", detail: `${name} has no PRIMARY deployment` };
+  const image = await images(primary.taskDefinition);
+  if (!image) {
+    info(`${name}: its PRIMARY deployment runs no app container; left out`);
+    return { name, state: "other" };
+  }
+  if (image === "scratch") {
+    const detail2 = `${name} still runs the scratch placeholder (deployment ${primary.id}), so it has never been deployed`;
+    info(detail2);
+    return { name, state: "placeholder", detail: detail2 };
+  }
+  const others = deployments.filter((deployment) => deployment !== primary);
+  if (settled(primary, others)) {
+    info(`${name}: deployment ${primary.id} (${shortName2(primary.taskDefinition)}) serves ${image}`);
+    return { name, state: "serving", image, detail: `${name} serves ${image}` };
+  }
+  const parts = [];
+  for (const deployment of [primary, ...others]) {
+    parts.push(
+      `deployment ${deployment.id} (${deployment.status}, rolloutState ${deployment.rolloutState ?? "unknown"}) runs ${await images(deployment.taskDefinition) ?? "no app image"} with ${deployment.runningCount ?? 0} of ${deployment.desiredCount ?? 0} tasks`
+    );
+  }
+  const detail = `${name} is in the middle of a rollout, or its last one failed: ${parts.join(", ")}`;
+  info(detail);
+  return { name, state: "unsettled", detail };
+}
+function settled(primary, others) {
+  if (others.some((deployment) => (deployment.runningCount ?? 0) > 0)) return false;
+  if (primary.rolloutState) return primary.rolloutState === "COMPLETED";
+  return others.length === 0;
+}
+function appImages(projectName) {
+  const cache5 = /* @__PURE__ */ new Map();
+  return (taskDefinition) => {
+    if (!cache5.has(taskDefinition)) {
+      cache5.set(taskDefinition, ecsDescribeTaskDefinition(taskDefinition).then(
+        ({ taskDefinition: definition }) => (definition?.containerDefinitions ?? []).find((container) => isEcsAppContainer(container, projectName))?.image ?? null
+      ));
+    }
+    return cache5.get(taskDefinition);
+  };
 }
 
 // src/v2/resolve-lambda.js

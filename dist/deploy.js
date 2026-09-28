@@ -59336,12 +59336,12 @@ var require_load_balancing_call = __commonJS({
       trace(text) {
         logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, "[" + this.callNumber + "] " + text);
       }
-      outputStatus(status, progress) {
+      outputStatus(status, progress2) {
         var _a2, _b;
         if (!this.ended) {
           this.ended = true;
           this.trace("ended with status: code=" + status.code + ' details="' + status.details + '" start time=' + this.startTime.toISOString());
-          const finalStatus = Object.assign(Object.assign({}, status), { progress });
+          const finalStatus = Object.assign(Object.assign({}, status), { progress: progress2 });
           (_a2 = this.listener) === null || _a2 === void 0 ? void 0 : _a2.onReceiveStatus(finalStatus);
           (_b = this.onCallEnded) === null || _b === void 0 ? void 0 : _b.call(this, finalStatus.code, finalStatus.details, finalStatus.metadata);
         }
@@ -177953,8 +177953,8 @@ var init_AwsQueryProtocol = __esm({
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
         }
-        const shortName4 = operationSchema.name.split("#")[1] ?? operationSchema.name;
-        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName4 + "Result" : void 0;
+        const shortName5 = operationSchema.name.split("#")[1] ?? operationSchema.name;
+        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName5 + "Result" : void 0;
         const bytes = await collectBody(response.body, context);
         if (bytes.byteLength > 0) {
           Object.assign(dataObject, await deserializer.read(ns, bytes, awsQueryResultKey));
@@ -222628,15 +222628,31 @@ async function ecsRegisterTaskDefinition(taskDefinition) {
   const response = await client.send(new import_client_ecs.RegisterTaskDefinitionCommand(taskDefinition));
   return response.taskDefinition.taskDefinitionArn;
 }
-async function ecsUpdateService(service, cluster, taskDefinition) {
+async function ecsUpdateService(service, cluster, taskDefinition, { timeoutMs } = {}) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
-  const response = await client.send(new import_client_ecs.UpdateServiceCommand({ service, cluster, taskDefinition }));
+  const response = await client.send(
+    new import_client_ecs.UpdateServiceCommand({ service, cluster, taskDefinition }),
+    timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : void 0
+  );
   return response.service;
 }
 async function ecsDescribeServices(serviceArns, cluster) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
-  const response = await client.send(new import_client_ecs.DescribeServicesCommand({ cluster, services: serviceArns }));
-  return response.services ?? [];
+  const services = [];
+  for (const arns of chunk(serviceArns, 10)) {
+    const response = await client.send(new import_client_ecs.DescribeServicesCommand({ cluster, services: arns }));
+    services.push(...response.services ?? []);
+  }
+  return services;
+}
+var ECS_QUICK_READ_TIMEOUT_MS = 20 * 1e3;
+async function ecsDescribeService(serviceArn, cluster, { quick = false } = {}) {
+  const client = new import_client_ecs.ECSClient(quick ? { maxAttempts: 1 } : { ...RETRY_CONFIG });
+  const response = await client.send(
+    new import_client_ecs.DescribeServicesCommand({ cluster, services: [serviceArn] }),
+    quick ? { abortSignal: AbortSignal.timeout(ECS_QUICK_READ_TIMEOUT_MS) } : void 0
+  );
+  return response.services?.[0] ?? null;
 }
 async function ecsRunTask({ cluster, taskDefinition, count: count2 = 1, startedBy, networkConfiguration, launchType, capacityProviderStrategy }) {
   const client = new import_client_ecs.ECSClient({ ...RETRY_CONFIG });
@@ -223444,17 +223460,17 @@ var failedForGood = (service, ours, message) => `Revision ${shortName(ours)} of 
 async function stopRollout(moved, outcome, budget, stopRolloutOnFailure) {
   if (outcome.kind === "superseded") return outcome.error;
   if (outcome.kind === "unreadable") {
-    const landed2 = moved.filter((entry) => entry.name !== outcome.name).map((entry) => shortName(entry.name));
-    return withCause(new Error(unreadable(outcome, landed2)), outcome.error);
+    const landed3 = moved.filter((entry) => entry.name !== outcome.name).map((entry) => shortName(entry.name));
+    return withCause(new Error(unreadable(outcome, landed3)), outcome.error);
   }
   if (outcome.kind === "failed" && moved.length === 0) return outcome.error;
-  const headline2 = headlineOf(outcome, budget);
-  if (!stopRolloutOnFailure) return withCause(new Error(`${headline2} ${notStopped(outcome)}`), outcome.error);
+  const headline3 = headlineOf(outcome, budget);
+  if (!stopRolloutOnFailure) return withCause(new Error(`${headline3} ${notStopped(outcome)}`), outcome.error);
   const pins = [];
   for (const { name, previous, forceRevision } of moved) {
     pins.push({ name, previous, ...previous ? await pin(name, shortName(previous), forceRevision, budget) : {} });
   }
-  return withCause(new Error([headline2, ...pinReport(pins, outcome)].join(" ")), outcome.error);
+  return withCause(new Error([headline3, ...pinReport(pins, outcome)].join(" ")), outcome.error);
 }
 function withCause(error3, cause) {
   if (cause) error3.cause = cause;
@@ -223509,8 +223525,8 @@ function headlineOf(outcome, budget) {
   const revision = outcome.revision ? `revision ${shortName(outcome.revision)} of ` : "";
   return `Cloud Run did not finish rolling out ${revision}${service} within ${formatDuration(budget.elapsed())} of this deploy's first update` + (outcome.message ? ` (${outcome.message})` : "") + ".";
 }
-function unreadable({ name, error: error3 }, landed2) {
-  return `${shortName(name)}: could not read the service while waiting for its rollout (${error3.message}). The rollout's state is unknown: its new revision may still land, and nothing would record it. Nothing was pinned, since that could take the service off a release that did land.` + (landed2.length > 0 ? ` ${landed2.join(", ")} already landed on the new release, and stay${landed2.length === 1 ? "s" : ""} there.` : "") + " Check what the services are serving.";
+function unreadable({ name, error: error3 }, landed3) {
+  return `${shortName(name)}: could not read the service while waiting for its rollout (${error3.message}). The rollout's state is unknown: its new revision may still land, and nothing would record it. Nothing was pinned, since that could take the service off a release that did land.` + (landed3.length > 0 ? ` ${landed3.join(", ")} already landed on the new release, and stay${landed3.length === 1 ? "s" : ""} there.` : "") + " Check what the services are serving.";
 }
 function notStopped(outcome) {
   return "This deploy does not stop a rollout (a rollback), so nothing was pinned: pinning would send traffic back to the release it is rolling back from." + (outcome.kind === "bound" && !outcome.untouched ? " Its new revision may still go live, and nothing will record it. Check what the services are serving." : " Check what the services are serving.");
@@ -224313,8 +224329,315 @@ function mergeEnvVars(currentEnv, secrets) {
 
 // src/v2/deploy-ecs.js
 var import_client_ecs2 = __toESM(require_dist_cjs16());
+
+// src/v2/ecs-rollout.js
+var SEND_BACK_RESERVE_MS = 2 * 60 * 1e3;
+var UPDATE_TIMEOUT_MS = 60 * 1e3;
+var SEND_BACK_TIMEOUT_MS = 30 * 1e3;
+var MIN_CALL_TIMEOUT_MS = 15 * 1e3;
+var EARLY_POLL_INTERVAL_MS2 = 5 * 1e3;
+var EARLY_POLL_MS2 = 60 * 1e3;
+var PRIMARY = "PRIMARY";
+var COMPLETED = "COMPLETED";
+var FAILED = "FAILED";
+var shortName3 = (arn) => String(arn).split("/").pop();
+async function rollOutServices2(updates, options = {}) {
+  const { cluster, budget = rolloutBudget(), stopRolloutOnFailure = true, repointScheduledTasks, ...timing } = options;
+  const moved = [];
+  const landed3 = [];
+  const stop = (outcome) => stopRollout2({ moved, landed: landed3, outcome, cluster, budget, stopRolloutOnFailure, repointScheduledTasks });
+  for (const update of updates) {
+    const entry = { ...update, name: shortName3(update.serviceArn) };
+    budget.start();
+    if (budget.remaining(SEND_BACK_RESERVE_MS) <= 0) throw await stop({ kind: "bound", name: entry.name, untouched: true });
+    info(`updating ECS service ${entry.name} -> ${entry.taskDefinitionArn}`);
+    const sentAt = budget.now();
+    let service;
+    try {
+      service = await ecsUpdateService(entry.serviceArn, cluster, entry.taskDefinitionArn, {
+        timeoutMs: callTimeout(budget, UPDATE_TIMEOUT_MS)
+      });
+    } catch (error3) {
+      if (!isPermanentAwsError(error3)) moved.push(entry);
+      throw await stop({ kind: "failed", name: entry.name, error: error3 });
+    }
+    moved.push(entry);
+    const outcome = await waitForDeployment(entry, service, sentAt, cluster, budget, timing);
+    if (!outcome.landed) throw await stop(outcome);
+    landed3.push(entry.name);
+  }
+  return landed3;
+}
+function callTimeout(budget, maxMs) {
+  return Math.max(MIN_CALL_TIMEOUT_MS, Math.min(maxMs, budget.remaining()));
+}
+async function waitForDeployment(entry, response, sentAt, cluster, budget, timing) {
+  const {
+    pollIntervalMs = POLL_INTERVAL_MS2,
+    earlyPollIntervalMs = EARLY_POLL_INTERVAL_MS2,
+    progressIntervalMs = PROGRESS_INTERVAL_MS
+  } = timing;
+  const mine = trackDeployment(entry, response);
+  const log = progressLogger(budget, progressIntervalMs);
+  for (; ; ) {
+    const seen = await observe2(mine, cluster);
+    if (seen.verdict === "landed") {
+      info(
+        `${entry.name}: deployment ${mine.id} completed, ${formatDuration(budget.now() - sentAt)} after its update was sent.`
+      );
+      return { landed: true };
+    }
+    if (seen.verdict === "unreadable") return { kind: "unreadable", name: entry.name, error: seen.error };
+    if (seen.verdict === "superseded") return { kind: "superseded", name: entry.name, message: seen.message };
+    if (seen.verdict === "failed") {
+      const { message, rolledBack, rollbackFailed } = seen;
+      return { kind: "failed", verdict: true, name: entry.name, message, rolledBack, rollbackFailed };
+    }
+    const left = budget.remaining(SEND_BACK_RESERVE_MS);
+    if (left <= 0) return { kind: "bound", name: entry.name, id: mine.id, status: seen.status };
+    log(
+      `${entry.name}: waiting for ${mine.id ? `deployment ${mine.id}` : "its new deployment"} to finish rolling out (${seen.status}). Waited ${formatDuration(budget.now() - sentAt)}, ${formatDuration(left)} left.`
+    );
+    const early = budget.now() - sentAt < EARLY_POLL_MS2;
+    await budget.sleep(Math.min(early ? earlyPollIntervalMs : pollIntervalMs, left));
+  }
+}
+function trackDeployment(entry, response) {
+  const deployments = response?.deployments ?? [];
+  const primary = deployments.find((deployment) => deployment.status === PRIMARY);
+  const ours = primary?.id && primary.taskDefinition === entry.taskDefinitionArn ? primary : null;
+  return {
+    ...entry,
+    id: ours?.id ?? null,
+    earlier: ours ? deployments.filter((deployment) => deployment !== ours).map((deployment) => deployment.id) : []
+  };
+}
+async function observe2(mine, cluster) {
+  let service;
+  try {
+    service = await ecsDescribeService(mine.serviceArn, cluster, { quick: true });
+  } catch (error3) {
+    if (isPermanentAwsError(error3)) return { verdict: "unreadable", error: error3 };
+    return { verdict: "waiting", status: `could not read it: ${error3.message}` };
+  }
+  if (!service) return { verdict: "unreadable", error: new Error("ECS reports the service missing") };
+  if (service.status && service.status !== "ACTIVE") {
+    return { verdict: "unreadable", error: new Error(`the service is ${service.status}`) };
+  }
+  return judge2(service, mine);
+}
+function judge2(service, mine) {
+  const deployments = service.deployments ?? [];
+  const primary = deployments.find((deployment) => deployment.status === PRIMARY);
+  if (mine.id === null) {
+    const notYet = { verdict: "waiting", status: `its deployment does not show yet; ${latestEvent(service)}` };
+    if (!primary?.id) return notYet;
+    if (primary.taskDefinition !== mine.taskDefinitionArn) {
+      const before = mine.previous?.taskDefinitionArn;
+      if (before && primary.taskDefinition !== before) return { verdict: "superseded", message: superseded2(mine, primary) };
+      return notYet;
+    }
+    mine.id = primary.id;
+    mine.earlier = deployments.filter((deployment) => deployment !== primary).map((deployment) => deployment.id);
+  }
+  if (primary && primary.id !== mine.id && !mine.earlier.includes(primary.id)) {
+    if (primary.taskDefinition !== mine.taskDefinitionArn) return { verdict: "superseded", message: superseded2(mine, primary) };
+    info(
+      `${mine.name}: another update replaced deployment ${mine.id} with ${primary.id}, which runs this deploy's task definition (${shortName3(mine.taskDefinitionArn)}), so the wait follows ${primary.id} now.`
+    );
+    mine.earlier.push(mine.id);
+    mine.id = primary.id;
+  }
+  const ours = deployments.find((deployment) => deployment.id === mine.id);
+  if (ours?.rolloutState === FAILED) {
+    return failed(mine, ours.rolloutStateReason, primary && primary !== ours ? primary : null);
+  }
+  if (ours && primary === ours && landed2(ours, deployments)) return { verdict: "landed" };
+  if (!ours && primary && mine.earlier.includes(primary.id)) {
+    const reason = failedEventReason(service, mine.id);
+    if (reason) return failed(mine, reason, primary);
+    return { verdict: "waiting", status: `its deployment does not show; ${latestEvent(service)}` };
+  }
+  return { verdict: "waiting", status: progress(ours, service) };
+}
+function landed2(ours, deployments) {
+  if (ours.rolloutState) return ours.rolloutState === COMPLETED;
+  return deployments.length === 1 && ours.runningCount === ours.desiredCount;
+}
+function failed(mine, reason, rolledBackTo) {
+  const head = `${mine.name}: its deployment ${mine.id} failed: ${sentence(reason)}`;
+  if (rolledBackTo?.rolloutState === FAILED) {
+    return {
+      verdict: "failed",
+      rolledBack: true,
+      rollbackFailed: true,
+      message: `${head} ECS rolled the service back to the deployment that served before this deploy (${rolledBackTo.id}, task definition ${shortName3(rolledBackTo.taskDefinition)}), but that failed too: ${sentence(rolledBackTo.rolloutStateReason)} The service may be serving neither release. Check it.`
+    };
+  }
+  if (rolledBackTo) {
+    return {
+      verdict: "failed",
+      rolledBack: true,
+      message: `${head} ECS is rolling the service back to the deployment that served before this deploy (${rolledBackTo.id}, task definition ${shortName3(rolledBackTo.taskDefinition)}), so it should return to the release that was live before, unless that rollback fails too.`
+    };
+  }
+  return {
+    verdict: "failed",
+    rolledBack: false,
+    message: `${head} ECS found no earlier deployment to roll it back to (as on a service's first deployment, or when the deployment before it never completed), so the service stays on the failed deployment.`
+  };
+}
+var sentence = (reason) => `${reason ? String(reason).trim().replace(/\.$/, "") : "ECS gave no reason"}.`;
+function failedEventReason(service, id) {
+  const marker = `(deployment ${id}) deployment failed`;
+  const event = (service.events ?? []).find(({ message }) => message?.includes(marker));
+  if (!event) return "";
+  return event.message.slice(event.message.indexOf(marker) + marker.length).replace(/^:\s*/, "") || "no reason given";
+}
+var superseded2 = (mine, primary) => `${mine.name}: another deployment (${primary.id}, task definition ${shortName3(primary.taskDefinition)}) replaced this deploy's deployment${mine.id ? ` (${mine.id})` : ""} while it rolled out, so this deploy's release is no longer the one rolling out. Nothing was sent back.`;
+function progress(ours, service) {
+  const counts = ours ? `rolloutState ${ours.rolloutState ?? "unknown"}, ${ours.runningCount ?? 0} of ${ours.desiredCount ?? 0} tasks running, ${ours.pendingCount ?? 0} pending` : "its deployment is not in the list";
+  return `${counts}; ${latestEvent(service)}`;
+}
+function latestEvent(service) {
+  const message = service.events?.[0]?.message;
+  if (!message) return "no service events yet";
+  return `latest event: ${message.length > 200 ? `${message.slice(0, 197)}...` : message}`;
+}
+async function stopRollout2({ moved, landed: landed3, outcome, cluster, budget, stopRolloutOnFailure, repointScheduledTasks }) {
+  if (outcome.kind === "superseded") {
+    return new Error([
+      outcome.message,
+      ...stayOnNewRelease(landed3),
+      "Check what the services are serving before running it again.",
+      AFTERMATH
+    ].join(" "));
+  }
+  if (!stopRolloutOnFailure) {
+    const jobs = await moveScheduledTasks(repointScheduledTasks);
+    if (outcome.kind === "unreadable") return withCause2(new Error(`${unreadable2(outcome, landed3)} ${jobs}`), outcome.error);
+    return withCause2(new Error([headline(outcome, budget), notStopped2(outcome, landed3), jobs].join(" ")), outcome.error);
+  }
+  if (outcome.kind === "unreadable") return withCause2(new Error(`${unreadable2(outcome, landed3)} ${AFTERMATH}`), outcome.error);
+  if (outcome.kind === "failed" && !outcome.verdict && moved.length === 0) return outcome.error;
+  const toSend = moved.filter((entry) => !(outcome.verdict && entry.name === outcome.name));
+  const results = [];
+  for (const entry of toSend) {
+    const landedHere = landed3.includes(entry.name);
+    if (entry.previous?.placeholder || !entry.previous?.taskDefinitionArn) {
+      results.push({ entry, landedHere, nothingToSend: true });
+    } else if (!entry.previous.live) {
+      results.push({ entry, landedHere, notLive: true });
+    } else {
+      results.push({ entry, landedHere, ...await sendBack(entry, cluster, budget) });
+    }
+  }
+  const lines = [headline(outcome, budget), ...sendBackReport(results), AFTERMATH];
+  return withCause2(new Error(lines.join(" ")), outcome.error);
+}
+var stayOnNewRelease = (landed3) => landed3.length > 0 ? [`${landed3.join(", ")} already landed on the new release, and stay${landed3.length === 1 ? "s" : ""} there.`] : [];
+function withCause2(error3, cause) {
+  if (cause) error3.cause = cause;
+  return error3;
+}
+var AFTERMATH = "Nothing was recorded for this deploy. The database migration, if the app has one, has already run, and the scheduled tasks were not re-pointed: they still run the task definitions they ran before this deploy.";
+async function moveScheduledTasks(repointScheduledTasks) {
+  const recorded = "Nothing was recorded for this deploy. The database migration, if the app has one, has already run.";
+  try {
+    await repointScheduledTasks?.();
+  } catch (error3) {
+    return `${recorded} Moving the scheduled tasks to the rollback target failed (${error3.message}), so some of them may still run the release being rolled back from.`;
+  }
+  return `${recorded} The scheduled tasks were moved to the rollback target anyway, as a rollback always moves them, while a service may still be on the release being rolled back from.`;
+}
+async function sendBack({ serviceArn, previous }, cluster, budget) {
+  const target = previous.taskDefinitionArn;
+  try {
+    const service = await ecsUpdateService(serviceArn, cluster, target, { timeoutMs: callTimeout(budget, SEND_BACK_TIMEOUT_MS) });
+    if (service?.taskDefinition === target) return { sent: true };
+    const read2 = await ecsDescribeService(serviceArn, cluster, { quick: true });
+    if (read2?.taskDefinition === target) return { sent: true };
+    return {
+      sent: false,
+      error: new Error(`ECS answered, but the service runs ${shortName3(read2?.taskDefinition ?? service?.taskDefinition ?? "an unknown task definition")}`)
+    };
+  } catch (error3) {
+    return { sent: false, error: error3 };
+  }
+}
+function sendBackReport(results) {
+  const lines = [];
+  const sent = results.filter((result) => result.sent);
+  if (sent.length > 0) {
+    lines.push(
+      "To keep the app on the release that was serving before this deploy, ECS was told to send " + sent.map(({ entry }) => `${entry.name} back to ${shortName3(entry.previous.taskDefinitionArn)}`).join(", ") + ". ECS stops the new deployment and rolls each one back on its own, keeping the tasks that serve now until the old ones are healthy again."
+    );
+  }
+  for (const { entry, landedHere } of results.filter((result) => result.nothingToSend)) {
+    lines.push(
+      `${entry.name} had never been deployed before this deploy (it ran the scratch placeholder), so there is nothing to send it back to. ` + (landedHere ? "It already serves the new release, with nothing recording it." : "If its new deployment lands, it will serve the new release with nothing recording it.")
+    );
+  }
+  for (const { entry } of results.filter((result) => result.notLive)) {
+    const { taskDefinitionArn, deployment, rolloutState } = entry.previous;
+    lines.push(
+      `${entry.name} was not sent back: when this deploy started, its deployment${deployment ? ` ${deployment}` : ""} on ${shortName3(taskDefinitionArn)} had not completed (rolloutState ${rolloutState ?? "unknown"}), so it is not known to have been serving. Check what it serves, and send it back by hand if it should go back: ` + updateServiceCommand(entry.serviceArn, taskDefinitionArn)
+    );
+  }
+  for (const { entry, error: error3 } of results.filter((result) => !result.sent && !result.nothingToSend && !result.notLive)) {
+    const target = entry.previous.taskDefinitionArn;
+    lines.push(
+      `Could not send ${entry.name} back to ${shortName3(target)} (${error3.message}), so it may keep the new release unrecorded. Send it back by hand: ${updateServiceCommand(entry.serviceArn, target)}`
+    );
+  }
+  return lines;
+}
+function updateServiceCommand(serviceArn, taskDefinitionArn) {
+  const [cluster, service] = String(serviceArn).split("/").slice(-2);
+  return `aws ecs update-service --cluster ${cluster} --service ${service} --task-definition ${taskDefinitionArn}`;
+}
+function headline(outcome, budget) {
+  if (outcome.kind === "failed") {
+    if (outcome.verdict) return outcome.message;
+    return `Could not update ${outcome.name}: ${outcome.error.message}.`;
+  }
+  if (outcome.untouched) {
+    return `The rollout budget ran out before ${outcome.name} could be updated, so it was left as it was: this step has to stop well inside its job's timeout, and the migration or the services before it used the time.`;
+  }
+  return `ECS did not finish rolling out ${outcome.id ? `deployment ${outcome.id} of ` : ""}${outcome.name} within ${formatDuration(budget.elapsed())} of this deploy's first update (${outcome.status}).`;
+}
+function unreadable2({ name, error: error3 }, landed3) {
+  return [
+    `${name}: could not read the service while waiting for its rollout (${error3.message}). The rollout's state is unknown: its new deployment may still land, and nothing would record it. Nothing was sent back, since that could take the service off a release that did land.`,
+    ...stayOnNewRelease(landed3),
+    "Check what the services are serving."
+  ].join(" ");
+}
+function notStopped2(outcome, landed3) {
+  const lines = [
+    "This deploy does not stop a rollout (a rollback), so nothing was sent back: that would be the release it is rolling back from."
+  ];
+  if (outcome.rollbackFailed) {
+    lines.push(
+      `ECS tried to take ${outcome.name} back to the release this rollback set out to replace, and that failed too, so check what production serves.`
+    );
+  } else if (outcome.verdict && outcome.rolledBack) {
+    lines.push(
+      `ECS is taking ${outcome.name} back to the release this rollback set out to replace, so production is on that release again.`
+    );
+  } else if (outcome.kind === "bound" && !outcome.untouched) {
+    lines.push("Its new deployment may still land, and nothing will record it.");
+  }
+  if (landed3.length > 0) {
+    lines.push(`${landed3.join(", ")} already landed on this rollback's release, and stay${landed3.length === 1 ? "s" : ""} there.`);
+  }
+  lines.push("Check what the services are serving.");
+  return lines.join(" ");
+}
+
+// src/v2/deploy-ecs.js
 var DB_MIGRATE_CONTAINER = "db-migrate";
-async function deployEcs({ projectName, environment, image, appUrl }) {
+async function deployEcs({ projectName, environment, image, appUrl, stopRolloutOnFailure = true }, rollout = {}) {
   assertDigestRef(image);
   const nickname = environmentNickname(environment);
   const legacyEnv = legacyEnvironment(environment);
@@ -224323,12 +224646,15 @@ async function deployEcs({ projectName, environment, image, appUrl }) {
   const secrets = await runtimeSecrets(projectName, nickname);
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
-  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName3))}`);
+  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName4))}`);
   const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster);
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns });
   const sourcemaps = await uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions });
-  const services = await updateServices({ projectName, cluster, image, secrets, serviceArns, taskDefinitions });
-  await updateScheduledTasks({ projectName, nickname, image, secrets });
+  const starting = serviceArns.length > 0 ? await ecsDescribeServices(serviceArns, cluster) : [];
+  const updates = await registerServiceRevisions({ projectName, image, secrets, serviceArns, taskDefinitions, starting });
+  const repointScheduledTasks = () => updateScheduledTasks({ projectName, nickname, image, secrets });
+  const services = await rollOutServices2(updates, { cluster, stopRolloutOnFailure, repointScheduledTasks, ...rollout });
+  await repointScheduledTasks();
   return { deployedImage: image, services, sourcemaps };
 }
 async function uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions }) {
@@ -224430,19 +224756,37 @@ function ecsNetworkConfigFromEventBridge(networkConfiguration) {
     }
   };
 }
-async function updateServices({ projectName, cluster, image, secrets, serviceArns, taskDefinitions }) {
-  const updated = [];
+async function registerServiceRevisions({ projectName, image, secrets, serviceArns, taskDefinitions, starting }) {
+  const updates = [];
   for (const serviceArn of serviceArns) {
-    const family = taskDefinitions[serviceArn]?.family;
-    if (!family) {
-      throw new Error(`Could not determine the task-definition family for service ${shortName3(serviceArn)}`);
+    const current = taskDefinitions[serviceArn];
+    if (!current?.family) {
+      throw new Error(`Could not determine the task-definition family for service ${shortName4(serviceArn)}`);
     }
-    const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
-    info(`updating ECS service ${shortName3(serviceArn)} -> ${taskDefinitionArn}`);
-    await ecsUpdateService(serviceArn, cluster, taskDefinitionArn);
-    updated.push(shortName3(serviceArn));
+    const taskDefinitionArn = await registerFromFamilyLatest(current.family, { projectName, image, secrets });
+    const service = starting.find((candidate) => candidate.serviceArn === serviceArn);
+    const primary = service?.deployments?.find((deployment) => deployment.status === "PRIMARY");
+    updates.push({
+      serviceArn,
+      taskDefinitionArn,
+      previous: {
+        taskDefinitionArn: current.taskDefinitionArn,
+        // A service no deploy has touched yet runs the scratch placeholder
+        // Terraform gave it, which serves nothing: there is nothing to go
+        // back to.
+        placeholder: (current.containerDefinitions ?? []).some(
+          (container) => isEcsAppContainer(container, projectName) && container.image === "scratch"
+        ),
+        // A PRIMARY still rolling out, or one that failed, may not be what
+        // served. AWS leaves rolloutState out behind a Classic Load Balancer;
+        // there, a PRIMARY that is the only deployment stands in for COMPLETED.
+        live: Boolean(primary) && primary.taskDefinition === current.taskDefinitionArn && (primary.rolloutState ? primary.rolloutState === "COMPLETED" : service.deployments.length === 1),
+        deployment: primary?.id,
+        rolloutState: primary?.rolloutState
+      }
+    });
   }
-  return updated;
+  return updates;
 }
 async function updateScheduledTasks({ projectName, nickname, image, secrets }) {
   const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`);
@@ -224473,7 +224817,7 @@ function familyOf(taskDefinitionArn) {
   if (!taskDefinitionArn) return void 0;
   return taskDefinitionArn.split("/").pop().split(":")[0];
 }
-function shortName3(arn) {
+function shortName4(arn) {
   return arn.split("/").pop();
 }
 
@@ -224492,7 +224836,7 @@ async function deployLambda({ projectName, environment, image, stopRolloutOnFail
   info(`functions matching ${projectName}-${nickname}: ${JSON.stringify(functionNames)}`);
   const updated = [];
   const moved = [];
-  const stop = (outcome) => stopRollout2(moved, outcome, budget, stopRolloutOnFailure);
+  const stop = (outcome) => stopRollout3(moved, outcome, budget, stopRolloutOnFailure);
   for (const functionName of functionNames) {
     const fn = await lambdaGetFunction(functionName);
     if (fn.Configuration?.PackageType !== "Image") {
@@ -224519,7 +224863,7 @@ async function deployLambda({ projectName, environment, image, stopRolloutOnFail
     } catch (error3) {
       throw await stop({ functionName, error: error3 });
     }
-    if (outcome.unreadable) throw withCause2(new Error(unreadable2(outcome)), outcome.error);
+    if (outcome.unreadable) throw withCause3(new Error(unreadable3(outcome)), outcome.error);
     if (!outcome.landed) throw await stop(outcome);
     updated.push(functionName);
   }
@@ -224565,7 +224909,7 @@ async function pollUpdate(functionName, sentAt, budget, timing) {
     await budget.sleep(Math.min(pollIntervalMs, left));
   }
 }
-var failedUpdate = (functionName, reason, cause) => withCause2(new Error(
+var failedUpdate = (functionName, reason, cause) => withCause3(new Error(
   `${functionName} failed to update to the new image, and keeps running its previous one: ` + (reason || "Lambda gave no reason")
 ), cause);
 async function waiterFailure(functionName, error3) {
@@ -224581,16 +224925,16 @@ async function updateStatus(functionName) {
     return { status: "unreadable", reason: error3.message };
   }
 }
-var unreadable2 = ({ functionName, error: error3 }) => `${functionName}: could not read the function while waiting for its update (${error3.message}). The update's state is unknown: its new image may still go live, and nothing would record it. Nothing was sent back, since that could take functions off a release that did land. Check which image each function runs.`;
-async function stopRollout2(moved, outcome, budget, stopRolloutOnFailure) {
+var unreadable3 = ({ functionName, error: error3 }) => `${functionName}: could not read the function while waiting for its update (${error3.message}). The update's state is unknown: its new image may still go live, and nothing would record it. Nothing was sent back, since that could take functions off a release that did land. Check which image each function runs.`;
+async function stopRollout3(moved, outcome, budget, stopRolloutOnFailure) {
   const others = moved.filter((entry) => entry.functionName !== outcome.functionName);
   if (outcome.error && others.length === 0) return outcome.error;
-  const lines = [headline(outcome, budget)];
+  const lines = [headline2(outcome, budget)];
   if (!stopRolloutOnFailure) {
     lines.push(
       "This deploy does not stop a rollout (a rollback), so no function was sent back: that would be the release it is rolling back from." + (outcome.stalled ? ` ${outcome.functionName} may still go live on the new image, and nothing will record it.` : "") + " Check which image each function runs."
     );
-    return withCause2(new Error(lines.join(" ")), outcome.error);
+    return withCause3(new Error(lines.join(" ")), outcome.error);
   }
   if (outcome.stalled) {
     const stalled = moved.find((entry) => entry.functionName === outcome.functionName);
@@ -224602,9 +224946,9 @@ async function stopRollout2(moved, outcome, budget, stopRolloutOnFailure) {
     lines.push(restored.message);
   }
   lines.push(...await restoreAll(others));
-  return withCause2(new Error(lines.join(" ")), outcome.error);
+  return withCause3(new Error(lines.join(" ")), outcome.error);
 }
-function withCause2(error3, cause) {
+function withCause3(error3, cause) {
   if (cause) error3.cause = cause;
   return error3;
 }
@@ -224653,7 +224997,7 @@ function leftOnNewImage(moved) {
   return "The other functions were left on the new image too, so the new image may go live on every function once that update finishes, and nothing will record it. Check which image each function runs. To go back by hand once no update is in progress: " + moved.map(({ functionName, previousImage }) => updateCodeCommand(functionName, previousImage)).join("; ");
 }
 var updateCodeCommand = (functionName, image) => `aws lambda update-function-code --function-name ${functionName} --image-uri ${image}`;
-function headline(outcome, budget) {
+function headline2(outcome, budget) {
   if (outcome.error) return outcome.error.message;
   if (outcome.untouched) {
     return `The rollout budget ran out before ${outcome.functionName} could be updated, so it was left as it was.`;
