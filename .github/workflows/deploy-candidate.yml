@@ -200,8 +200,14 @@ jobs:
       # Idempotency: if release-candidate already runs this exact digest, the
       # deploy is a no-op (unless force). continue-on-error — a fresh env with no
       # deployed image resolves nothing, which simply means "not deployed yet".
-      # A pre-v2 tag-pinned image (first v2 deploy after v1) resolves to an
-      # empty digest for the same reason, without failing the step.
+      # A pre-v2 image outside the shared registry (first v2 deploy after v1)
+      # resolves to an empty digest for the same reason, without failing the
+      # step, even though its serving revision reports it by digest.
+      # The image read is the one each service's serving revision runs, not the
+      # service template. A service with no ready revision, services serving
+      # different images, split traffic, or an untagged image that cannot be
+      # traced to a candidate also resolve nothing, so the deploy goes ahead
+      # instead of reporting "Already deployed".
       - name: Check image currently on release-candidate
         uses: ./cru-github-actions/actions/resolve-image
         id: current

@@ -302,6 +302,11 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: cru-deploy@${{ needs.lookup.outputs.rc-project-id }}.iam.gserviceaccount.com
 
+      # The image release-candidate is SERVING (each service's serving
+      # revision, not its template), so a candidate that never went live there
+      # cannot be promoted. When there is no single serving image (no ready
+      # revision, services serving different images, or split traffic) this
+      # step fails and the promote stops here.
       - name: Resolve running release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
