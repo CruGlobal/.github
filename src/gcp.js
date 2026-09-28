@@ -4,7 +4,7 @@ import {v2} from "@google-cloud/run"
 import {PARAM_TYPES} from "./ecs-config";
 import {isAborted, retryTransient} from "./grpc-retry";
 
-const {ServicesClient, JobsClient, ExecutionsClient} = v2
+const {ServicesClient, JobsClient, ExecutionsClient, RevisionsClient} = v2
 
 export const DEFAULT_REGION = "us-central1"
 
@@ -128,6 +128,19 @@ export async function cloudrunListJobs(project) {
         () => client.listJobs(request)
     )
     return jobs
+}
+
+// Read one revision by its full resource name
+// (projects/<p>/locations/<l>/services/<s>/revisions/<r>). GetRevision, like
+// ListJobs, is classified non_idempotent and carries no retry. A get is a pure
+// read; replaying it is free.
+export async function cloudrunGetRevision(name) {
+    const client = new RevisionsClient()
+    const [revision] = await retryTransient(
+        `cloudrunGetRevision ${name}`,
+        () => client.getRevision({name})
+    )
+    return revision
 }
 
 // Update a job with a full read-modify-write of the job resource (output-only

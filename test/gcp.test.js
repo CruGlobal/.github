@@ -6,14 +6,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // the mock has to provide that shape.
 const {
   updateServiceMock, listJobsMock, updateJobMock,
-  runJobMock, getExecutionMock, cancelExecutionMock
+  runJobMock, getExecutionMock, cancelExecutionMock, getRevisionMock
 } = vi.hoisted(() => ({
   updateServiceMock: vi.fn(),
   listJobsMock: vi.fn(),
   updateJobMock: vi.fn(),
   runJobMock: vi.fn(),
   getExecutionMock: vi.fn(),
-  cancelExecutionMock: vi.fn()
+  cancelExecutionMock: vi.fn(),
+  getRevisionMock: vi.fn()
 }))
 
 vi.mock('@google-cloud/run', () => ({
@@ -36,6 +37,11 @@ vi.mock('@google-cloud/run', () => ({
         this.cancelExecution = cancelExecutionMock
         this.close = () => Promise.resolve()
       }
+    },
+    RevisionsClient: class {
+      constructor () {
+        this.getRevision = getRevisionMock
+      }
     }
   }
 }))
@@ -46,6 +52,7 @@ vi.mock('@google-cloud/secret-manager', () => ({
 
 import {
   DEFAULT_REGION,
+  cloudrunGetRevision,
   cloudrunListJobs,
   gcrImageTag,
   gcrRegistry,
@@ -104,6 +111,7 @@ describe('transient gRPC failures', () => {
     updateServiceMock.mockReset()
     updateJobMock.mockReset()
     listJobsMock.mockReset()
+    getRevisionMock.mockReset()
     // Pin the jitter to its floor so the backoff is a predictable 1s and the
     // suite does not pay for the random half of the window.
     vi.spyOn(Math, 'random').mockReturnValue(0)
@@ -180,6 +188,26 @@ describe('transient gRPC failures', () => {
 
     await expect(cloudrunListJobs('hoax-prod-1234')).resolves.toEqual([{ name: 'db-migrate' }])
     expect(listJobsMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('cloudrunGetRevision rides out an UNAVAILABLE and asks for the revision by name', async () => {
+    const name = `projects/example-app-stage/locations/${DEFAULT_REGION}/services/app/revisions/app-00002-xyz`
+    getRevisionMock
+      .mockRejectedValueOnce(unavailable())
+      .mockResolvedValue([{ name, containers: CONTAINERS }])
+
+    await expect(cloudrunGetRevision(name)).resolves.toEqual({ name, containers: CONTAINERS })
+    expect(getRevisionMock).toHaveBeenCalledTimes(2)
+    expect(getRevisionMock).toHaveBeenCalledWith({ name })
+  })
+
+  it('cloudrunGetRevision fails immediately on a real API answer', async () => {
+    const missing = new Error('5 NOT_FOUND: revision not found')
+    missing.code = 5
+    getRevisionMock.mockRejectedValue(missing)
+
+    await expect(cloudrunGetRevision('projects/p/locations/l/services/s/revisions/r')).rejects.toBe(missing)
+    expect(getRevisionMock).toHaveBeenCalledTimes(1)
   })
 })
 
