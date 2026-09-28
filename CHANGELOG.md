@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.1](https://github.com/CruGlobal/.github/compare/v2.7.0...v2.7.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **v2:** check who started each promote and rollback attempt ([#505](https://github.com/CruGlobal/.github/issues/505)) ([31278ea](https://github.com/CruGlobal/.github/commit/31278ea22ee16f76e60e4c58c7d055ad24557f6c))
+
 ## [2.7.0](https://github.com/CruGlobal/.github/compare/v2.6.0...v2.7.0) (2026-09-24)
 
 
