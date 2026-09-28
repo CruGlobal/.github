@@ -571,12 +571,19 @@ jobs:
       # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
       # deployments ledger -- the fleet dashboard / DORA data spine). Same
       # policy as all telemetry: NEVER fails the deploy.
+      #
+      # Actor is github.actor, the account that started the run's first
+      # attempt. TriggeringActor is github.triggering_actor, the account that
+      # started THIS attempt, which is the one the Flightdeck release event
+      # names. Both go on every row, and they differ only when another account
+      # re-ran the run.
       - name: Record deployment in ledger
         continue-on-error: true
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           REVISION: ${{ steps.release.outputs.release }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           ROLLBACK_REASONS: ${{ steps.rollback-safety.outputs.reasons }}
@@ -599,6 +606,7 @@ jobs:
               --arg digest "$DIGEST" \
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
+              --arg triggeringactor "$TRIGGERING_ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg rollbacksafe "$rollback_safe" \
@@ -608,6 +616,7 @@ jobs:
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                TriggeringActor: {S: $triggeringactor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)
@@ -1126,12 +1135,19 @@ jobs:
       # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
       # deployments ledger -- the fleet dashboard / DORA data spine). Same
       # policy as all telemetry: NEVER fails the deploy.
+      #
+      # Actor is github.actor, the account that started the run's first
+      # attempt. TriggeringActor is github.triggering_actor, the account that
+      # started THIS attempt, which is the one the Flightdeck release event
+      # names. Both go on every row, and they differ only when another account
+      # re-ran the run.
       - name: Record deployment in ledger
         continue-on-error: true
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           REVISION: ${{ steps.release.outputs.release }}
           TYPE: ${{ needs.lookup.outputs.type }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
@@ -1155,6 +1171,7 @@ jobs:
               --arg digest "$DIGEST" \
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
+              --arg triggeringactor "$TRIGGERING_ACTOR" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg rollbacksafe "$rollback_safe" \
@@ -1164,6 +1181,7 @@ jobs:
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
                 Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
+                TriggeringActor: {S: $triggeringactor},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
                 + (if $sha != "" then {Sha: {S: $sha}} else {} end)

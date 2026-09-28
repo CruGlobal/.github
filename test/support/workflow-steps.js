@@ -52,7 +52,19 @@ esac
 `
 
 const FAKE_AWS = `#!/bin/bash
-# Fake aws: answers every call (the app-info get-item) with FAKE_AWS.
+# Fake aws: records the table and item a dynamodb put-item writes (the ledger
+# row), and answers every other call (the app-info get-item) with FAKE_AWS.
+if [ "$1" = dynamodb ] && [ "$2" = put-item ]; then
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --table-name) printf '%s' "$2" > "$FAKE_OUT/put-item-table"; shift 2 ;;
+      --item) printf '%s' "$2" > "$FAKE_OUT/put-item.json"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  exit 0
+fi
 printf '%s' "$FAKE_AWS"
 `
 
@@ -98,6 +110,18 @@ function spawnBash (script, env) {
   })
 }
 
+// The table and item a put-item wrote, or null when the step wrote none. A
+// put-item missing either flag is a broken step, so it fails by name here
+// rather than as a missing file.
+function readPutItem (out) {
+  const table = path.join(out, 'put-item-table')
+  const item = path.join(out, 'put-item.json')
+  if (!existsSync(table) && !existsSync(item)) return null
+  if (!existsSync(table)) throw new Error('the step ran dynamodb put-item with --item but no --table-name')
+  if (!existsSync(item)) throw new Error('the step ran dynamodb put-item with --table-name but no --item')
+  return { table: readFileSync(table, 'utf8'), item: readJson(item) }
+}
+
 // The key=value lines a step wrote to $GITHUB_OUTPUT.
 function readOutputs (file) {
   if (!existsSync(file)) return {}
@@ -110,8 +134,9 @@ function readOutputs (file) {
 // Run one `run:` step. `context` resolves every expression in the job env,
 // the step env and the script. `ledger` is what a deploys.cru.org read
 // answers, and `aws` what an aws call prints. Resolves to the exit status,
-// the output, the step's outputs, and what was sent to Slack and to the
-// GitHub releases API (null when nothing was).
+// the output, the step's outputs, what was sent to Slack and to the GitHub
+// releases API, and the table and item a DynamoDB put-item wrote (each null
+// when nothing was).
 export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, aws = {}, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
@@ -143,7 +168,8 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       stderr: result.stderr,
       outputs: readOutputs(path.join(out, 'github-output')),
       slack: readJson(path.join(out, 'slack.json')),
-      release: readJson(path.join(out, 'release.json'))
+      release: readJson(path.join(out, 'release.json')),
+      putItem: readPutItem(out)
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
