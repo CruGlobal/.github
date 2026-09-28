@@ -48,6 +48,7 @@ vi.mock('../src/v2/resolve-lambda.js', () => ({ resolveLambda: vi.fn() }))
 
 import * as gcp from '../src/gcp.js'
 import { run } from '../src/resolve-image.js'
+import { imageIndex, serveRegistry } from './support/registry-fixture.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const WORKFLOWS = path.join(root, '.github/workflows')
@@ -57,10 +58,17 @@ const RESOLVE = './cru-github-actions/actions/resolve-image'
 const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/example-app/example-app'
 const OLD = `${REPO}@sha256:aaa`
 const NEW = `${REPO}@sha256:bbb`
+// INDEX is a multi-platform candidate. A revision deployed from it reports
+// CHILD, its linux/amd64 image, which carries none of the candidate's tags.
+const INDEX = `${REPO}@sha256:index14`
+const CHILD = `${REPO}@sha256:child14`
 const IMAGES = [
   { uri: OLD, tags: ['candidate-10012', 'sha-abc123'] },
-  { uri: NEW, tags: ['candidate-10013', 'sha-def456'] }
+  { uri: NEW, tags: ['candidate-10013', 'sha-def456'] },
+  { uri: INDEX, tags: ['candidate-2026-09-28-10014', 'sha-0a1b2c'] },
+  { uri: CHILD }
 ]
+const INDEXES = { 'sha256:index14': imageIndex('sha256:child14') }
 const PROJECT = 'example-app-stage-1234'
 const SERVICES = `projects/${PROJECT}/locations/us-central1/services`
 const LATEST = 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
@@ -162,7 +170,7 @@ const promoteJob = workflows['promote.yml'].jobs['promote-gcp']
 
 beforeEach(() => {
   requestMock.mockReset()
-  requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
+  serveRegistry(requestMock, { images: IMAGES, indexes: INDEXES })
   gcp.cloudrunListServices.mockReset()
   gcp.cloudrunListJobs.mockReset()
   gcp.cloudrunListJobs.mockResolvedValue([])
@@ -227,6 +235,12 @@ describe('deploy-candidate re-runs (Cloud Run)', () => {
     expect(await guard()).toBe('true')
   })
 
+  it('is a no-op when a multi-platform candidate is serving and its revision reports the child', async () => {
+    environment([{ name: 'web', template: INDEX, serving: CHILD }])
+    const result = await runJob(deployJob, context('candidate-2026-09-28-10014'), 'noop')
+    expect(result.context.steps.noop.skip).toBe('true')
+  })
+
   it('is not a no-op when the new revision failed for good and the old one still serves', async () => {
     environment([{ name: 'web', template: NEW, serving: OLD }])
     expect(await guard()).toBe('false')
@@ -267,6 +281,18 @@ describe('promote (Cloud Run)', () => {
 
     expect(done.steps.resolve.image).toBe(OLD)
     expect(done.steps.release).toEqual({ candidate: 'candidate-10012', release: 'release-10012' })
+  })
+
+  it('takes the release name from the index when a multi-platform candidate is serving', async () => {
+    environment([{ name: 'web', template: INDEX, serving: CHILD }])
+
+    const { context: done } = await runJob(promoteJob, context(), 'release')
+
+    expect(done.steps.resolve.image).toBe(INDEX)
+    expect(done.steps.release).toEqual({
+      candidate: 'candidate-2026-09-28-10014',
+      release: 'release-2026-09-28-10014'
+    })
   })
 
   it('stops at the resolve step when the release-candidate services disagree', async () => {

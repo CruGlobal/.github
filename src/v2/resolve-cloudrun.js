@@ -1,14 +1,17 @@
 import * as core from '@actions/core'
 import { cloudrunGetRevision, cloudrunListJobs, cloudrunListServices } from '../gcp'
 import {
+  SHARED_PROJECT,
   findAppContainer,
   isDigestRef,
   isPlaceholderImage,
+  listDockerImages,
   parseImageRef,
   resolveTag,
   sharedRegistryImage,
-  tagsForDigest
+  sharedRegistryRepo
 } from './gcp'
+import { platformManifestDigest } from './oci'
 
 // The database-migrations job (see src/v2/deploy-cloudrun.js) runs the app
 // image too, but it is refreshed *before* the rest of a deploy and executed;
@@ -22,6 +25,13 @@ const TRAFFIC_LATEST = 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
 
 // A job's/service's `name` is a full resource path (projects/.../<kind>/<name>).
 const shortName = resource => resource.split('/').pop()
+
+// How every "nothing was resolved" error for a service-ful app ends, so it
+// reads right for any caller: deploy-candidate carries on past it, promote
+// stops on it.
+const NEXT_STEPS =
+  'Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. ' +
+  'To promote, re-run deploy-candidate for the candidate, then promote.'
 
 // Resolve a Cloud Run image to a digest reference in the shared registry.
 //
@@ -50,6 +60,7 @@ export async function resolveCloudRun ({ mode, projectName, tag, runtimeProject 
 
 async function resolveRunningImage (projectName, runtimeProject) {
   const repo = sharedRegistryImage(projectName)
+  const registry = sharedRegistryListing(projectName)
   const services = await cloudrunListServices(runtimeProject)
   core.info(`services in ${runtimeProject}: ${JSON.stringify(services.map(s => s.name))}`)
 
@@ -58,12 +69,12 @@ async function resolveRunningImage (projectName, runtimeProject) {
 
   let runningImage
   if (appServices.length > 0) {
-    runningImage = await servingImage(appServices, repo, runtimeProject)
+    runningImage = await servingImage(appServices, repo, runtimeProject, registry)
     if (!runningImage) {
       throw new Error(
         `Could not find a running app container image in project ${runtimeProject}: no Cloud Run ` +
         'service has a ready revision serving the app image yet (a service still on the Cloud Run ' +
-        'placeholder image has never been deployed)'
+        `placeholder image has never been deployed). ${NEXT_STEPS}`
       )
     }
   } else {
@@ -108,7 +119,7 @@ async function resolveRunningImage (projectName, runtimeProject) {
 
   if (digest) {
     // Report tags opportunistically; a digest may simply carry none.
-    const tags = await tagsForDigest(projectName, digest).catch(() => [])
+    const tags = await registry.tagsFor(digest).catch(() => [])
     return { image: runningImage, digest, tags }
   }
 
@@ -117,6 +128,26 @@ async function resolveRunningImage (projectName, runtimeProject) {
   core.info(`running image is a tag ref (${tag}); resolving to a digest`)
   const resolved = await resolveTag(projectName, tag)
   return resolved
+}
+
+// The app's images in the shared registry, listed at most once per resolve, so
+// mapping a serving image back to its candidate and reporting its tags share
+// one registry call.
+function sharedRegistryListing (projectName) {
+  let listing
+  const images = () => {
+    if (!listing) listing = listDockerImages(SHARED_PROJECT, sharedRegistryRepo(projectName))
+    return listing
+  }
+  return {
+    async tagsFor (digest) {
+      return (await images()).find(image => parseImageRef(image.uri).digest === digest)?.tags ?? []
+    },
+    async digestFor (tag) {
+      const match = (await images()).find(image => (image.tags ?? []).includes(tag))
+      return match ? parseImageRef(match.uri).digest : null
+    }
+  }
 }
 
 // The one app image every service is serving, or null when no service serves
@@ -141,13 +172,30 @@ async function resolveRunningImage (projectName, runtimeProject) {
 // an image that never served everywhere in release-candidate. That includes a
 // service added after the candidate was deployed, which is still on the
 // placeholder: the candidate never ran there.
-async function servingImage (services, repo, runtimeProject) {
+async function servingImage (services, repo, runtimeProject, registry) {
   const serving = []
   for (const service of services) {
     serving.push(await servingImageOf(service, repo))
   }
 
+  for (const entry of serving) {
+    if (entry.state === 'serving') await asDeployedImage(entry, repo, registry)
+    if (entry.state !== 'split') warnIfTemplateDiffers(entry)
+  }
+
   if (serving.every(entry => entry.state === 'none')) return null
+
+  const untagged = serving.filter(entry => entry.untagged)
+  if (untagged.length > 0) {
+    const details = untagged.map(entry =>
+      `${shortName(entry.service.name)} serves ${entry.image}, an untagged child image that does not ` +
+      `belong to the image its template names (${entry.templateImage ?? 'none'})`
+    )
+    throw new Error(
+      `A Cloud Run service in ${runtimeProject} serves an image that cannot be traced to a candidate ` +
+      `(${details.join('; ')}). ${NEXT_STEPS}`
+    )
+  }
 
   const images = new Set(serving.map(entry => entry.image))
   if (serving.every(entry => entry.state === 'serving') && images.size === 1) {
@@ -163,8 +211,7 @@ async function servingImage (services, repo, runtimeProject) {
   const split = serving.some(entry => entry.state === 'split')
   throw new Error(
     `The Cloud Run services in ${runtimeProject} do not all serve one app image (${details.join('; ')}). ` +
-    'Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. ' +
-    'To promote, re-run deploy-candidate for the candidate, then promote.' +
+    NEXT_STEPS +
     (split ? ' Where traffic is split by hand, send all of it to one revision first.' : '')
   )
 }
@@ -174,6 +221,7 @@ async function servingImage (services, repo, runtimeProject) {
 //   { state: 'none', reason }    no ready revision, or the one serving has no app image
 //   { state: 'split' }           traffic is split, so no single revision is serving
 async function servingImageOf (service, repo) {
+  const templateImage = findAppContainer(service.template?.containers ?? [], repo)?.image
   const target = servingRevision(service)
   if (target === 'split') {
     core.info(`${service.name}: traffic is split between revisions`)
@@ -194,21 +242,49 @@ async function servingImageOf (service, repo) {
     }
   }
 
-  const templateImage = findAppContainer(service.template?.containers ?? [], repo)?.image
-  if (templateDiffers(templateImage, image)) {
-    core.warning(
-      `${service.name}: the service template names ${templateImage}, but ` +
-      (image ? `the revision serving its traffic (${shortName(target)}) runs ${image}` : `the service ${reason}`) +
-      '. A rollout looks stuck, failed or still in progress; going by what is serving.'
-    )
-  }
-
   if (!image) {
     core.info(`${service.name}: ${reason}`)
-    return { service, state: 'none', reason }
+    return { service, state: 'none', reason, target, templateImage }
   }
   core.info(`app container image serving in ${target}: ${image}`)
-  return { service, state: 'serving', image }
+  return { service, state: 'serving', image, target, templateImage }
+}
+
+// A revision reports the digest Cloud Run pulled. When the deploy named an
+// image index (a multi-platform build), that is the index's linux/amd64 child,
+// and the child carries none of the candidate's tags. Map it back to the index
+// the service template names, so the service reads as serving the image that
+// was deployed. A serving digest with no tags that is neither the template's
+// image nor that image's child is marked `untagged`: nothing traces it to a
+// candidate.
+//
+// The manifest is read only when it can matter, which is when the serving
+// digest is not the template's digest. A healthy single-manifest service reads
+// nothing extra.
+async function asDeployedImage (entry, repo, registry) {
+  const serving = parseImageRef(entry.image)
+  if (serving.name !== repo || !serving.digest) return
+  const template = entry.templateImage ? parseImageRef(entry.templateImage) : null
+  const templateDigest = template?.name === repo
+    ? template.digest ?? await registry.digestFor(template.tag)
+    : null
+  if (templateDigest === serving.digest) return
+
+  if (templateDigest && await platformManifestDigest(`${repo}@${templateDigest}`) === serving.digest) {
+    core.info(`${entry.service.name}: ${entry.image} is the linux/amd64 image of the index ${repo}@${templateDigest}`)
+    entry.image = `${repo}@${templateDigest}`
+    return
+  }
+  if ((await registry.tagsFor(serving.digest)).length === 0) entry.untagged = true
+}
+
+function warnIfTemplateDiffers ({ service, state, image, reason, target, templateImage }) {
+  if (!templateDiffers(templateImage, image)) return
+  core.warning(
+    `${service.name}: the service template names ${templateImage}, but ` +
+    (state === 'serving' ? `the revision serving its traffic (${shortName(target)}) runs ${image}` : `the service ${reason}`) +
+    '. A rollout looks stuck, failed or still in progress; going by what is serving.'
+  )
 }
 
 // Does the template name a different image than the one serving? A revision

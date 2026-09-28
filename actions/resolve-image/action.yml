@@ -13,9 +13,11 @@ inputs:
     description: >-
       Resolution mode. "environment" resolves the image currently RUNNING in an
       environment; "tag" resolves a tag against the shared registry. For
-      cloudrun, "running" means what each service's serving revision runs, and
+      cloudrun, "running" means what each service's serving revision runs (for
+      a multi-platform image, the index its linux/amd64 child belongs to), and
       the step fails when there is no single serving image (no ready revision,
-      services serving different images, or split traffic).
+      services serving different images, split traffic, or an untagged image
+      that cannot be traced to a candidate).
     required: true
   environment:
     description: >-

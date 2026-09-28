@@ -237,6 +237,18 @@ function selectPlatform (index) {
   return candidates[0].digest
 }
 
+/**
+ * The linux/amd64 manifest digest inside an image index (a multi-platform
+ * build), or null when the reference names a single manifest. Cloud Run
+ * reports this child digest for a revision deployed from an index, and the
+ * child carries none of the index's tags. Reads one manifest and nothing else.
+ */
+export async function platformManifestDigest (imageRef) {
+  const target = parseRegistryRef(imageRef)
+  const manifest = await transportFor(target).manifest(target.reference)
+  return manifest.manifests ? selectPlatform(manifest) : null
+}
+
 // Decompress a layer blob according to its media type, refusing to expand past
 // MAX_LAYER_BYTES.
 function decompressLayer (mediaType, blob) {

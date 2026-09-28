@@ -29,6 +29,7 @@ import * as core from '@actions/core'
 import * as gcp from '../src/gcp.js'
 import { resolveCloudRun } from '../src/v2/resolve-cloudrun.js'
 import { TagNotFoundError } from '../src/v2/errors.js'
+import { imageIndex, manifestReads, serveRegistry } from './support/registry-fixture.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
 const REPO = `${HOST}/cru-shared-artifacts/example-app/example-app`
@@ -36,6 +37,21 @@ const IMAGES = [
   { uri: `${REPO}@sha256:aaa`, tags: ['candidate-10012', 'sha-abc123'] },
   { uri: `${REPO}@sha256:bbb`, tags: ['candidate-10013', 'release-3'] }
 ]
+
+// Multi-platform candidates. The listing carries each index's tags, and its
+// linux/amd64 child (the digest a revision reports) with none.
+const INDEX = 'sha256:index14'
+const CHILD = 'sha256:child14'
+const OTHER_INDEX = 'sha256:index15'
+const OTHER_CHILD = 'sha256:child15'
+const INDEX_IMAGES = [
+  ...IMAGES,
+  { uri: `${REPO}@${INDEX}`, tags: ['candidate-10014', 'sha-def456'] },
+  { uri: `${REPO}@${CHILD}` },
+  { uri: `${REPO}@${OTHER_INDEX}`, tags: ['candidate-10015', 'sha-fed654'] },
+  { uri: `${REPO}@${OTHER_CHILD}` }
+]
+const INDEXES = { [INDEX]: imageIndex(CHILD), [OTHER_INDEX]: imageIndex(OTHER_CHILD) }
 
 const PLACEHOLDER = 'us-docker.pkg.dev/cloudrun/container/hello'
 const LATEST = 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
@@ -85,7 +101,7 @@ const warnings = () => core.warning.mock.calls.map(([message]) => message)
 
 beforeEach(() => {
   requestMock.mockReset()
-  requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
+  serveRegistry(requestMock, { images: IMAGES })
   gcp.cloudrunListServices.mockReset()
   gcp.cloudrunListJobs.mockReset()
   gcp.cloudrunListJobs.mockResolvedValue([])
@@ -138,6 +154,9 @@ describe('resolveCloudRun mode=environment', () => {
     expect(gcp.cloudrunListServices).toHaveBeenCalledWith(PROJECT)
     expect(gcp.cloudrunGetRevision).toHaveBeenCalledWith(revisionName('web', 'web-00001-aaa'))
     expect(warnings()).toEqual([])
+    // A single-manifest app costs the one listing it always did, and no manifest read.
+    expect(manifestReads(requestMock)).toEqual([])
+    expect(requestMock).toHaveBeenCalledTimes(1)
   })
 
   it('reports the digest a revision serves when the template names a tag', async () => {
@@ -154,6 +173,8 @@ describe('resolveCloudRun mode=environment', () => {
     })
     // A tag template cannot be compared with a digest without resolving it.
     expect(warnings()).toEqual([])
+    expect(manifestReads(requestMock)).toEqual([])
+    expect(requestMock).toHaveBeenCalledTimes(1)
   })
 
   it('reports no comparable digest for a pre-v2 service outside the shared registry', async () => {
@@ -291,6 +312,19 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
     expect(gcp.cloudrunGetRevision).toHaveBeenCalledWith(revisionName('web', 'web-00002-bbb'))
   })
 
+  it('reads a tag-only entry with no percent (how the REST API leaves out 0) as 0%', async () => {
+    const web = service('web', `${REPO}@sha256:aaa`, {
+      statuses: [
+        { type: LATEST, revision: 'web-00001-aaa', percent: 100 },
+        { type: PINNED, revision: 'web-00001-aaa', tag: 'current' }
+      ]
+    })
+    gcp.cloudrunListServices.mockResolvedValue([web])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa' })
+  })
+
   it('adds up two entries that name the same revision', async () => {
     const web = service('web', `${REPO}@sha256:aaa`, {
       statuses: [
@@ -396,7 +430,9 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
       'To promote, re-run deploy-candidate for the candidate, then promote.'
     )
     await expect(attempt).rejects.not.toThrow(/split/)
-    expect(requestMock).not.toHaveBeenCalled()
+    // The one manifest read rules out the worker's template being an index
+    // whose child is serving.
+    expect(manifestReads(requestMock)).toEqual([`https://${HOST}/v2/cru-shared-artifacts/example-app/example-app/manifests/sha256:bbb`])
   })
 
   it('resolves nothing when one service serves the image and another has no ready revision', async () => {
@@ -433,6 +469,76 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
 
     await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa' })
     expect(gcp.cloudrunGetRevision).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('resolveCloudRun mode=environment with an image index candidate', () => {
+  beforeEach(() => serveRegistry(requestMock, { images: INDEX_IMAGES, indexes: INDEXES }))
+
+  it('maps the linux/amd64 child a revision reports back to the index its template names', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@${INDEX}`)])
+    revision('web', 'web-00001-aaa', `${REPO}@${CHILD}`)
+
+    const result = await resolveEnv()
+
+    expect(result).toEqual({
+      image: `${REPO}@${INDEX}`,
+      digest: INDEX,
+      tags: ['candidate-10014', 'sha-def456']
+    })
+    expect(warnings()).toEqual([])
+    expect(manifestReads(requestMock)).toEqual([`https://${HOST}/v2/cru-shared-artifacts/example-app/example-app/manifests/${INDEX}`])
+  })
+
+  it('does the same when the template names the index by a tag in the shared registry', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}:candidate-10014`)])
+    revision('web', 'web-00001-aaa', `${REPO}@${CHILD}`)
+
+    const result = await resolveEnv()
+
+    expect(result).toEqual({
+      image: `${REPO}@${INDEX}`,
+      digest: INDEX,
+      tags: ['candidate-10014', 'sha-def456']
+    })
+    expect(warnings()).toEqual([])
+    expect(manifestReads(requestMock)).toHaveLength(1)
+  })
+
+  it('resolves nothing when the serving image is an untagged child of some other index', async () => {
+    // The template moved on to the next index, but the revision still serving
+    // is the previous build's child, which nothing tags.
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@${OTHER_INDEX}`)])
+    revision('web', 'web-00001-aaa', `${REPO}@${CHILD}`)
+
+    const attempt = resolveEnv()
+
+    await expect(attempt).rejects.toThrow(
+      `(web serves ${REPO}@${CHILD}, an untagged child image that does not belong to the image its template names ` +
+      `(${REPO}@${OTHER_INDEX})). Nothing was resolved, so a deploy to this environment goes ahead and a promote ` +
+      'from it stops here.'
+    )
+    expect(warnings()[0]).toMatch(/names .*@sha256:index15, but the revision serving its traffic .* runs .*@sha256:child14/)
+  })
+
+  it('agrees across services that serve the same index, whether a revision reports the child or the index', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([
+      service('web', `${REPO}@${INDEX}`),
+      service('worker', `${REPO}@${INDEX}`)
+    ])
+    revision('web', 'web-00001-aaa', `${REPO}@${CHILD}`)
+    revision('worker', 'worker-00001-aaa', `${REPO}@${INDEX}`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: INDEX, tags: ['candidate-10014', 'sha-def456'] })
+    expect(warnings()).toEqual([])
+  })
+
+  it('still reports a tagged older image that is serving while the template names an index', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@${INDEX}`)])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa', tags: ['candidate-10012', 'sha-abc123'] })
+    expect(warnings()[0]).toMatch(/A rollout looks stuck/)
   })
 })
 
