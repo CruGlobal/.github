@@ -486,6 +486,9 @@ jobs:
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
+      # A rollback never stops its own rollout: going back would mean the
+      # release being rolled back from, in the middle of an incident. It still
+      # waits in full, so a late landing is recorded.
       - name: Deploy to production
         uses: ./cru-github-actions/actions/deploy
         with:
@@ -495,6 +498,7 @@ jobs:
           runtime-project: ${{ needs.lookup.outputs.project-id }}
           image: ${{ steps.resolve.outputs.image }}
           app-url: ${{ needs.lookup.outputs.app-url }}
+          stop-rollout-on-failure: 'false'
 
       - name: Record deployment event in Datadog
         continue-on-error: true
@@ -975,6 +979,9 @@ jobs:
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
+      # A rollback never stops its own rollout (see rollback-gcp): no Lambda
+      # function is sent back to the image being rolled back from. ECS has no
+      # rollout wait yet, so it ignores this.
       - name: Deploy to production
         uses: ./cru-github-actions/actions/deploy
         with:
@@ -983,6 +990,7 @@ jobs:
           environment: production
           image: ${{ steps.resolve.outputs.image }}
           app-url: ${{ needs.lookup.outputs.app-url }}
+          stop-rollout-on-failure: 'false'
 
       - name: Record deployment event in Datadog
         continue-on-error: true

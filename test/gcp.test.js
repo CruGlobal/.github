@@ -5,10 +5,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // { ServicesClient, JobsClient } off the module's `v2` export at load time, so
 // the mock has to provide that shape.
 const {
-  updateServiceMock, listJobsMock, updateJobMock,
+  updateServiceMock, getServiceMock, servicesMade, revisionsMade, listJobsMock, updateJobMock,
   runJobMock, getExecutionMock, cancelExecutionMock, getRevisionMock
 } = vi.hoisted(() => ({
   updateServiceMock: vi.fn(),
+  getServiceMock: vi.fn(),
+  servicesMade: [],
+  revisionsMade: [],
   listJobsMock: vi.fn(),
   updateJobMock: vi.fn(),
   runJobMock: vi.fn(),
@@ -21,7 +24,9 @@ vi.mock('@google-cloud/run', () => ({
   v2: {
     ServicesClient: class {
       constructor () {
+        servicesMade.push(this)
         this.updateService = updateServiceMock
+        this.getService = getServiceMock
       }
     },
     JobsClient: class {
@@ -40,6 +45,7 @@ vi.mock('@google-cloud/run', () => ({
     },
     RevisionsClient: class {
       constructor () {
+        revisionsMade.push(this)
         this.getRevision = getRevisionMock
       }
     }
@@ -52,10 +58,16 @@ vi.mock('@google-cloud/secret-manager', () => ({
 
 import {
   DEFAULT_REGION,
+  OperationWaitExpired,
+  QUICK_READ_TIMEOUT_MS,
+  READ_TIMEOUT_MS,
   cloudrunGetRevision,
+  cloudrunGetService,
   cloudrunListJobs,
   gcrImageTag,
   gcrRegistry,
+  isReadinessDeadline,
+  pinServiceTraffic,
   runJob,
   updateJob,
   updateService
@@ -198,7 +210,7 @@ describe('transient gRPC failures', () => {
 
     await expect(cloudrunGetRevision(name)).resolves.toEqual({ name, containers: CONTAINERS })
     expect(getRevisionMock).toHaveBeenCalledTimes(2)
-    expect(getRevisionMock).toHaveBeenCalledWith({ name })
+    expect(getRevisionMock).toHaveBeenCalledWith({ name }, { timeout: READ_TIMEOUT_MS })
   })
 
   it('cloudrunGetRevision fails immediately on a real API answer', async () => {
@@ -211,6 +223,224 @@ describe('transient gRPC failures', () => {
   })
 })
 
+
+// --- rollouts ---------------------------------------------------------------
+//
+// What src/v2/cloudrun-rollout.js relies on from the requests and the retry.
+
+// How gax reports an operation that failed on the readiness deadline, as a
+// trial against the real API showed it: code 13 and this message, nothing else.
+function readinessDeadline () {
+  const error = new Error('Deploying Revision. Resource readiness deadline exceeded.')
+  error.code = 13
+  return error
+}
+
+describe('updateService requests', () => {
+  beforeEach(() => {
+    updateServiceMock.mockReset()
+    updateServiceMock.mockResolvedValue(operation())
+  })
+
+  it('sends all traffic to the latest revision, with traffic in the mask, when asked', async () => {
+    await updateService(SERVICE, CONTAINERS, { trafficToLatest: true })
+    await updateService(SERVICE, CONTAINERS, { trafficToLatest: true, waitMs: 60000 })
+
+    for (const [request] of updateServiceMock.mock.calls) {
+      expect(request.service.traffic).toEqual([{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST', percent: 100 }])
+      expect(request.updateMask.paths).toEqual(['template.containers', 'template.annotations', 'traffic'])
+      expect(request.service.template.containers).toEqual(CONTAINERS)
+    }
+  })
+
+  it('leaves traffic alone when not asked, as v1 always has', async () => {
+    await updateService(SERVICE, CONTAINERS)
+
+    const [[request]] = updateServiceMock.mock.calls
+    expect(request.service).not.toHaveProperty('traffic')
+    expect(request.updateMask.paths).toEqual(['template.containers', 'template.annotations'])
+  })
+
+  it('stamps the force-revision value it is given, so the caller can find its revision', async () => {
+    await updateService(SERVICE, CONTAINERS, { forceRevision: 'ours' })
+
+    const [[request]] = updateServiceMock.mock.calls
+    expect(request.service.template.annotations).toEqual({ 'client.knative.dev/force-revision': 'ours' })
+  })
+
+  it('waits on the operation as long as it takes when no bound is given', async () => {
+    await updateService(SERVICE, CONTAINERS)
+
+    expect(updateServiceMock.mock.calls[0][1]).toBeUndefined()
+  })
+
+  it('hands over the generation from the operation\'s metadata the moment the RPC returns', async () => {
+    const heard = []
+    // The metadata already carries the new generation, as a Long, and still
+    // names the OLD latest created revision.
+    const metadata = { generation: { low: 7, high: 0, toString: () => '7' }, latestCreatedRevision: `${SERVICE}/revisions/old` }
+    updateServiceMock.mockResolvedValue([{
+      metadata,
+      promise: () => {
+        heard.push('promise')
+        return Promise.resolve([{ name: SERVICE }])
+      }
+    }])
+
+    await updateService(SERVICE, CONTAINERS, { onAccepted: generation => heard.push(String(generation)) })
+
+    expect(heard).toEqual(['7', 'promise'])
+  })
+
+  it('says the update was accepted even when the metadata carries no generation', async () => {
+    const heard = []
+
+    await updateService(SERVICE, CONTAINERS, { onAccepted: generation => heard.push(generation) })
+
+    expect(heard).toEqual([undefined])
+  })
+})
+
+describe('updateService and the readiness deadline', () => {
+  beforeEach(() => {
+    updateServiceMock.mockReset()
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+  })
+
+  it.each([
+    ['its real code, 13', 13],
+    ['DEADLINE_EXCEEDED, which the shared retry would replay', 4]
+  ])('is never replayed with %s: the update was accepted, and a replay would only wait on it again', async (_, code) => {
+    const stalled = Object.assign(readinessDeadline(), { code })
+    updateServiceMock.mockResolvedValue([{ promise: () => Promise.reject(stalled) }])
+
+    await expect(updateService(SERVICE, CONTAINERS)).rejects.toBe(stalled)
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds the wait on the operation, and never replays the bound running out', async () => {
+    // gax fails an operation poll that outlived totalTimeoutMillis like this.
+    const timedOut = Object.assign(new Error('Total timeout exceeded before any response was received'), { code: 4 })
+    updateServiceMock.mockResolvedValue([{
+      promise: () => new Promise((resolve, reject) => setTimeout(() => reject(timedOut), 40))
+    }])
+
+    const error = await updateService(SERVICE, CONTAINERS, { waitMs: 20 }).catch(error => error)
+
+    expect(error).toBeInstanceOf(OperationWaitExpired)
+    expect(error.cause).toBe(timedOut)
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+    const [[, options]] = updateServiceMock.mock.calls
+    expect(options.longrunning.totalTimeoutMillis).toBeGreaterThan(0)
+    expect(options.longrunning.totalTimeoutMillis).toBeLessThanOrEqual(20)
+  })
+
+  it('still replays a transient failure of the RPC itself', async () => {
+    updateServiceMock
+      .mockRejectedValueOnce(unavailable())
+      .mockResolvedValue(operation())
+
+    await expect(updateService(SERVICE, CONTAINERS, { waitMs: 60000 })).resolves.toEqual({ name: SERVICE })
+    expect(updateServiceMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('isReadinessDeadline', () => {
+  it('matches the message, in any case, on an error or a condition', () => {
+    expect(isReadinessDeadline(readinessDeadline())).toBe(true)
+    expect(isReadinessDeadline({ type: 'Ready', state: 'CONDITION_FAILED', message: 'Resource readiness deadline exceeded.' })).toBe(true)
+    expect(isReadinessDeadline(new Error('4 DEADLINE_EXCEEDED: resource READINESS DEADLINE EXCEEDED'))).toBe(true)
+  })
+
+  it('matches the reason on a condition', () => {
+    expect(isReadinessDeadline({ type: 'Ready', state: 'CONDITION_FAILED', reason: 'PROGRESS_DEADLINE_EXCEEDED' })).toBe(true)
+  })
+
+  it('matches nothing else', () => {
+    expect(isReadinessDeadline(unavailable())).toBe(false)
+    expect(isReadinessDeadline(Object.assign(new Error('Total timeout exceeded before any response was received'), { code: 4 }))).toBe(false)
+    expect(isReadinessDeadline(Object.assign(new Error('9 FAILED_PRECONDITION: container failed to start'), { code: 9 }))).toBe(false)
+    expect(isReadinessDeadline(undefined)).toBe(false)
+  })
+})
+
+describe('pinServiceTraffic', () => {
+  beforeEach(() => {
+    updateServiceMock.mockReset()
+    updateServiceMock.mockResolvedValue(operation())
+  })
+
+  it('sends one revision by short name at 100%, and the template\'s own force-revision value back', async () => {
+    await pinServiceTraffic(SERVICE, 'example-app-00001-abc', 'value-the-deploy-sent', 60000)
+
+    const [[request, options]] = updateServiceMock.mock.calls
+    // Left out, the v2 API drops the hidden value, reads the template as
+    // changed and mints a copy of the current revision.
+    expect(request).toEqual({
+      service: {
+        name: SERVICE,
+        template: { annotations: { 'client.knative.dev/force-revision': 'value-the-deploy-sent' } },
+        traffic: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: 'example-app-00001-abc', percent: 100 }]
+      },
+      updateMask: { paths: ['traffic', 'template.annotations'] }
+    })
+    expect(options.longrunning.totalTimeoutMillis).toBeLessThanOrEqual(60000)
+  })
+})
+
+describe('cloudrunGetService', () => {
+  beforeEach(() => {
+    getServiceMock.mockReset()
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+  })
+
+  it('rides out an UNAVAILABLE, and bounds each read so a poll cannot spend minutes on one', async () => {
+    getServiceMock
+      .mockRejectedValueOnce(unavailable())
+      .mockResolvedValue([{ name: SERVICE }])
+
+    await expect(cloudrunGetService(SERVICE)).resolves.toEqual({ name: SERVICE })
+    expect(getServiceMock).toHaveBeenCalledTimes(2)
+    expect(getServiceMock).toHaveBeenCalledWith({ name: SERVICE }, { timeout: READ_TIMEOUT_MS })
+  })
+
+  it('makes a quick read ONE attempt with a short timeout, for a caller whose next look is the retry', async () => {
+    const blip = unavailable()
+    getServiceMock.mockRejectedValue(blip)
+    getRevisionMock.mockReset()
+    getRevisionMock.mockRejectedValue(blip)
+
+    await expect(cloudrunGetService(SERVICE, { quick: true })).rejects.toBe(blip)
+    await expect(cloudrunGetRevision(`${SERVICE}/revisions/r`, { quick: true })).rejects.toBe(blip)
+
+    expect(getServiceMock.mock.calls).toEqual([[{ name: SERVICE }, { timeout: QUICK_READ_TIMEOUT_MS }]])
+    expect(getRevisionMock.mock.calls).toEqual([[{ name: `${SERVICE}/revisions/r` }, { timeout: QUICK_READ_TIMEOUT_MS }]])
+  })
+
+  it('fails immediately on a real API answer', async () => {
+    const missing = Object.assign(new Error('5 NOT_FOUND: service not found'), { code: 5 })
+    getServiceMock.mockRejectedValue(missing)
+
+    await expect(cloudrunGetService(SERVICE)).rejects.toBe(missing)
+    expect(getServiceMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses one client for every read, so a long poll does not redo the credential exchange each time', async () => {
+    getServiceMock.mockResolvedValue([{ name: SERVICE }])
+    getRevisionMock.mockResolvedValue([{ name: 'r' }])
+    servicesMade.length = 0
+    revisionsMade.length = 0
+
+    for (let poll = 0; poll < 3; poll++) {
+      await cloudrunGetService(SERVICE)
+      await cloudrunGetRevision(`${SERVICE}/revisions/r`)
+    }
+
+    // Made on an earlier test's first read, if not this one's, and never again.
+    expect(servicesMade.length).toBeLessThanOrEqual(1)
+    expect(revisionsMade.length).toBeLessThanOrEqual(1)
+  })
+})
 
 // --- runJob -----------------------------------------------------------------
 //

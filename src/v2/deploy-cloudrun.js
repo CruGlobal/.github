@@ -1,7 +1,8 @@
 import * as core from '@actions/core'
-import { accessSecret, cloudrunListJobs, cloudrunListServices, listSecrets, runJob, updateJob, updateService } from '../gcp'
+import { accessSecret, cloudrunListJobs, cloudrunListServices, listSecrets, runJob, updateJob } from '../gcp'
 import { RUNTIME_PARAM_TYPES } from '../ecs-config'
 import { assertDigestRef, isAppContainer, parseImageRef } from './gcp'
+import { rollOutServices } from './cloudrun-rollout'
 import { openImage } from './oci'
 import { publishSigninPage, signinBucket } from './signin'
 import { TOKEN_SECRET, publishSourceMaps, sourceMapsEndpoint } from './sourcemaps'
@@ -26,7 +27,11 @@ const shortName = resource => resource.split('/').pop()
 //   3. upload the browser source maps the image carries, if any.
 //   4. update each service, rewriting ONLY the app container (sidecars such as
 //      the Datadog agent are preserved) and re-attaching RUNTIME secrets, then
-//      force a new revision.
+//      force a new revision and wait for it to land. A revision that misses
+//      Cloud Run's readiness deadline is waited for, since Cloud Run keeps
+//      trying it. When a rollout ends short (out of time, or failed), the
+//      services it moved are pinned back to what served before, unless this is
+//      a rollback (./cloudrun-rollout.js).
 //   5. publish the IAP friendly sign-in page the image carries, if any.
 //
 // DD_VERSION is BAKED into the image at build time (`--build-arg VERSION` ->
@@ -37,7 +42,11 @@ const shortName = resource => resource.split('/').pop()
 // version per build. Sidecars are untouched.
 //
 // Returns { deployedImage, services } (services = short names updated).
-export async function deployCloudRun ({ image, runtimeProject, appUrl }) {
+//
+// `stopRolloutOnFailure` false (a rollback) means a rollout that ends short is
+// never stopped by pinning traffic (see ./cloudrun-rollout.js). `rollout` is
+// passed through to rollOutServices; tests use it for a fake clock.
+export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRolloutOnFailure }, rollout = {}) {
   assertDigestRef(image) // defensive; the router validates too
   if (!runtimeProject) {
     throw new Error('runtime-project is required to deploy a cloudrun image')
@@ -94,18 +103,19 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl }) {
   // Update each Cloud Run service. Refresh only the APP container's image/env
   // and pass ALL containers through, so sidecars are preserved — e.g. the
   // Datadog Agent the gcp/cloudrun/app module adds when datadog_apm = true.
-  const updatedServices = []
-  for (const service of services) {
+  const updates = services.map(service => {
     const containers = service.template.containers
-    const updated = containers.map(container =>
-      isAppContainer(container, containers, repo)
-        ? { ...container, image, env: mergeEnvVars(container.env, secrets) }
-        : container
-    )
-    core.info(`updating service: ${service.name} (${updated.length} container(s))`)
-    await updateService(service.name, updated)
-    updatedServices.push(shortName(service.name))
-  }
+    return {
+      service,
+      containers: containers.map(container =>
+        isAppContainer(container, containers, repo)
+          ? { ...container, image, env: mergeEnvVars(container.env, secrets) }
+          : container
+      )
+    }
+  })
+  await rollOutServices(updates, { stopRolloutOnFailure, ...rollout })
+  const updatedServices = services.map(service => shortName(service.name))
 
   // Publish the IAP friendly sign-in page carried by this image, if the app has
   // one. Read the bucket off the services as they were BEFORE the update above:

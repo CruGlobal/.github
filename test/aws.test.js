@@ -23,7 +23,7 @@ vi.mock('@aws-sdk/client-ssm', () => ({
   ListTagsForResourceCommand: class { constructor (input) { this.input = input } }
 }))
 
-import { ssmParameters } from '../src/aws.js'
+import { isPermanentAwsError, ssmParameters } from '../src/aws.js'
 
 const param = n => ({ Name: `/ecs/hoax/prod/PARAM_${n}`, Value: `value-${n}` })
 
@@ -65,5 +65,38 @@ describe('ssmParameters', () => {
 
     expect(await ssmParameters('/ecs/nonexistent/prod/')).toEqual([])
     expect(ssmState.tagCalls).toHaveLength(0)
+  })
+})
+
+// How an AWS SDK error reaches a caller: its name, and the HTTP status in
+// $metadata when there was a response at all.
+const awsError = (name, status) => Object.assign(new Error(name), {
+  name,
+  ...(status === undefined ? {} : { $metadata: { httpStatusCode: status } })
+})
+
+describe('isPermanentAwsError', () => {
+  it.each([
+    ['AccessDeniedException', 403],
+    ['ResourceNotFoundException', 404],
+    ['InvalidParameterValueException', 400]
+  ])('calls a %s (%i) permanent', (name, status) => {
+    expect(isPermanentAwsError(awsError(name, status))).toBe(true)
+  })
+
+  it.each([
+    ['a 429', 'TooManyRequestsException', 429],
+    ['a ThrottlingException sent as a 400', 'ThrottlingException', 400],
+    ['a TooManyRequestsException sent as a 400', 'TooManyRequestsException', 400],
+    ['a RequestLimitExceeded sent as a 400', 'RequestLimitExceeded', 400],
+    ['a 5xx', 'ServiceException', 500],
+    ['a network error, with no status', 'TimeoutError', undefined]
+  ])('lets %s pass', (_, name, status) => {
+    expect(isPermanentAwsError(awsError(name, status))).toBe(false)
+  })
+
+  it('lets anything with no AWS shape pass', () => {
+    expect(isPermanentAwsError(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))).toBe(false)
+    expect(isPermanentAwsError(undefined)).toBe(false)
   })
 })

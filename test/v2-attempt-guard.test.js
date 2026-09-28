@@ -153,6 +153,21 @@ describe('deploy action', () => {
     expect(deployCloudRun).toHaveBeenCalledWith(expect.objectContaining({ environment }))
   })
 
+  // The rollback workflow sets stop-rollout-on-failure to "false": a rollback must
+  // never pin traffic back to the release it is rolling back from.
+  it.each([
+    ['left out, as every caller but the rollback leaves it', undefined, true],
+    ['"true"', 'true', true],
+    ['"false", as the rollback sets it', 'false', false],
+    ['" False " in any case, with spaces', ' False ', false]
+  ])('stops a stalled rollout unless told not to: %s', async (_, value, expected) => {
+    jobEnv({ attempt: '1' })
+    deployInputs('release-candidate')
+    if (value !== undefined) inputs['stop-rollout-on-failure'] = value
+    await deploy()
+    expect(deployCloudRun).toHaveBeenCalledWith(expect.objectContaining({ stopRolloutOnFailure: expected }))
+  })
+
   it('still rejects an unknown environment by name', async () => {
     jobEnv({ attempt: '1', marker: '1' })
     deployInputs('prod')

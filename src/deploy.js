@@ -27,6 +27,9 @@ export async function run () {
     const image = core.getInput('image', { required: true })
     const runtimeProject = core.getInput('runtime-project', { required: false })
     const appUrl = core.getInput('app-url', { required: false })
+    // Only "false" turns it off. The action defaults it to "true", and an empty
+    // value (an older caller, or a test) means the same.
+    const stopRolloutOnFailure = core.getInput('stop-rollout-on-failure', { required: false }).trim().toLowerCase() !== 'false'
 
     // Enforce the digest invariant before touching any infrastructure.
     assertDigestRef(image)
@@ -37,7 +40,7 @@ export async function run () {
       assertAttemptAuthorized(`deploy to ${environment}`)
     }
 
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl })
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl, stopRolloutOnFailure })
 
     core.info(`deployed image: ${result.deployedImage}`)
     core.info(`updated services: ${JSON.stringify(result.services)}`)

@@ -1,17 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // Mock the v1 gcp module so no real Cloud Run / Secret Manager calls happen.
-// DEFAULT_REGION is re-exported so src/v2/gcp.js loads under the mock.
-vi.mock('../src/gcp.js', () => ({
-  DEFAULT_REGION: 'us-central1',
-  accessSecret: vi.fn(),
-  cloudrunListServices: vi.fn(),
-  cloudrunListJobs: vi.fn(),
-  listSecrets: vi.fn(),
-  runJob: vi.fn(),
-  updateJob: vi.fn(),
-  updateService: vi.fn()
-}))
+// DEFAULT_REGION is re-exported so src/v2/gcp.js loads under the mock, and the
+// two pure error helpers the rollout wait reads stay real. The wait itself is
+// covered by test/v2-cloudrun-rollout.test.js.
+vi.mock('../src/gcp.js', async importOriginal => {
+  const { OperationWaitExpired, isReadinessDeadline } = await importOriginal()
+  return {
+    DEFAULT_REGION: 'us-central1',
+    OperationWaitExpired,
+    isReadinessDeadline,
+    accessSecret: vi.fn(),
+    cloudrunGetRevision: vi.fn(),
+    cloudrunGetService: vi.fn(),
+    cloudrunListServices: vi.fn(),
+    cloudrunListJobs: vi.fn(),
+    listSecrets: vi.fn(),
+    pinServiceTraffic: vi.fn(),
+    runJob: vi.fn(),
+    updateJob: vi.fn(),
+    updateService: vi.fn()
+  }
+})
 
 // No registry reads: openImage is covered by test/v2-oci.test.js. Mocked here
 // so the gate tests can assert it is NOT called.
@@ -87,6 +97,24 @@ const IMAGE_HANDLE = { labels: {}, readFile: vi.fn(), readDir: vi.fn() }
 
 const UPLOADED = { status: 'uploaded', uploaded: 3, failed: 0, skipped: 0, failures: [] }
 
+// How a service reads: right before its update, and once the update has
+// landed. Each service is read before its update, and every update is checked
+// against the service, including one whose operation succeeded.
+function serving (name, generation, revision) {
+  return {
+    name,
+    generation,
+    latestCreatedRevision: `${name}/revisions/${revision}`,
+    latestReadyRevision: `${name}/revisions/${revision}`,
+    trafficStatuses: [{ type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST', revision, percent: 100 }],
+    terminalCondition: { state: 'CONDITION_SUCCEEDED' },
+    reconciling: false
+  }
+}
+const readBack = async name => gcp.updateService.mock.calls.some(([updated]) => updated === name)
+  ? serving(name, '2', 'new')
+  : serving(name, '1', 'old')
+
 beforeEach(() => {
   for (const fn of Object.values(gcp)) fn.mockReset?.()
   openImage.mockReset()
@@ -96,6 +124,8 @@ beforeEach(() => {
   publishSourceMaps.mockReset()
   publishSourceMaps.mockResolvedValue(UPLOADED)
   gcp.accessSecret.mockResolvedValue(TOKEN)
+  gcp.cloudrunGetService.mockImplementation(readBack)
+  gcp.cloudrunGetRevision.mockResolvedValue({ conditions: [{ type: 'Ready', state: 'CONDITION_SUCCEEDED' }] })
 })
 
 describe('deployCloudRun digest invariant', () => {
