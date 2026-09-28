@@ -3,7 +3,8 @@ description: >-
   Provider-agnostic release tagging (pipeline v2). Adds a tag to an
   already-pushed digest in the shared registry without rebuilding or re-pushing
   layers. cloudrun uses the Artifact Registry REST API; ecs/lambda re-tag the
-  ECR manifest.
+  ECR manifest. A release-* tag is refused unless the authorize-actor check
+  passed earlier in the same job for this run attempt.
 inputs:
   type:
     description: Runtime whose registry to tag in. One of ecs | lambda | cloudrun.

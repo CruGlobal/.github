@@ -1,7 +1,9 @@
 name: Deploy
 description: >-
   Deploy a pre-built, digest-pinned image to a target environment
-  (pipeline v2 build-once/promote-the-artifact).
+  (pipeline v2 build-once/promote-the-artifact). A production deploy is
+  refused unless the authorize-actor check passed earlier in the same job for
+  this run attempt.
 inputs:
   type:
     description: Runtime to deploy to. One of ecs | lambda | cloudrun.

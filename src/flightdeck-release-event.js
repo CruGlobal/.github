@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { assertAttemptAuthorized } from './v2/attempt-guard.js'
 
 // flightdeck-release-event: post a pipeline v2 deploy/hotfix/rollback to the
 // app's Flightdeck project timeline (GateOps Phase 0). The project comes from
@@ -15,12 +16,20 @@ import * as core from '@actions/core'
 //
 // Telemetry policy, same as the ledger and Slack steps: this NEVER fails the
 // run. Unset token/project => skipped; any error => warning + status=failed.
+//
+// One exception. A production release event is a trusted record, so it is
+// refused, and the step fails, unless the authorize-actor check passed earlier
+// in this job for this run attempt (src/v2/attempt-guard.js). Only the
+// non-production names below skip that check. The production callers run this
+// step with continue-on-error, so a refusal here does not change the run's
+// result; the deploy step before it has already refused by then.
 
 export const DEFAULT_ENDPOINT = 'https://flightdeck.cru.org'
 export const KINDS = ['deploy', 'hotfix', 'rollback']
 const PER_PAGE = 100
 const MAX_PAGES = 50
 const TIMEOUT_MS = 10000
+export const NON_PRODUCTION_ENVIRONMENTS = Object.freeze(['staging', 'release-candidate', 'preview', 'lab'])
 
 export async function run () {
   const token = core.getInput('token')
@@ -29,6 +38,16 @@ export async function run () {
     core.info(`Flightdeck release event skipped (${!token ? 'no token' : 'no FlightdeckProject in app-info'})`)
     core.setOutput('status', 'skipped')
     return
+  }
+  const environment = core.getInput('environment').trim()
+  if (!NON_PRODUCTION_ENVIRONMENTS.includes(environment.toLowerCase())) {
+    try {
+      assertAttemptAuthorized(`post a release event for ${environment || 'an unnamed environment'}`)
+    } catch (error) {
+      core.setFailed(error.message)
+      core.setOutput('status', 'failed')
+      return
+    }
   }
   try {
     const endpoint = normalizeEndpoint(core.getInput('endpoint') || DEFAULT_ENDPOINT)
@@ -190,5 +209,5 @@ export class FlightdeckClient {
   }
 }
 
-// Auto-run as the action entrypoint, but stay import-safe under test.
-if (!process.env.VITEST) run()
+// The action's entry point is src/entry/flightdeck-release-event.js, which
+// always calls run().

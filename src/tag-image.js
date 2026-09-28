@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { addTag, sharedRegistryRepo } from './v2/gcp'
 import { ecrRetagDigest } from './v2/aws'
+import { assertAttemptAuthorized } from './v2/attempt-guard'
 
 // tag-image: provider-agnostic release tagging for pipeline v2. Adds a tag
 // (e.g. release-10038) to an already-pushed digest in the shared registry,
@@ -12,6 +13,11 @@ import { ecrRetagDigest } from './v2/aws'
 //
 // The router dispatches on `type`. The digest must be a bare sha256:... value
 // (the same form resolve-image / promote surface as `digest`).
+//
+// A release tag is a trusted record: rollback deploys whatever digest a
+// release-* tag names. So adding one is refused unless the authorize-actor
+// check passed earlier in this job for this run attempt
+// (src/v2/attempt-guard.js). Other tags are not checked.
 
 // The shared GCP Artifact Registry project. Overridable for non-default
 // registries; the app's repo/package within it is always the project name.
@@ -31,6 +37,7 @@ export async function run () {
     const tag = core.getInput('tag', { required: true })
     const registryProject = core.getInput('registry-project', { required: false }) || DEFAULT_REGISTRY_PROJECT
 
+    if (/^release-/i.test(tag)) assertAttemptAuthorized(`add the release tag ${tag}`)
     assertDigest(digest)
 
     const result = await dispatch(type, { projectName, digest, tag, registryProject })
@@ -56,5 +63,4 @@ function dispatch (type, { projectName, digest, tag, registryProject }) {
   }
 }
 
-// Auto-run as the action entrypoint, but stay import-safe under test.
-if (!process.env.VITEST) run()
+// The action's entry point is src/entry/tag-image.js, which always calls run().

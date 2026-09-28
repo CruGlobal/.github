@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Mock @actions/core the way the sibling action tests do: `inputs` backs
 // getInput (enforcing `required`), and every reporter is a spy so the tests
@@ -26,6 +26,7 @@ vi.mock('@actions/core', () => ({
 import {
   run, buildEvent, buildNumberFromTag, shaFromTags, parseReasons, normalizeEndpoint, FlightdeckClient
 } from '../src/flightdeck-release-event.js'
+import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
 
 const SHA = 'b0f98798c3a1807599503af8eb10e626769ebdde'
 const TAGS = `candidate-2026-09-04-10123,sha-${SHA},release-2026-09-04-10123`
@@ -61,7 +62,12 @@ beforeEach(() => {
   infoMock.mockReset()
   for (const key of Object.keys(inputs)) delete inputs[key]
   vi.unstubAllGlobals()
+  // As in a promote or rollback job after authorize-actor passed for this attempt.
+  vi.stubEnv('GITHUB_RUN_ATTEMPT', '1')
+  vi.stubEnv(AUTHORIZED_ATTEMPT_MARKER, '1')
 })
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('buildEvent', () => {
   it('builds the wrapped body fields, deriving build number and sha', () => {
@@ -331,6 +337,65 @@ describe('run', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(fetchMock.mock.calls[0][0]).toBe('https://flightdeck-stage.example.test/api/v1/projects?page=1&per_page=100')
+  })
+})
+
+describe('production events need a checked attempt', () => {
+  const posted = () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(jsonResponse(201, { id: 901 }))
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  // What an old promote or rollback job looks like when it is re-run: it
+  // never ran authorize-actor, so no marker.
+  it.each(['production', 'Production', 'prod', ''])('refuses environment %j with no marker, and fails the step', async (environment) => {
+    happyInputs()
+    inputs.environment = environment
+    vi.stubEnv(AUTHORIZED_ATTEMPT_MARKER, '')
+    const fetchMock = posted()
+    await run()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(setFailedMock).toHaveBeenCalledWith(expect.stringMatching(/^refusing to post a release event for .*: no authorize-actor check passed/))
+    expect(output('status')).toBe('failed')
+  })
+
+  it('refuses a marker from an earlier attempt', async () => {
+    happyInputs()
+    vi.stubEnv('GITHUB_RUN_ATTEMPT', '2')
+    const fetchMock = posted()
+    await run()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(setFailedMock).toHaveBeenCalledWith(expect.stringContaining('passed for attempt 1, not for this attempt (attempt 2)'))
+  })
+
+  it('posts when the marker matches this attempt', async () => {
+    happyInputs()
+    const fetchMock = posted()
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(output('status')).toBe('created')
+  })
+
+  it.each(['staging', 'release-candidate', 'preview', 'lab'])('posts a %s event with no marker, as deploy-candidate does', async (environment) => {
+    happyInputs()
+    inputs.environment = environment
+    vi.stubEnv(AUTHORIZED_ATTEMPT_MARKER, '')
+    const fetchMock = posted()
+    await run()
+    expect(setFailedMock).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('still skips silently with no token, marker or not', async () => {
+    inputs.project = 'BILLS'
+    inputs.environment = 'production'
+    vi.stubEnv(AUTHORIZED_ATTEMPT_MARKER, '')
+    await run()
+    expect(output('status')).toBe('skipped')
+    expect(setFailedMock).not.toHaveBeenCalled()
   })
 })
 

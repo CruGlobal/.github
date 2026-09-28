@@ -5,7 +5,9 @@ description: >-
   app-info carries as FlightdeckProject, then POSTs
   /api/v1/projects/:id/release-events as the CruDeploy service user. Telemetry
   policy: the action NEVER fails the run. An unset token or project is a
-  silent skip, every error is a warning, and `status` says what happened.
+  silent skip, every error is a warning, and `status` says what happened. One
+  exception: a production event fails the step unless the authorize-actor
+  check passed earlier in the same job for this run attempt.
 inputs:
   token:
     description: >-

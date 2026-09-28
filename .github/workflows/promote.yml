@@ -9,9 +9,22 @@ name: Promote
 #
 # Multi-provider router (D9 pattern at job level): a `lookup` job runs the authz
 # gate + both app-info fetches (release-candidate and production) and outputs the
-# provider + type + per-env project-ids. Authz lives in `lookup`, which every
-# provider job `needs`, so it ALWAYS passes before any provider job mutates
-# production. Provider jobs are gated on `needs.lookup.outputs.provider`.
+# provider + type + per-env project-ids. Provider jobs are gated on
+# `needs.lookup.outputs.provider`.
+#
+# Authz checks the account that started the current run attempt, and it runs
+# twice. `lookup` runs it so a refused run stops early. Each provider job runs
+# it again as its first step, because "Re-run failed jobs" re-runs only the
+# failed jobs and reuses a `lookup` that passed in an earlier attempt. Without
+# the second check, that kind of re-run would change production with no check
+# of who started it.
+#
+# The check also marks the attempt as checked for the rest of its job. The
+# deploy, tag-image (release tags) and flightdeck-release-event actions refuse
+# production work without that mark. That covers runs made before this check
+# existed: "Re-run failed jobs" and "Re-run job" reuse such a run's old
+# workflow file, which never calls the check, but it still loads these
+# actions from the current release.
 #
 # Stage-less apps (`RcMode` "verify" in app-info) reach production by the same
 # route with ONE substitution: there is no running release-candidate service to
@@ -59,10 +72,12 @@ jobs:
   lookup:
     name: Authorize & look up app info
     runs-on: ubuntu-latest
-    # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
-    # and checks nothing out (the authz step uses the authz-token PAT).
+    # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB.
+    # contents: read lets it check this repo out for the authz action, which
+    # reads permissions with the authz-token PAT.
     permissions:
       id-token: write
+      contents: read
     outputs:
       provider: ${{ steps.app-info-rc.outputs.provider }}
       type: ${{ steps.app-info-rc.outputs.type }}
@@ -214,26 +229,30 @@ jobs:
           echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> project=$project_id"
 
-      # Authorization runs before any provider job mutates production: the human
-      # running a production change must have push-level access to the app repo.
-      # It follows the app-info lookups only because the repo is read from the
-      # production item (the fleet default CruGlobal/<project-name> otherwise).
+      # The checkout only fetches this repo so the authz action below can run.
+      # It holds no production credentials.
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # Authorization, the early copy: the account that started this run
+      # attempt (github.triggering_actor, not github.actor) must have
+      # push-level access to the app repo. On a re-run github.actor stays the
+      # account that started the first attempt, and the re-runner is the one
+      # whose access matters. It follows the app-info lookups only because the
+      # repo is read from the production item (the fleet default
+      # CruGlobal/<project-name> otherwise). Each provider job runs the same
+      # check again; see the note at the top of this file.
       # TODO: replace PAT with a dedicated GitHub App.
       - name: Authorize actor
-        env:
-          GH_TOKEN: ${{ secrets.authz-token }}
-          ACTOR: ${{ github.actor }}
-          APP_REPO: ${{ steps.app-info-prod.outputs.repository }}
-        run: |
-          permission=$(gh api "repos/${APP_REPO}/collaborators/${ACTOR}/permission" --jq '.permission')
-          echo "::notice::$ACTOR has '$permission' on $APP_REPO"
-          case "$permission" in
-            admin|write|maintain) ;;
-            *)
-              echo "::error::$ACTOR is not authorized to promote $APP_REPO (permission: $permission). Requires admin, write, or maintain."
-              exit 1
-              ;;
-          esac
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ steps.app-info-prod.outputs.repository }}
+          operation: promote
 
   promote-gcp:
     name: Promote release-candidate to production (Cloud Run)
@@ -262,6 +281,20 @@ jobs:
           repository: CruGlobal/.github
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
+
+      # --- Authz for this attempt (inside the production lock) --------------
+      # FIRST real step on purpose, before any credential is set up. The check
+      # in `lookup` does not cover every re-run: "Re-run failed jobs" re-runs
+      # only this job and reuses the earlier attempt's `lookup`, so this step is
+      # what checks the account that started the re-run. Same rule and same
+      # action as `lookup`. The checkout above only fetches this repo and holds
+      # no production credentials.
+      - name: Authorize the account that started this attempt
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          operation: promote
 
       - name: Configure GCP credentials (release-candidate SA)
         uses: google-github-actions/auth@v3
@@ -401,6 +434,7 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           if [ -z "$COMMIT_SHA" ]; then
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
@@ -412,12 +446,15 @@ jobs:
             --arg target "$COMMIT_SHA" \
             --arg digest "$DIGEST" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
             '{tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
-              body: ("Promoted to production by @\($actor).\n\n"
+              body: ("Promoted to production by @\($actor)"
+                     + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
+                     + ".\n\n"
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
                      + (if $prevsha != ""
@@ -445,24 +482,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
-            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:promote",
                      "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
@@ -566,6 +612,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.release.outputs.release }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
@@ -588,11 +635,12 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
             --arg safety "$safety" \
             '{channel: $channel,
-              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($safety)"
                      + (if $prevsha != ""
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
@@ -622,6 +670,7 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.release.outputs.release || '' }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
@@ -632,9 +681,10 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)"
+              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -668,6 +718,15 @@ jobs:
           repository: CruGlobal/.github
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
+
+      # --- Authz for this attempt (inside the production lock) --------------
+      # FIRST real step on purpose; same reasoning as in promote-gcp.
+      - name: Authorize the account that started this attempt
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          operation: promote
 
       - name: Guard supported AWS type
         env:
@@ -887,6 +946,7 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           if [ -z "$COMMIT_SHA" ]; then
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
@@ -898,12 +958,15 @@ jobs:
             --arg target "$COMMIT_SHA" \
             --arg digest "$DIGEST" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
             '{tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
-              body: ("Promoted to production by @\($actor).\n\n"
+              body: ("Promoted to production by @\($actor)"
+                     + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
+                     + ".\n\n"
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
                      + (if $prevsha != ""
@@ -931,24 +994,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Promoted: $PROJECT_NAME ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }}" \
-            --arg text "Pipeline v2 production promotion by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production promotion by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:promote",
                      "revision:${{ steps.release.outputs.release }}", "candidate:${{ steps.release.outputs.candidate }}",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::promotion event for $PROJECT_NAME ${{ steps.release.outputs.release }} not recorded (non-blocking)"
@@ -1040,6 +1112,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.release.outputs.release }}
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
@@ -1062,11 +1135,12 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
             --arg safety "$safety" \
             '{channel: $channel,
-              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($safety)"
                      + (if $prevsha != ""
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
@@ -1096,6 +1170,7 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.release.outputs.release || '' }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
@@ -1106,9 +1181,10 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)"
+              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \

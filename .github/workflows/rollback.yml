@@ -5,9 +5,21 @@ name: Rollback
 #
 # Multi-provider router (D9 pattern at job level): a `lookup` job runs the authz
 # gate, the app-info fetch, and release-tag normalization, and outputs the
-# provider + type + prod project-id + normalized release tag. Authz lives in
-# `lookup`, which every provider job `needs`, so it ALWAYS passes before any
-# provider job mutates production.
+# provider + type + prod project-id + normalized release tag.
+#
+# Authz checks the account that started the current run attempt, and it runs
+# twice. `lookup` runs it so a refused run stops early. Each provider job runs
+# it again as its first step, because "Re-run failed jobs" re-runs only the
+# failed jobs and reuses a `lookup` that passed in an earlier attempt. Without
+# the second check, that kind of re-run would change production with no check
+# of who started it.
+#
+# The check also marks the attempt as checked for the rest of its job. The
+# deploy, tag-image (release tags) and flightdeck-release-event actions refuse
+# production work without that mark. That covers runs made before this check
+# existed: "Re-run failed jobs" and "Re-run job" reuse such a run's old
+# workflow file, which never calls the check, but it still loads these
+# actions from the current release.
 #
 # Stale-rollback guard: a caller that knows which release production was
 # running when it asked for the rollback passes it as expected-current-release.
@@ -83,10 +95,12 @@ jobs:
   lookup:
     name: Authorize & look up app info
     runs-on: ubuntu-latest
-    # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
-    # and checks nothing out (the authz step uses the authz-token PAT).
+    # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB.
+    # contents: read lets it check this repo out for the authz action, which
+    # reads permissions with the authz-token PAT.
     permissions:
       id-token: write
+      contents: read
     outputs:
       provider: ${{ steps.app-info.outputs.provider }}
       type: ${{ steps.app-info.outputs.type }}
@@ -153,18 +167,29 @@ jobs:
           echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
-      # Authorization runs before any provider job mutates production. It follows
-      # the app-info lookups only because the repo is read from the production
-      # item (the fleet default CruGlobal/<project-name> otherwise). A run is
-      # allowed in one of two ways:
+      # The checkout only fetches this repo so the authz action below can run.
+      # It holds no production credentials.
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # Authorization, the early copy. It follows the app-info lookups only
+      # because the repo is read from the production item (the fleet default
+      # CruGlobal/<project-name> otherwise). Each provider job runs the same
+      # check again; see the note at the top of this file. A run is allowed in
+      # one of two ways:
       #
       #   1. Allowlisted automation actor. The run was dispatched by an account
       #      whose numeric user id (github.actor_id) is in
       #      trusted-automation-actor-ids, AND this attempt was started by that
-      #      same account. Automation accounts such as a GitHub App's bot user
-      #      are not collaborators on app repos, so the push-access check below
-      #      cannot vouch for them. Matched by id, not login, because the id
-      #      never changes.
+      #      same account: the same login, and that login still looks up to
+      #      the same user id. Automation accounts such as a GitHub App's bot
+      #      user are not collaborators on app repos, so the push-access check
+      #      below cannot vouch for them. Matched by id, not login alone,
+      #      because the id never changes.
       #   2. Push access. Otherwise the account that started THIS attempt
       #      (github.triggering_actor) must have push-level access (admin, write
       #      or maintain) to the app repo. Not github.actor: on a re-run,
@@ -175,48 +200,12 @@ jobs:
       #
       # TODO: replace PAT with a dedicated GitHub App.
       - name: Authorize actor
-        env:
-          GH_TOKEN: ${{ secrets.authz-token }}
-          ACTOR: ${{ github.actor }}
-          ACTOR_ID: ${{ github.actor_id }}
-          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
-          TRUSTED_AUTOMATION_ACTOR_IDS: ${{ inputs.trusted-automation-actor-ids }}
-          APP_REPO: ${{ steps.app-info.outputs.repository }}
-        run: |
-          # Whole entries only, compared as exact strings, so 12 never matches
-          # 123. Commas or newlines separate entries; surrounding whitespace and
-          # blank entries are ignored, and anything else that is not a plain
-          # number is ignored with a warning.
-          allowlisted=false
-          IFS=',' read -ra entries <<< "${TRUSTED_AUTOMATION_ACTOR_IDS//$'\n'/,}"
-          for entry in "${entries[@]}"; do
-            if [[ "$entry" =~ ^[[:space:]]*([0-9]+)[[:space:]]*$ ]]; then
-              if [ "${BASH_REMATCH[1]}" = "$ACTOR_ID" ]; then allowlisted=true; fi
-            elif [[ "$entry" =~ [^[:space:]] ]]; then
-              echo "::warning::ignoring trusted-automation-actor-ids entry '$entry' (not a numeric user id)"
-            fi
-          done
-
-          if [ "$allowlisted" = true ] && [ "$TRIGGERING_ACTOR" = "$ACTOR" ]; then
-            echo "::notice::$ACTOR (user id $ACTOR_ID) is an allowlisted automation actor and dispatched this run, so the push-access check on $APP_REPO does not apply"
-            exit 0
-          fi
-          if [ "$allowlisted" = true ]; then
-            echo "::notice::this run was dispatched by allowlisted automation actor $ACTOR, but this attempt was started by $TRIGGERING_ACTOR, so $TRIGGERING_ACTOR's own access is checked"
-          fi
-
-          if ! permission=$(gh api "repos/${APP_REPO}/collaborators/${TRIGGERING_ACTOR}/permission" --jq '.permission'); then
-            echo "::error::could not read the permission of $TRIGGERING_ACTOR (the account that started this run attempt) on $APP_REPO; refusing to roll back"
-            exit 1
-          fi
-          echo "::notice::$TRIGGERING_ACTOR has '$permission' on $APP_REPO"
-          case "$permission" in
-            admin|write|maintain) ;;
-            *)
-              echo "::error::$TRIGGERING_ACTOR is not authorized to roll back $APP_REPO (permission: $permission). Requires admin, write, or maintain. The account checked is the one that started this run attempt (github.triggering_actor); the run was dispatched by $ACTOR."
-              exit 1
-              ;;
-          esac
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ steps.app-info.outputs.repository }}
+          operation: roll back
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
       # prefix, or just the build number: resolve-image finds a dated release by
@@ -255,8 +244,32 @@ jobs:
       ENVIRONMENT: production
       DD_API_KEY: ${{ secrets.datadog-api-key }}
     steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # --- Authz for this attempt (inside the production lock) --------------
+      # FIRST real step on purpose, before the stale-rollback guard and before
+      # any credential is set up. The check in `lookup` does not cover every
+      # re-run: "Re-run failed jobs" re-runs only this job and reuses the
+      # earlier attempt's `lookup`, so this step is what checks the account
+      # that started the re-run. Same rule, same allowlist and same action as
+      # `lookup`. The checkout above only fetches this repo and holds no
+      # production credentials.
+      - name: Authorize the account that started this attempt
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          operation: roll back
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+
       # --- Stale-rollback guard (inside the production lock) ---------------
-      # FIRST step on purpose. This job's concurrency group is the production
+      # Runs right after the authz check and before anything is resolved or
+      # deployed, on purpose. This job's concurrency group is the production
       # lock it shares with promote, so every step here runs while the job
       # holds it, and no other promote or rollback of this app can start until
       # the job ends. A rollback that queued behind a promote sees that
@@ -395,13 +408,6 @@ jobs:
             echo "::notice::production is still running $current and ran $previous just before it, as expected; going ahead with the rollback"
           fi
 
-      - name: Checkout Cru Actions & Workflows
-        uses: actions/checkout@v7
-        with:
-          repository: CruGlobal/.github
-          ref: ${{ inputs.workflow-ref }}
-          path: cru-github-actions
-
       - name: Configure GCP credentials (production SA)
         uses: google-github-actions/auth@v3
         with:
@@ -479,24 +485,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
-            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:rollback",
                      "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
@@ -588,6 +603,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
@@ -600,11 +616,12 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
-              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + (if $previous != "" and $previous != $release
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
@@ -632,6 +649,7 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -640,9 +658,10 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) rollback in production FAILED* by \($actor)"
+              text: (":x: *\($project) rollback in production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -671,8 +690,26 @@ jobs:
       ENVIRONMENT: production
       DD_API_KEY: ${{ secrets.datadog-api-key }}
     steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # --- Authz for this attempt (inside the production lock) --------------
+      # FIRST real step on purpose; same reasoning as in rollback-gcp.
+      - name: Authorize the account that started this attempt
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          operation: roll back
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+
       # --- Stale-rollback guard (inside the production lock) ---------------
-      # FIRST step on purpose. This job's concurrency group is the production
+      # Runs right after the authz check and before anything is resolved or
+      # deployed, on purpose. This job's concurrency group is the production
       # lock it shares with promote, so every step here runs while the job
       # holds it, and no other promote or rollback of this app can start until
       # the job ends. A rollback that queued behind a promote sees that
@@ -811,13 +848,6 @@ jobs:
             echo "::notice::production is still running $current and ran $previous just before it, as expected; going ahead with the rollback"
           fi
 
-      - name: Checkout Cru Actions & Workflows
-        uses: actions/checkout@v7
-        with:
-          repository: CruGlobal/.github
-          ref: ${{ inputs.workflow-ref }}
-          path: cru-github-actions
-
       - name: Guard supported AWS type
         env:
           TYPE: ${{ needs.lookup.outputs.type }}
@@ -905,24 +935,33 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
+          # Name who pressed re-run when it is not the account that started
+          # the run.
+          rerun=""
+          if [ -n "$TRIGGERING_ACTOR" ] && [ "$TRIGGERING_ACTOR" != "$ACTOR" ]; then
+            rerun="$TRIGGERING_ACTOR"
+          fi
           jq -n \
             --arg title "Rolled back: $PROJECT_NAME to ${{ needs.lookup.outputs.release-tag }}" \
-            --arg text "Pipeline v2 production rollback by ${{ github.actor }} (started $DEPLOY_STARTED_AT)" \
+            --arg text "Pipeline v2 production rollback by ${{ github.actor }}${rerun:+ (re-run by $rerun)} (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg rerun "$rerun" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":production"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:production", "action:rollback",
                      "revision:${{ needs.lookup.outputs.release-tag }}", "rollback:true",
                      ("actor:" + $actor)]
-                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
+                     + (if $gitsha != "" then ["sha:" + $gitsha] else [] end)
+                     + (if $rerun != "" then ["rerun_by:" + $rerun] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
             || echo "::warning title=Datadog telemetry failed::rollback event for $PROJECT_NAME ${{ needs.lookup.outputs.release-tag }} not recorded (non-blocking)"
@@ -1002,6 +1041,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
@@ -1014,11 +1054,12 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
             --arg safety "$SAFETY_LINE" \
             '{channel: $channel,
-              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)"
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + (if $previous != "" and $previous != $release
                         then "\n<https://deploys.cru.org/changelog?project=" + $project
@@ -1046,6 +1087,7 @@ jobs:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1054,9 +1096,10 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) rollback in production FAILED* by \($actor)"
+              text: (":x: *\($project) rollback in production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
