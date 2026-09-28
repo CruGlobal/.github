@@ -49379,17 +49379,17 @@ var require_parse_proxy_response = __commonJS({
       return new Promise((resolve, reject) => {
         let buffersLength = 0;
         const buffers = [];
-        function read() {
+        function read2() {
           const b5 = socket.read();
           if (b5)
             ondata(b5);
           else
-            socket.once("readable", read);
+            socket.once("readable", read2);
         }
         function cleanup() {
           socket.removeListener("end", onend);
           socket.removeListener("error", onerror);
-          socket.removeListener("readable", read);
+          socket.removeListener("readable", read2);
         }
         function onend() {
           cleanup();
@@ -49408,7 +49408,7 @@ var require_parse_proxy_response = __commonJS({
           const endOfHeaders = buffered.indexOf("\r\n\r\n");
           if (endOfHeaders === -1) {
             debug2("have not received end of HTTP headers yet...");
-            read();
+            read2();
             return;
           }
           const headerParts = buffered.slice(0, endOfHeaders).toString("ascii").split("\r\n");
@@ -49453,7 +49453,7 @@ var require_parse_proxy_response = __commonJS({
         }
         socket.on("error", onerror);
         socket.on("end", onend);
-        read();
+        read2();
       });
     }
     exports2.parseProxyResponse = parseProxyResponse;
@@ -204779,12 +204779,17 @@ async function cloudrunListJobs(project) {
   );
   return jobs;
 }
-async function cloudrunGetRevision(name) {
-  const client = new RevisionsClient();
-  const [revision] = await retryTransient(
-    `cloudrunGetRevision ${name}`,
-    () => client.getRevision({ name })
-  );
+var revisionsReader = null;
+var READ_TIMEOUT_MS = 30 * 1e3;
+var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
+function read(label, call, quick) {
+  const timeout = quick ? QUICK_READ_TIMEOUT_MS : READ_TIMEOUT_MS;
+  return retryTransient(label, () => call({ timeout }), quick ? { attempts: 1 } : {});
+}
+async function cloudrunGetRevision(name, { quick = false } = {}) {
+  if (revisionsReader === null) revisionsReader = new RevisionsClient();
+  const client = revisionsReader;
+  const [revision] = await read(`cloudrunGetRevision ${name}`, (options) => client.getRevision({ name }, options), quick);
   return revision;
 }
 var START_DEADLINE_MS = 15 * 60 * 1e3;
@@ -205107,9 +205112,31 @@ async function platformManifestDigest(imageRef) {
 }
 var MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024;
 
+// src/v2/cloudrun-traffic.js
+var TRAFFIC_LATEST = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST";
+var revisionPath = (service, revision) => revision.includes("/") ? revision : `${service.name}/revisions/${revision}`;
+function trafficShares(service) {
+  const shares = /* @__PURE__ */ new Map();
+  for (const status of service.trafficStatuses ?? []) {
+    const name = status.revision || (status.type === TRAFFIC_LATEST ? service.latestReadyRevision : "");
+    const key = name ? revisionPath(service, name) : "";
+    shares.set(key, (shares.get(key) ?? 0) + (status.percent ?? 0));
+  }
+  return shares;
+}
+function servingRevision(service) {
+  if ((service.trafficStatuses ?? []).length > 0) {
+    const all = [...trafficShares(service)].find(([, percent]) => percent === 100);
+    if (!all) return "split";
+    return all[0] || null;
+  }
+  const followsLatest = (service.traffic ?? []).every((target) => target.type === TRAFFIC_LATEST);
+  const name = followsLatest ? service.latestReadyRevision : "";
+  return name ? revisionPath(service, name) : null;
+}
+
 // src/v2/resolve-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
-var TRAFFIC_LATEST = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST";
 var shortName = (resource) => resource.split("/").pop();
 var NEXT_STEPS = "Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. To promote, re-run deploy-candidate for the candidate, then promote.";
 async function resolveCloudRun({ mode, projectName, tag, runtimeProject }) {
@@ -205285,24 +205312,6 @@ function templateDiffers(templateImage, image) {
   const serving = parseImageRef(image);
   return template.name !== serving.name || template.digest !== serving.digest;
 }
-function servingRevision(service) {
-  const statuses = service.trafficStatuses ?? [];
-  if (statuses.length > 0) {
-    const shares = /* @__PURE__ */ new Map();
-    for (const status of statuses) {
-      const name2 = status.revision || (status.type === TRAFFIC_LATEST ? service.latestReadyRevision : "");
-      const key = name2 ? revisionPath(service, name2) : "";
-      shares.set(key, (shares.get(key) ?? 0) + (status.percent ?? 0));
-    }
-    const all = [...shares].find(([, percent]) => percent === 100);
-    if (!all) return "split";
-    return all[0] || null;
-  }
-  const followsLatest = (service.traffic ?? []).every((target) => target.type === TRAFFIC_LATEST);
-  const name = followsLatest ? service.latestReadyRevision : "";
-  return name ? revisionPath(service, name) : null;
-}
-var revisionPath = (service, revision) => revision.includes("/") ? revision : `${service.name}/revisions/${revision}`;
 
 // src/v2/resolve-ecs.js
 async function resolveEcs({ mode, projectName, tag, environment }) {

@@ -20299,17 +20299,17 @@ var require_parse_proxy_response = __commonJS({
       return new Promise((resolve, reject) => {
         let buffersLength = 0;
         const buffers = [];
-        function read() {
+        function read2() {
           const b5 = socket.read();
           if (b5)
             ondata(b5);
           else
-            socket.once("readable", read);
+            socket.once("readable", read2);
         }
         function cleanup() {
           socket.removeListener("end", onend);
           socket.removeListener("error", onerror);
-          socket.removeListener("readable", read);
+          socket.removeListener("readable", read2);
         }
         function onend() {
           cleanup();
@@ -20328,7 +20328,7 @@ var require_parse_proxy_response = __commonJS({
           const endOfHeaders = buffered.indexOf("\r\n\r\n");
           if (endOfHeaders === -1) {
             debug2("have not received end of HTTP headers yet...");
-            read();
+            read2();
             return;
           }
           const headerParts = buffered.slice(0, endOfHeaders).toString("ascii").split("\r\n");
@@ -20373,7 +20373,7 @@ var require_parse_proxy_response = __commonJS({
         }
         socket.on("error", onerror);
         socket.on("end", onend);
-        read();
+        read2();
       });
     }
     exports2.parseProxyResponse = parseProxyResponse;
@@ -177953,8 +177953,8 @@ var init_AwsQueryProtocol = __esm({
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
         }
-        const shortName3 = operationSchema.name.split("#")[1] ?? operationSchema.name;
-        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName3 + "Result" : void 0;
+        const shortName4 = operationSchema.name.split("#")[1] ?? operationSchema.name;
+        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName4 + "Result" : void 0;
         const bytes = await collectBody(response.body, context);
         if (bytes.byteLength > 0) {
           Object.assign(dataObject, await deserializer.read(ns, bytes, awsQueryResultKey));
@@ -222749,6 +222749,14 @@ async function lambdaWaitForFunctionUpdated(functionName, maxWaitTime = 300) {
     { FunctionName: functionName }
   );
 }
+function isWaiterTimeout(error3) {
+  return error3?.name === "TimeoutError";
+}
+var THROTTLING_ERRORS = ["ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded"];
+function isPermanentAwsError(error3) {
+  const status = error3?.$metadata?.httpStatusCode;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 429 && !THROTTLING_ERRORS.includes(error3?.name);
+}
 
 // src/ecs-config.js
 var ACCOUNTS = {
@@ -222885,13 +222893,47 @@ async function retryTransient(label, fn, options = {}) {
 // src/gcp.js
 var { ServicesClient, JobsClient, ExecutionsClient, RevisionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
-async function mutate(label, apply) {
-  return retryTransient(label, async (attempt) => {
+var READINESS_DEADLINE_MESSAGE = /readiness deadline exceeded/i;
+var READINESS_DEADLINE_REASON = "PROGRESS_DEADLINE_EXCEEDED";
+function isReadinessDeadline(errorOrCondition) {
+  if (errorOrCondition == null) return false;
+  if (errorOrCondition.reason === READINESS_DEADLINE_REASON) return true;
+  return typeof errorOrCondition.message === "string" && READINESS_DEADLINE_MESSAGE.test(errorOrCondition.message);
+}
+var OperationWaitExpired = class extends Error {
+  constructor(label, waitMs, cause) {
+    super(`${label}: the operation had not finished after ${Math.round(waitMs / 1e3)}s (${cause?.message})`);
+    this.name = "OperationWaitExpired";
+    this.cause = cause;
+  }
+};
+var OPERATION_BACKOFF = {
+  initialRetryDelayMillis: 1e3,
+  retryDelayMultiplier: 1.5,
+  maxRetryDelayMillis: 15e3
+};
+function operationOptions(waitUntil) {
+  if (waitUntil === void 0) return void 0;
+  return { longrunning: { ...OPERATION_BACKOFF, totalTimeoutMillis: Math.max(1, waitUntil - Date.now()) } };
+}
+async function mutate(label, apply, { waitMs, onAccepted } = {}) {
+  const waitUntil = waitMs === void 0 ? void 0 : Date.now() + waitMs;
+  let settled = null;
+  const response = await retryTransient(label, async (attempt) => {
     try {
-      const [operation2] = await apply();
-      const [response] = await operation2.promise();
-      return response;
+      const [operation2] = await apply(operationOptions(waitUntil));
+      if (onAccepted) onAccepted(operation2.metadata?.generation);
+      const [response2] = await operation2.promise();
+      return response2;
     } catch (error3) {
+      if (isReadinessDeadline(error3)) {
+        settled = error3;
+        return null;
+      }
+      if (waitUntil !== void 0 && Date.now() >= waitUntil) {
+        settled = new OperationWaitExpired(label, waitMs, error3);
+        return null;
+      }
       if (attempt > 1 && isAborted(error3)) {
         warning(
           `${label}: ABORTED on attempt ${attempt} \u2014 the replay collided with the update the previous attempt had already started. Treating it as applied.`
@@ -222901,6 +222943,8 @@ async function mutate(label, apply) {
       throw error3;
     }
   });
+  if (settled) throw settled;
+  return response;
 }
 async function listSecrets(project, types3 = PARAM_TYPES) {
   const client = new import_secret_manager.SecretManagerServiceClient();
@@ -222939,6 +222983,26 @@ async function cloudrunListJobs(project) {
     () => client.listJobs(request)
   );
   return jobs;
+}
+var servicesReader = null;
+var revisionsReader = null;
+var READ_TIMEOUT_MS = 30 * 1e3;
+var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
+function read(label, call, quick) {
+  const timeout = quick ? QUICK_READ_TIMEOUT_MS : READ_TIMEOUT_MS;
+  return retryTransient(label, () => call({ timeout }), quick ? { attempts: 1 } : {});
+}
+async function cloudrunGetRevision(name, { quick = false } = {}) {
+  if (revisionsReader === null) revisionsReader = new RevisionsClient();
+  const client = revisionsReader;
+  const [revision] = await read(`cloudrunGetRevision ${name}`, (options) => client.getRevision({ name }, options), quick);
+  return revision;
+}
+async function cloudrunGetService(name, { quick = false } = {}) {
+  if (servicesReader === null) servicesReader = new ServicesClient();
+  const client = servicesReader;
+  const [service] = await read(`cloudrunGetService ${name}`, (options) => client.getService({ name }, options), quick);
+  return service;
 }
 async function updateJob(job) {
   const client = new JobsClient();
@@ -223033,7 +223097,10 @@ async function cancelStalled(client, executionName) {
     return `It could NOT be cancelled (${error3.message}), so Cloud Run may still start it within two hours of its creation \u2014 confirm it is not running before running the job again.`;
   }
 }
-async function updateService(name, containers) {
+var FORCE_REVISION_ANNOTATION = "client.knative.dev/force-revision";
+var ALL_TRAFFIC_TO_LATEST = [{ type: "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", percent: 100 }];
+async function updateService(name, containers, options = {}) {
+  const { forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false } = options;
   const client = new ServicesClient();
   const request = {
     service: {
@@ -223041,15 +223108,34 @@ async function updateService(name, containers) {
       template: {
         containers,
         annotations: {
-          "client.knative.dev/force-revision": Date.now().toString()
+          [FORCE_REVISION_ANNOTATION]: forceRevision
         }
-      }
+      },
+      ...trafficToLatest ? { traffic: ALL_TRAFFIC_TO_LATEST } : {}
     },
     updateMask: {
-      paths: ["template.containers", "template.annotations"]
+      paths: ["template.containers", "template.annotations", ...trafficToLatest ? ["traffic"] : []]
     }
   };
-  return mutate(`updateService ${name}`, () => client.updateService(request));
+  return mutate(`updateService ${name}`, (callOptions) => client.updateService(request, callOptions), { waitMs, onAccepted });
+}
+async function pinServiceTraffic(name, revision, forceRevision, waitMs) {
+  const client = new ServicesClient();
+  const request = {
+    service: {
+      name,
+      template: {
+        annotations: {
+          [FORCE_REVISION_ANNOTATION]: forceRevision
+        }
+      },
+      traffic: [{ type: "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION", revision, percent: 100 }]
+    },
+    updateMask: {
+      paths: ["traffic", "template.annotations"]
+    }
+  };
+  return mutate(`pinServiceTraffic ${name}`, (callOptions) => client.updateService(request, callOptions), { waitMs });
 }
 
 // src/v2/image-ref.js
@@ -223087,6 +223173,373 @@ function findAppContainer(containers, repo) {
 async function authClient() {
   const auth = new import_google_auth_library.GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
   return auth.getClient();
+}
+
+// src/v2/cloudrun-traffic.js
+var TRAFFIC_LATEST = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST";
+var TRAFFIC_REVISION = "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION";
+var revisionPath = (service, revision) => revision.includes("/") ? revision : `${service.name}/revisions/${revision}`;
+function trafficShares(service) {
+  const shares = /* @__PURE__ */ new Map();
+  for (const status of service.trafficStatuses ?? []) {
+    const name = status.revision || (status.type === TRAFFIC_LATEST ? service.latestReadyRevision : "");
+    const key = name ? revisionPath(service, name) : "";
+    shares.set(key, (shares.get(key) ?? 0) + (status.percent ?? 0));
+  }
+  return shares;
+}
+function servingRevision(service) {
+  if ((service.trafficStatuses ?? []).length > 0) {
+    const all = [...trafficShares(service)].find(([, percent]) => percent === 100);
+    if (!all) return "split";
+    return all[0] || null;
+  }
+  const followsLatest = (service.traffic ?? []).every((target) => target.type === TRAFFIC_LATEST);
+  const name = followsLatest ? service.latestReadyRevision : "";
+  return name ? revisionPath(service, name) : null;
+}
+
+// src/v2/rollout-budget.js
+var ROLLOUT_BUDGET_MS = 45 * 60 * 1e3;
+var STEP_CAP_MS = 50 * 60 * 1e3;
+var POLL_INTERVAL_MS2 = 15 * 1e3;
+var PROGRESS_INTERVAL_MS = 60 * 1e3;
+var STEP_STARTED_AT = Date.now() - process.uptime() * 1e3;
+var realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function rolloutBudget({
+  now = Date.now,
+  sleep: sleep5 = realSleep,
+  stepStartedAt = STEP_STARTED_AT,
+  budgetMs = ROLLOUT_BUDGET_MS,
+  stepCapMs = STEP_CAP_MS
+} = {}) {
+  let startedAt = null;
+  let deadline = null;
+  const end2 = () => deadline ?? Math.min(now() + budgetMs, stepStartedAt + stepCapMs);
+  return {
+    now,
+    sleep: sleep5,
+    // Start the clock. Call it right before the first update; later calls
+    // change nothing, which is how the services share one deadline.
+    start() {
+      if (startedAt === null) {
+        startedAt = now();
+        deadline = end2();
+      }
+    },
+    // Time spent since the first update.
+    elapsed() {
+      return startedAt === null ? 0 : now() - startedAt;
+    },
+    // Time left, keeping `reserveMs` back for whatever has to happen at the
+    // bound (pinning traffic back, restoring an image). Never negative.
+    remaining(reserveMs = 0) {
+      return Math.max(0, end2() - reserveMs - now());
+    }
+  };
+}
+function progressLogger(budget, intervalMs = PROGRESS_INTERVAL_MS) {
+  let last = null;
+  return (line) => {
+    const now = budget.now();
+    if (last !== null && now - last < intervalMs) return;
+    last = now;
+    info(line);
+  };
+}
+function formatDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1e3));
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
+// src/v2/cloudrun-rollout.js
+var PIN_RESERVE_MS = 3 * 60 * 1e3;
+var PIN_WAIT_MS = 60 * 1e3;
+var MIN_PIN_WAIT_MS = 15 * 1e3;
+var EARLY_POLL_INTERVAL_MS = 5 * 1e3;
+var EARLY_POLL_MS = 60 * 1e3;
+var QUICK_READS_WITHIN_MS = 4 * 60 * 1e3;
+var FATAL_REVISION_REASONS = ["HEALTH_CHECK_CONTAINER_ERROR"];
+var FATAL_COMMON_REASONS = [
+  "CONTAINER_MISSING",
+  "CONTAINER_PERMISSION_DENIED",
+  "CONTAINER_IMAGE_UNAUTHORIZED",
+  "CONTAINER_IMAGE_AUTHORIZATION_CHECK_FAILED",
+  "SECRETS_ACCESS_CHECK_FAILED",
+  "ENCRYPTION_KEY_PERMISSION_DENIED",
+  "ENCRYPTION_KEY_CHECK_FAILED",
+  "VPC_NETWORK_NOT_FOUND",
+  "REVISION_FAILED"
+];
+var RETIRED = "RETIRED";
+var READY = "Ready";
+var RETRY = "Retry";
+var CONDITION_FAILED = "CONDITION_FAILED";
+var CONDITION_SUCCEEDED = "CONDITION_SUCCEEDED";
+var shortName = (resource) => resource.split("/").pop();
+var READ_FAILED_FOR_GOOD_CODES = [
+  3,
+  // INVALID_ARGUMENT
+  5,
+  // NOT_FOUND
+  7,
+  // PERMISSION_DENIED
+  16
+  // UNAUTHENTICATED
+];
+function readFailedForGood(error3) {
+  if (typeof error3?.code === "number") return READ_FAILED_FOR_GOOD_CODES.includes(error3.code);
+  return !isTransientError2(error3);
+}
+function generationOf(value) {
+  if (value === void 0 || value === null || value === "") return null;
+  const number = Number(String(value));
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+async function rollOutServices(updates, options = {}) {
+  const { budget = rolloutBudget(), stopRolloutOnFailure = true, ...timing } = options;
+  const moved = [];
+  const stop = (outcome) => stopRollout(moved, outcome, budget, stopRolloutOnFailure);
+  const outOfTime = () => budget.remaining(PIN_RESERVE_MS) <= 0;
+  for (const { service, containers } of updates) {
+    budget.start();
+    if (outOfTime()) throw await stop({ kind: "bound", name: service.name, untouched: true });
+    let current;
+    try {
+      current = await cloudrunGetService(service.name, { quick: budget.remaining(PIN_RESERVE_MS) < QUICK_READS_WITHIN_MS });
+    } catch (error3) {
+      throw await stop({ kind: "failed", name: service.name, error: error3, before: "could not read it before its update" });
+    }
+    if (outOfTime()) throw await stop({ kind: "bound", name: service.name, untouched: true });
+    const update = {
+      name: service.name,
+      previous: previousRevision(current),
+      // The latest created revision before this update: any newer one at our
+      // generation is ours.
+      createdBefore: current.latestCreatedRevision ? revisionPath(current, current.latestCreatedRevision) : "",
+      // Sent with the update, and sent back with a pin so the pin leaves the
+      // template as it is (see pinServiceTraffic in ../gcp.js).
+      forceRevision: Date.now().toString()
+    };
+    info(`updating service: ${service.name} (${containers.length} container(s))`);
+    const outcome = await rollOutService(update, containers, budget, timing);
+    if (outcome.accepted) moved.push(update);
+    if (!outcome.landed) throw await stop(outcome);
+  }
+}
+function previousRevision(service) {
+  const serving = servingRevision(service);
+  if (serving && serving !== "split") return serving;
+  return service.latestReadyRevision ? revisionPath(service, service.latestReadyRevision) : "";
+}
+async function rollOutService(update, containers, budget, timing) {
+  const mine = { ...update, accepted: false, generation: null, deadlineReported: false, sentAt: budget.now() };
+  const onAccepted = (value) => {
+    mine.accepted = true;
+    const generation = generationOf(value);
+    if (generation !== null) mine.generation = generation;
+  };
+  try {
+    await updateService(update.name, containers, {
+      forceRevision: update.forceRevision,
+      waitMs: budget.remaining(PIN_RESERVE_MS),
+      trafficToLatest: true,
+      onAccepted
+    });
+    mine.accepted = true;
+  } catch (error3) {
+    if (isReadinessDeadline(error3)) {
+      mine.deadlineReported = true;
+      warning(
+        `${update.name}: ${error3.message} Cloud Run keeps retrying a revision that missed its readiness deadline, and it may still become ready and take the traffic, so this deploy waits for it for up to ${formatDuration(budget.remaining(PIN_RESERVE_MS))}.`
+      );
+    } else if (!(error3 instanceof OperationWaitExpired)) {
+      return { kind: "failed", name: update.name, error: error3, accepted: mine.accepted };
+    }
+  }
+  return waitForRevision(mine, budget, timing);
+}
+async function waitForRevision(mine, budget, timing) {
+  const {
+    pollIntervalMs = POLL_INTERVAL_MS2,
+    earlyPollIntervalMs = EARLY_POLL_INTERVAL_MS,
+    progressIntervalMs = PROGRESS_INTERVAL_MS
+  } = timing;
+  const log = progressLogger(budget, progressIntervalMs);
+  const reportedAt = budget.now();
+  for (; ; ) {
+    const seen = await observe(mine);
+    const revision = seen.revision ? `revision ${shortName(seen.revision)}` : "its new revision";
+    if (seen.verdict === "landed") {
+      info(
+        `${mine.name}: ${revision} is ready and serves all traffic, ${formatDuration(budget.now() - mine.sentAt)} after its update was sent.`
+      );
+      return { landed: true, accepted: true };
+    }
+    if (seen.verdict === "unreadable") return { kind: "unreadable", name: mine.name, error: seen.error, accepted: mine.accepted };
+    if (seen.verdict === "superseded") return { kind: "superseded", error: new Error(seen.message) };
+    if (seen.verdict === "failed") {
+      return { kind: "failed", verdict: true, name: mine.name, error: new Error(seen.message), accepted: true };
+    }
+    const left = budget.remaining(PIN_RESERVE_MS);
+    if (left <= 0) {
+      return { kind: "bound", name: mine.name, revision: seen.revision, message: seen.message, accepted: mine.accepted };
+    }
+    log(
+      `${mine.name}: waiting for ${revision} to be ready and take all the traffic (${seen.message}). Waited ${formatDuration(budget.now() - mine.sentAt)}, ${formatDuration(left)} left.`
+    );
+    const early = budget.now() - reportedAt < EARLY_POLL_MS;
+    await budget.sleep(Math.min(early ? earlyPollIntervalMs : pollIntervalMs, left));
+  }
+}
+async function observe(mine) {
+  let service, latest, revision;
+  try {
+    service = await cloudrunGetService(mine.name, { quick: true });
+    latest = service.latestCreatedRevision ? revisionPath(service, service.latestCreatedRevision) : "";
+    const created = Boolean(latest) && latest !== mine.createdBefore;
+    const generation = generationOf(service.generation);
+    if (mine.generation === null) {
+      if (!created || generation === null) return { verdict: "waiting", message: "it has not been created yet" };
+      mine.generation = generation;
+      mine.accepted = true;
+    }
+    if (generation > mine.generation) return superseded(mine, generation);
+    if (generation < mine.generation || !created) return { verdict: "waiting", message: "it has not been created yet" };
+    revision = await cloudrunGetRevision(latest, { quick: true });
+  } catch (error3) {
+    if (!readFailedForGood(error3)) return { verdict: "waiting", message: `could not read it: ${error3.message}` };
+    return { verdict: "unreadable", error: error3 };
+  }
+  return { revision: latest, ...judge(service, revision, latest, mine) };
+}
+var superseded = (mine, generation) => ({
+  verdict: "superseded",
+  message: `${shortName(mine.name)}: another update reached the service while this deploy waited (it is at generation ${generation}; this deploy's update made generation ${mine.generation}), so this deploy's revision is no longer the one rolling out. Nothing is recorded for this deploy. Check what the service is serving before running it again.`
+});
+function judge(service, revision, ours, mine) {
+  const conditions = revision.conditions ?? [];
+  const ready = conditions.find((condition) => condition.type === READY);
+  if (conditions.some((condition) => condition.revisionReason === RETIRED)) {
+    return { verdict: "waiting", message: `it is retired${ready?.message ? `: ${ready.message}` : ""}` };
+  }
+  if (landed(service, ours)) return { verdict: "landed" };
+  const fatal2 = conditions.find(isFatal) ?? (mine.deadlineReported ? null : terminalFailure(service));
+  if (fatal2) return { verdict: "failed", message: failedForGood(service, ours, fatal2.message) };
+  const message = ready?.message || service.terminalCondition?.message || "it does not take all the traffic yet";
+  return { verdict: "waiting", message };
+}
+function landed(service, ours) {
+  const ready = service.latestReadyRevision ? revisionPath(service, service.latestReadyRevision) : "";
+  return ready === ours && trafficShares(service).get(ours) === 100 && service.terminalCondition?.state === CONDITION_SUCCEEDED && !service.reconciling;
+}
+var isFatal = (condition) => condition.type !== RETRY && condition.state === CONDITION_FAILED && !isReadinessDeadline(condition) && (FATAL_REVISION_REASONS.includes(condition.revisionReason) || FATAL_COMMON_REASONS.includes(condition.reason));
+function terminalFailure(service) {
+  const terminal = service.terminalCondition;
+  const final = terminal?.state === CONDITION_FAILED && !service.reconciling && !isReadinessDeadline(terminal);
+  return final ? terminal : null;
+}
+var failedForGood = (service, ours, message) => `Revision ${shortName(ours)} of ${shortName(service.name)} failed and will not become ready: ${message}`;
+async function stopRollout(moved, outcome, budget, stopRolloutOnFailure) {
+  if (outcome.kind === "superseded") return outcome.error;
+  if (outcome.kind === "unreadable") {
+    const landed2 = moved.filter((entry) => entry.name !== outcome.name).map((entry) => shortName(entry.name));
+    return withCause(new Error(unreadable(outcome, landed2)), outcome.error);
+  }
+  if (outcome.kind === "failed" && moved.length === 0) return outcome.error;
+  const headline2 = headlineOf(outcome, budget);
+  if (!stopRolloutOnFailure) return withCause(new Error(`${headline2} ${notStopped(outcome)}`), outcome.error);
+  const pins = [];
+  for (const { name, previous, forceRevision } of moved) {
+    pins.push({ name, previous, ...previous ? await pin(name, shortName(previous), forceRevision, budget) : {} });
+  }
+  return withCause(new Error([headline2, ...pinReport(pins, outcome)].join(" ")), outcome.error);
+}
+function withCause(error3, cause) {
+  if (cause) error3.cause = cause;
+  return error3;
+}
+async function pin(name, revision, forceRevision, budget) {
+  const waitMs = Math.max(MIN_PIN_WAIT_MS, Math.min(PIN_WAIT_MS, budget.remaining()));
+  const until = budget.now() + waitMs;
+  try {
+    await pinServiceTraffic(name, revision, forceRevision, waitMs);
+    return { pinned: true };
+  } catch (error3) {
+    let holds;
+    try {
+      holds = await pinHolds(name, revision, until, budget);
+    } catch (readError) {
+      return { pinned: false, error: new Error(`${error3.message}; its traffic could not be read back either: ${readError.message}`) };
+    }
+    if (!holds) return { pinned: false, error: error3 };
+    warning(`${name}: traffic is pinned to ${revision}, though its operation did not succeed (${error3.message}).`);
+    return { pinned: true };
+  }
+}
+async function pinHolds(name, revision, until, budget) {
+  for (; ; ) {
+    let service;
+    try {
+      service = await cloudrunGetService(name, { quick: true });
+    } catch (error3) {
+      if (readFailedForGood(error3)) throw error3;
+      if (budget.now() >= until) return false;
+      await budget.sleep(Math.min(EARLY_POLL_INTERVAL_MS, until - budget.now()));
+      continue;
+    }
+    const traffic = service.traffic ?? [];
+    const target = revisionPath(service, revision);
+    const toTarget = traffic.every(
+      (entry) => entry.type === TRAFFIC_REVISION && Boolean(entry.revision) && revisionPath(service, entry.revision) === target
+    );
+    return toTarget && traffic.reduce((sum, entry) => sum + (entry.percent ?? 0), 0) === 100;
+  }
+}
+function headlineOf(outcome, budget) {
+  const service = shortName(outcome.name);
+  if (outcome.kind === "failed") {
+    if (outcome.verdict) return outcome.error.message;
+    return `${service}: ${outcome.before ? `${outcome.before} (${outcome.error.message}).` : outcome.error.message}`;
+  }
+  if (outcome.untouched) {
+    return `The rollout budget ran out before ${service} could be updated, so it was left as it was: this step has to stop well inside its job's timeout, and the migration or the services before it used the time.`;
+  }
+  const revision = outcome.revision ? `revision ${shortName(outcome.revision)} of ` : "";
+  return `Cloud Run did not finish rolling out ${revision}${service} within ${formatDuration(budget.elapsed())} of this deploy's first update` + (outcome.message ? ` (${outcome.message})` : "") + ".";
+}
+function unreadable({ name, error: error3 }, landed2) {
+  return `${shortName(name)}: could not read the service while waiting for its rollout (${error3.message}). The rollout's state is unknown: its new revision may still land, and nothing would record it. Nothing was pinned, since that could take the service off a release that did land.` + (landed2.length > 0 ? ` ${landed2.join(", ")} already landed on the new release, and stay${landed2.length === 1 ? "s" : ""} there.` : "") + " Check what the services are serving.";
+}
+function notStopped(outcome) {
+  return "This deploy does not stop a rollout (a rollback), so nothing was pinned: pinning would send traffic back to the release it is rolling back from." + (outcome.kind === "bound" && !outcome.untouched ? " Its new revision may still go live, and nothing will record it. Check what the services are serving." : " Check what the services are serving.");
+}
+function pinReport(pins, outcome) {
+  const pinned = pins.filter((entry) => entry.pinned);
+  const lines = [];
+  if (pinned.length > 0) {
+    const stillTrying = outcome.kind === "bound" && !outcome.untouched;
+    lines.push(
+      "To keep the app on the release that was serving before this deploy, all traffic is pinned: " + pinned.map((entry) => `${shortName(entry.name)} to revision ${shortName(entry.previous)}`).join(", ") + ". " + (stillTrying ? "The new revision may still become ready, but it will get no traffic. " : "") + "The next deploy releases the pin, because every deploy sends all traffic to the latest revision. Only the services go back: the database migration, if the app has one, has already run, and its jobs already run the new image."
+    );
+  }
+  for (const entry of pins.filter((entry2) => !entry2.previous)) {
+    lines.push(
+      `${shortName(entry.name)} had no ready revision before this deploy (a first deploy), so there is nothing to pin it to. If its new revision becomes ready, it will take the traffic with nothing recording it.`
+    );
+  }
+  for (const entry of pins.filter((entry2) => entry2.previous && !entry2.pinned)) {
+    const revision = shortName(entry.previous);
+    lines.push(
+      `Could not pin ${shortName(entry.name)} to revision ${revision} (${entry.error.message}), so its new revision may still go live unrecorded. Pin it by hand: ${updateTrafficCommand(entry.name, revision)}`
+    );
+  }
+  return lines;
+}
+function updateTrafficCommand(name, revision) {
+  const [, project, , region, , service] = name.split("/");
+  return `gcloud run services update-traffic ${service} --to-revisions=${revision}=100 --region=${region} --project=${project}`;
 }
 
 // src/v2/oci.js
@@ -223752,8 +224205,8 @@ async function publishSourceMaps({
 
 // src/v2/deploy-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
-var shortName = (resource) => resource.split("/").pop();
-async function deployCloudRun({ image, runtimeProject, appUrl }) {
+var shortName2 = (resource) => resource.split("/").pop();
+async function deployCloudRun({ image, runtimeProject, appUrl, stopRolloutOnFailure }, rollout = {}) {
   assertDigestRef(image);
   if (!runtimeProject) {
     throw new Error("runtime-project is required to deploy a cloudrun image");
@@ -223765,7 +224218,7 @@ async function deployCloudRun({ image, runtimeProject, appUrl }) {
   const jobs = await cloudrunListJobs(runtimeProject);
   info(`jobs: ${JSON.stringify(jobs.map((j5) => j5.name))}`);
   const secrets = await listSecrets(runtimeProject, RUNTIME_PARAM_TYPES);
-  const migrateJob = jobs.find((job) => shortName(job.name) === DB_MIGRATE_JOB);
+  const migrateJob = jobs.find((job) => shortName2(job.name) === DB_MIGRATE_JOB);
   if (migrateJob) {
     await updateJobImage(migrateJob, image, secrets);
     info(`executing job: ${migrateJob.name}`);
@@ -223781,16 +224234,17 @@ async function deployCloudRun({ image, runtimeProject, appUrl }) {
     return handle;
   };
   const sourcemaps = await uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage });
-  const updatedServices = [];
-  for (const service of services) {
+  const updates = services.map((service) => {
     const containers = service.template.containers;
-    const updated = containers.map(
-      (container) => isAppContainer(container, containers, repo) ? { ...container, image, env: mergeEnvVars(container.env, secrets) } : container
-    );
-    info(`updating service: ${service.name} (${updated.length} container(s))`);
-    await updateService(service.name, updated);
-    updatedServices.push(shortName(service.name));
-  }
+    return {
+      service,
+      containers: containers.map(
+        (container) => isAppContainer(container, containers, repo) ? { ...container, image, env: mergeEnvVars(container.env, secrets) } : container
+      )
+    };
+  });
+  await rollOutServices(updates, { stopRolloutOnFailure, ...rollout });
+  const updatedServices = services.map((service) => shortName2(service.name));
   const signin = { published: false };
   const bucket = signinBucket(services, repo);
   if (bucket) {
@@ -223811,7 +224265,7 @@ async function deployCloudRun({ image, runtimeProject, appUrl }) {
 }
 async function uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage }) {
   const skipped = { status: "skipped", uploaded: 0, failed: 0 };
-  if (!secrets.some((secret) => shortName(secret.name) === TOKEN_SECRET)) return skipped;
+  if (!secrets.some((secret) => shortName2(secret.name) === TOKEN_SECRET)) return skipped;
   try {
     const token = await accessSecret(runtimeProject, TOKEN_SECRET);
     if (!token) return skipped;
@@ -223869,7 +224323,7 @@ async function deployEcs({ projectName, environment, image, appUrl }) {
   const secrets = await runtimeSecrets(projectName, nickname);
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
-  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName2))}`);
+  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName3))}`);
   const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster);
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns });
   const sourcemaps = await uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions });
@@ -223981,12 +224435,12 @@ async function updateServices({ projectName, cluster, image, secrets, serviceArn
   for (const serviceArn of serviceArns) {
     const family = taskDefinitions[serviceArn]?.family;
     if (!family) {
-      throw new Error(`Could not determine the task-definition family for service ${shortName2(serviceArn)}`);
+      throw new Error(`Could not determine the task-definition family for service ${shortName3(serviceArn)}`);
     }
     const taskDefinitionArn = await registerFromFamilyLatest(family, { projectName, image, secrets });
-    info(`updating ECS service ${shortName2(serviceArn)} -> ${taskDefinitionArn}`);
+    info(`updating ECS service ${shortName3(serviceArn)} -> ${taskDefinitionArn}`);
     await ecsUpdateService(serviceArn, cluster, taskDefinitionArn);
-    updated.push(shortName2(serviceArn));
+    updated.push(shortName3(serviceArn));
   }
   return updated;
 }
@@ -224019,14 +224473,17 @@ function familyOf(taskDefinitionArn) {
   if (!taskDefinitionArn) return void 0;
   return taskDefinitionArn.split("/").pop().split(":")[0];
 }
-function shortName2(arn) {
+function shortName3(arn) {
   return arn.split("/").pop();
 }
 
 // src/v2/deploy-lambda.js
 var MAX_WAIT_SECONDS = 300;
-async function deployLambda({ projectName, environment, image }) {
+var RESTORE_RESERVE_MS = 2 * 60 * 1e3;
+var RESTORE_POLL_INTERVAL_MS = 5 * 1e3;
+async function deployLambda({ projectName, environment, image, stopRolloutOnFailure = true }, rollout = {}) {
   assertDigestRef(image);
+  const { budget = rolloutBudget(), ...timing } = rollout;
   const nickname = environmentNickname(environment);
   const appRepoPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/${projectName}@`;
   const scratchPrefix = `${ecrRegistry(DEFAULT_ACCOUNT)}/scratch@`;
@@ -224034,6 +224491,8 @@ async function deployLambda({ projectName, environment, image }) {
   const functionNames = await lambdaListFunctionNames(projectName, nickname);
   info(`functions matching ${projectName}-${nickname}: ${JSON.stringify(functionNames)}`);
   const updated = [];
+  const moved = [];
+  const stop = (outcome) => stopRollout2(moved, outcome, budget, stopRolloutOnFailure);
   for (const functionName of functionNames) {
     const fn = await lambdaGetFunction(functionName);
     if (fn.Configuration?.PackageType !== "Image") {
@@ -224045,9 +224504,23 @@ async function deployLambda({ projectName, environment, image }) {
       info(`skipping ${functionName} (not using the app or scratch ECR image)`);
       continue;
     }
+    budget.start();
+    if (budget.remaining(RESTORE_RESERVE_MS) <= 0) throw await stop({ functionName, untouched: true });
     info(`updating Lambda function ${functionName} -> ${image}`);
-    await lambdaUpdateFunctionCode(functionName, image);
-    await lambdaWaitForFunctionUpdated(functionName, MAX_WAIT_SECONDS);
+    try {
+      await lambdaUpdateFunctionCode(functionName, image);
+    } catch (error3) {
+      throw await stop({ functionName, error: error3 });
+    }
+    moved.push({ functionName, previousImage: resolved });
+    let outcome;
+    try {
+      outcome = await waitForUpdate(functionName, budget, timing);
+    } catch (error3) {
+      throw await stop({ functionName, error: error3 });
+    }
+    if (outcome.unreadable) throw withCause2(new Error(unreadable2(outcome)), outcome.error);
+    if (!outcome.landed) throw await stop(outcome);
     updated.push(functionName);
   }
   if (updated.length === 0) {
@@ -224056,6 +224529,137 @@ async function deployLambda({ projectName, environment, image }) {
     );
   }
   return { deployedImage: image, services: updated };
+}
+async function waitForUpdate(functionName, budget, timing) {
+  const sentAt = budget.now();
+  const seconds = Math.floor(budget.remaining(RESTORE_RESERVE_MS) / 1e3);
+  if (seconds > 1) {
+    try {
+      await lambdaWaitForFunctionUpdated(functionName, Math.min(MAX_WAIT_SECONDS, seconds));
+      return { landed: true };
+    } catch (error3) {
+      if (!isWaiterTimeout(error3)) throw await waiterFailure(functionName, error3);
+    }
+    warning(
+      `${functionName} was still updating when the waiter gave up. Lambda finishes an update on its own, so this deploy keeps checking it for up to ${formatDuration(budget.remaining(RESTORE_RESERVE_MS))}.`
+    );
+  }
+  return pollUpdate(functionName, sentAt, budget, timing);
+}
+async function pollUpdate(functionName, sentAt, budget, timing) {
+  const { pollIntervalMs = POLL_INTERVAL_MS2, progressIntervalMs = PROGRESS_INTERVAL_MS } = timing;
+  const log = progressLogger(budget, progressIntervalMs);
+  for (; ; ) {
+    const { status, reason, error: error3 } = await updateStatus(functionName);
+    if (error3) return { landed: false, unreadable: true, functionName, error: error3 };
+    if (status === "Successful") {
+      info(`${functionName}: update finished, ${formatDuration(budget.now() - sentAt)} after it was sent.`);
+      return { landed: true };
+    }
+    if (status === "Failed") throw failedUpdate(functionName, reason);
+    const left = budget.remaining(RESTORE_RESERVE_MS);
+    if (left <= 0) return { landed: false, stalled: true, functionName, status, reason };
+    log(
+      `${functionName}: waiting for its update to finish (LastUpdateStatus ${status}${reason ? `: ${reason}` : ""}). Waited ${formatDuration(budget.now() - sentAt)}, ${formatDuration(left)} left.`
+    );
+    await budget.sleep(Math.min(pollIntervalMs, left));
+  }
+}
+var failedUpdate = (functionName, reason, cause) => withCause2(new Error(
+  `${functionName} failed to update to the new image, and keeps running its previous one: ` + (reason || "Lambda gave no reason")
+), cause);
+async function waiterFailure(functionName, error3) {
+  const { status, reason } = await updateStatus(functionName);
+  return status === "Failed" ? failedUpdate(functionName, reason, error3) : error3;
+}
+async function updateStatus(functionName) {
+  try {
+    const { Configuration: configuration = {} } = await lambdaGetFunction(functionName);
+    return { status: configuration.LastUpdateStatus ?? "unknown", reason: configuration.LastUpdateStatusReason ?? "" };
+  } catch (error3) {
+    if (isPermanentAwsError(error3)) return { error: error3 };
+    return { status: "unreadable", reason: error3.message };
+  }
+}
+var unreadable2 = ({ functionName, error: error3 }) => `${functionName}: could not read the function while waiting for its update (${error3.message}). The update's state is unknown: its new image may still go live, and nothing would record it. Nothing was sent back, since that could take functions off a release that did land. Check which image each function runs.`;
+async function stopRollout2(moved, outcome, budget, stopRolloutOnFailure) {
+  const others = moved.filter((entry) => entry.functionName !== outcome.functionName);
+  if (outcome.error && others.length === 0) return outcome.error;
+  const lines = [headline(outcome, budget)];
+  if (!stopRolloutOnFailure) {
+    lines.push(
+      "This deploy does not stop a rollout (a rollback), so no function was sent back: that would be the release it is rolling back from." + (outcome.stalled ? ` ${outcome.functionName} may still go live on the new image, and nothing will record it.` : "") + " Check which image each function runs."
+    );
+    return withCause2(new Error(lines.join(" ")), outcome.error);
+  }
+  if (outcome.stalled) {
+    const stalled = moved.find((entry) => entry.functionName === outcome.functionName);
+    const restored = await restoreStalled(stalled, budget);
+    if (!restored.taken) {
+      lines.push(restored.message, leftOnNewImage(moved));
+      return new Error(lines.join(" "));
+    }
+    lines.push(restored.message);
+  }
+  lines.push(...await restoreAll(others));
+  return withCause2(new Error(lines.join(" ")), outcome.error);
+}
+function withCause2(error3, cause) {
+  if (cause) error3.cause = cause;
+  return error3;
+}
+async function restoreStalled({ functionName, previousImage }, budget) {
+  try {
+    await lambdaUpdateFunctionCode(functionName, previousImage);
+  } catch (error3) {
+    return { taken: false, message: `Could not send ${functionName} back to ${previousImage} (${error3.message}).` };
+  }
+  const unconfirmed = (why) => ({
+    taken: true,
+    message: `${functionName} was sent back to ${previousImage}, but ${why}; Lambda finishes that update on its own.`
+  });
+  for (; ; ) {
+    const { status, reason, error: error3 } = await updateStatus(functionName);
+    if (error3) return unconfirmed(`it could not be checked on (${error3.message})`);
+    if (status === "Successful") return { taken: true, message: `${functionName} is back on ${previousImage}.` };
+    if (status === "Failed") {
+      return { taken: false, message: `Sending ${functionName} back to ${previousImage} failed (${reason || "no reason given"}).` };
+    }
+    if (budget.remaining() <= 0) return unconfirmed(`that had not finished in time (LastUpdateStatus ${status})`);
+    await budget.sleep(Math.min(RESTORE_POLL_INTERVAL_MS, budget.remaining()));
+  }
+}
+async function restoreAll(entries) {
+  const restored = [];
+  const lines = [];
+  for (const { functionName, previousImage } of entries) {
+    try {
+      await lambdaUpdateFunctionCode(functionName, previousImage);
+      restored.push(`${functionName} (${previousImage})`);
+    } catch (error3) {
+      lines.push(
+        `Could not restore ${functionName} to ${previousImage} (${error3.message}), so it may keep the new image unrecorded. Restore it by hand: ${updateCodeCommand(functionName, previousImage)}`
+      );
+    }
+  }
+  if (restored.length > 0) {
+    lines.unshift(
+      `To keep the app on the release that was live before this deploy, the previous image was sent back to ${restored.join(", ")}. Lambda finishes that update on its own.`
+    );
+  }
+  return lines;
+}
+function leftOnNewImage(moved) {
+  return "The other functions were left on the new image too, so the new image may go live on every function once that update finishes, and nothing will record it. Check which image each function runs. To go back by hand once no update is in progress: " + moved.map(({ functionName, previousImage }) => updateCodeCommand(functionName, previousImage)).join("; ");
+}
+var updateCodeCommand = (functionName, image) => `aws lambda update-function-code --function-name ${functionName} --image-uri ${image}`;
+function headline(outcome, budget) {
+  if (outcome.error) return outcome.error.message;
+  if (outcome.untouched) {
+    return `The rollout budget ran out before ${outcome.functionName} could be updated, so it was left as it was.`;
+  }
+  const reason = outcome.reason ? `: ${outcome.reason}` : "";
+  return `${outcome.functionName} had not finished updating ${formatDuration(budget.elapsed())} after this deploy's first update (LastUpdateStatus ${outcome.status}${reason}).`;
 }
 
 // src/v2/attempt-guard.js
@@ -224094,12 +224698,13 @@ async function run() {
     const image = getInput("image", { required: true });
     const runtimeProject = getInput("runtime-project", { required: false });
     const appUrl = getInput("app-url", { required: false });
+    const stopRolloutOnFailure = getInput("stop-rollout-on-failure", { required: false }).trim().toLowerCase() !== "false";
     assertDigestRef(image);
     info(`environment ${environment} -> ${environmentNickname(environment)}`);
     if (!NON_PRODUCTION_ENVIRONMENTS.includes(environment)) {
       assertAttemptAuthorized(`deploy to ${environment}`);
     }
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl });
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl, stopRolloutOnFailure });
     info(`deployed image: ${result.deployedImage}`);
     info(`updated services: ${JSON.stringify(result.services)}`);
     setOutput("deployed-image", result.deployedImage);

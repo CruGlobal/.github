@@ -158176,13 +158176,47 @@ function gcrRegistry(project, projectName, region = DEFAULT_REGION) {
 function gcrImageTag(project, projectName, environment, buildNumber) {
   return `${gcrRegistry(project, projectName)}:${environment}-${buildNumber}`;
 }
-async function mutate(label, apply) {
-  return retryTransient(label, async (attempt) => {
+var READINESS_DEADLINE_MESSAGE = /readiness deadline exceeded/i;
+var READINESS_DEADLINE_REASON = "PROGRESS_DEADLINE_EXCEEDED";
+function isReadinessDeadline(errorOrCondition) {
+  if (errorOrCondition == null) return false;
+  if (errorOrCondition.reason === READINESS_DEADLINE_REASON) return true;
+  return typeof errorOrCondition.message === "string" && READINESS_DEADLINE_MESSAGE.test(errorOrCondition.message);
+}
+var OperationWaitExpired = class extends Error {
+  constructor(label, waitMs, cause) {
+    super(`${label}: the operation had not finished after ${Math.round(waitMs / 1e3)}s (${cause?.message})`);
+    this.name = "OperationWaitExpired";
+    this.cause = cause;
+  }
+};
+var OPERATION_BACKOFF = {
+  initialRetryDelayMillis: 1e3,
+  retryDelayMultiplier: 1.5,
+  maxRetryDelayMillis: 15e3
+};
+function operationOptions(waitUntil) {
+  if (waitUntil === void 0) return void 0;
+  return { longrunning: { ...OPERATION_BACKOFF, totalTimeoutMillis: Math.max(1, waitUntil - Date.now()) } };
+}
+async function mutate(label, apply, { waitMs, onAccepted } = {}) {
+  const waitUntil = waitMs === void 0 ? void 0 : Date.now() + waitMs;
+  let settled = null;
+  const response = await retryTransient(label, async (attempt) => {
     try {
-      const [operation] = await apply();
-      const [response] = await operation.promise();
-      return response;
+      const [operation] = await apply(operationOptions(waitUntil));
+      if (onAccepted) onAccepted(operation.metadata?.generation);
+      const [response2] = await operation.promise();
+      return response2;
     } catch (error2) {
+      if (isReadinessDeadline(error2)) {
+        settled = error2;
+        return null;
+      }
+      if (waitUntil !== void 0 && Date.now() >= waitUntil) {
+        settled = new OperationWaitExpired(label, waitMs, error2);
+        return null;
+      }
       if (attempt > 1 && isAborted(error2)) {
         warning(
           `${label}: ABORTED on attempt ${attempt} \u2014 the replay collided with the update the previous attempt had already started. Treating it as applied.`
@@ -158192,6 +158226,8 @@ async function mutate(label, apply) {
       throw error2;
     }
   });
+  if (settled) throw settled;
+  return response;
 }
 async function listSecrets(project, types3 = PARAM_TYPES) {
   const client = new import_secret_manager.SecretManagerServiceClient();
@@ -158220,6 +158256,8 @@ async function cloudrunListJobs(project) {
   );
   return jobs;
 }
+var READ_TIMEOUT_MS = 30 * 1e3;
+var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
 async function updateJob(job) {
   const client = new JobsClient();
   const request = { job };
@@ -158313,7 +158351,10 @@ async function cancelStalled(client, executionName) {
     return `It could NOT be cancelled (${error2.message}), so Cloud Run may still start it within two hours of its creation \u2014 confirm it is not running before running the job again.`;
   }
 }
-async function updateService(name, containers) {
+var FORCE_REVISION_ANNOTATION = "client.knative.dev/force-revision";
+var ALL_TRAFFIC_TO_LATEST = [{ type: "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", percent: 100 }];
+async function updateService(name, containers, options = {}) {
+  const { forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false } = options;
   const client = new ServicesClient();
   const request = {
     service: {
@@ -158321,15 +158362,16 @@ async function updateService(name, containers) {
       template: {
         containers,
         annotations: {
-          "client.knative.dev/force-revision": Date.now().toString()
+          [FORCE_REVISION_ANNOTATION]: forceRevision
         }
-      }
+      },
+      ...trafficToLatest ? { traffic: ALL_TRAFFIC_TO_LATEST } : {}
     },
     updateMask: {
-      paths: ["template.containers", "template.annotations"]
+      paths: ["template.containers", "template.annotations", ...trafficToLatest ? ["traffic"] : []]
     }
   };
-  return mutate(`updateService ${name}`, () => client.updateService(request));
+  return mutate(`updateService ${name}`, (callOptions) => client.updateService(request, callOptions), { waitMs, onAccepted });
 }
 
 // src/deploy-cloudrun.js

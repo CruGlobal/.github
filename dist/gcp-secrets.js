@@ -158219,6 +158219,8 @@ async function secrets(project, types3 = PARAM_TYPES) {
     return { ...acc, [secret.name.split("/").pop()]: version.payload.data.toString() };
   }, Promise.resolve({}));
 }
+var READ_TIMEOUT_MS = 30 * 1e3;
+var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
 var START_DEADLINE_MS = 15 * 60 * 1e3;
 var POLL_INTERVAL_MS = 15 * 1e3;
 

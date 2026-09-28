@@ -188915,6 +188915,8 @@ function ecrRegistry(account, region = "us-east-1") {
 var { ServicesClient, JobsClient, ExecutionsClient, RevisionsClient } = import_run.v2;
 var DEFAULT_REGION = "us-central1";
 var ACCESS_SECRET_TIMEOUT_MS = 30 * 1e3;
+var READ_TIMEOUT_MS = 30 * 1e3;
+var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
 var START_DEADLINE_MS = 15 * 60 * 1e3;
 var POLL_INTERVAL_MS = 15 * 1e3;
 
