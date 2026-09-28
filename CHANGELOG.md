@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.8.0](https://github.com/CruGlobal/.github/compare/v2.7.1...v2.8.0) (2026-09-28)
+
+
+### Features
+
+* **v2:** send who ran it, the run and the digest with each release event, and link changelogs to Flightdeck ([#507](https://github.com/CruGlobal/.github/issues/507)) ([15836a4](https://github.com/CruGlobal/.github/commit/15836a4f60da207c05f7bc3938ced775d9ff1ebd))
+
+
+### Bug Fixes
+
+* **v2:** resolve the Cloud Run image that is serving, not the template ([#508](https://github.com/CruGlobal/.github/issues/508)) ([6acf6ca](https://github.com/CruGlobal/.github/commit/6acf6ca41e34606f68f5a0f1700bec85a18df8ae))
+
 ## [2.7.1](https://github.com/CruGlobal/.github/compare/v2.7.0...v2.7.1) (2026-09-28)
 
 
