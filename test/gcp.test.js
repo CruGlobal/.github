@@ -61,8 +61,8 @@ import {
   updateService
 } from '../src/gcp.js'
 
-const SERVICE = `projects/hoax-prod-1234/locations/${DEFAULT_REGION}/services/hoax`
-const CONTAINERS = [{ name: 'app', image: 'gcr.io/p/hoax@sha256:abc', ports: [{ containerPort: 8080 }] }]
+const SERVICE = `projects/example-app-prod-abcd/locations/${DEFAULT_REGION}/services/example-app`
+const CONTAINERS = [{ name: 'app', image: 'gcr.io/p/example-app@sha256:abc', ports: [{ containerPort: 8080 }] }]
 
 // The error google-gax raises for the production flake: UpdateService is
 // classified non_idempotent, so nothing under us retries it.
@@ -186,7 +186,7 @@ describe('transient gRPC failures', () => {
       .mockRejectedValueOnce(unavailable())
       .mockResolvedValue([[{ name: 'db-migrate' }]])
 
-    await expect(cloudrunListJobs('hoax-prod-1234')).resolves.toEqual([{ name: 'db-migrate' }])
+    await expect(cloudrunListJobs('example-app-prod-abcd')).resolves.toEqual([{ name: 'db-migrate' }])
     expect(listJobsMock).toHaveBeenCalledTimes(2)
   })
 
@@ -219,7 +219,7 @@ describe('transient gRPC failures', () => {
 // cancellation is housekeeping so a late start cannot collide with whatever the
 // operator runs next.
 
-const JOB = `projects/flightdeck-stage-fybm/locations/${DEFAULT_REGION}/jobs/db-migrate`
+const JOB = `projects/example-app-stage-abcd/locations/${DEFAULT_REGION}/jobs/db-migrate`
 const EXEC = `${JOB}/executions/db-migrate-4vdmx`
 
 // The RunJob long-running operation: Execution as metadata (readable before it

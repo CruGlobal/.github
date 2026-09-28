@@ -67,20 +67,27 @@ const LATEST = 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
 
 // One service: the template names `template`, and all traffic goes to one
 // revision running `serving` (or to no ready revision at all when serving is
-// null, or split between two revisions when split is set).
+// null). `split` is a list of [image, percent], one revision each, all of them
+// real revisions, so a resolver that took the biggest share would find one.
 function environment (list) {
   const revisions = {}
+  const add = (name, id, image) => {
+    revisions[`${SERVICES}/${name}/revisions/${id}`] = { containers: [{ image, ports: [{}] }] }
+  }
   const services = list.map(({ name, template, serving, split }) => {
     const ready = serving ? `${name}-00001-aaa` : ''
-    if (serving) revisions[`${SERVICES}/${name}/revisions/${ready}`] = { containers: [{ image: serving, ports: [{}] }] }
+    if (serving) add(name, ready, serving)
+    const shares = (split ?? []).map(([image, percent], i) => {
+      const id = `${name}-0000${i + 1}-split`
+      add(name, id, image)
+      return { type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION', revision: id, percent }
+    })
     return {
       name: `${SERVICES}/${name}`,
       template: { containers: [{ image: template, ports: [{ containerPort: 8080 }] }] },
       traffic: [{ type: LATEST, percent: 100 }],
-      trafficStatuses: split
-        ? [{ revision: `${name}-00001-aaa`, percent: 50 }, { revision: `${name}-00002-bbb`, percent: 50 }]
-        : ready ? [{ type: LATEST, revision: ready, percent: 100 }] : [],
-      latestReadyRevision: ready ? `${SERVICES}/${name}/revisions/${ready}` : ''
+      trafficStatuses: split ? shares : ready ? [{ type: LATEST, revision: ready, percent: 100 }] : [],
+      latestReadyRevision: split ? `${SERVICES}/${name}/revisions/${name}-00001-split` : ready ? `${SERVICES}/${name}/revisions/${ready}` : ''
     }
   })
   gcp.cloudrunListServices.mockResolvedValue(services)
@@ -239,7 +246,7 @@ describe('deploy-candidate re-runs (Cloud Run)', () => {
   })
 
   it('is not a no-op when traffic is split', async () => {
-    environment([{ name: 'web', template: NEW, split: true }])
+    environment([{ name: 'web', template: NEW, split: [[NEW, 90], [OLD, 10]] }])
     expect(await guard()).toBe('false')
   })
 })
@@ -275,7 +282,7 @@ describe('promote (Cloud Run)', () => {
   })
 
   it('stops at the resolve step when release-candidate traffic is split', async () => {
-    environment([{ name: 'web', template: NEW, split: true }])
+    environment([{ name: 'web', template: NEW, split: [[NEW, 90], [OLD, 10]] }])
 
     const result = await runJob(promoteJob, context(), 'release')
 

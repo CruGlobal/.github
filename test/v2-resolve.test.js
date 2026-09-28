@@ -140,9 +140,10 @@ describe('resolveCloudRun mode=environment', () => {
     expect(warnings()).toEqual([])
   })
 
-  it('resolves the tag when the serving image is a tag reference', async () => {
+  it('reports the digest a revision serves when the template names a tag', async () => {
+    // A revision always reports the digest it resolved, never the tag.
     gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}:release-3`)])
-    revision('web', 'web-00001-aaa', `${REPO}:release-3`)
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:bbb`)
 
     const result = await resolveEnv()
 
@@ -151,18 +152,30 @@ describe('resolveCloudRun mode=environment', () => {
       digest: 'sha256:bbb',
       tags: ['candidate-10013', 'release-3']
     })
+    // A tag template cannot be compared with a digest without resolving it.
+    expect(warnings()).toEqual([])
   })
 
-  it('reports no comparable digest for a pre-v2 tag ref outside the shared registry', async () => {
-    const preV2 = `${HOST}/example-app-stage-1234/container/example-app:staging-10108`
-    gcp.cloudrunListServices.mockResolvedValue([service('web', preV2)])
-    revision('web', 'web-00001-aaa', preV2)
+  it('reports no comparable digest for a pre-v2 service outside the shared registry', async () => {
+    // The template names a tag in the old per-project registry, and the
+    // serving revision reports that registry's digest, sidecar included.
+    const oldRegistry = `${HOST}/example-app-stage-1234/container/example-app`
+    const containers = [
+      { image: `${oldRegistry}:staging-10108`, ports: [{ containerPort: 8080 }] },
+      { name: 'datadog', image: 'gcr.io/datadoghq/agent:latest' }
+    ]
+    gcp.cloudrunListServices.mockResolvedValue([service('web', null, { containers })])
+    revision('web', 'web-00001-aaa', null, [
+      { image: `${oldRegistry}@sha256:ccc`, ports: [{ containerPort: 8080 }] },
+      { name: 'datadog', image: 'gcr.io/datadoghq/agent@sha256:ddd' }
+    ])
 
     const result = await resolveEnv()
 
-    expect(result).toEqual({ image: preV2, digest: '', tags: [] })
-    // The old registry's tag must never be looked up in the shared registry.
+    expect(result).toEqual({ image: `${oldRegistry}@sha256:ccc`, digest: '', tags: [] })
+    // The old registry's image must never be looked up in the shared registry.
     expect(requestMock).not.toHaveBeenCalled()
+    expect(warnings()).toEqual([])
   })
 
   it('throws when no runtime-project is given', async () => {
@@ -207,7 +220,7 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
     )
     expect(gcp.cloudrunGetRevision).not.toHaveBeenCalled()
     expect(gcp.cloudrunListJobs).not.toHaveBeenCalled()
-    expect(warnings()[0]).toMatch(/names .*@sha256:bbb, but no ready revision is serving it/)
+    expect(warnings()[0]).toMatch(/names .*@sha256:bbb, but the service has no ready revision\. A rollout looks stuck/)
   })
 
   it('counts a service still serving the placeholder image as nothing deployed', async () => {
@@ -216,6 +229,17 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
 
     await expect(resolveEnv()).rejects.toThrow(/no Cloud Run service has a ready revision serving the app image/)
     expect(warnings()).toEqual([])
+  })
+
+  it('says the placeholder is still serving when the first deploy of a service never became ready', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([service('web', `${REPO}@sha256:bbb`)])
+    revision('web', 'web-00001-aaa', PLACEHOLDER)
+
+    await expect(resolveEnv()).rejects.toThrow(/no Cloud Run service has a ready revision serving the app image/)
+    expect(warnings()).toHaveLength(1)
+    expect(warnings()[0]).toMatch(
+      /names .*@sha256:bbb, but the service still serves the Cloud Run placeholder image \(revision web-00001-aaa\)/
+    )
   })
 
   it('falls back to latestReadyRevision when traffic follows LATEST and trafficStatuses is missing', async () => {
@@ -248,6 +272,48 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
     revision('web', 'web-00004-ddd', `${REPO}@sha256:aaa`)
 
     await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa' })
+  })
+
+  it('ignores a tagged revision at 0% next to the one taking all the traffic', async () => {
+    const web = service('web', `${REPO}@sha256:bbb`, {
+      ready: 'web-00002-bbb',
+      statuses: [
+        { type: LATEST, revision: 'web-00002-bbb', percent: 100 },
+        { type: PINNED, revision: 'web-00001-aaa', percent: 0, tag: 'previous' }
+      ]
+    })
+    gcp.cloudrunListServices.mockResolvedValue([web])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+    revision('web', 'web-00002-bbb', `${REPO}@sha256:bbb`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:bbb' })
+    expect(gcp.cloudrunGetRevision).toHaveBeenCalledTimes(1)
+    expect(gcp.cloudrunGetRevision).toHaveBeenCalledWith(revisionName('web', 'web-00002-bbb'))
+  })
+
+  it('adds up two entries that name the same revision', async () => {
+    const web = service('web', `${REPO}@sha256:aaa`, {
+      statuses: [
+        { type: PINNED, revision: 'web-00001-aaa', percent: 50 },
+        { type: PINNED, revision: 'web-00001-aaa', percent: 50, tag: 'current' }
+      ]
+    })
+    gcp.cloudrunListServices.mockResolvedValue([web])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+
+    await expect(resolveEnv()).resolves.toMatchObject({ digest: 'sha256:aaa' })
+  })
+
+  it('does not read a REVISION entry with no revision name as the latest ready revision', async () => {
+    const web = service('web', `${REPO}@sha256:aaa`, {
+      ready: 'web-00004-ddd',
+      statuses: [{ type: PINNED, revision: '', percent: 100 }]
+    })
+    gcp.cloudrunListServices.mockResolvedValue([web])
+    revision('web', 'web-00004-ddd', `${REPO}@sha256:aaa`)
+
+    await expect(resolveEnv()).rejects.toThrow(/no Cloud Run service has a ready revision/)
+    expect(gcp.cloudrunGetRevision).not.toHaveBeenCalled()
   })
 
   it('follows traffic pinned to a named revision', async () => {
@@ -290,9 +356,12 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
     revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
     revision('web', 'web-00002-bbb', `${REPO}@sha256:bbb`)
 
-    await expect(resolveEnv()).rejects.toThrow(
+    const attempt = resolveEnv()
+
+    await expect(attempt).rejects.toThrow(
       /services in example-app-stage-1234 do not all serve one app image \(web splits its traffic between revisions\)/
     )
+    await expect(attempt).rejects.toThrow(/send all of it to one revision first/)
     expect(gcp.cloudrunGetRevision).not.toHaveBeenCalled()
     expect(requestMock).not.toHaveBeenCalled()
   })
@@ -322,8 +391,11 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
 
     await expect(attempt).rejects.toThrow(/do not all serve one app image/)
     await expect(attempt).rejects.toThrow(
-      `(web serves ${REPO}@sha256:bbb; worker serves ${REPO}@sha256:aaa)`
+      `(web serves ${REPO}@sha256:bbb; worker serves ${REPO}@sha256:aaa). Nothing was resolved, ` +
+      'so a deploy to this environment goes ahead and a promote from it stops here. ' +
+      'To promote, re-run deploy-candidate for the candidate, then promote.'
     )
+    await expect(attempt).rejects.not.toThrow(/split/)
     expect(requestMock).not.toHaveBeenCalled()
   })
 
@@ -334,8 +406,19 @@ describe('resolveCloudRun mode=environment reads the serving revision, not the t
     ])
     revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
 
+    await expect(resolveEnv()).rejects.toThrow(/web serves .*@sha256:aaa; worker has no ready revision\)/)
+  })
+
+  it('resolves nothing when a service added after the last deploy is still on the placeholder', async () => {
+    gcp.cloudrunListServices.mockResolvedValue([
+      service('web', `${REPO}@sha256:aaa`),
+      service('worker', PLACEHOLDER)
+    ])
+    revision('web', 'web-00001-aaa', `${REPO}@sha256:aaa`)
+    revision('worker', 'worker-00001-aaa', PLACEHOLDER)
+
     await expect(resolveEnv()).rejects.toThrow(
-      /web serves .*@sha256:aaa; worker has no ready revision serving the app image/
+      /worker still serves the Cloud Run placeholder image \(revision worker-00001-aaa\)\)\. .*re-run deploy-candidate for the candidate, then promote/
     )
   })
 

@@ -93,24 +93,27 @@ async function resolveRunningImage (projectName, runtimeProject) {
     }
   }
 
-  if (isDigestRef(runningImage)) {
-    const { digest } = parseImageRef(runningImage)
-    // Report tags opportunistically; the running digest may predate the shared
-    // registry, in which case there are simply no shared-registry tags for it.
+  // Anything outside the shared registry is a pre-v2 deployment: an image in
+  // the app's old per-project registry, which is every app's state on its
+  // first v2 deploy after v1. A serving revision reports it as a digest ref
+  // even when the template names a tag, and that digest means nothing in the
+  // shared registry, so there is nothing to compare against. Report "no
+  // comparable deployment" instead of failing. This check comes before the
+  // digest check for that reason.
+  const { name, digest, tag } = parseImageRef(runningImage)
+  if (name !== repo) {
+    core.info(`running image ${runningImage} is a pre-v2 image outside the shared registry; nothing to compare`)
+    return { image: runningImage, digest: '', tags: [] }
+  }
+
+  if (digest) {
+    // Report tags opportunistically; a digest may simply carry none.
     const tags = await tagsForDigest(projectName, digest).catch(() => [])
     return { image: runningImage, digest, tags }
   }
 
-  // Running a tag ref: resolve it to the digest the tag currently points at.
-  const { name, tag } = parseImageRef(runningImage)
-  if (name !== repo) {
-    // Pre-v2 deployment: a tag-pinned image in another registry (the app's old
-    // per-project registry) — every app's state on its first v2 deploy after
-    // v1. Its tag means nothing in the shared registry, so there is no digest
-    // to compare against; report "no comparable deployment" instead of failing.
-    core.info(`running image ${runningImage} is a pre-v2 tag ref outside the shared registry; nothing to compare`)
-    return { image: runningImage, digest: '', tags: [] }
-  }
+  // A tag ref (a job template can carry one): resolve it to the digest the tag
+  // currently points at.
   core.info(`running image is a tag ref (${tag}); resolving to a digest`)
   const resolved = await resolveTag(projectName, tag)
   return resolved
@@ -135,7 +138,9 @@ async function resolveRunningImage (projectName, runtimeProject) {
 // digest and failing later with a confusing "no candidate tag" error. Picking
 // one image would be wrong for both: a guard that trusts the service that
 // landed leaves the other one behind, and a promote could take to production
-// an image that never served everywhere in release-candidate.
+// an image that never served everywhere in release-candidate. That includes a
+// service added after the candidate was deployed, which is still on the
+// placeholder: the candidate never ran there.
 async function servingImage (services, repo, runtimeProject) {
   const serving = []
   for (const service of services) {
@@ -152,23 +157,23 @@ async function servingImage (services, repo, runtimeProject) {
   const details = serving.map(entry => {
     const name = shortName(entry.service.name)
     if (entry.state === 'split') return `${name} splits its traffic between revisions`
-    if (entry.state === 'none') return `${name} has no ready revision serving the app image`
+    if (entry.state === 'none') return `${name} ${entry.reason}`
     return `${name} serves ${entry.image}`
   })
+  const split = serving.some(entry => entry.state === 'split')
   throw new Error(
-    `The Cloud Run services in ${runtimeProject} do not all serve one app image (${details.join('; ')}), ` +
-    'so there is no single running image to resolve. This is what a rollout that is stuck, failed or ' +
-    'still in progress looks like, or traffic split by hand. Deploy to this environment again or let ' +
-    'the rollout finish, then retry.'
+    `The Cloud Run services in ${runtimeProject} do not all serve one app image (${details.join('; ')}). ` +
+    'Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. ' +
+    'To promote, re-run deploy-candidate for the candidate, then promote.' +
+    (split ? ' Where traffic is split by hand, send all of it to one revision first.' : '')
   )
 }
 
 // What one service is serving:
 //   { state: 'serving', image }  one revision takes all traffic and runs the app image
-//   { state: 'none' }            no ready revision yet, or it runs the placeholder image
+//   { state: 'none', reason }    no ready revision, or the one serving has no app image
 //   { state: 'split' }           traffic is split, so no single revision is serving
 async function servingImageOf (service, repo) {
-  const templateImage = findAppContainer(service.template?.containers ?? [], repo)?.image
   const target = servingRevision(service)
   if (target === 'split') {
     core.info(`${service.name}: traffic is split between revisions`)
@@ -176,26 +181,48 @@ async function servingImageOf (service, repo) {
   }
 
   let image = null
+  let reason = 'has no ready revision'
   if (target) {
     const revision = await cloudrunGetRevision(target)
     const container = findAppContainer(revision?.containers ?? [], repo)
-    if (container?.image && !isPlaceholderImage(container.image)) image = container.image
+    if (!container?.image) {
+      reason = `serves revision ${shortName(target)}, which has no app container`
+    } else if (isPlaceholderImage(container.image)) {
+      reason = `still serves the Cloud Run placeholder image (revision ${shortName(target)})`
+    } else {
+      image = container.image
+    }
   }
 
-  if (templateImage && !isPlaceholderImage(templateImage) && templateImage !== image) {
+  const templateImage = findAppContainer(service.template?.containers ?? [], repo)?.image
+  if (templateDiffers(templateImage, image)) {
     core.warning(
       `${service.name}: the service template names ${templateImage}, but ` +
-      (image ? `the revision serving its traffic (${shortName(target)}) runs ${image}` : 'no ready revision is serving it') +
+      (image ? `the revision serving its traffic (${shortName(target)}) runs ${image}` : `the service ${reason}`) +
       '. A rollout looks stuck, failed or still in progress; going by what is serving.'
     )
   }
 
   if (!image) {
-    core.info(`${service.name}: no ready revision is serving the app image`)
-    return { service, state: 'none' }
+    core.info(`${service.name}: ${reason}`)
+    return { service, state: 'none', reason }
   }
   core.info(`app container image serving in ${target}: ${image}`)
   return { service, state: 'serving', image }
+}
+
+// Does the template name a different image than the one serving? A revision
+// always reports a digest, even when the template names a tag, so only a
+// digest template can be compared like for like (same repo, same digest). A
+// tag template would have to be resolved first, so it is never compared, and
+// neither is the placeholder a new service starts on.
+function templateDiffers (templateImage, image) {
+  if (!templateImage || isPlaceholderImage(templateImage) || !isDigestRef(templateImage)) return false
+  if (!image) return true
+  if (!isDigestRef(image)) return false
+  const template = parseImageRef(templateImage)
+  const serving = parseImageRef(image)
+  return template.name !== serving.name || template.digest !== serving.digest
 }
 
 // The full resource name of the revision that takes all of a service's
@@ -207,10 +234,18 @@ async function servingImageOf (service, repo) {
 function servingRevision (service) {
   const statuses = service.trafficStatuses ?? []
   if (statuses.length > 0) {
-    const all = statuses.find(status => status.percent === 100)
+    // Add up the share per revision, since two entries can name the same one.
+    // An entry with no revision name stands for the latest ready revision only
+    // when it follows LATEST; otherwise it names nothing (the '' key).
+    const shares = new Map()
+    for (const status of statuses) {
+      const name = status.revision || (status.type === TRAFFIC_LATEST ? service.latestReadyRevision : '')
+      const key = name ? revisionPath(service, name) : ''
+      shares.set(key, (shares.get(key) ?? 0) + (status.percent ?? 0))
+    }
+    const all = [...shares].find(([, percent]) => percent === 100)
     if (!all) return 'split'
-    const name = all.revision || (all.type === TRAFFIC_LATEST ? service.latestReadyRevision : '')
-    return name ? revisionPath(service, name) : null
+    return all[0] || null
   }
 
   // No resolved traffic. When traffic follows the latest ready revision (no
