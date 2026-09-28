@@ -88,20 +88,49 @@ export async function ecsRegisterTaskDefinition (taskDefinition) {
   return response.taskDefinition.taskDefinitionArn
 }
 
-export async function ecsUpdateService (service, cluster, taskDefinition) {
+// Returns the service as UpdateService answers with it, deployments included:
+// the new PRIMARY deployment is the one this update made. `timeoutMs` bounds
+// the whole call, retries included, so a call made near the end of a rollout
+// wait cannot run past it.
+export async function ecsUpdateService (service, cluster, taskDefinition, { timeoutMs } = {}) {
   const client = new ECSClient({...RETRY_CONFIG})
-  const response = await client.send(new UpdateServiceCommand({ service, cluster, taskDefinition }))
+  const response = await client.send(
+    new UpdateServiceCommand({ service, cluster, taskDefinition }),
+    timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : undefined
+  )
   return response.service
 }
 
 // Full DescribeServices records (not just their task defs — see
 // ecsServiceTaskDefinitions above). The pre-deploy migration phase reads a
 // service's networkConfiguration / launchType / capacityProviderStrategy off
-// this to run the db-migrate task on the same footing as the app.
+// this to run the db-migrate task on the same footing as the app, and the
+// running-image resolver reads each service's deployments. DescribeServices
+// takes at most 10 services a call.
 export async function ecsDescribeServices (serviceArns, cluster) {
   const client = new ECSClient({...RETRY_CONFIG})
-  const response = await client.send(new DescribeServicesCommand({ cluster, services: serviceArns }))
-  return response.services ?? []
+  const services = []
+  for (const arns of chunk(serviceArns, 10)) {
+    const response = await client.send(new DescribeServicesCommand({ cluster, services: arns }))
+    services.push(...(response.services ?? []))
+  }
+  return services
+}
+
+// How long one quick read may take. See ecsDescribeService.
+export const ECS_QUICK_READ_TIMEOUT_MS = 20 * 1000
+
+// One service, or null when ECS reports it missing. A rollout wait reads with
+// `quick`: ONE attempt, bounded by a short timeout, since the wait's own next
+// look is the retry, and a read that retried for minutes could carry the wait
+// past its bound.
+export async function ecsDescribeService (serviceArn, cluster, { quick = false } = {}) {
+  const client = new ECSClient(quick ? { maxAttempts: 1 } : {...RETRY_CONFIG})
+  const response = await client.send(
+    new DescribeServicesCommand({ cluster, services: [serviceArn] }),
+    quick ? { abortSignal: AbortSignal.timeout(ECS_QUICK_READ_TIMEOUT_MS) } : undefined
+  )
+  return response.services?.[0] ?? null
 }
 
 // Launch a one-off ECS task (used to run db-migrate to completion before a

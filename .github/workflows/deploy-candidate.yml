@@ -559,8 +559,11 @@ jobs:
           tag: ${{ inputs.tag }}
 
       # Idempotency: if release-candidate already runs this exact digest, the
-      # deploy is a no-op (unless force). continue-on-error — a fresh env still on
-      # the scratch placeholder resolves nothing, which means "not deployed yet".
+      # deploy is a no-op (unless force). continue-on-error: when nothing single
+      # is serving, this resolves nothing, which means "not deployed yet", and
+      # the deploy goes ahead. For ECS that is a fresh env still on the scratch
+      # placeholder, a rollout in progress, a rollout that failed, services on
+      # different images, or a mix of placeholder and real images.
       - name: Check image currently on release-candidate
         uses: ./cru-github-actions/actions/resolve-image
         id: current

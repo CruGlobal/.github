@@ -213,6 +213,21 @@ describe('callers of resolve-image mode=environment', () => {
     expect(resolve['continue-on-error']).toBeUndefined()
     expect(resolve.if).toBeUndefined()
   })
+
+  // The ECS resolver throws the same way when no single image serves (see
+  // test/v2-resolve-ecs.test.js), so the AWS jobs must treat a failed read the
+  // same way too.
+  it('does the same in the AWS jobs', () => {
+    const awsDeploy = workflows['deploy-candidate.yml'].jobs['deploy-candidate-aws']
+    const current = awsDeploy.steps.find(step => step.id === 'current')
+    expect(current['continue-on-error']).toBe(true)
+    expect(awsDeploy.steps.find(step => step.id === 'noop').env.HAVE).toBe('${{ steps.current.outputs.digest }}')
+
+    const resolve = workflows['promote.yml'].jobs['promote-aws'].steps.find(step => step.id === 'resolve')
+    expect(resolve.with.mode).toContain('environment')
+    expect(resolve['continue-on-error']).toBeUndefined()
+    expect(resolve.if).toBeUndefined()
+  })
 })
 
 describe('deploy-candidate re-runs (Cloud Run)', () => {

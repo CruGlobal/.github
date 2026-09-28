@@ -15,6 +15,8 @@ vi.mock('../src/aws.js', () => ({
   ecsDescribeTasks: vi.fn(),
   ecsWaitUntilTasksStopped: vi.fn(),
   ecsUpdateService: vi.fn(),
+  ecsDescribeService: vi.fn(),
+  isPermanentAwsError: vi.fn(),
   eventBridgeListRules: vi.fn(),
   eventBridgeListTargets: vi.fn(),
   eventBridgeUpdateTarget: vi.fn(),
@@ -123,7 +125,20 @@ beforeEach(() => {
   publishSourceMaps.mockResolvedValue(UPLOADED)
   IMAGE_HANDLE.readDir.mockReset()
   aws.ecsRegisterTaskDefinition.mockImplementation(td => Promise.resolve(`arn:aws:ecs:us-east-1:1:task-definition/${td.family}:10`))
-  aws.ecsUpdateService.mockResolvedValue({})
+  // Every update lands on the first look: the rollout wait itself is covered
+  // by test/v2-ecs-rollout.test.js.
+  const deployment = (taskDefinition, rolloutState) => ({ id: 'ecs-svc/2', status: 'PRIMARY', taskDefinition, rolloutState })
+  aws.ecsUpdateService.mockImplementation(async (serviceArn, cluster, taskDefinition) => ({
+    serviceArn,
+    taskDefinition,
+    deployments: [deployment(taskDefinition, 'IN_PROGRESS')]
+  }))
+  aws.ecsDescribeService.mockImplementation(async serviceArn => {
+    const [, , taskDefinition] = aws.ecsUpdateService.mock.calls.findLast(([arn]) => arn === serviceArn)
+    return { serviceArn, status: 'ACTIVE', taskDefinition, deployments: [deployment(taskDefinition, 'COMPLETED')] }
+  })
+  // The read of each service's deployments right before the updates.
+  aws.ecsDescribeServices.mockResolvedValue([])
   aws.eventBridgeUpdateTarget.mockResolvedValue({})
 })
 
@@ -174,7 +189,9 @@ describe('deployEcs compose-from-family-latest semantics', () => {
     expect(registered.containerDefinitions[1]).toEqual({ name: 'fluentbit', image: 'amazon/aws-for-fluent-bit:latest' })
 
     // service updated to the newly-registered revision
-    expect(aws.ecsUpdateService).toHaveBeenCalledWith(SERVICE_ARN, 'prod', 'arn:aws:ecs:us-east-1:1:task-definition/hoax-prod-web:10')
+    const registered10 = await aws.ecsRegisterTaskDefinition.mock.results[0].value
+    expect(registered10).toMatch(/:task-definition\/[a-z]+-prod-web:10$/)
+    expect(aws.ecsUpdateService).toHaveBeenCalledWith(SERVICE_ARN, 'prod', registered10, { timeoutMs: expect.any(Number) })
     expect(result).toEqual({ deployedImage: IMAGE, services: ['hoax-production-web'], sourcemaps: SKIPPED })
   })
 

@@ -23,11 +23,34 @@ vi.mock('@aws-sdk/client-ssm', () => ({
   ListTagsForResourceCommand: class { constructor (input) { this.input = input } }
 }))
 
-import { isPermanentAwsError, ssmParameters } from '../src/aws.js'
+// The ECS client, recording each command with the client's config and the
+// options it was sent with.
+const { ecsState } = vi.hoisted(() => ({ ecsState: { sent: [], answer: () => ({}) } }))
+vi.mock('@aws-sdk/client-ecs', async importOriginal => ({
+  ...(await importOriginal()),
+  ECSClient: class {
+    constructor (config) { this.config = config }
+    async send (command, options) {
+      ecsState.sent.push({ command, options, config: this.config })
+      return ecsState.answer(command)
+    }
+  }
+}))
+
+import {
+  ECS_QUICK_READ_TIMEOUT_MS,
+  ecsDescribeService,
+  ecsDescribeServices,
+  ecsUpdateService,
+  isPermanentAwsError,
+  ssmParameters
+} from '../src/aws.js'
 
 const param = n => ({ Name: `/ecs/hoax/prod/PARAM_${n}`, Value: `value-${n}` })
 
 beforeEach(() => {
+  ecsState.sent = []
+  ecsState.answer = () => ({})
   ssmState.pages = []
   ssmState.inFlight = 0
   ssmState.maxInFlight = 0
@@ -98,5 +121,48 @@ describe('isPermanentAwsError', () => {
   it('lets anything with no AWS shape pass', () => {
     expect(isPermanentAwsError(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))).toBe(false)
     expect(isPermanentAwsError(undefined)).toBe(false)
+  })
+})
+
+describe('the ECS calls a rollout makes', () => {
+  const arns = count => Array.from({ length: count }, (_, i) => `arn:aws:ecs:us-east-1:000000000000:service/prod/example-${i}`)
+
+  it('describes services ten at a time, the most DescribeServices takes', async () => {
+    ecsState.answer = command => ({ services: command.input.services.map(serviceArn => ({ serviceArn })) })
+
+    const services = await ecsDescribeServices(arns(23), 'prod')
+
+    expect(ecsState.sent.map(({ command }) => command.input.services.length)).toEqual([10, 10, 3])
+    expect(services.map(service => service.serviceArn)).toEqual(arns(23))
+  })
+
+  it('reads one service quickly in one attempt, under a time limit', async () => {
+    ecsState.answer = () => ({ services: [{ serviceArn: 'arn:one' }] })
+
+    await expect(ecsDescribeService('arn:one', 'prod', { quick: true })).resolves.toEqual({ serviceArn: 'arn:one' })
+
+    const [{ command, options, config }] = ecsState.sent
+    expect(command.input).toEqual({ cluster: 'prod', services: ['arn:one'] })
+    expect(config.maxAttempts).toBe(1)
+    expect(options.abortSignal).toBeInstanceOf(AbortSignal)
+    expect(ECS_QUICK_READ_TIMEOUT_MS).toBe(20 * 1000)
+  })
+
+  it('answers null for a service ECS reports missing', async () => {
+    ecsState.answer = () => ({ services: [], failures: [{ arn: 'arn:gone', reason: 'MISSING' }] })
+
+    await expect(ecsDescribeService('arn:gone', 'prod', { quick: true })).resolves.toBeNull()
+  })
+
+  it('bounds an update by the time it is given, and returns the service with its deployments', async () => {
+    const service = { serviceArn: 'arn:one', deployments: [{ id: 'ecs-svc/2', status: 'PRIMARY' }] }
+    ecsState.answer = () => ({ service })
+
+    await expect(ecsUpdateService('arn:one', 'prod', 'arn:td:2', { timeoutMs: 30 * 1000 })).resolves.toBe(service)
+    await ecsUpdateService('arn:one', 'prod', 'arn:td:2')
+
+    expect(ecsState.sent[0].command.input).toEqual({ service: 'arn:one', cluster: 'prod', taskDefinition: 'arn:td:2' })
+    expect(ecsState.sent[0].options.abortSignal).toBeInstanceOf(AbortSignal)
+    expect(ecsState.sent[1].options).toBeUndefined()
   })
 })

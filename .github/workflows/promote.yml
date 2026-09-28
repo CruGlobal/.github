@@ -890,6 +890,13 @@ jobs:
       # side. `a && '' || b` does not mean "empty when a": the empty string is
       # falsy, so `||` takes over and yields b. Hence the inverted test on
       # `environment` rather than a matching one.
+      #
+      # In environment mode an ECS app resolves what release-candidate is
+      # SERVING (each service's completed PRIMARY deployment). When there is no
+      # single serving image (a rollout in progress or failed, services on
+      # different images, or a service still on the scratch placeholder beside
+      # ones that serve the app image) this step fails and the promote stops
+      # here.
       - name: Resolve release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
