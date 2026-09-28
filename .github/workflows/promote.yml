@@ -54,6 +54,22 @@ on:
         type: string
         required: true
         description: Project name (shared-registry repo/image).
+      # The changelog links' Flightdeck workspace is not an input. It is the
+      # caller's FLIGHTDECK_WORKSPACE configuration variable (in a called
+      # workflow, vars resolve in the caller's repository and organization),
+      # because a caller that passes an input the called release does not
+      # declare fails to start, and a new required-by-the-caller input would
+      # stop it from moving back to an older release. flightdeck-url has a
+      # default, so a caller that leaves it out works with any release.
+      flightdeck-url:
+        type: string
+        required: false
+        default: 'https://flightdeck.cru.org'
+        description: >-
+          Flightdeck base URL. Release events are posted there, and changelog
+          links point there when the FLIGHTDECK_WORKSPACE variable is set.
+          Leave it unset unless you need another Flightdeck: passing it ties
+          the caller to releases that declare it.
     secrets:
       datadog-api-key:
         required: true
@@ -406,12 +422,17 @@ jobs:
       # classifier diffs), title = the release name, marked latest.
       #
       # The body is deliberately a short header — digest, promoted-by, run link,
-      # changelog link for the range. It does NOT restate the commit list:
-      # deploys.cru.org/changelog is the canonical rendering of "what's in this
-      # release" (ledger-backed, so it resolves release names through to shas),
-      # and a second copy here would only drift from it. Same dead-link rule as
+      # changelog link for the range. It does NOT restate the commit list: the
+      # changelog page is the canonical rendering of "what's in this release"
+      # (it resolves release names through to shas), and a second copy here
+      # would only drift from it. Same dead-link rule as
       # the Slack notify — with no baseline sha (first promote, or a failed ledger
       # query) the changelog line is omitted rather than emitted broken.
+      #
+      # The changelog link is the one the Slack notify builds, with the same
+      # rule: Flightdeck's changelog page when the FLIGHTDECK_WORKSPACE variable
+      # is set, the FlightdeckProject is a valid identifier and the app has no
+      # Repository override, otherwise the deploys.cru.org link, unchanged.
       #
       # Credential: the existing `authz-token`. It is already this workflow's
       # app-repo credential — the authz gate reads collaborator permission with
@@ -440,6 +461,9 @@ jobs:
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$COMMIT_SHA" ]; then
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
@@ -455,7 +479,21 @@ jobs:
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
-            '{tag_name: $tag, target_commitish: $target, name: $tag,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
               body: ("Promoted to production by @\($actor)"
                      + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
@@ -463,8 +501,7 @@ jobs:
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
                      + (if $prevsha != ""
-                        then "- [Changes in this release](https://deploys.cru.org/changelog?project="
-                             + $project + "&from=" + $prevsha + "&to=" + $tag + ")\n"
+                        then "- [Changes in this release](" + changelog($prevsha; $tag) + ")\n"
                         else "" end))}')
           # gh api puts the JSON body on stdout (success AND error) and its human
           # summary on stderr, so capture stdout only: stderr stays in the run log
@@ -583,11 +620,18 @@ jobs:
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
       # telemetry policy as the ledger: the action never fails, continue-on-error
       # is the belt on top.
+      #
+      # actor is the account that started THIS attempt (github.triggering_actor,
+      # not github.actor, which stays the first attempt's account on a re-run),
+      # run-url names this attempt, and image-digest is the digest that shipped.
+      # All three are display-only. The action leaves out any value Flightdeck
+      # would refuse, so none of them can cost the event.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: production
@@ -596,6 +640,9 @@ jobs:
           image-tags: ${{ steps.resolve.outputs.tags }}
           rollback-safety: ${{ steps.rollback-safety.outputs.verdict }}
           rollback-safety-reasons: ${{ steps.rollback-safety.outputs.reasons }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
 
@@ -604,12 +651,21 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
-      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
-      # `from` = the sha production ran before this promote (the same baseline the
-      # rollback-safety classifier diffs against), `to` = the new release tag --
-      # the page resolves revision names through the ledger, so a tag is as good
-      # as a sha. With no baseline yet (first promote) or a failed ledger query
-      # the line is omitted, so it is never a dead link.
+      # The closing line is a changelog link: `from` = the sha production ran
+      # before this promote (the same baseline the rollback-safety classifier
+      # diffs against), `to` = the new release tag. Both changelog pages resolve
+      # release names, so a tag is as good as a sha. With no baseline yet (first
+      # promote) or a failed ledger query the line is omitted, so it is never a
+      # dead link.
+      #
+      # Which page: Flightdeck's changelog page for the app's project when
+      # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
+      # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
+      # to nine capitals or digits), and the app's repository is
+      # CruGlobal/<project-name> (Flightdeck's changelog reads the repository
+      # named after the project, so an app-info Repository override keeps the
+      # old link). Every value in that link is URL-encoded. Anything else keeps
+      # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -622,6 +678,10 @@ jobs:
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -644,13 +704,25 @@ jobs:
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
             --arg safety "$safety" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($safety)"
                      + (if $prevsha != ""
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $prevsha + "&to=" + $release
-                             + "|what'\''s in this release>"
+                        then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -918,12 +990,17 @@ jobs:
       # classifier diffs), title = the release name, marked latest.
       #
       # The body is deliberately a short header — digest, promoted-by, run link,
-      # changelog link for the range. It does NOT restate the commit list:
-      # deploys.cru.org/changelog is the canonical rendering of "what's in this
-      # release" (ledger-backed, so it resolves release names through to shas),
-      # and a second copy here would only drift from it. Same dead-link rule as
+      # changelog link for the range. It does NOT restate the commit list: the
+      # changelog page is the canonical rendering of "what's in this release"
+      # (it resolves release names through to shas), and a second copy here
+      # would only drift from it. Same dead-link rule as
       # the Slack notify — with no baseline sha (first promote, or a failed ledger
       # query) the changelog line is omitted rather than emitted broken.
+      #
+      # The changelog link is the one the Slack notify builds, with the same
+      # rule: Flightdeck's changelog page when the FLIGHTDECK_WORKSPACE variable
+      # is set, the FlightdeckProject is a valid identifier and the app has no
+      # Repository override, otherwise the deploys.cru.org link, unchanged.
       #
       # Credential: the existing `authz-token`. It is already this workflow's
       # app-repo credential — the authz gate reads collaborator permission with
@@ -952,6 +1029,9 @@ jobs:
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
         run: |
           if [ -z "$COMMIT_SHA" ]; then
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
@@ -967,7 +1047,21 @@ jobs:
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
-            '{tag_name: $tag, target_commitish: $target, name: $tag,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
               body: ("Promoted to production by @\($actor)"
                      + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
@@ -975,8 +1069,7 @@ jobs:
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
                      + (if $prevsha != ""
-                        then "- [Changes in this release](https://deploys.cru.org/changelog?project="
-                             + $project + "&from=" + $prevsha + "&to=" + $tag + ")\n"
+                        then "- [Changes in this release](" + changelog($prevsha; $tag) + ")\n"
                         else "" end))}')
           # gh api puts the JSON body on stdout (success AND error) and its human
           # summary on stderr, so capture stdout only: stderr stays in the run log
@@ -1083,11 +1176,18 @@ jobs:
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
       # telemetry policy as the ledger: the action never fails, continue-on-error
       # is the belt on top.
+      #
+      # actor is the account that started THIS attempt (github.triggering_actor,
+      # not github.actor, which stays the first attempt's account on a re-run),
+      # run-url names this attempt, and image-digest is the digest that shipped.
+      # All three are display-only. The action leaves out any value Flightdeck
+      # would refuse, so none of them can cost the event.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
+          endpoint: ${{ inputs.flightdeck-url }}
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: production
@@ -1096,6 +1196,9 @@ jobs:
           image-tags: ${{ steps.resolve.outputs.tags }}
           rollback-safety: ${{ steps.rollback-safety.outputs.verdict }}
           rollback-safety-reasons: ${{ steps.rollback-safety.outputs.reasons }}
+          actor: ${{ github.triggering_actor }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          image-digest: ${{ steps.resolve.outputs.digest }}
 
       - run: echo "::notice title=Promoted::$PROJECT_NAME promoted ${{ steps.release.outputs.candidate }} -> ${{ steps.release.outputs.release }} in production"
 
@@ -1104,12 +1207,21 @@ jobs:
       # #name/C… or user U…); no-ops silently when the channel OR the bot token
       # is unset. The word "production" links to the app's production AppUrl
       # (also from app-info) when it has one, and is plain text when it doesn't.
-      # The closing line is a changelog link (deploys.cru.org, ledger-backed):
-      # `from` = the sha production ran before this promote (the same baseline the
-      # rollback-safety classifier diffs against), `to` = the new release tag --
-      # the page resolves revision names through the ledger, so a tag is as good
-      # as a sha. With no baseline yet (first promote) or a failed ledger query
-      # the line is omitted, so it is never a dead link.
+      # The closing line is a changelog link: `from` = the sha production ran
+      # before this promote (the same baseline the rollback-safety classifier
+      # diffs against), `to` = the new release tag. Both changelog pages resolve
+      # release names, so a tag is as good as a sha. With no baseline yet (first
+      # promote) or a failed ledger query the line is omitted, so it is never a
+      # dead link.
+      #
+      # Which page: Flightdeck's changelog page for the app's project when
+      # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
+      # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
+      # to nine capitals or digits), and the app's repository is
+      # CruGlobal/<project-name> (Flightdeck's changelog reads the repository
+      # named after the project, so an app-info Repository override keeps the
+      # old link). Every value in that link is URL-encoded. Anything else keeps
+      # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
         env:
@@ -1122,6 +1234,10 @@ jobs:
           PREV_SHA: ${{ steps.baseline.outputs.prev-sha }}
           VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
           REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+          FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
+          FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
+          FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1144,13 +1260,25 @@ jobs:
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
             --arg safety "$safety" \
-            '{channel: $channel,
+            --arg fdurl "$FLIGHTDECK_URL" \
+            --arg workspace "$FLIGHTDECK_WORKSPACE" \
+            --arg fdproject "$FLIGHTDECK_PROJECT" \
+            --arg repository "$APP_REPO" \
+            'def changelog($from; $to):
+               ($fdurl | sub("/+\\z"; "")) as $base
+               | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
+                    and ($workspace | test("\\A[a-z0-9][a-z0-9-]*\\z"))
+                    and ($base | test("\\Ahttps://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*\\z"))
+                    and ($repository == "" or ($repository | ascii_downcase) == (("CruGlobal/" + $project) | ascii_downcase))
+                 then $base + "/" + ($workspace | @uri) + "/projects/" + ($fdproject | @uri)
+                      + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
+                 else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
+                 end;
+             {channel: $channel,
               text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($safety)"
                      + (if $prevsha != ""
-                        then "\n<https://deploys.cru.org/changelog?project=" + $project
-                             + "&from=" + $prevsha + "&to=" + $release
-                             + "|what'\''s in this release>"
+                        then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
                         else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
