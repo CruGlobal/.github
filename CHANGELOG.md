@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.1](https://github.com/CruGlobal/.github/compare/v2.9.0...v2.9.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **v2:** wait for each ECS rollout to land, and send the services back when it ends short ([#514](https://github.com/CruGlobal/.github/issues/514)) ([6b36a97](https://github.com/CruGlobal/.github/commit/6b36a97658e618e36f36241a68fc586388a3f450))
+
 ## [2.9.0](https://github.com/CruGlobal/.github/compare/v2.8.1...v2.9.0) (2026-09-28)
 
 
