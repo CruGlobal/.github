@@ -12,6 +12,16 @@ vi.mock('@actions/core', () => ({
   exportVariable: vi.fn()
 }))
 
+// @actions/github picks its proxy once, when it loads, from the proxy settings
+// for api.github.com. It then sends every request through that proxy, even one
+// to this local server. A proxy on the test machine that refuses or drops the
+// connection would then fail the test. Clear the settings before it loads, so
+// the client talks straight to the server, as it does on a runner with no
+// proxy.
+vi.hoisted(() => {
+  for (const name of ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY']) vi.stubEnv(name, undefined)
+})
+
 import { getOctokit } from '@actions/github'
 import { authorize } from '../src/authorize-actor.js'
 
