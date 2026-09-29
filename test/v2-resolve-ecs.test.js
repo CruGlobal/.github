@@ -19,11 +19,12 @@ vi.mock('@aws-sdk/client-ecr', () => ({
 }))
 
 import * as aws from '../src/aws.js'
+import { DEFAULT_ACCOUNT, ecrRegistry } from '../src/ecs-config.js'
 import { resolveEcs } from '../src/v2/resolve-ecs.js'
 import { TagNotFoundError } from '../src/v2/errors.js'
 import { ecsDeployment, ecsService, taskDefinitionArn } from './support/fake-ecs.js'
 
-const REGISTRY = '056154071827.dkr.ecr.us-east-1.amazonaws.com'
+const REGISTRY = ecrRegistry(DEFAULT_ACCOUNT)
 
 beforeEach(() => {
   aws.ecsListServices.mockReset()
@@ -38,10 +39,10 @@ describe('resolveEcs mode=tag', () => {
       imageDetails: [{ imageDigest: 'sha256:aaa', imageTags: ['candidate-10012', 'sha-abc'] }]
     })
 
-    const result = await resolveEcs({ mode: 'tag', projectName: 'hoax', tag: 'candidate-10012' })
+    const result = await resolveEcs({ mode: 'tag', projectName: 'example-app', tag: 'candidate-10012' })
 
     expect(result).toEqual({
-      image: `${REGISTRY}/hoax@sha256:aaa`,
+      image: `${REGISTRY}/example-app@sha256:aaa`,
       digest: 'sha256:aaa',
       tags: ['candidate-10012', 'sha-abc']
     })
@@ -51,10 +52,10 @@ describe('resolveEcs mode=tag', () => {
   it('throws TagNotFoundError when ECR has no image with the tag', async () => {
     sendMock.mockResolvedValue({ imageDetails: [] })
 
-    const attempt = resolveEcs({ mode: 'tag', projectName: 'hoax', tag: 'sha-nope' })
+    const attempt = resolveEcs({ mode: 'tag', projectName: 'example-app', tag: 'sha-nope' })
 
     await expect(attempt).rejects.toBeInstanceOf(TagNotFoundError)
-    await expect(attempt).rejects.toThrow('Tag "sha-nope" not found in ECR repository hoax')
+    await expect(attempt).rejects.toThrow('Tag "sha-nope" not found in ECR repository example-app')
   })
 })
 
@@ -285,6 +286,6 @@ describe('resolveEcs mode=environment', () => {
 
 describe('resolveEcs invalid mode', () => {
   it('throws on an unknown mode', async () => {
-    await expect(resolveEcs({ mode: 'nope', projectName: 'hoax' })).rejects.toThrow(/Unknown resolve mode/)
+    await expect(resolveEcs({ mode: 'nope', projectName: 'example-app' })).rejects.toThrow(/Unknown resolve mode/)
   })
 })

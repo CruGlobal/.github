@@ -33,24 +33,24 @@ const HOST = `${SHARED_LOCATION}-docker.pkg.dev`
 
 describe('shared registry path construction', () => {
   it('names the repo after the app', () => {
-    expect(sharedRegistryRepo('hoax')).toBe('hoax')
+    expect(sharedRegistryRepo('example-app')).toBe('example-app')
   })
 
   it('builds the image path host/project/repo/image', () => {
-    expect(sharedRegistryImage('hoax')).toBe(
-      `${HOST}/${SHARED_PROJECT}/hoax/hoax`
+    expect(sharedRegistryImage('example-app')).toBe(
+      `${HOST}/${SHARED_PROJECT}/example-app/example-app`
     )
   })
 
   it('builds a tag-pinned reference', () => {
-    expect(sharedImageTag('hoax', 'candidate-10012')).toBe(
-      `${HOST}/cru-shared-artifacts/hoax/hoax:candidate-10012`
+    expect(sharedImageTag('example-app', 'candidate-10012')).toBe(
+      `${HOST}/cru-shared-artifacts/example-app/example-app:candidate-10012`
     )
   })
 
   it('builds a digest-pinned reference', () => {
-    expect(sharedImageDigest('hoax', 'sha256:abc')).toBe(
-      `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:abc`
+    expect(sharedImageDigest('example-app', 'sha256:abc')).toBe(
+      `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:abc`
     )
   })
 })
@@ -100,7 +100,7 @@ describe('reference kind predicates', () => {
 })
 
 describe('app container heuristics', () => {
-  const repo = `${HOST}/cru-shared-artifacts/hoax/hoax`
+  const repo = `${HOST}/cru-shared-artifacts/example-app/example-app`
   const app = { image: `${repo}@sha256:aaa`, ports: [{ containerPort: 8080 }] }
   const sidecar = { name: 'datadog', image: 'gcr.io/datadoghq/agent:latest' }
 
@@ -132,7 +132,7 @@ describe('never-deployed placeholder image', () => {
   })
 
   it('does not flag real app images', () => {
-    expect(isPlaceholderImage(`${HOST}/cru-shared-artifacts/hoax/hoax@sha256:aaa`)).toBe(false)
+    expect(isPlaceholderImage(`${HOST}/cru-shared-artifacts/example-app/example-app@sha256:aaa`)).toBe(false)
     expect(isPlaceholderImage('gcr.io/datadoghq/agent:latest')).toBe(false)
     expect(isPlaceholderImage(null)).toBe(false)
   })
@@ -141,11 +141,11 @@ describe('never-deployed placeholder image', () => {
 describe('Artifact Registry resolution (mocked client)', () => {
   const IMAGES = [
     {
-      uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:aaa`,
+      uri: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:aaa`,
       tags: ['candidate-10012', 'sha-abc123']
     },
     {
-      uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:bbb`,
+      uri: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:bbb`,
       tags: ['candidate-10013', 'release-3']
     }
   ]
@@ -159,23 +159,23 @@ describe('Artifact Registry resolution (mocked client)', () => {
       .mockResolvedValueOnce({ data: { dockerImages: [IMAGES[0]], nextPageToken: 'p2' } })
       .mockResolvedValueOnce({ data: { dockerImages: [IMAGES[1]] } })
 
-    const images = await listDockerImages(SHARED_PROJECT, 'hoax')
+    const images = await listDockerImages(SHARED_PROJECT, 'example-app')
 
     expect(images).toEqual(IMAGES)
     expect(requestMock).toHaveBeenCalledTimes(2)
     const firstUrl = requestMock.mock.calls[0][0].url
     expect(firstUrl).toContain(
-      `/projects/${SHARED_PROJECT}/locations/${SHARED_LOCATION}/repositories/hoax/dockerImages`
+      `/projects/${SHARED_PROJECT}/locations/${SHARED_LOCATION}/repositories/example-app/dockerImages`
     )
   })
 
   it('resolveTag returns the digest reference and tags for a tag', async () => {
     requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
 
-    const result = await resolveTag('hoax', 'release-3')
+    const result = await resolveTag('example-app', 'release-3')
 
     expect(result).toEqual({
-      image: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:bbb`,
+      image: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:bbb`,
       digest: 'sha256:bbb',
       tags: ['candidate-10013', 'release-3']
     })
@@ -185,13 +185,13 @@ describe('Artifact Registry resolution (mocked client)', () => {
     requestMock.mockResolvedValue({
       data: {
         dockerImages: [
-          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:ddd`, tags: ['candidate-2026-07-23-10056', 'release-2026-07-23-10056'] },
-          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:eee`, tags: ['candidate-2026-07-23-10057'] }
+          { uri: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:ddd`, tags: ['candidate-2026-07-23-10056', 'release-2026-07-23-10056'] },
+          { uri: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:eee`, tags: ['candidate-2026-07-23-10057'] }
         ]
       }
     })
 
-    const result = await resolveTag('hoax', 'release-10056')
+    const result = await resolveTag('example-app', 'release-10056')
 
     expect(result.digest).toBe('sha256:ddd')
     expect(result.tags).toContain('release-2026-07-23-10056')
@@ -201,24 +201,24 @@ describe('Artifact Registry resolution (mocked client)', () => {
     requestMock.mockResolvedValue({
       data: {
         dockerImages: [
-          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:ddd`, tags: ['release-2026-07-23-10056'] },
-          { uri: `${HOST}/cru-shared-artifacts/hoax/hoax@sha256:eee`, tags: ['release-2026-07-24-10056'] }
+          { uri: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:ddd`, tags: ['release-2026-07-23-10056'] },
+          { uri: `${HOST}/cru-shared-artifacts/example-app/example-app@sha256:eee`, tags: ['release-2026-07-24-10056'] }
         ]
       }
     })
 
-    await expect(resolveTag('hoax', 'release-10056')).rejects.toThrow(/not found/)
+    await expect(resolveTag('example-app', 'release-10056')).rejects.toThrow(/not found/)
   })
 
   it('resolveTag throws when the tag is not present', async () => {
     requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
-    await expect(resolveTag('hoax', 'candidate-99999')).rejects.toThrow(/not found/)
+    await expect(resolveTag('example-app', 'candidate-99999')).rejects.toThrow(/not found/)
   })
 
   it('tagsForDigest returns the tags on a digest, or [] when unknown', async () => {
     requestMock.mockResolvedValue({ data: { dockerImages: IMAGES } })
-    expect(await tagsForDigest('hoax', 'sha256:aaa')).toEqual(['candidate-10012', 'sha-abc123'])
-    expect(await tagsForDigest('hoax', 'sha256:missing')).toEqual([])
+    expect(await tagsForDigest('example-app', 'sha256:aaa')).toEqual(['candidate-10012', 'sha-abc123'])
+    expect(await tagsForDigest('example-app', 'sha256:missing')).toEqual([])
   })
 })
 
@@ -240,7 +240,7 @@ describe('Artifact Registry transient-5xx retries (gaxios passthrough)', () => {
   it('listDockerImages requests with gaxios retry options', async () => {
     requestMock.mockResolvedValue({ data: { dockerImages: [] } })
 
-    await listDockerImages(SHARED_PROJECT, 'hoax')
+    await listDockerImages(SHARED_PROJECT, 'example-app')
 
     const opts = requestMock.mock.calls[0][0]
     expect(opts).toMatchObject(EXPECTED_RETRY)
@@ -249,7 +249,7 @@ describe('Artifact Registry transient-5xx retries (gaxios passthrough)', () => {
   it('addTag POST tag-create requests with gaxios retry options (retried create is idempotent)', async () => {
     requestMock.mockResolvedValue({})
 
-    await addTag(SHARED_PROJECT, 'hoax', 'hoax', 'sha256:aaa', 'release-1')
+    await addTag(SHARED_PROJECT, 'example-app', 'example-app', 'sha256:aaa', 'release-1')
 
     const post = requestMock.mock.calls.find(c => c[0].method === 'POST')[0]
     expect(post).toMatchObject(EXPECTED_RETRY)

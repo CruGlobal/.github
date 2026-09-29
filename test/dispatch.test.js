@@ -43,8 +43,8 @@ describe('parseInputsJson', () => {
   })
 
   it('parses a JSON object payload', () => {
-    expect(parseInputsJson('{"project-name":"hoax","release":"release-10012"}')).toEqual({
-      'project-name': 'hoax',
+    expect(parseInputsJson('{"project-name":"example-app","release":"release-10012"}')).toEqual({
+      'project-name': 'example-app',
       release: 'release-10012'
     })
   })
@@ -55,7 +55,7 @@ describe('parseInputsJson', () => {
 
   it('throws when the payload is not an object', () => {
     expect(() => parseInputsJson('[1,2,3]')).toThrow(/must be a JSON object/)
-    expect(() => parseInputsJson('"hoax"')).toThrow(/must be a JSON object/)
+    expect(() => parseInputsJson('"example-app"')).toThrow(/must be a JSON object/)
     expect(() => parseInputsJson('null')).toThrow(/must be a JSON object/)
   })
 })
@@ -77,7 +77,7 @@ describe('run', () => {
   it('dispatches with defaults and a parsed inputs payload', async () => {
     inputs['github-token'] = 'tok'
     inputs.workflow = 'promote.yml'
-    inputs['inputs-json'] = '{"project-name":"hoax"}'
+    inputs['inputs-json'] = '{"project-name":"example-app"}'
 
     await run()
 
@@ -86,7 +86,7 @@ describe('run', () => {
       repo: 'cru-deploy',
       workflow_id: 'promote.yml',
       ref: 'main',
-      inputs: { 'project-name': 'hoax' }
+      inputs: { 'project-name': 'example-app' }
     })
     expect(noticeMock).toHaveBeenCalledWith(expect.stringContaining('promote.yml'))
     expect(setFailedMock).not.toHaveBeenCalled()
@@ -94,7 +94,7 @@ describe('run', () => {
 
   it('honors an explicit repo and ref', async () => {
     inputs['github-token'] = 'tok'
-    inputs.repo = 'CruGlobal/hoax'
+    inputs.repo = 'CruGlobal/example-app'
     inputs.workflow = 'rollback.yml'
     inputs.ref = 'pipeline-v2'
 
@@ -102,7 +102,7 @@ describe('run', () => {
 
     expect(createWorkflowDispatch).toHaveBeenCalledWith({
       owner: 'CruGlobal',
-      repo: 'hoax',
+      repo: 'example-app',
       workflow_id: 'rollback.yml',
       ref: 'pipeline-v2',
       inputs: {}

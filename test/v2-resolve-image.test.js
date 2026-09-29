@@ -33,7 +33,7 @@ const outputs = () => Object.fromEntries(setOutputMock.mock.calls)
 
 beforeEach(() => {
   for (const key of Object.keys(inputs)) delete inputs[key]
-  Object.assign(inputs, { type: 'cloudrun', 'project-name': 'hoax', mode: 'tag', tag: 'sha-abc' })
+  Object.assign(inputs, { type: 'cloudrun', 'project-name': 'example-app', mode: 'tag', tag: 'sha-abc' })
   setOutputMock.mockReset()
   setFailedMock.mockReset()
   infoMock.mockReset()
@@ -42,26 +42,26 @@ beforeEach(() => {
 
 describe('resolve-image run()', () => {
   it('reports found=true and the image outputs when the tag resolves', async () => {
-    resolveCloudRunMock.mockResolvedValue({ image: 'reg/hoax@sha256:aaa', digest: 'sha256:aaa', tags: ['sha-abc', 'candidate-1'] })
+    resolveCloudRunMock.mockResolvedValue({ image: 'reg/example-app@sha256:aaa', digest: 'sha256:aaa', tags: ['sha-abc', 'candidate-1'] })
 
     await run()
 
     expect(setFailedMock).not.toHaveBeenCalled()
-    expect(outputs()).toEqual({ found: 'true', image: 'reg/hoax@sha256:aaa', digest: 'sha256:aaa', tags: 'sha-abc,candidate-1' })
+    expect(outputs()).toEqual({ found: 'true', image: 'reg/example-app@sha256:aaa', digest: 'sha256:aaa', tags: 'sha-abc,candidate-1' })
   })
 
   it('fails on a missing tag by default', async () => {
-    resolveCloudRunMock.mockRejectedValue(new TagNotFoundError('sha-abc', 'cru-shared-artifacts/hoax'))
+    resolveCloudRunMock.mockRejectedValue(new TagNotFoundError('sha-abc', 'cru-shared-artifacts/example-app'))
 
     await run()
 
-    expect(setFailedMock).toHaveBeenCalledWith('Tag "sha-abc" not found in cru-shared-artifacts/hoax')
+    expect(setFailedMock).toHaveBeenCalledWith('Tag "sha-abc" not found in cru-shared-artifacts/example-app')
     expect(outputs()).toEqual({})
   })
 
   it('reports found=false without failing when missing-ok is set and the tag is absent', async () => {
     inputs['missing-ok'] = 'true'
-    resolveCloudRunMock.mockRejectedValue(new TagNotFoundError('sha-abc', 'cru-shared-artifacts/hoax'))
+    resolveCloudRunMock.mockRejectedValue(new TagNotFoundError('sha-abc', 'cru-shared-artifacts/example-app'))
 
     await run()
 

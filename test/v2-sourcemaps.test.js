@@ -34,8 +34,8 @@ import {
   sourceMapsVersion
 } from '../src/v2/sourcemaps.js'
 
-const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/bills/bills'
-const APP_URL = 'https://bills.cru.org'
+const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/example-app/example-app'
+const APP_URL = 'https://example-app.example.org'
 const ENDPOINT = `${DEFAULT_ENDPOINT}${UPLOAD_PATH}`
 const TOKEN = 'server-scope-token'
 const VERSION = 'release-2026-09-10-10123'
@@ -43,7 +43,7 @@ const MAP = '{"version":3,"sources":["src/app.ts"]}'
 
 // A Cloud Run service as the API returns it: app container plus a sidecar that
 // must never be mistaken for it.
-function service (env, { name = 'bills-web' } = {}) {
+function service (env, { name = 'example-app-web' } = {}) {
   return {
     name: `projects/p/locations/us-central1/services/${name}`,
     template: {
@@ -174,12 +174,12 @@ describe('sourceMapsVersion', () => {
 
 describe('minifiedUrl', () => {
   it('resolves a staged path against the app URL, dropping .map', () => {
-    expect(minifiedUrl(APP_URL, 'main.js.map')).toBe('https://bills.cru.org/main.js')
+    expect(minifiedUrl(APP_URL, 'main.js.map')).toBe('https://example-app.example.org/main.js')
   })
 
   it('mirrors a nested path exactly', () => {
     expect(minifiedUrl(APP_URL, '_next/static/chunks/abc123.js.map'))
-      .toBe('https://bills.cru.org/_next/static/chunks/abc123.js')
+      .toBe('https://example-app.example.org/_next/static/chunks/abc123.js')
   })
 
   // Review of #489. Each of these composed to somewhere that is not this app,
@@ -196,15 +196,15 @@ describe('minifiedUrl', () => {
   })
 
   it('never composes a URL outside the app, whatever the path', () => {
-    const base = 'https://bills.cru.org/app/'
+    const base = 'https://example-app.example.org/app/'
     for (const staged of ['a.js.map', 'a/b/c.js.map', 'a/b%20c.js.map']) {
       expect(minifiedUrl(base, staged).startsWith(base)).toBe(true)
     }
   })
 
   it('treats an app URL with and without a trailing slash the same', () => {
-    expect(minifiedUrl('https://bills.cru.org/', 'a/b.js.map')).toBe('https://bills.cru.org/a/b.js')
-    expect(minifiedUrl('https://bills.cru.org', 'a/b.js.map')).toBe('https://bills.cru.org/a/b.js')
+    expect(minifiedUrl('https://example-app.example.org/', 'a/b.js.map')).toBe('https://example-app.example.org/a/b.js')
+    expect(minifiedUrl('https://example-app.example.org', 'a/b.js.map')).toBe('https://example-app.example.org/a/b.js')
   })
 
   it('keeps a path in the app URL instead of replacing its last segment', () => {
@@ -214,12 +214,12 @@ describe('minifiedUrl', () => {
   })
 
   it('strips .map exactly once', () => {
-    expect(minifiedUrl(APP_URL, 'a.js.map.map')).toBe('https://bills.cru.org/a.js.map')
-    expect(minifiedUrl(APP_URL, 'a.map.js.map')).toBe('https://bills.cru.org/a.map.js')
+    expect(minifiedUrl(APP_URL, 'a.js.map.map')).toBe('https://example-app.example.org/a.js.map')
+    expect(minifiedUrl(APP_URL, 'a.map.js.map')).toBe('https://example-app.example.org/a.map.js')
   })
 
   it('carries a non-js extension through untouched', () => {
-    expect(minifiedUrl(APP_URL, 'styles/app.css.map')).toBe('https://bills.cru.org/styles/app.css')
+    expect(minifiedUrl(APP_URL, 'styles/app.css.map')).toBe('https://example-app.example.org/styles/app.css')
   })
 
   it('rejects a path that is not a map', () => {
@@ -361,7 +361,7 @@ describe('publishSourceMaps request shape', () => {
       token: TOKEN,
       // Spelled `version`, NOT `code_version` (that is the occurrence payload).
       version: VERSION,
-      minified_url: 'https://bills.cru.org/_next/chunks/abc.js',
+      minified_url: 'https://example-app.example.org/_next/chunks/abc.js',
       filename: 'abc.js.map',
       contents: MAP
     }])
@@ -382,9 +382,9 @@ describe('publishSourceMaps request shape', () => {
     const result = await publish({ oci })
 
     expect((await uploads()).map(upload => upload.minified_url)).toEqual([
-      'https://bills.cru.org/a.js',
-      'https://bills.cru.org/b/c.js',
-      'https://bills.cru.org/d.css'
+      'https://example-app.example.org/a.js',
+      'https://example-app.example.org/b/c.js',
+      'https://example-app.example.org/d.css'
     ])
     expect(result).toMatchObject({ status: 'uploaded', uploaded: 3 })
   })

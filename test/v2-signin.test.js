@@ -19,13 +19,13 @@ import {
   signinSourcePath
 } from '../src/v2/signin.js'
 
-const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/bills/bills'
+const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/example-app/example-app'
 const IMAGE = `${REPO}@sha256:new`
-const BUCKET = 'bills-stage-1234-iap-signin'
+const BUCKET = 'example-app-stage-1234-iap-signin'
 const PAGE = '<!DOCTYPE html><title>Sign in</title>'
 
 // A Cloud Run service as the API returns it: app container plus a Datadog sidecar.
-function service (env, { name = 'bills-web' } = {}) {
+function service (env, { name = 'example-app-web' } = {}) {
   return {
     name: `projects/p/locations/us-central1/services/${name}`,
     template: {
@@ -128,8 +128,8 @@ describe('signinBucket', () => {
 
   it('scans every service, so a multi-service app still resolves', () => {
     const services = [
-      service([], { name: 'bills-worker' }),
-      service([{ name: 'IAP_SIGNIN_BUCKET', value: BUCKET }], { name: 'bills-web' })
+      service([], { name: 'example-app-worker' }),
+      service([{ name: 'IAP_SIGNIN_BUCKET', value: BUCKET }], { name: 'example-app-web' })
     ]
     expect(signinBucket(services, REPO)).toBe(BUCKET)
   })
@@ -208,7 +208,7 @@ describe('publishSigninPage', () => {
   })
 
   it('preserves exact bytes for a page with multibyte characters', async () => {
-    const unicode = '<!DOCTYPE html><title>Sign in · Bills</title>'
+    const unicode = '<!DOCTYPE html><title>Sign in · Example App</title>'
     image({ labels: { [SIGNIN_LABEL]: 'signin' }, files: { '/cru/iap-signin/signin': unicode } })
 
     const result = await publishSigninPage({ image: IMAGE, bucket: BUCKET })

@@ -32,7 +32,7 @@ beforeEach(() => {
   warningMock.mockReset()
   for (const k of Object.keys(inputs)) delete inputs[k]
   inputs['github-token'] = 'tok'
-  inputs.repository = 'CruGlobal/hoax'
+  inputs.repository = 'CruGlobal/example-app'
   inputs['base-sha'] = 'aaaa'
   inputs['head-sha'] = 'bbbb'
   inputs['migrations-path'] = 'drizzle'
@@ -225,8 +225,8 @@ describe('classify-rollback-safety — classification', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run()
     expect(verdict()).toBe('safe')
-    // The ararat release-10078 case: commits in range, none touching the
-    // migrations path — the reason must say "no changes", never "additive".
+    // A release with commits in range, none of them in the migrations path.
+    // The reason must say "no changes", never "additive".
     expect(reasons()).toEqual(['no migration changes in this release'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

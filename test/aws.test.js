@@ -46,7 +46,7 @@ import {
   ssmParameters
 } from '../src/aws.js'
 
-const param = n => ({ Name: `/ecs/hoax/prod/PARAM_${n}`, Value: `value-${n}` })
+const param = n => ({ Name: `/ecs/example-app/prod/PARAM_${n}`, Value: `value-${n}` })
 
 beforeEach(() => {
   ecsState.sent = []
@@ -62,12 +62,12 @@ describe('ssmParameters', () => {
     const params = Array.from({ length: 12 }, (_, i) => param(i))
     ssmState.pages = [{ Parameters: params.slice(0, 10) }, { Parameters: params.slice(10) }]
 
-    const result = await ssmParameters('/ecs/hoax/prod/')
+    const result = await ssmParameters('/ecs/example-app/prod/')
 
     expect(result).toHaveLength(12)
     expect(result.map(p => p.name)).toEqual(params.map(p => p.Name))
     expect(result[0]).toEqual({
-      name: '/ecs/hoax/prod/PARAM_0',
+      name: '/ecs/example-app/prod/PARAM_0',
       value: 'value-0',
       tags: { param_type: 'RUNTIME' }
     })
@@ -76,7 +76,7 @@ describe('ssmParameters', () => {
   it('fetches tags for every parameter with at most 5 calls in flight', async () => {
     ssmState.pages = [{ Parameters: Array.from({ length: 12 }, (_, i) => param(i)) }]
 
-    await ssmParameters('/ecs/hoax/prod/')
+    await ssmParameters('/ecs/example-app/prod/')
 
     expect(ssmState.tagCalls).toHaveLength(12)
     expect(ssmState.maxInFlight).toBeLessThanOrEqual(5)

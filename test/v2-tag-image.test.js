@@ -56,14 +56,14 @@ describe('assertDigest', () => {
 describe('run cloudrun', () => {
   it('tags via Artifact Registry (repo == package == project)', async () => {
     inputs.type = 'cloudrun'
-    inputs['project-name'] = 'hoax'
+    inputs['project-name'] = 'example-app'
     inputs.digest = DIGEST
     inputs.tag = 'release-10038'
     addTag.mockResolvedValue({ tag: 'release-10038', version: 'v', image: 'gcp-ref@sha256' })
 
     await run()
 
-    expect(addTag).toHaveBeenCalledWith('cru-shared-artifacts', 'hoax', 'hoax', DIGEST, 'release-10038')
+    expect(addTag).toHaveBeenCalledWith('cru-shared-artifacts', 'example-app', 'example-app', DIGEST, 'release-10038')
     expect(ecrRetagDigest).not.toHaveBeenCalled()
     expect(setOutputMock).toHaveBeenCalledWith('image', 'gcp-ref@sha256')
     expect(setOutputMock).toHaveBeenCalledWith('tag', 'release-10038')
@@ -72,7 +72,7 @@ describe('run cloudrun', () => {
 
   it('honors a registry-project override', async () => {
     inputs.type = 'cloudrun'
-    inputs['project-name'] = 'hoax'
+    inputs['project-name'] = 'example-app'
     inputs.digest = DIGEST
     inputs.tag = 'release-1'
     inputs['registry-project'] = 'cru-other-registry'
@@ -80,21 +80,21 @@ describe('run cloudrun', () => {
 
     await run()
 
-    expect(addTag).toHaveBeenCalledWith('cru-other-registry', 'hoax', 'hoax', DIGEST, 'release-1')
+    expect(addTag).toHaveBeenCalledWith('cru-other-registry', 'example-app', 'example-app', DIGEST, 'release-1')
   })
 })
 
 describe('run ecs / lambda', () => {
   it.each(['ecs', 'lambda'])('re-tags the ECR manifest for %s', async (type) => {
     inputs.type = type
-    inputs['project-name'] = 'hoax'
+    inputs['project-name'] = 'example-app'
     inputs.digest = DIGEST
     inputs.tag = 'release-10038'
     ecrRetagDigest.mockResolvedValue({ image: 'ecr-ref@sha256', tag: 'release-10038' })
 
     await run()
 
-    expect(ecrRetagDigest).toHaveBeenCalledWith('hoax', DIGEST, 'release-10038')
+    expect(ecrRetagDigest).toHaveBeenCalledWith('example-app', DIGEST, 'release-10038')
     expect(addTag).not.toHaveBeenCalled()
     expect(setOutputMock).toHaveBeenCalledWith('image', 'ecr-ref@sha256')
   })
@@ -149,7 +149,7 @@ describe('release tags need a checked attempt', () => {
 describe('run failures (never throw)', () => {
   it('fails on an unknown type', async () => {
     inputs.type = 'fargate'
-    inputs['project-name'] = 'hoax'
+    inputs['project-name'] = 'example-app'
     inputs.digest = DIGEST
     inputs.tag = 'release-1'
     await run()
@@ -158,7 +158,7 @@ describe('run failures (never throw)', () => {
 
   it('fails on a malformed digest before dispatching', async () => {
     inputs.type = 'ecs'
-    inputs['project-name'] = 'hoax'
+    inputs['project-name'] = 'example-app'
     inputs.digest = 'not-a-digest'
     inputs.tag = 'release-1'
     await run()
@@ -168,7 +168,7 @@ describe('run failures (never throw)', () => {
 
   it('fails when a required input is missing', async () => {
     inputs.type = 'ecs'
-    inputs['project-name'] = 'hoax'
+    inputs['project-name'] = 'example-app'
     await run()
     expect(setFailedMock).toHaveBeenCalledWith(expect.stringMatching(/digest/))
   })
