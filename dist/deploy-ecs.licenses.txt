@@ -35,4 +35,4 @@ escape-string-regexp:5.0.0 -- MIT
 mnemonist:0.38.3 -- MIT
 obliterator:1.6.1 -- MIT
 tunnel:0.0.6 -- MIT
-undici:6.28.0 -- MIT
+undici:6.29.0 -- MIT
