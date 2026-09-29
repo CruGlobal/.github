@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Get Repo Name
         id: repo_name
-        run: echo "name=$(basename ${{ github.repository }})" >> $GITHUB_OUTPUT
+        run: echo "name=$(basename $GITHUB_REPOSITORY)" >> $GITHUB_OUTPUT
 
       - name: Checkout Repo
         uses: actions/checkout@v7

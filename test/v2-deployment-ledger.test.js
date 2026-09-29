@@ -1,7 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { existsSync, readdirSync } from 'node:fs'
-import path from 'node:path'
-import { root, loadYaml, findStep, runShellStep, removeFakes } from './support/workflow-steps.js'
+import { loadYaml, findStep, runShellStep, removeFakes, workflowAndActionFiles } from './support/workflow-steps.js'
 
 // Who each deployment ledger row names. These run the real "Record deployment
 // in ledger" steps under bash (see support/workflow-steps.js), so what is
@@ -78,21 +76,6 @@ async function rowFrom (expect, site, { actor, triggeringActor, attempt }) {
   })
   expect(item.EventAt.S).toMatch(new RegExp(`#9001-${attempt}$`))
   return item
-}
-
-// Every workflow and every action in the repo, as repo-relative paths.
-function workflowAndActionFiles () {
-  const workflowDir = '.github/workflows'
-  const files = readdirSync(path.join(root, workflowDir))
-    .filter((name) => /\.ya?ml$/.test(name))
-    .map((name) => `${workflowDir}/${name}`)
-  for (const entry of readdirSync(path.join(root, 'actions'), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
-    for (const name of ['action.yml', 'action.yaml']) {
-      if (existsSync(path.join(root, 'actions', entry.name, name))) files.push(`actions/${entry.name}/${name}`)
-    }
-  }
-  return files
 }
 
 // The step a path inside a parsed file belongs to: "<file>:<job>:<step>" in a

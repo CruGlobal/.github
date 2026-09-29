@@ -245,10 +245,11 @@ jobs:
           WANT: ${{ steps.resolve.outputs.digest }}
           HAVE: ${{ steps.current.outputs.digest }}
           FORCE: ${{ inputs.force }}
+          TAG: ${{ inputs.tag }}
         run: |
           if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Already deployed::release-candidate already runs ${{ inputs.tag }} ($WANT); skipping (set force to redeploy)."
+            echo "::notice title=Already deployed::release-candidate already runs $TAG ($WANT); skipping (set force to redeploy)."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -274,26 +275,28 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TAG: ${{ inputs.tag }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
-            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg title "Deployed: $PROJECT_NAME $TAG to release-candidate" \
             --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg tag "$TAG" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":release-candidate"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:release-candidate", "action:deploy",
-                     "revision:${{ inputs.tag }}", ("actor:" + $actor)]
+                     ("revision:" + $tag), ("actor:" + $actor)]
                      + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
-            || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
+            || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME $TAG not recorded (non-blocking)"
 
       # The deployments-ledger write grant lives on the existing deploy roles
       # (ratified: no dedicated ledger role). GCP jobs carry no AWS creds, so
@@ -395,7 +398,9 @@ jobs:
           image-digest: ${{ steps.resolve.outputs.digest }}
 
       - if: steps.noop.outputs.skip != 'true'
-        run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "::notice title=Candidate Deployed::$PROJECT_NAME $TAG -> release-candidate"
 
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's SlackChannel from app-info (channel #name/C… or
@@ -427,6 +432,7 @@ jobs:
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -435,7 +441,7 @@ jobs:
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
-            --arg tag "${{ inputs.tag }}" \
+            --arg tag "$TAG" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
             --arg fdurl "$FLIGHTDECK_URL" \
@@ -580,10 +586,11 @@ jobs:
           WANT: ${{ steps.resolve.outputs.digest }}
           HAVE: ${{ steps.current.outputs.digest }}
           FORCE: ${{ inputs.force }}
+          TAG: ${{ inputs.tag }}
         run: |
           if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Already deployed::release-candidate already runs ${{ inputs.tag }} ($WANT); skipping (set force to redeploy)."
+            echo "::notice title=Already deployed::release-candidate already runs $TAG ($WANT); skipping (set force to redeploy)."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -608,26 +615,28 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TAG: ${{ inputs.tag }}
         run: |
           # sha-<gitsha> tag on the resolved digest -> sha:<gitsha> event tag, so
           # events are joinable to commits (deployments-ledger precursor). Omitted
           # cleanly when the digest carries no sha- tag.
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
-            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg title "Deployed: $PROJECT_NAME $TAG to release-candidate" \
             --arg text "Pipeline v2 candidate deploy (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg tag "$TAG" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":release-candidate"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:release-candidate", "action:deploy",
-                     "revision:${{ inputs.tag }}", ("actor:" + $actor)]
+                     ("revision:" + $tag), ("actor:" + $actor)]
                      + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
-            || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
+            || echo "::warning title=Datadog telemetry failed::candidate deploy event for $PROJECT_NAME $TAG not recorded (non-blocking)"
 
       # Append the event to the CruDeploymentLedger DynamoDB table (app-info's
       # deployments ledger -- the fleet dashboard / DORA data spine). Same
@@ -716,7 +725,9 @@ jobs:
           image-digest: ${{ steps.resolve.outputs.digest }}
 
       - if: steps.noop.outputs.skip != 'true'
-        run: echo "::notice title=Candidate Deployed::$PROJECT_NAME ${{ inputs.tag }} -> release-candidate"
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "::notice title=Candidate Deployed::$PROJECT_NAME $TAG -> release-candidate"
 
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's SlackChannel from app-info (channel #name/C… or
@@ -748,6 +759,7 @@ jobs:
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -756,7 +768,7 @@ jobs:
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
-            --arg tag "${{ inputs.tag }}" \
+            --arg tag "$TAG" \
             --arg appurl "$APP_URL" \
             --arg prodsha "$prod_sha" \
             --arg fdurl "$FLIGHTDECK_URL" \
@@ -919,10 +931,11 @@ jobs:
           WANT: ${{ steps.resolve.outputs.digest }}
           HAVE: ${{ steps.current.outputs.digest }}
           FORCE: ${{ inputs.force }}
+          TAG: ${{ inputs.tag }}
         run: |
           if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Already verified::${{ inputs.tag }} ($WANT) is already the verified release candidate; skipping (set force to re-verify)."
+            echo "::notice title=Already verified::$TAG ($WANT) is already the verified release candidate; skipping (set force to re-verify)."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -998,24 +1011,26 @@ jobs:
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
+          TAG: ${{ inputs.tag }}
         run: |
           gitsha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           jq -n \
-            --arg title "Deployed: $PROJECT_NAME ${{ inputs.tag }} to release-candidate" \
+            --arg title "Deployed: $PROJECT_NAME $TAG to release-candidate" \
             --arg text "Pipeline v2 stage-less verification run (started $DEPLOY_STARTED_AT)" \
             --arg service "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg gitsha "$gitsha" \
+            --arg tag "$TAG" \
             '{title: $title, text: $text, alert_type: "info",
               aggregation_key: ("deploy:" + $service + ":release-candidate"),
               tags: (["source:cru-pipeline-v2", ("service:" + $service),
                      "environment:release-candidate", "action:deploy",
                      "rc_mode:verify",
-                     "revision:${{ inputs.tag }}", ("actor:" + $actor)]
+                     ("revision:" + $tag), ("actor:" + $actor)]
                      + (if $gitsha != "" then ["sha:" + $gitsha] else [] end))}' \
           | curl -fsS --retry 3 -X POST "https://api.datadoghq.com/api/v1/events" \
               -H "Content-Type: application/json" -H "DD-API-KEY: $DD_API_KEY" -d @- \
-            || echo "::warning title=Datadog telemetry failed::candidate verify event for $PROJECT_NAME ${{ inputs.tag }} not recorded (non-blocking)"
+            || echo "::warning title=Datadog telemetry failed::candidate verify event for $PROJECT_NAME $TAG not recorded (non-blocking)"
 
       # The SAME ledger row a stage deploy writes — Action "deploy", Environment
       # "release-candidate", same Revision/Digest/Sha/Actor/TriggeringActor/
@@ -1102,7 +1117,9 @@ jobs:
           image-digest: ${{ steps.resolve.outputs.digest }}
 
       - if: steps.noop.outputs.skip != 'true'
-        run: echo "::notice title=Candidate Verified::$PROJECT_NAME ${{ inputs.tag }} verified (stage-less) -> release-candidate"
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "::notice title=Candidate Verified::$PROJECT_NAME $TAG verified (stage-less) -> release-candidate"
 
       # Notify Slack (success) — the stage-deploy message's variant, same
       # :package: emoji (this is still "a new candidate is ready"), same
@@ -1131,6 +1148,7 @@ jobs:
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1139,7 +1157,7 @@ jobs:
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
-            --arg tag "${{ inputs.tag }}" \
+            --arg tag "$TAG" \
             --arg prodsha "$prod_sha" \
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \

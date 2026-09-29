@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,21 @@ import yaml from 'js-yaml'
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 export const loadYaml = (file) => yaml.load(readFileSync(path.join(root, file), 'utf8'))
+
+// Every workflow and every action in the repo, as repo-relative paths.
+export function workflowAndActionFiles () {
+  const workflowDir = '.github/workflows'
+  const files = readdirSync(path.join(root, workflowDir))
+    .filter((name) => /\.ya?ml$/.test(name))
+    .map((name) => `${workflowDir}/${name}`)
+  for (const entry of readdirSync(path.join(root, 'actions'), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    for (const name of ['action.yml', 'action.yaml']) {
+      if (existsSync(path.join(root, 'actions', entry.name, name))) files.push(`actions/${entry.name}/${name}`)
+    }
+  }
+  return files
+}
 
 export function findStep (workflow, jobId, name) {
   const job = workflow.jobs[jobId]

@@ -27,7 +27,9 @@ jobs:
           github-token: "${{ secrets.DEPENDABOT_TOKEN }}"
       
       - name: Authenticate cli with a PAT
-        run: echo "${{ secrets.DEPENDABOT_TOKEN }}" | gh auth login --with-token
+        env:
+          DEPENDABOT_TOKEN: ${{ secrets.DEPENDABOT_TOKEN }}
+        run: echo "$DEPENDABOT_TOKEN" | gh auth login --with-token
 
       - name: Approve a PR
         id: approve

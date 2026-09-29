@@ -76,7 +76,11 @@ jobs:
           project_id: ${{ steps.auth.outputs.project_id }}
 
       - name: Ensure Image Exists
-        run: gcloud artifacts docker images describe us-central1-docker.pkg.dev/${{ inputs.project }}/container/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment }}-${{ inputs.build-number }}
+        env:
+          REGISTRY_PROJECT: ${{ inputs.project }}
+          IMAGE_NAME: ${{ steps.env.outputs.project-name }}
+          IMAGE_TAG: ${{ steps.env.outputs.environment }}-${{ inputs.build-number }}
+        run: gcloud artifacts docker images describe us-central1-docker.pkg.dev/$REGISTRY_PROJECT/container/$IMAGE_NAME:$IMAGE_TAG
 
       - name: Update CloudRun
         uses: ./cru-github-actions/actions/deploy-cloudrun

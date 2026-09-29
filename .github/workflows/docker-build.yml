@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           REGEX="/ab_service_(.+)"
-          [[ "${{ github.repository }}" =~ $REGEX ]]
+          [[ "$GITHUB_REPOSITORY" =~ $REGEX ]]
           DOCKER_HUB_REPO=ab-${BASH_REMATCH[1]/_/-}
           echo "docker_hub_repo=$DOCKER_HUB_REPO" >> $GITHUB_OUTPUT
       

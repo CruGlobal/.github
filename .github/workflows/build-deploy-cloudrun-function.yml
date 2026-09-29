@@ -68,14 +68,17 @@ jobs:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
           GCP_REGION: ${{ vars.GCP_REGION }}
+          FUNCTION_NAME: ${{ inputs.function_name }}
+          ENTRY_POINT: ${{ inputs.entry_point }}
+          RUNTIME: ${{ inputs.runtime }}
         run: |
-          gcloud config set project ${{ vars.GCP_PROJECT_ID }}
-          gcloud functions deploy ${{ inputs.function_name }} \
-            --region ${{ vars.GCP_REGION }} \
-            --source=./${{ inputs.function_name }} \
-            --entry-point=${{ inputs.entry_point }} \
-            --runtime=${{ inputs.runtime }} \
-            --build-service-account=projects/${{ vars.GCP_PROJECT_ID }}/serviceAccounts/${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          gcloud config set project $GCP_PROJECT_ID
+          gcloud functions deploy $FUNCTION_NAME \
+            --region $GCP_REGION \
+            --source=./$FUNCTION_NAME \
+            --entry-point=$ENTRY_POINT \
+            --runtime=$RUNTIME \
+            --build-service-account=projects/$GCP_PROJECT_ID/serviceAccounts/$GCP_SERVICE_ACCOUNT_EMAIL
 
       - uses: actions/github-script@v9
         if: github.event.pull_request.merged == true

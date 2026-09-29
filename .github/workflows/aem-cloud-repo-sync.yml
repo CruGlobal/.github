@@ -51,25 +51,37 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: set git config
+        env:
+          USER_EMAIL: ${{ inputs.user-email }}
+          USER_NAME: ${{ inputs.user-name }}
         run: |
             git config --global credential.helper cache
-            git config --global user.email ${{ inputs.user-email }}
-            git config --global user.name ${{ inputs.user-name }}
+            git config --global user.email $USER_EMAIL
+            git config --global user.name $USER_NAME
 
       - name: sync to aem cloud git repository
+        env:
+          CLOUD_REPOSITORY_USERNAME: ${{ secrets.cloud-repository-username }}
+          CLOUD_REPOSITORY_PASSWORD: ${{ secrets.cloud-repository-password }}
+          CLOUD_REPOSITORY_NAME: ${{ inputs.cloud-repository-name }}
+          AEM_CLOUD_BRANCH_NAME: ${{ inputs.aem-cloud-branch-name }}
+          PUSH_OPTIONS: ${{ inputs.git-push-command-line-options }}
         run: |
             git fetch --unshallow origin
-            git push https://${{ secrets.cloud-repository-username }}:${{ secrets.cloud-repository-password }}@git.cloudmanager.adobe.com/cru/${{ inputs.cloud-repository-name }} ${{ inputs.aem-cloud-branch-name }} ${{ inputs.git-push-command-line-options }}
+            git push https://$CLOUD_REPOSITORY_USERNAME:$CLOUD_REPOSITORY_PASSWORD@git.cloudmanager.adobe.com/cru/$CLOUD_REPOSITORY_NAME $AEM_CLOUD_BRANCH_NAME $PUSH_OPTIONS
 
       - name: update CruGlobal aem-cloud submodules
         if: ${{ inputs.update-submodules }}
+        env:
+          AEM_REPOSITORY_GITHUB_API_TOKEN: ${{ secrets.aem-repository-github-api-token }}
+          AEM_CLOUD_BRANCH_NAME: ${{ inputs.aem-cloud-branch-name }}
         run: |
-            git clone https://user:${{ secrets.aem-repository-github-api-token }}@github.com/CruGlobal/aem-cloud.git
+            git clone https://user:$AEM_REPOSITORY_GITHUB_API_TOKEN@github.com/CruGlobal/aem-cloud.git
             cd aem-cloud
-            git fetch origin ${{ inputs.aem-cloud-branch-name }}
-            git checkout ${{ inputs.aem-cloud-branch-name }}
+            git fetch origin $AEM_CLOUD_BRANCH_NAME
+            git checkout $AEM_CLOUD_BRANCH_NAME
             git submodule update --init --recursive
             git submodule update --remote
             git add .
             git commit -m 'submodule update'
-            git push origin ${{ inputs.aem-cloud-branch-name }}
+            git push origin $AEM_CLOUD_BRANCH_NAME
