@@ -283,6 +283,66 @@ jobs:
           echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
+      # Base images mostly come from public.ecr.aws, which meters anonymous pulls
+      # per source IP. GitHub-hosted runners share their IPs with other GitHub
+      # customers, so that allowance can be used up by strangers and the build
+      # fails on "429 Too Many Requests ... Data limit exceeded". A re-run only
+      # helps if it lands on a luckier IP. A logged-in pull is metered against
+      # our own AWS account instead.
+      # vars.ECR_PUBLIC_PULL_ROLE_ARN (an org variable) names a role every org
+      # repo may assume that can only get an ECR Public login token.
+      #
+      # output-env-credentials: false keeps that role's keys out of the job env.
+      # They reach the login step as step outputs, so the build role configured
+      # above stays the job's AWS identity for every later step. Best effort:
+      # with the variable unset, or the assume or login failing, the step warns
+      # and pulls stay anonymous, as before. The token lasts 12 hours, and an
+      # expired one fails pulls instead of falling back, but the job's 30-minute
+      # timeout ends long before that.
+      - name: Assume the ECR Public pull role
+        if: steps.guard.outputs.found != 'true' && vars.ECR_PUBLIC_PULL_ROLE_ARN != ''
+        id: ecr-public-role
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.ECR_PUBLIC_PULL_ROLE_ARN }}
+          output-credentials: true
+          output-env-credentials: false
+          # The default is 12 attempts with backoff, which a denied assume
+          # would sit through for a minute or more.
+          retry-max-attempts: 2
+
+      - name: Log in to ECR Public
+        if: steps.guard.outputs.found != 'true'
+        continue-on-error: true
+        env:
+          ROLE_ARN: ${{ vars.ECR_PUBLIC_PULL_ROLE_ARN }}
+          ASSUME_OUTCOME: ${{ steps.ecr-public-role.outcome }}
+          PULL_ACCESS_KEY_ID: ${{ steps.ecr-public-role.outputs.aws-access-key-id }}
+          PULL_SECRET_ACCESS_KEY: ${{ steps.ecr-public-role.outputs.aws-secret-access-key }}
+          PULL_SESSION_TOKEN: ${{ steps.ecr-public-role.outputs.aws-session-token }}
+        run: |
+          set -o pipefail
+          anonymous="base-image pulls from public.ecr.aws stay anonymous and can hit its per-IP data limit"
+          if [ -z "$ROLE_ARN" ]; then
+            echo "::warning title=ECR Public login skipped::ECR_PUBLIC_PULL_ROLE_ARN is not set, so $anonymous."
+            exit 0
+          fi
+          if [ "$ASSUME_OUTCOME" != success ] || [ -z "$PULL_ACCESS_KEY_ID" ]; then
+            echo "::warning title=ECR Public login skipped::could not assume the ECR Public pull role, so $anonymous."
+            exit 0
+          fi
+          # The pull role's keys go to this one aws call only. The job's AWS_*
+          # (the build role) are left alone.
+          if AWS_ACCESS_KEY_ID="$PULL_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$PULL_SECRET_ACCESS_KEY" AWS_SESSION_TOKEN="$PULL_SESSION_TOKEN" \
+            aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws; then
+            echo "Logged in to public.ecr.aws; base-image pulls are metered against our AWS account."
+          else
+            echo "::warning title=ECR Public login failed::the login did not succeed, so $anonymous."
+          fi
+
       - name: Set up Docker Buildx
         if: steps.guard.outputs.found != 'true'
         uses: docker/setup-buildx-action@v4
@@ -479,6 +539,53 @@ jobs:
           echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
+      # Log in to ECR Public so base-image pulls are not metered per runner IP.
+      # See the Cloud Run job's comment; best effort, and the build role's
+      # credentials stay the job's AWS identity.
+      - name: Assume the ECR Public pull role
+        if: steps.guard.outputs.found != 'true' && vars.ECR_PUBLIC_PULL_ROLE_ARN != ''
+        id: ecr-public-role
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.ECR_PUBLIC_PULL_ROLE_ARN }}
+          output-credentials: true
+          output-env-credentials: false
+          # The default is 12 attempts with backoff, which a denied assume
+          # would sit through for a minute or more.
+          retry-max-attempts: 2
+
+      - name: Log in to ECR Public
+        if: steps.guard.outputs.found != 'true'
+        continue-on-error: true
+        env:
+          ROLE_ARN: ${{ vars.ECR_PUBLIC_PULL_ROLE_ARN }}
+          ASSUME_OUTCOME: ${{ steps.ecr-public-role.outcome }}
+          PULL_ACCESS_KEY_ID: ${{ steps.ecr-public-role.outputs.aws-access-key-id }}
+          PULL_SECRET_ACCESS_KEY: ${{ steps.ecr-public-role.outputs.aws-secret-access-key }}
+          PULL_SESSION_TOKEN: ${{ steps.ecr-public-role.outputs.aws-session-token }}
+        run: |
+          set -o pipefail
+          anonymous="base-image pulls from public.ecr.aws stay anonymous and can hit its per-IP data limit"
+          if [ -z "$ROLE_ARN" ]; then
+            echo "::warning title=ECR Public login skipped::ECR_PUBLIC_PULL_ROLE_ARN is not set, so $anonymous."
+            exit 0
+          fi
+          if [ "$ASSUME_OUTCOME" != success ] || [ -z "$PULL_ACCESS_KEY_ID" ]; then
+            echo "::warning title=ECR Public login skipped::could not assume the ECR Public pull role, so $anonymous."
+            exit 0
+          fi
+          # The pull role's keys go to this one aws call only. The job's AWS_*
+          # (the build role) are left alone.
+          if AWS_ACCESS_KEY_ID="$PULL_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$PULL_SECRET_ACCESS_KEY" AWS_SESSION_TOKEN="$PULL_SESSION_TOKEN" \
+            aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws; then
+            echo "Logged in to public.ecr.aws; base-image pulls are metered against our AWS account."
+          else
+            echo "::warning title=ECR Public login failed::the login did not succeed, so $anonymous."
+          fi
+
       - name: Set up Docker Buildx
         if: steps.guard.outputs.found != 'true'
         uses: docker/setup-buildx-action@v4
@@ -659,6 +766,53 @@ jobs:
           suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
           echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
+
+      # Log in to ECR Public so base-image pulls are not metered per runner IP.
+      # See the Cloud Run job's comment; best effort, and the build role's
+      # credentials stay the job's AWS identity.
+      - name: Assume the ECR Public pull role
+        if: steps.guard.outputs.found != 'true' && vars.ECR_PUBLIC_PULL_ROLE_ARN != ''
+        id: ecr-public-role
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.ECR_PUBLIC_PULL_ROLE_ARN }}
+          output-credentials: true
+          output-env-credentials: false
+          # The default is 12 attempts with backoff, which a denied assume
+          # would sit through for a minute or more.
+          retry-max-attempts: 2
+
+      - name: Log in to ECR Public
+        if: steps.guard.outputs.found != 'true'
+        continue-on-error: true
+        env:
+          ROLE_ARN: ${{ vars.ECR_PUBLIC_PULL_ROLE_ARN }}
+          ASSUME_OUTCOME: ${{ steps.ecr-public-role.outcome }}
+          PULL_ACCESS_KEY_ID: ${{ steps.ecr-public-role.outputs.aws-access-key-id }}
+          PULL_SECRET_ACCESS_KEY: ${{ steps.ecr-public-role.outputs.aws-secret-access-key }}
+          PULL_SESSION_TOKEN: ${{ steps.ecr-public-role.outputs.aws-session-token }}
+        run: |
+          set -o pipefail
+          anonymous="base-image pulls from public.ecr.aws stay anonymous and can hit its per-IP data limit"
+          if [ -z "$ROLE_ARN" ]; then
+            echo "::warning title=ECR Public login skipped::ECR_PUBLIC_PULL_ROLE_ARN is not set, so $anonymous."
+            exit 0
+          fi
+          if [ "$ASSUME_OUTCOME" != success ] || [ -z "$PULL_ACCESS_KEY_ID" ]; then
+            echo "::warning title=ECR Public login skipped::could not assume the ECR Public pull role, so $anonymous."
+            exit 0
+          fi
+          # The pull role's keys go to this one aws call only. The job's AWS_*
+          # (the build role) are left alone.
+          if AWS_ACCESS_KEY_ID="$PULL_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$PULL_SECRET_ACCESS_KEY" AWS_SESSION_TOKEN="$PULL_SESSION_TOKEN" \
+            aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws; then
+            echo "Logged in to public.ecr.aws; base-image pulls are metered against our AWS account."
+          else
+            echo "::warning title=ECR Public login failed::the login did not succeed, so $anonymous."
+          fi
 
       - name: Set up Docker Buildx
         if: steps.guard.outputs.found != 'true'
