@@ -39,7 +39,7 @@ import { MAX_ENTRY_BYTES } from '../src/v2/tar.js'
 import { tarArchive, tarEntry } from './support/tar-fixture.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
-const NAME = `${HOST}/cru-shared-artifacts/bills/bills`
+const NAME = `${HOST}/cru-shared-artifacts/example-app/example-app`
 const IMAGE = `${NAME}@sha256:top`
 const PAGE = '<!DOCTYPE html><title>Sign in</title>'
 const SIGNIN = 'cru/iap-signin/signin'
@@ -88,8 +88,8 @@ function layerFetches () {
 
 // --- ECR fixtures -----------------------------------------------------------
 
-const ECR_HOST = '056154071827.dkr.ecr.us-east-1.amazonaws.com'
-const ECR_IMAGE = `${ECR_HOST}/smaug@sha256:top`
+const ECR_HOST = '000000000000.dkr.ecr.us-east-1.amazonaws.com'
+const ECR_IMAGE = `${ECR_HOST}/example-app@sha256:top`
 
 // Canned ECR: manifests come back from BatchGetImage as the verbatim JSON string
 // the registry stores, and blobs through a presigned URL that `fetch` then
@@ -143,7 +143,7 @@ describe('parseRegistryRef', () => {
   it('splits a digest ref into host, repository path and reference', () => {
     expect(parseRegistryRef(IMAGE)).toEqual({
       host: HOST,
-      repository: 'cru-shared-artifacts/bills/bills',
+      repository: 'cru-shared-artifacts/example-app/example-app',
       reference: 'sha256:top'
     })
   })
@@ -153,7 +153,7 @@ describe('parseRegistryRef', () => {
   })
 
   it('rejects a bare image name with no registry host', () => {
-    expect(() => parseRegistryRef('bills@sha256:top')).toThrow(/no registry host/)
+    expect(() => parseRegistryRef('example-app@sha256:top')).toThrow(/no registry host/)
   })
 
   it('rejects a reference pinned to neither a digest nor a tag', () => {
@@ -506,15 +506,15 @@ describe('openImage against ECR', () => {
 
     expect(ecrConfigs[0]).toMatchObject({ region: 'us-east-1' })
     expect(ecrSend.mock.calls[0][0].input).toMatchObject({
-      registryId: '056154071827',
-      repositoryName: 'smaug',
+      registryId: '000000000000',
+      repositoryName: 'example-app',
       imageIds: [{ imageDigest: 'sha256:top' }]
     })
   })
 
   it('asks by tag when the reference is a tag', async () => {
     serveEcr({ 'manifests/release-10187': manifest(), 'blobs/sha256:config': config() })
-    await openImage(`${ECR_HOST}/smaug:release-10187`)
+    await openImage(`${ECR_HOST}/example-app:release-10187`)
 
     expect(ecrSend.mock.calls[0][0].input.imageIds).toEqual([{ imageTag: 'release-10187' }])
   })
@@ -586,7 +586,7 @@ describe('openImage against ECR', () => {
     // A miss is a `failures` entry, not an exception, so it has to be read out
     // or it presents as a manifest with no config descriptor.
     serveEcr({})
-    await expect(openImage(ECR_IMAGE)).rejects.toThrow(/no manifest for smaug@sha256:top: ImageNotFound/)
+    await expect(openImage(ECR_IMAGE)).rejects.toThrow(/no manifest for example-app@sha256:top: ImageNotFound/)
   })
 
   it('retries a blob download that fails transiently', async () => {
@@ -606,7 +606,7 @@ describe('openImage against ECR', () => {
     serveEcr({ 'manifests/sha256:top': manifest(), 'blobs/sha256:config': config() })
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 403 })))
 
-    await expect(openImage(ECR_IMAGE)).rejects.toThrow(/HTTP 403 downloading smaug@sha256:config/)
+    await expect(openImage(ECR_IMAGE)).rejects.toThrow(/HTTP 403 downloading example-app@sha256:config/)
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

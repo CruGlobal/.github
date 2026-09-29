@@ -50,13 +50,13 @@ import { publishSourceMaps } from '../src/v2/sourcemaps.js'
 import { deployCloudRun } from '../src/v2/deploy-cloudrun.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
-const REPO = `${HOST}/cru-shared-artifacts/hoax/hoax`
+const REPO = `${HOST}/cru-shared-artifacts/example-app/example-app`
 const IMAGE = `${REPO}@sha256:new`
 const SECRETS = [{ name: 'projects/p/secrets/DATABASE_URL' }]
 
 function service () {
   return {
-    name: 'projects/p/locations/us-central1/services/hoax-web',
+    name: 'projects/p/locations/us-central1/services/example-app-web',
     template: {
       containers: [
         {
@@ -85,8 +85,8 @@ function serviceWithSignin () {
   return svc
 }
 
-const BUCKET = 'hoax-stage-1234-iap-signin'
-const APP_URL = 'https://hoax.cru.org'
+const BUCKET = 'example-app-stage-1234-iap-signin'
+const APP_URL = 'https://example-app.example.org'
 const TOKEN = 'server-scope-token'
 
 // The RUNTIME secret whose presence says this environment is wired for error
@@ -150,7 +150,7 @@ describe('deployCloudRun orchestration', () => {
     gcp.updateJob.mockResolvedValue({})
     gcp.updateService.mockResolvedValue({})
 
-    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'hoax-prod-1234' })
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'example-app-prod-1234' })
 
     // db-migrate is executed to completion, and before any service update.
     expect(gcp.runJob).toHaveBeenCalledTimes(1)
@@ -166,7 +166,7 @@ describe('deployCloudRun orchestration', () => {
     // Exactly the app container is rewritten; the datadog sidecar is preserved.
     expect(gcp.updateService).toHaveBeenCalledTimes(1)
     const [name, containers] = gcp.updateService.mock.calls[0]
-    expect(name).toBe('projects/p/locations/us-central1/services/hoax-web')
+    expect(name).toBe('projects/p/locations/us-central1/services/example-app-web')
     expect(containers[0].image).toBe(IMAGE)
     expect(containers[0].env).toEqual([
       { name: 'FOO', value: 'bar' },
@@ -176,7 +176,7 @@ describe('deployCloudRun orchestration', () => {
 
     expect(result).toEqual({
       deployedImage: IMAGE,
-      services: ['hoax-web'],
+      services: ['example-app-web'],
       // No IAP_SIGNIN_BUCKET on this service -> nothing to publish.
       signin: { published: false },
       // No ROLLBAR_ACCESS_TOKEN secret -> not wired for error tracking.
@@ -206,7 +206,7 @@ describe('deployCloudRun orchestration', () => {
     expect(gcp.runJob).not.toHaveBeenCalled()
     expect(gcp.updateJob).not.toHaveBeenCalled()
     expect(gcp.updateService).toHaveBeenCalledTimes(1)
-    expect(result.services).toEqual(['hoax-web'])
+    expect(result.services).toEqual(['example-app-web'])
   })
 })
 
@@ -267,7 +267,7 @@ describe('deployCloudRun publishes the IAP sign-in page', () => {
     const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
 
     expect(result.deployedImage).toBe(IMAGE)
-    expect(result.services).toEqual(['hoax-web'])
+    expect(result.services).toEqual(['example-app-web'])
     expect(result.signin.published).toBe(false)
   })
 
@@ -279,7 +279,7 @@ describe('deployCloudRun publishes the IAP sign-in page', () => {
 
     const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
 
-    expect(result.services).toEqual(['hoax-web'])
+    expect(result.services).toEqual(['example-app-web'])
     expect(result.signin).toEqual({ published: false, reason: 'no-label' })
   })
 })
@@ -368,9 +368,9 @@ describe('deployCloudRun uploads browser source maps', () => {
   })
 
   it('uploads with the environment token, app URL and shared image handle', async () => {
-    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'hoax-prod-1234', appUrl: APP_URL })
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'example-app-prod-1234', appUrl: APP_URL })
 
-    expect(gcp.accessSecret).toHaveBeenCalledWith('hoax-prod-1234', 'ROLLBAR_ACCESS_TOKEN')
+    expect(gcp.accessSecret).toHaveBeenCalledWith('example-app-prod-1234', 'ROLLBAR_ACCESS_TOKEN')
     expect(publishSourceMaps).toHaveBeenCalledWith({
       oci: IMAGE_HANDLE,
       appUrl: APP_URL,
@@ -416,7 +416,7 @@ describe('deployCloudRun uploads browser source maps', () => {
     const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
 
     expect(result.deployedImage).toBe(IMAGE)
-    expect(result.services).toEqual(['hoax-web'])
+    expect(result.services).toEqual(['example-app-web'])
     expect(gcp.updateService).toHaveBeenCalledTimes(1)
     expect(result.sourcemaps).toEqual({ status: 'failed', uploaded: 0, failed: 0 })
   })
@@ -426,7 +426,7 @@ describe('deployCloudRun uploads browser source maps', () => {
 
     const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', appUrl: APP_URL })
 
-    expect(result.services).toEqual(['hoax-web'])
+    expect(result.services).toEqual(['example-app-web'])
     expect(result.sourcemaps.status).toBe('failed')
     expect(publishSourceMaps).not.toHaveBeenCalled()
   })

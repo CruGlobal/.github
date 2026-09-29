@@ -48,7 +48,7 @@ function output (name) {
 
 function happyInputs () {
   inputs.token = 'fd_pat_secret'
-  inputs.project = 'BILLS'
+  inputs.project = 'EXAMPLE'
   inputs.environment = 'production'
   inputs.kind = 'deploy'
   inputs['release-tag'] = 'release-2026-09-04-10123'
@@ -135,8 +135,8 @@ describe('buildEvent', () => {
   })
 
   it('sends app, trimmed, when one is given', () => {
-    const event = buildEvent({ app: '  bills ', environment: 'production', kind: 'rollback', releaseTag: 'release-10038' })
-    expect(event).toEqual({ app: 'bills', environment: 'production', kind: 'rollback', release_tag: 'release-10038', build_number: '10038' })
+    const event = buildEvent({ app: '  example-app ', environment: 'production', kind: 'rollback', releaseTag: 'release-10038' })
+    expect(event).toEqual({ app: 'example-app', environment: 'production', kind: 'rollback', release_tag: 'release-10038', build_number: '10038' })
   })
 
   it('leaves the app key out entirely when app is unset or blank', () => {
@@ -185,7 +185,7 @@ describe('helpers', () => {
 
 describe('run', () => {
   it('skips without a token and never calls the API', async () => {
-    inputs.project = 'BILLS'
+    inputs.project = 'EXAMPLE'
     inputs.environment = 'production'
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -207,7 +207,7 @@ describe('run', () => {
   it('resolves the project by identifier and posts the wrapped event (201 -> created)', async () => {
     happyInputs()
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 7, identifier: 'FD' }, { id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 7, identifier: 'OTHER' }, { id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(201, { id: 901, release_tag: 'release-2026-09-04-10123' }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -243,14 +243,14 @@ describe('run', () => {
 
   it('posts the app input as app in the wrapped event', async () => {
     happyInputs()
-    inputs.app = 'bills'
+    inputs.app = 'example-app'
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(201, { id: 902 }))
     vi.stubGlobal('fetch', fetchMock)
     await run()
     const posted = JSON.parse(fetchMock.mock.calls[1][1].body).release_event
-    expect(posted.app).toBe('bills')
+    expect(posted.app).toBe('example-app')
     expect(posted.environment).toBe('production')
     expect(output('status')).toBe('created')
   })
@@ -258,7 +258,7 @@ describe('run', () => {
   it('posts no app key when the app input is unset', async () => {
     happyInputs()
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(201, { id: 903 }))
     vi.stubGlobal('fetch', fetchMock)
     await run()
@@ -268,7 +268,7 @@ describe('run', () => {
   it('reports a restated release as updated (200)', async () => {
     happyInputs()
     vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(200, { id: 901 })))
     await run()
     expect(output('status')).toBe('updated')
@@ -279,7 +279,7 @@ describe('run', () => {
     happyInputs()
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(projectsPage([{ id: 1, identifier: 'A' }], 1, 2))
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 2, 2))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 2, 2))
       .mockResolvedValueOnce(jsonResponse(201, { id: 5 }))
     vi.stubGlobal('fetch', fetchMock)
     await run()
@@ -295,14 +295,14 @@ describe('run', () => {
     await run()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(output('status')).toBe('failed')
-    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('no project with identifier "BILLS"'))
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('no project with identifier "EXAMPLE"'))
     expect(setFailedMock).not.toHaveBeenCalled()
   })
 
   it('surfaces the API error envelope as a warning, never a failure', async () => {
     happyInputs()
     vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(403, { error: 'Forbidden', code: 'forbidden' })))
     await run()
     expect(output('status')).toBe('failed')
@@ -334,7 +334,7 @@ describe('run', () => {
     happyInputs()
     inputs.endpoint = 'https://flightdeck-stage.example.test/'
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(201, { id: 1 }))
     vi.stubGlobal('fetch', fetchMock)
     await run()
@@ -345,7 +345,7 @@ describe('run', () => {
 describe('production events need a checked attempt', () => {
   const posted = () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'BILLS' }], 1, 1))
+      .mockResolvedValueOnce(projectsPage([{ id: 42, identifier: 'EXAMPLE' }], 1, 1))
       .mockResolvedValueOnce(jsonResponse(201, { id: 901 }))
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
@@ -392,7 +392,7 @@ describe('production events need a checked attempt', () => {
   })
 
   it('still skips silently with no token, marker or not', async () => {
-    inputs.project = 'BILLS'
+    inputs.project = 'EXAMPLE'
     inputs.environment = 'production'
     vi.stubEnv(AUTHORIZED_ATTEMPT_MARKER, '')
     await run()
