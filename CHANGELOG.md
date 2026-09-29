@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.2](https://github.com/CruGlobal/.github/compare/v2.9.1...v2.9.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* pass expressions to run: scripts through env ([#519](https://github.com/CruGlobal/.github/issues/519)) ([5fe0800](https://github.com/CruGlobal/.github/commit/5fe0800c83f81379949126aff33a6ef82bfce326))
+* **v2:** log in to ECR Public before building, so base-image pulls don't hit the anonymous data limit ([#520](https://github.com/CruGlobal/.github/issues/520)) ([9d3fcaa](https://github.com/CruGlobal/.github/commit/9d3fcaa2e75c831824a48ae771b9f5d4a2ac7cbc))
+
 ## [2.9.1](https://github.com/CruGlobal/.github/compare/v2.9.0...v2.9.1) (2026-09-28)
 
 
