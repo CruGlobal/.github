@@ -67,12 +67,18 @@ jobs:
           gcloud auth configure-docker us-central1-docker.pkg.dev
 
       - name: Build Docker image
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          JOB_NAME: ${{ inputs.job_name }}
         run: |
-          docker build -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest ./${{ inputs.job_name }}
+          docker build -t us-central1-docker.pkg.dev/$GCP_PROJECT_ID/gcrj-artifacts/$JOB_NAME:latest ./$JOB_NAME
 
       - name: Push Docker image to Google Container Registry
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          JOB_NAME: ${{ inputs.job_name }}
         run: |
-          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest
+          docker push us-central1-docker.pkg.dev/$GCP_PROJECT_ID/gcrj-artifacts/$JOB_NAME:latest
 
       - name: Deploy Cloud Run Job
         id: deploy
@@ -80,11 +86,12 @@ jobs:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
           GCP_REGION: ${{ vars.GCP_REGION }}
+          JOB_NAME: ${{ inputs.job_name }}
         run: |
-          gcloud config set project ${{ vars.GCP_PROJECT_ID }}
-          gcloud run jobs deploy ${{ inputs.job_name }} \
-            --region=${{ vars.GCP_REGION }} \
-            --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/gcrj-artifacts/${{ inputs.job_name }}:latest 
+          gcloud config set project $GCP_PROJECT_ID
+          gcloud run jobs deploy $JOB_NAME \
+            --region=$GCP_REGION \
+            --image=us-central1-docker.pkg.dev/$GCP_PROJECT_ID/gcrj-artifacts/$JOB_NAME:latest 
 
       - uses: actions/github-script@v9
         if: github.event.pull_request.merged == true

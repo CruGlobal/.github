@@ -32,13 +32,16 @@ jobs:
           fetch-depth: 5
 
       - name: Rebase & Merge
+        env:
+          BASE: ${{ inputs.base }}
+          BRANCH: ${{ inputs.branch }}
         run: | 
-          git pull origin ${{ inputs.base }} &&
-          git checkout ${{ inputs.base }} &&
-          git checkout ${{ inputs.branch }} &&
-          git rebase ${{ inputs.base }} &&
-          git checkout ${{ inputs.base }} &&
-          git merge "${{ inputs.branch }}" &&
+          git pull origin $BASE &&
+          git checkout $BASE &&
+          git checkout $BRANCH &&
+          git rebase $BASE &&
+          git checkout $BASE &&
+          git merge "$BRANCH" &&
           git push
          
       - name: Create release on GitHub
@@ -51,4 +54,5 @@ jobs:
       - name: Delete branch ${{ inputs.branch }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${{ inputs.branch }}"
+          BRANCH: ${{ inputs.branch }}
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"

@@ -76,17 +76,20 @@ jobs:
 
       - name: Resolve project name & validate type
         id: info
+        env:
+          TYPE: ${{ inputs.type }}
+          PROJECT_NAME: ${{ inputs.project-name }}
         run: |
-          case "${{ inputs.type }}" in
+          case "$TYPE" in
             ecs|lambda|cloudrun) ;;
-            *) echo "::error::unknown type '${{ inputs.type }}'; expected ecs, lambda, or cloudrun"; exit 1 ;;
+            *) echo "::error::unknown type '$TYPE'; expected ecs, lambda, or cloudrun"; exit 1 ;;
           esac
-          project_name="${{ inputs.project-name }}"
+          project_name="$PROJECT_NAME"
           if [ -z "$project_name" ]; then
             project_name="${GITHUB_REPOSITORY##*/}"
           fi
           echo "project-name=$project_name" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Build Candidate::project=$project_name type=${{ inputs.type }}"
+          echo "::notice title=Build Candidate::project=$project_name type=$TYPE"
 
       # Which GitHub Actions environment the runtime build job below runs in --
       # i.e. whose cloud identity builds the candidate. Normally "production":
@@ -258,7 +261,7 @@ jobs:
         run: |
           candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
-            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            echo "::error::sha-$GITHUB_SHA already exists but carries no candidate-<n> tag; cannot reuse."
             exit 1
           fi
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
@@ -278,8 +281,10 @@ jobs:
         # number remains the unique key. Promote reuses the full suffix, so
         # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
         # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        env:
+          BUILD_NUMBER: ${{ steps.build-number.outputs.build-number }}
         run: |
-          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          suffix="$(date -u +%F)-$BUILD_NUMBER"
           echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
@@ -429,7 +434,9 @@ jobs:
           tag: sha-${{ github.sha }}
 
       - name: Notify success
-        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+        env:
+          CANDIDATE: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+        run: echo "::notice title=Candidate Ready::$PROJECT_NAME $CANDIDATE"
 
   build-ecs:
     name: Build Candidate (ECS)
@@ -514,7 +521,7 @@ jobs:
         run: |
           candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
-            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            echo "::error::sha-$GITHUB_SHA already exists but carries no candidate-<n> tag; cannot reuse."
             exit 1
           fi
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
@@ -534,8 +541,10 @@ jobs:
         # number remains the unique key. Promote reuses the full suffix, so
         # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
         # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        env:
+          BUILD_NUMBER: ${{ steps.build-number.outputs.build-number }}
         run: |
-          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          suffix="$(date -u +%F)-$BUILD_NUMBER"
           echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
@@ -661,7 +670,9 @@ jobs:
           tag: sha-${{ github.sha }}
 
       - name: Notify success
-        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+        env:
+          CANDIDATE: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+        run: echo "::notice title=Candidate Ready::$PROJECT_NAME $CANDIDATE"
 
   build-lambda:
     name: Build Candidate (Lambda)
@@ -742,7 +753,7 @@ jobs:
         run: |
           candidate=$(echo "$TAGS" | tr ',' '\n' | grep -E '^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$' | head -n1 || true)
           if [ -z "$candidate" ]; then
-            echo "::error::sha-${{ github.sha }} already exists but carries no candidate-<n> tag; cannot reuse."
+            echo "::error::sha-$GITHUB_SHA already exists but carries no candidate-<n> tag; cannot reuse."
             exit 1
           fi
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
@@ -762,8 +773,10 @@ jobs:
         # number remains the unique key. Promote reuses the full suffix, so
         # release-<yyyy-mm-dd>-<n> names the same artifact. `version` is the bare
         # suffix -- what Dockerfiles bake as DD_VERSION (true in every env).
+        env:
+          BUILD_NUMBER: ${{ steps.build-number.outputs.build-number }}
         run: |
-          suffix="$(date -u +%F)-${{ steps.build-number.outputs.build-number }}"
+          suffix="$(date -u +%F)-$BUILD_NUMBER"
           echo "candidate=candidate-${suffix}" >> "$GITHUB_OUTPUT"
           echo "version=${suffix}" >> "$GITHUB_OUTPUT"
 
@@ -902,7 +915,9 @@ jobs:
           tag: sha-${{ github.sha }}
 
       - name: Notify success
-        run: echo "::notice title=Candidate Ready::${{ needs.setup.outputs.project-name }} ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}"
+        env:
+          CANDIDATE: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
+        run: echo "::notice title=Candidate Ready::$PROJECT_NAME $CANDIDATE"
 
   # Build-failure notification. Every other v2 Slack message is posted from the
   # deploy path, which is reached through `needs: build` -- so it only ever runs
