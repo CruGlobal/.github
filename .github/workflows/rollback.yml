@@ -232,8 +232,10 @@ jobs:
           RELEASE: ${{ inputs.release }}
         run: |
           suffix="${RELEASE#release-}"
-          # Match the whole value. grep checks one line at a time, so a value
-          # with a newline in it could pass.
+          # One trailing newline is still allowed, as before. Then match the
+          # whole value: grep checked one line at a time, so a value with a
+          # newline inside it could pass.
+          suffix="${suffix%$'\n'}"
           if [[ ! "$suffix" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]]; then
             echo "::error::invalid release '$RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional)"
             exit 1

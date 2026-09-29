@@ -56,8 +56,15 @@ jobs:
           USER_NAME: ${{ inputs.user-name }}
         run: |
             git config --global credential.helper cache
-            git config --global user.email $USER_EMAIL
-            git config --global user.name $USER_NAME
+            # Callers pass the literal text ${GITHUB_ACTOR}, which the old
+            # inline script let the shell expand. Expand only that token, so
+            # no other variable can end up in the commit author. These are
+            # plain assignments because inside "..." bash 3.2 keeps the quotes
+            # around the replacement.
+            user_email=${USER_EMAIL//"\${GITHUB_ACTOR}"/"$GITHUB_ACTOR"}
+            user_name=${USER_NAME//"\${GITHUB_ACTOR}"/"$GITHUB_ACTOR"}
+            git config --global user.email "$user_email"
+            git config --global user.name "$user_name"
 
       - name: sync to aem cloud git repository
         env:
