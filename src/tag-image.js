@@ -71,21 +71,30 @@ function dispatch (type, { projectName, digest, tag, registryProject }) {
   }
 }
 
-// Tag each companion the app image names, BEFORE the app itself, so an app
-// image never carries a tag its companions lack. A companion that cannot be
-// tagged fails the step, as the app's own tag failing would.
+// Tag each companion the app image names, BEFORE the app itself, so a
+// companion the labels name is never missing a tag its app carries. A
+// companion that cannot be tagged fails the step, as the app's own tag failing
+// would.
 //
 // The image's labels are read the same way the deploy reads them, and with the
 // same leniency: if the image cannot be read, or its labels break the contract,
 // that is a warning and the app is tagged anyway. Almost no app has a
-// companion, and the deploy that just ran already checked the labels.
+// companion, so failing every promote of an image this reader cannot parse
+// would be far worse. The deploy that just ran read the same image, and
+// refuses labels that break the contract, so in practice this only happens
+// when the registry fails a read the deploy's succeeded at. The warning says
+// what to do then.
 async function tagCompanions (projectName, digest, tag) {
   const appImage = ecrImageRef(projectName, digest)
   let companions
   try {
     companions = parseCompanions((await openImage(appImage)).labels, { projectName, appImage })
   } catch (error) {
-    core.warning(`no companion images tagged ${tag}: ${error.message}`)
+    core.warning(
+      `no companion images tagged ${tag}: ${error.message}. If this image names companions in ` +
+      'org.cru.companion.* labels, re-run this job, or their images expire after 60 days and a rollback to ' +
+      'this release cannot run them.'
+    )
     return
   }
   for (const companion of companions) {

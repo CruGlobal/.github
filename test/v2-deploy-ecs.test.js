@@ -27,6 +27,12 @@ vi.mock('../src/aws.js', () => ({
 // included). Mocked here so the gate tests can assert it is NOT called.
 vi.mock('../src/v2/oci.js', () => ({ openImage: vi.fn() }))
 
+// The one ECR call a deploy makes: whether a companion's image is there.
+vi.mock('../src/v2/aws.js', async importOriginal => ({
+  ...(await importOriginal()),
+  ecrDigestExists: vi.fn()
+}))
+
 // Stub only the publish call; sourceMapsEndpointFor and TOKEN_SECRET stay real
 // so the ROLLBAR_ENDPOINT detection path is exercised here for real. The upload
 // itself is covered in depth by test/v2-sourcemaps.test.js.
@@ -46,6 +52,7 @@ import { ClientException } from '@aws-sdk/client-ecs'
 import * as aws from '../src/aws.js'
 import { DEFAULT_ACCOUNT, ecrRegistry, runtimeSecrets } from '../src/ecs-config.js'
 import { openImage } from '../src/v2/oci.js'
+import { ecrDigestExists } from '../src/v2/aws.js'
 import { publishSourceMaps } from '../src/v2/sourcemaps.js'
 import { deployEcs } from '../src/v2/deploy-ecs.js'
 
@@ -121,6 +128,8 @@ beforeEach(() => {
   runtimeSecrets.mockResolvedValue(SECRETS)
   openImage.mockReset()
   openImage.mockResolvedValue(IMAGE_HANDLE)
+  ecrDigestExists.mockReset()
+  ecrDigestExists.mockResolvedValue(true)
   publishSourceMaps.mockReset()
   publishSourceMaps.mockResolvedValue(UPLOADED)
   IMAGE_HANDLE.readDir.mockReset()
@@ -479,7 +488,7 @@ describe('deployEcs source maps', () => {
     aws.ssmParameterValue.mockResolvedValue(TOKEN)
   })
 
-  it('does nothing — and reads nothing more — when the environment has no token parameter', async () => {
+  it('does nothing, and reads nothing more, when the environment has no token parameter', async () => {
     // The gate is cheapest-first on purpose: runtimeSecrets already told us the
     // parameter NAMES, so an app with no error tracking pays no call for it.
     // The one image read is the companion label check, which every deploy makes.
@@ -631,7 +640,7 @@ describe('deployEcs source maps', () => {
 // the rollout is covered by test/v2-ecs-rollout.test.js; this suite covers the
 // contract, which is checked before anything changes.
 describe('deployEcs companion images', () => {
-  const WORKER_IMAGE = `${REGISTRY}/example-app-worker@sha256:${'b'.repeat(64)}`
+  const WORKER_IMAGE = `${REGISTRY}/example-app/worker@sha256:${'b'.repeat(64)}`
   const WORKER_FAMILY = 'example-app-prod-worker'
   const TEMPLATE_SECRETS = [{ name: 'WORKER_TOKEN', valueFrom: '/ecs/example-app/prod/worker/WORKER_TOKEN' }]
   const labels = companions => openImage.mockResolvedValue({ ...IMAGE_HANDLE, labels: companions })
@@ -698,7 +707,7 @@ describe('deployEcs companion images', () => {
 
   it('swaps the image of a container that already runs the companion repository', async () => {
     describeFamilies(family => Promise.resolve(workerFamilyLatest(family, [
-      { name: 'worker', image: `${REGISTRY}/example-app-worker@sha256:${'0'.repeat(64)}` }
+      { name: 'worker', image: `${REGISTRY}/example-app/worker@sha256:${'0'.repeat(64)}` }
     ])))
 
     await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE })
@@ -735,10 +744,11 @@ describe('deployEcs companion images', () => {
   })
 
   it.each([
-    ['another app\'s repository', { 'org.cru.companion.worker': `${REGISTRY}/other-app@sha256:${'b'.repeat(64)}` }, /does not start with "example-app-"/],
-    ['the app\'s own repository', { 'org.cru.companion.worker': `${REGISTRY}/example-app@sha256:${'b'.repeat(64)}` }, /does not start with "example-app-"/],
-    ['a tag, not a digest', { 'org.cru.companion.worker': `${REGISTRY}/example-app-worker:latest` }, /not pinned by a sha256 digest/],
-    ['another registry', { 'org.cru.companion.worker': `111111111111.dkr.ecr.us-east-1.amazonaws.com/example-app-worker@sha256:${'b'.repeat(64)}` }, /not in the app image's registry/],
+    ['another app\'s repository', { 'org.cru.companion.worker': `${REGISTRY}/other-app/worker@sha256:${'b'.repeat(64)}` }, /is not one name under "example-app\/"/],
+    ['an app whose name extends this one\'s', { 'org.cru.companion.worker': `${REGISTRY}/example-app-worker@sha256:${'b'.repeat(64)}` }, /is not one name under "example-app\/"/],
+    ['the app\'s own repository', { 'org.cru.companion.worker': `${REGISTRY}/example-app@sha256:${'b'.repeat(64)}` }, /is not one name under "example-app\/"/],
+    ['a tag, not a digest', { 'org.cru.companion.worker': `${REGISTRY}/example-app/worker:latest` }, /not pinned by a sha256 digest/],
+    ['another registry', { 'org.cru.companion.worker': `111111111111.dkr.ecr.us-east-1.amazonaws.com/example-app/worker@sha256:${'b'.repeat(64)}` }, /not in the app image's registry/],
     ['the reserved db-migrate name', { 'org.cru.companion.db-migrate': WORKER_IMAGE }, /taken by the pipeline/],
     ['a name with capitals', { 'org.cru.companion.Worker': WORKER_IMAGE }, /lowercase letters and digits/]
   ])('fails before anything changes when a label names %s', async (_, companions, message) => {
@@ -750,7 +760,7 @@ describe('deployEcs companion images', () => {
   })
 
   it('fails before anything changes when a companion family is also a service family', async () => {
-    labels({ 'org.cru.companion.web': `${REGISTRY}/example-app-web@sha256:${'b'.repeat(64)}` })
+    labels({ 'org.cru.companion.web': `${REGISTRY}/example-app/web@sha256:${'b'.repeat(64)}` })
 
     await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
       .rejects.toThrow('Companion families example-app-prod-web are already used by a service or scheduled task')
@@ -774,7 +784,62 @@ describe('deployEcs companion images', () => {
     ])))
 
     await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
-      .rejects.toThrow(/No container in task definition family example-app-prod-worker runs example-app-worker/)
+      .rejects.toThrow(/No container in task definition family example-app-prod-worker runs example-app\/worker/)
     expectNothingChanged()
+  })
+
+  it('fails before anything changes when the companion image is not in the registry', async () => {
+    ecrDigestExists.mockResolvedValue(false)
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow(`Companion worker's image ${WORKER_IMAGE} is not in the registry`)
+    expect(ecrDigestExists).toHaveBeenCalledWith('example-app/worker', `sha256:${'b'.repeat(64)}`)
+    expectNothingChanged()
+  })
+
+  it('checks the image even when the family is skipped, since promote tags it either way', async () => {
+    describeFamilies(() => Promise.reject(taskDefinitionNotFound()))
+    ecrDigestExists.mockResolvedValue(false)
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow(/is not in the registry/)
+    expectNothingChanged()
+  })
+
+  it('fails before anything changes when the family cannot be read for another reason', async () => {
+    describeFamilies(() => Promise.reject(Object.assign(new Error('Rate exceeded'), { name: 'ThrottlingException' })))
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow('Rate exceeded')
+    expectNothingChanged()
+  })
+
+  it('composes the registration from the family as it is when it registers, not as it was at the start', async () => {
+    // A Terraform apply during the rollout changed the template.
+    let reads = 0
+    describeFamilies(family => {
+      reads++
+      const latest = workerFamilyLatest(family)
+      if (reads > 1) latest.taskDefinition.cpu = '2048'
+      return Promise.resolve(latest)
+    })
+
+    await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE })
+
+    expect(reads).toBe(2)
+    expect(companionRegistrations()[0].cpu).toBe('2048')
+  })
+
+  it('shares an image read that failed with the source-map upload, which warns as before', async () => {
+    runtimeSecrets.mockResolvedValue(SECRETS_WITH_TOKEN)
+    aws.ssmParameterValue.mockResolvedValue(TOKEN)
+    openImage.mockRejectedValue(new Error('registry unreachable'))
+
+    const result = await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(openImage).toHaveBeenCalledTimes(1)
+    expect(result.sourcemaps).toEqual({ status: 'failed', uploaded: 0, failed: 0 })
+    expect(companionRegistrations()).toEqual([])
+    expect(result.services).toEqual(['example-app-production-web'])
   })
 })

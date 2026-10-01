@@ -16,7 +16,7 @@ import {
 } from '../aws'
 import { ecsCluster, runtimeSecrets } from '../ecs-config'
 import { environmentNickname, legacyEnvironment } from './env'
-import { composeCompanionTaskDefinition, composeTaskDefinition, ecsServiceRegExp, isEcsAppContainer } from './aws'
+import { composeCompanionTaskDefinition, composeTaskDefinition, ecrDigestExists, ecsServiceRegExp, isEcsAppContainer } from './aws'
 import { companionFamily, parseCompanions } from './companions'
 import { rollOutServices } from './ecs-rollout'
 import { assertDigestRef } from './image-ref'
@@ -121,11 +121,25 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
   // exception: it moves them however its rollout ends, except when another
   // update took the service over, so rollOutServices runs this itself then
   // (see ./ecs-rollout.js).
+  //
+  // The companions are registered even when re-pointing the scheduled tasks
+  // fails: by then the services serve the new release, and so should they.
   let companionsMoved = false
   const repointScheduledTasks = async () => {
-    await updateScheduledTasks({ projectName, nickname, image, secrets })
-    await registerCompanions(companions, { stopRolloutOnFailure })
-    companionsMoved = true
+    let jobsFailed
+    try {
+      await updateScheduledTasks({ projectName, nickname, image, secrets })
+    } catch (error) {
+      jobsFailed = error
+    }
+    try {
+      await registerCompanions(companions, { stopRolloutOnFailure })
+      companionsMoved = true
+    } catch (error) {
+      if (!jobsFailed) throw error
+      jobsFailed.message += ` Registering the companions failed as well: ${error.message}`
+    }
+    if (jobsFailed) throw jobsFailed
   }
   let services
   try {
@@ -142,9 +156,10 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
   return { deployedImage: image, services, sourcemaps }
 }
 
-// Read the companions the image names (./companions.js) and compose each one's
-// next revision from its family's latest, ready to register once the services
-// land. Returns [{ name, family, taskDefinition }].
+// Read the companions the image names (./companions.js) and check each one
+// against the registry and its family, so the deploy fails before anything
+// changes if it would fail later. Returns [{ name, family, repository, image }]
+// for the companions whose family exists.
 //
 // What each kind of trouble does, on purpose:
 //
@@ -153,8 +168,10 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
 //     hiccup must not fail a deploy that never needed the read. An app that
 //     does have one keeps its companion on the release before, until a deploy
 //     reads it.
-//   - A label breaks the contract, or a family has no container to swap: the
-//     deploy fails here, before anything changes.
+//   - A label breaks the contract, its image is not in the registry, or its
+//     family has no container to swap: the deploy fails here, before anything
+//     changes. A missing image would otherwise pass every deploy and first
+//     fail when promote tags it, after production has moved.
 //   - The family does not exist: skipped. The app's Terraform creates it, so
 //     until it does there is nothing to register, exactly as with db-migrate.
 //
@@ -177,6 +194,11 @@ async function prepareCompanions ({ projectName, nickname, image, taskDefinition
 
     const companions = []
     for (const companion of named) {
+      // Promote tags every companion the label names, so even one whose family
+      // is skipped below must exist.
+      if (!await ecrDigestExists(companion.repository, companion.digest)) {
+        throw new Error(`Companion ${companion.name}'s image ${companion.image} is not in the registry`)
+      }
       const family = companionFamily(projectName, nickname, companion.name)
       let latest
       try {
@@ -186,15 +208,11 @@ async function prepareCompanions ({ projectName, nickname, image, taskDefinition
         core.info(`no ${family} task definition family yet, so companion ${companion.name} is skipped`)
         continue
       }
-      companions.push({
-        name: companion.name,
-        family,
-        taskDefinition: composeCompanionTaskDefinition(latest.taskDefinition, {
-          repository: companion.repository,
-          image: companion.image,
-          tags: latest.tags ?? []
-        })
-      })
+      // Composed here only to fail early. registerCompanions composes again
+      // from the family's latest, which a Terraform apply during the rollout
+      // may have changed.
+      composeCompanionTaskDefinition(latest.taskDefinition, { repository: companion.repository, image: companion.image })
+      companions.push({ name: companion.name, family, repository: companion.repository, image: companion.image })
       core.info(`companion ${companion.name}: ${companion.image} -> ${family}`)
     }
     return companions
@@ -225,14 +243,20 @@ async function assertOwnFamilies (companions, { projectName, nickname, taskDefin
   }
 }
 
-// Register each companion's next revision. That is all a deploy does for a
-// companion: the app starts its task itself, from the newest revision that runs
-// the digest its own image expects (./companions.js says why not the bare
-// family). On a rollback a failure is a warning (see prepareCompanions).
+// Register each companion's next revision, composed from its family's latest
+// as it is now. That is all a deploy does for a companion: the app starts its
+// task itself, from the newest revision that runs the digest its own image
+// expects (./companions.js says why not the bare family). On a rollback a
+// failure is a warning (see prepareCompanions).
 async function registerCompanions (companions, { stopRolloutOnFailure }) {
   for (const companion of companions) {
     try {
-      const taskDefinitionArn = await ecsRegisterTaskDefinition(companion.taskDefinition)
+      const latest = await ecsDescribeTaskDefinition(companion.family)
+      const taskDefinitionArn = await ecsRegisterTaskDefinition(composeCompanionTaskDefinition(latest.taskDefinition, {
+        repository: companion.repository,
+        image: companion.image,
+        tags: latest.tags ?? []
+      }))
       core.info(`registered companion ${companion.name}: ${taskDefinitionArn}`)
     } catch (error) {
       if (stopRolloutOnFailure) {

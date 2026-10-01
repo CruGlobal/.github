@@ -122,8 +122,8 @@ describe('run ecs companions', () => {
     ecrRetagDigest.mockImplementation(async (repository, digest, tag) => ({ image: `${repository}@${digest}`, tag }))
     openImage.mockResolvedValue({
       labels: {
-        'org.cru.companion.worker': `${REGISTRY}/example-app-worker@${WORKER_DIGEST}`,
-        'org.cru.companion.agent': `${REGISTRY}/example-app-agent@${AGENT_DIGEST}`,
+        'org.cru.companion.worker': `${REGISTRY}/example-app/worker@${WORKER_DIGEST}`,
+        'org.cru.companion.agent': `${REGISTRY}/example-app/agent@${AGENT_DIGEST}`,
         'org.cru.sourcemaps': '1.2.3'
       }
     })
@@ -134,8 +134,8 @@ describe('run ecs companions', () => {
 
     expect(openImage).toHaveBeenCalledWith(`${REGISTRY}/example-app@${DIGEST}`)
     expect(ecrRetagDigest.mock.calls).toEqual([
-      ['example-app-agent', AGENT_DIGEST, 'release-10038'],
-      ['example-app-worker', WORKER_DIGEST, 'release-10038'],
+      ['example-app/agent', AGENT_DIGEST, 'release-10038'],
+      ['example-app/worker', WORKER_DIGEST, 'release-10038'],
       ['example-app', DIGEST, 'release-10038']
     ])
     expect(setOutputMock).toHaveBeenCalledWith('image', `example-app@${DIGEST}`)
@@ -144,13 +144,13 @@ describe('run ecs companions', () => {
 
   it('fails without tagging the app when a companion cannot be tagged', async () => {
     ecrRetagDigest.mockImplementation(async repository => {
-      if (repository === 'example-app-worker') throw new Error('Digest not found in ECR repository example-app-worker')
+      if (repository === 'example-app/worker') throw new Error('Digest not found in ECR repository example-app/worker')
       return { image: 'x' }
     })
 
     await run()
 
-    expect(setFailedMock).toHaveBeenCalledWith('Digest not found in ECR repository example-app-worker')
+    expect(setFailedMock).toHaveBeenCalledWith('Digest not found in ECR repository example-app/worker')
     expect(ecrRetagDigest).not.toHaveBeenCalledWith('example-app', DIGEST, 'release-10038')
   })
 
@@ -159,17 +159,17 @@ describe('run ecs companions', () => {
 
     await run()
 
-    expect(warningMock).toHaveBeenCalledWith('no companion images tagged release-10038: registry unreachable')
+    expect(warningMock).toHaveBeenCalledWith(expect.stringMatching(/^no companion images tagged release-10038: registry unreachable\. If this image names companions .* re-run this job/))
     expect(ecrRetagDigest.mock.calls).toEqual([['example-app', DIGEST, 'release-10038']])
     expect(setFailedMock).not.toHaveBeenCalled()
   })
 
   it('warns and still tags the app when a label breaks the contract', async () => {
-    openImage.mockResolvedValue({ labels: { 'org.cru.companion.worker': `${REGISTRY}/other-app@${WORKER_DIGEST}` } })
+    openImage.mockResolvedValue({ labels: { 'org.cru.companion.worker': `${REGISTRY}/other-app/worker@${WORKER_DIGEST}` } })
 
     await run()
 
-    expect(warningMock).toHaveBeenCalledWith(expect.stringMatching(/^no companion images tagged release-10038: .*does not start with "example-app-"/))
+    expect(warningMock).toHaveBeenCalledWith(expect.stringMatching(/^no companion images tagged release-10038: .*is not one name under "example-app\/"/))
     expect(ecrRetagDigest.mock.calls).toEqual([['example-app', DIGEST, 'release-10038']])
   })
 

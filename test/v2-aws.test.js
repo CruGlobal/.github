@@ -12,12 +12,19 @@ vi.mock('@aws-sdk/client-ecr', () => ({
   PutImageCommand: class { constructor (input) { this.kind = 'PutImage'; this.input = input } },
   ImageAlreadyExistsException: class extends Error {
     constructor (message) { super(message); this.name = 'ImageAlreadyExistsException' }
+  },
+  ImageNotFoundException: class extends Error {
+    constructor (message) { super(message); this.name = 'ImageNotFoundException' }
+  },
+  RepositoryNotFoundException: class extends Error {
+    constructor (message) { super(message); this.name = 'RepositoryNotFoundException' }
   }
 }))
 
-import { ImageAlreadyExistsException } from '@aws-sdk/client-ecr'
+import { ImageAlreadyExistsException, ImageNotFoundException, RepositoryNotFoundException } from '@aws-sdk/client-ecr'
 import {
   composeTaskDefinition,
+  ecrDigestExists,
   ecrImageRef,
   ecrRepo,
   ecrResolveDigest,
@@ -133,6 +140,28 @@ describe('ecrTagsForDigest', () => {
   it('returns [] when the digest is unknown (call rejects)', async () => {
     sendMock.mockRejectedValue(new Error('ImageNotFoundException'))
     expect(await ecrTagsForDigest('example-app', 'sha256:missing')).toEqual([])
+  })
+})
+
+describe('ecrDigestExists', () => {
+  it('is true when the repository has the digest', async () => {
+    sendMock.mockResolvedValue({ imageDetails: [{ imageDigest: 'sha256:aaa' }] })
+
+    expect(await ecrDigestExists('example-app/worker', 'sha256:aaa')).toBe(true)
+    expect(sendMock.mock.calls[0][0].input).toEqual({ repositoryName: 'example-app/worker', imageIds: [{ imageDigest: 'sha256:aaa' }] })
+  })
+
+  it.each([
+    ['the image', new ImageNotFoundException('not found')],
+    ['the repository', new RepositoryNotFoundException('no repository')]
+  ])('is false when %s is missing', async (_, error) => {
+    sendMock.mockRejectedValue(error)
+    expect(await ecrDigestExists('example-app/worker', 'sha256:missing')).toBe(false)
+  })
+
+  it('throws any other error, which says nothing about the image', async () => {
+    sendMock.mockRejectedValue(Object.assign(new Error('not allowed'), { name: 'AccessDeniedException' }))
+    await expect(ecrDigestExists('example-app/worker', 'sha256:aaa')).rejects.toThrow('not allowed')
   })
 })
 

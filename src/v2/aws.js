@@ -6,7 +6,9 @@ import {
   DescribeImagesCommand,
   BatchGetImageCommand,
   PutImageCommand,
-  ImageAlreadyExistsException
+  ImageAlreadyExistsException,
+  ImageNotFoundException,
+  RepositoryNotFoundException
 } from '@aws-sdk/client-ecr'
 
 import { DEFAULT_ACCOUNT, ecrRegistry } from '../ecs-config'
@@ -123,6 +125,22 @@ export async function ecrTagsForDigest (projectName, digest) {
   }
 }
 
+// Whether a digest is in a repository. A missing image or repository is false;
+// any other error (access, throttling past the retries) is thrown, since it
+// says nothing about the image.
+export async function ecrDigestExists (repositoryName, digest) {
+  try {
+    const response = await ecrClient().send(new DescribeImagesCommand({
+      repositoryName,
+      imageIds: [{ imageDigest: digest }]
+    }))
+    return (response.imageDetails ?? []).length > 0
+  } catch (error) {
+    if (error instanceof ImageNotFoundException || error instanceof RepositoryNotFoundException) return false
+    throw error
+  }
+}
+
 // Add a tag to an existing digest by re-putting its manifest under the new tag
 // (the ECR equivalent of `docker tag` without pulling/pushing layers). Used by
 // the tag-image action to stamp release-<n> onto a promoted digest.
@@ -226,9 +244,12 @@ export function composeTaskDefinition (taskDefinition, { projectName, image, sec
 export function composeCompanionTaskDefinition (taskDefinition, { repository, image, tags = [] }) {
   const taskDef = registrationPayload(taskDefinition, tags)
 
+  // Matched on the whole <registry>/<repository> name, so a repository that
+  // merely ends the same way is left alone.
+  const companionName = parseImageRef(image).name
   let swapped = 0
   taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(container => {
-    if (container.image !== 'scratch' && !(container.image && parseImageRef(container.image).name.endsWith(`/${repository}`))) {
+    if (container.image !== 'scratch' && !(container.image && parseImageRef(container.image).name === companionName)) {
       return container
     }
     swapped++

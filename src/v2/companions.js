@@ -9,15 +9,17 @@ import { parseImageRef } from './image-ref'
 //
 // THE CONTRACT. The app image names each companion with a label:
 //
-//   LABEL org.cru.companion.<name>=<registry>/<project>-<suffix>@sha256:<digest>
+//   LABEL org.cru.companion.<name>=<registry>/<project>/<suffix>@sha256:<digest>
 //
 //   <name>   lowercase letters and digits, joined by single dashes. It picks
 //            the companion's task-definition family, <project>-<nick>-<name>,
 //            which the app's Terraform creates. "db-migrate" is taken.
 //   value    a digest reference in the same registry as the app image, in a
-//            repository named <project>-<suffix>. An app can only name
-//            repositories that start with its own name, so it can never move
-//            another app's task onto an image.
+//            repository under the app's own namespace, <project>/<suffix>.
+//            A project name has no '/', so only this app's repositories can
+//            match. A dash would not do: one app's name is often another's
+//            prefix (<project>-ui can be a different app), and promote writes
+//            release tags into every companion's repository.
 //
 // The build pushes the companion first, then bakes its digest into the app
 // image's label, so the app image is the one record of which companion goes
@@ -42,7 +44,7 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/
 // the contract.
 export function parseCompanions (labels, { projectName, appImage }) {
   const registry = registryOf(appImage)
-  const repository = new RegExp(`^${escapeStringRegexp(projectName)}-[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+  const repository = new RegExp(`^${escapeStringRegexp(projectName)}/[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
   const companions = []
   const problems = []
 
@@ -73,7 +75,7 @@ function labelProblem ({ name, value, registry, repository, projectName }) {
   if (!digest || !DIGEST.test(digest)) return `"${value}" is not pinned by a sha256 digest`
   if (registryOf(ref) !== registry) return `"${value}" is not in the app image's registry, ${registry}`
   const repo = ref.slice(registry.length + 1)
-  if (!repository.test(repo)) return `repository "${repo}" does not start with "${projectName}-"`
+  if (!repository.test(repo)) return `repository "${repo}" is not one name under "${projectName}/"`
   return undefined
 }
 

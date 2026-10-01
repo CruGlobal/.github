@@ -26,8 +26,13 @@ vi.mock('../src/aws.js', async importOriginal => ({
   ssmParameterValue: vi.fn()
 }))
 
-// No registry reads: the images here name no companions.
+// No registry reads: the images here name no companions unless a test says so,
+// and every companion image is there.
 vi.mock('../src/v2/oci.js', () => ({ openImage: vi.fn(async () => ({ labels: {} })) }))
+vi.mock('../src/v2/aws.js', async importOriginal => ({
+  ...(await importOriginal()),
+  ecrDigestExists: vi.fn(async () => true)
+}))
 
 vi.mock('../src/ecs-config.js', async importOriginal => ({
   ...(await importOriginal()),
@@ -46,6 +51,7 @@ import * as aws from '../src/aws.js'
 import { DEFAULT_ACCOUNT, ecrRegistry, runtimeSecrets } from '../src/ecs-config.js'
 import { deployEcs } from '../src/v2/deploy-ecs.js'
 import { openImage } from '../src/v2/oci.js'
+import { ecrDigestExists } from '../src/v2/aws.js'
 import { SEND_BACK_RESERVE_MS } from '../src/v2/ecs-rollout.js'
 import { ROLLOUT_BUDGET_MS, rolloutBudget } from '../src/v2/rollout-budget.js'
 import { MINUTE, ROLLOUT_MS, fakeEcs, serviceArn, taskDefinitionArn } from './support/fake-ecs.js'
@@ -754,7 +760,7 @@ describe('a rollback, which never stops its rollout', () => {
 // into its own family with the scheduled tasks: once every service lands, or
 // however a rollback ends.
 describe('the companions', () => {
-  const COMPANION = `${REGISTRY}/example-app-agent@sha256:${'c'.repeat(64)}`
+  const COMPANION = `${REGISTRY}/example-app/agent@sha256:${'c'.repeat(64)}`
   const AGENT = 'example-app-prod-agent'
   const NOT_MOVED = `The companions (${AGENT}) were not re-registered either: they still run the task definitions ` +
     'they ran before this deploy.'
@@ -765,7 +771,10 @@ describe('the companions', () => {
   const warnings = () => core.warning.mock.calls.map(([message]) => message)
 
   beforeEach(() => openImage.mockResolvedValue({ labels: { 'org.cru.companion.agent': COMPANION } }))
-  afterEach(() => openImage.mockResolvedValue({ labels: {} }))
+  afterEach(() => {
+    openImage.mockResolvedValue({ labels: {} })
+    ecrDigestExists.mockResolvedValue(true)
+  })
 
   it('are registered once, after every service has landed and the scheduled tasks are re-pointed', async () => {
     app([WEB, WORKER])
@@ -837,11 +846,42 @@ describe('the companions', () => {
 
   it('never fail a rollback: a label that breaks the contract is a warning, and nothing is registered', async () => {
     app([WEB])
-    openImage.mockResolvedValue({ labels: { 'org.cru.companion.agent': `${REGISTRY}/other-app@sha256:${'c'.repeat(64)}` } })
+    openImage.mockResolvedValue({ labels: { 'org.cru.companion.agent': `${REGISTRY}/other-app/agent@sha256:${'c'.repeat(64)}` } })
 
     await expect(rollback()).resolves.toMatchObject({ services: [WEB] })
     expect(registered()).toEqual([])
-    expect(warnings()).toEqual([expect.stringMatching(/^companions left as they are for this rollback: .*does not start with "example-app-"/)])
+    expect(warnings()).toEqual([expect.stringMatching(/^companions left as they are for this rollback: .*is not one name under "example-app\/"/)])
+  })
+
+  it('never fail a rollback: an image no longer in the registry is a warning', async () => {
+    app([WEB])
+    ecrDigestExists.mockResolvedValue(false)
+
+    await expect(rollback()).resolves.toMatchObject({ services: [WEB] })
+    expect(registered()).toEqual([])
+    expect(warnings()).toEqual([`companions left as they are for this rollback: Companion agent's image ${COMPANION} is not in the registry`])
+  })
+
+  it('are still registered when re-pointing the scheduled tasks fails, and the deploy fails on that', async () => {
+    app([WEB])
+    aws.eventBridgeUpdateTarget.mockRejectedValue(new Error('Rule does not exist'))
+
+    const error = await failure(deploy())
+
+    expect(registered()).toEqual([COMPANION])
+    expect(error.message).toBe('Rule does not exist')
+  })
+
+  it('are still moved on a rollback when moving the scheduled tasks fails', async () => {
+    app([WEB])
+    fake.plan(serviceArn('prod', WEB), { fails: 2 * MINUTE })
+    aws.eventBridgeUpdateTarget.mockRejectedValue(new Error('Rule does not exist'))
+
+    const error = await failure(rollback())
+
+    expect(registered()).toEqual([COMPANION])
+    expect(error.message).toContain('Moving the scheduled tasks to the rollback target failed (Rule does not exist)')
+    expect(error.message).not.toContain(NOT_MOVED)
   })
 
   it('are not looked for when the image cannot be read, which is a warning and not a failure', async () => {
