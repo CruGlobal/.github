@@ -23,6 +23,11 @@ import { parseImageRef } from './image-ref'
 // image's label, so the app image is the one record of which companion goes
 // with it. A label that breaks these rules fails the deploy before anything
 // changes.
+//
+// The app starts its companion from the newest revision of the family that runs
+// the digest its own image expects, never from the bare family name. A
+// Terraform change to the family registers a new latest revision on the scratch
+// placeholder, and it stays that way until the next deploy.
 export const COMPANION_LABEL_PREFIX = 'org.cru.companion.'
 
 // Families the pipeline already owns. A companion may not take their names.

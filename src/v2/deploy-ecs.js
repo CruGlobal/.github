@@ -225,9 +225,10 @@ async function assertOwnFamilies (companions, { projectName, nickname, taskDefin
   }
 }
 
-// Register each companion's next revision. A family's latest revision is what
-// the app starts its companion task from, so registering is all it takes. On a
-// rollback a failure is a warning (see prepareCompanions).
+// Register each companion's next revision. That is all a deploy does for a
+// companion: the app starts its task itself, from the newest revision that runs
+// the digest its own image expects (./companions.js says why not the bare
+// family). On a rollback a failure is a warning (see prepareCompanions).
 async function registerCompanions (companions, { stopRolloutOnFailure }) {
   for (const companion of companions) {
     try {
