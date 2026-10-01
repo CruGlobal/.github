@@ -479,15 +479,17 @@ describe('deployEcs source maps', () => {
     aws.ssmParameterValue.mockResolvedValue(TOKEN)
   })
 
-  it('does nothing — and reads nothing — when the environment has no token parameter', async () => {
+  it('does nothing — and reads nothing more — when the environment has no token parameter', async () => {
     // The gate is cheapest-first on purpose: runtimeSecrets already told us the
-    // parameter NAMES, so an app with no error tracking pays no call at all.
+    // parameter NAMES, so an app with no error tracking pays no call for it.
+    // The one image read is the companion label check, which every deploy makes.
     runtimeSecrets.mockResolvedValue(SECRETS)
 
     const result = await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE, appUrl: APP_URL })
 
     expect(aws.ssmParameterValue).not.toHaveBeenCalled()
-    expect(openImage).not.toHaveBeenCalled()
+    expect(openImage).toHaveBeenCalledTimes(1)
+    expect(IMAGE_HANDLE.readDir).not.toHaveBeenCalled()
     expect(publishSourceMaps).not.toHaveBeenCalled()
     expect(result.sourcemaps).toEqual(SKIPPED)
   })
@@ -622,5 +624,157 @@ describe('deployEcs source maps', () => {
 
     expect(aws.ecsServiceTaskDefinitions).toHaveBeenCalledTimes(1)
     expect(aws.ecsUpdateService).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Companion images (src/v2/companions.js). When they are registered relative to
+// the rollout is covered by test/v2-ecs-rollout.test.js; this suite covers the
+// contract, which is checked before anything changes.
+describe('deployEcs companion images', () => {
+  const WORKER_IMAGE = `${REGISTRY}/example-app-worker@sha256:${'b'.repeat(64)}`
+  const WORKER_FAMILY = 'example-app-prod-worker'
+  const TEMPLATE_SECRETS = [{ name: 'WORKER_TOKEN', valueFrom: '/ecs/example-app/prod/worker/WORKER_TOKEN' }]
+  const labels = companions => openImage.mockResolvedValue({ ...IMAGE_HANDLE, labels: companions })
+
+  // The companion's family as the app's Terraform leaves it: the companion
+  // starting from scratch, with its own secrets, beside a sidecar.
+  function workerFamilyLatest (family, containerDefinitions) {
+    return {
+      taskDefinition: {
+        family,
+        taskDefinitionArn: `arn:aws:ecs:us-east-1:1:task-definition/${family}:3`,
+        revision: 3,
+        status: 'ACTIVE',
+        cpu: '1024',
+        containerDefinitions: containerDefinitions ?? [
+          { name: 'worker', image: 'scratch', secrets: TEMPLATE_SECRETS },
+          { name: 'datadog', image: 'public.ecr.aws/datadog/agent:latest' }
+        ]
+      },
+      tags: [{ key: 'managed-by', value: 'terraform' }]
+    }
+  }
+
+  const describeFamilies = (worker = family => Promise.resolve(workerFamilyLatest(family))) =>
+    aws.ecsDescribeTaskDefinition.mockImplementation(family => {
+      if (family.endsWith('-db-migrate')) return Promise.reject(taskDefinitionNotFound())
+      if (family === WORKER_FAMILY) return worker(family)
+      return Promise.resolve(familyLatest(family))
+    })
+  const companionRegistrations = () =>
+    aws.ecsRegisterTaskDefinition.mock.calls.map(([definition]) => definition).filter(definition => definition.family === WORKER_FAMILY)
+
+  // Nothing changed: no migration, no registration, no service touched.
+  function expectNothingChanged () {
+    expect(aws.ecsRunTask).not.toHaveBeenCalled()
+    expect(aws.ecsRegisterTaskDefinition).not.toHaveBeenCalled()
+    expect(aws.ecsUpdateService).not.toHaveBeenCalled()
+    expect(aws.eventBridgeUpdateTarget).not.toHaveBeenCalled()
+  }
+
+  beforeEach(() => {
+    aws.ecsListServices.mockResolvedValue([SERVICE_ARN])
+    aws.ecsServiceTaskDefinitions.mockResolvedValue({ [SERVICE_ARN]: { family: 'example-app-prod-web' } })
+    describeFamilies()
+    aws.eventBridgeListRules.mockResolvedValue([])
+    aws.eventBridgeListTargets.mockResolvedValue([])
+    labels({ 'org.cru.companion.worker': WORKER_IMAGE })
+  })
+
+  it('registers the companion from its family latest, swapping only its image and keeping its own secrets', async () => {
+    const result = await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE })
+
+    expect(openImage).toHaveBeenCalledWith(IMAGE)
+    expect(aws.ecsDescribeTaskDefinition).toHaveBeenCalledWith(WORKER_FAMILY)
+    const [registered] = companionRegistrations()
+    expect(registered).not.toHaveProperty('taskDefinitionArn')
+    expect(registered.cpu).toBe('1024')
+    expect(registered.tags).toEqual([{ key: 'managed-by', value: 'terraform' }])
+    // The app's RUNTIME secrets stay with the app.
+    expect(registered.containerDefinitions[0]).toEqual({ name: 'worker', image: WORKER_IMAGE, secrets: TEMPLATE_SECRETS })
+    expect(registered.containerDefinitions[1]).toEqual({ name: 'datadog', image: 'public.ecr.aws/datadog/agent:latest' })
+    expect(result.services).toEqual(['example-app-production-web'])
+  })
+
+  it('swaps the image of a container that already runs the companion repository', async () => {
+    describeFamilies(family => Promise.resolve(workerFamilyLatest(family, [
+      { name: 'worker', image: `${REGISTRY}/example-app-worker@sha256:${'0'.repeat(64)}` }
+    ])))
+
+    await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE })
+
+    expect(companionRegistrations()[0].containerDefinitions).toEqual([{ name: 'worker', image: WORKER_IMAGE }])
+  })
+
+  it('skips a companion whose family does not exist yet', async () => {
+    describeFamilies(() => Promise.reject(taskDefinitionNotFound()))
+
+    const result = await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE })
+
+    expect(companionRegistrations()).toEqual([])
+    expect(result.services).toEqual(['example-app-production-web'])
+  })
+
+  it('reads labels once and shares the handle with the source-map upload', async () => {
+    runtimeSecrets.mockResolvedValue(SECRETS_WITH_TOKEN)
+    aws.ssmParameterValue.mockResolvedValue(TOKEN)
+
+    await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE, appUrl: APP_URL })
+
+    expect(openImage).toHaveBeenCalledTimes(1)
+    expect(publishSourceMaps.mock.calls[0][0].oci.labels).toEqual({ 'org.cru.companion.worker': WORKER_IMAGE })
+  })
+
+  it('ignores labels that are not companion labels', async () => {
+    labels({ 'org.cru.sourcemaps': '1.2.3', 'org.opencontainers.image.revision': 'abc' })
+
+    await deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE })
+
+    expect(aws.ecsDescribeTaskDefinition).not.toHaveBeenCalledWith(WORKER_FAMILY)
+    expect(aws.eventBridgeListRules).toHaveBeenCalledTimes(1) // the scheduled-task re-point, not a clash check
+  })
+
+  it.each([
+    ['another app\'s repository', { 'org.cru.companion.worker': `${REGISTRY}/other-app@sha256:${'b'.repeat(64)}` }, /does not start with "example-app-"/],
+    ['the app\'s own repository', { 'org.cru.companion.worker': `${REGISTRY}/example-app@sha256:${'b'.repeat(64)}` }, /does not start with "example-app-"/],
+    ['a tag, not a digest', { 'org.cru.companion.worker': `${REGISTRY}/example-app-worker:latest` }, /not pinned by a sha256 digest/],
+    ['another registry', { 'org.cru.companion.worker': `111111111111.dkr.ecr.us-east-1.amazonaws.com/example-app-worker@sha256:${'b'.repeat(64)}` }, /not in the app image's registry/],
+    ['the reserved db-migrate name', { 'org.cru.companion.db-migrate': WORKER_IMAGE }, /taken by the pipeline/],
+    ['a name with capitals', { 'org.cru.companion.Worker': WORKER_IMAGE }, /lowercase letters and digits/]
+  ])('fails before anything changes when a label names %s', async (_, companions, message) => {
+    labels(companions)
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow(message)
+    expectNothingChanged()
+  })
+
+  it('fails before anything changes when a companion family is also a service family', async () => {
+    labels({ 'org.cru.companion.web': `${REGISTRY}/example-app-web@sha256:${'b'.repeat(64)}` })
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow('Companion families example-app-prod-web are already used by a service or scheduled task')
+    expectNothingChanged()
+  })
+
+  it('fails before anything changes when a companion family is also a scheduled task family', async () => {
+    aws.eventBridgeListRules.mockResolvedValue([{ Name: 'ecstask-example-app-prod-worker' }])
+    aws.eventBridgeListTargets.mockResolvedValue([
+      { Id: 'target-1', EcsParameters: { TaskDefinitionArn: 'arn:aws:ecs:us-east-1:1:task-definition/example-app-prod-worker:3' } }
+    ])
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow(/example-app-prod-worker are already used/)
+    expectNothingChanged()
+  })
+
+  it('fails before anything changes when the family has no container to swap the image into', async () => {
+    describeFamilies(family => Promise.resolve(workerFamilyLatest(family, [
+      { name: 'datadog', image: 'public.ecr.aws/datadog/agent:latest' }
+    ])))
+
+    await expect(deployEcs({ projectName: 'example-app', environment: 'production', image: IMAGE }))
+      .rejects.toThrow(/No container in task definition family example-app-prod-worker runs example-app-worker/)
+    expectNothingChanged()
   })
 })

@@ -205,6 +205,49 @@ const READ_ONLY_TASK_DEF_KEYS = [
 // over (AWS rejects an empty `tags` array, so the key is only set when present).
 //
 export function composeTaskDefinition (taskDefinition, { projectName, image, secrets, tags = [] }) {
+  const taskDef = registrationPayload(taskDefinition, tags)
+
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(container =>
+    isEcsAppContainer(container, projectName)
+      ? { ...container, image, secrets }
+      : container
+  )
+
+  return taskDef
+}
+
+// The same, for a companion's family (see ./companions.js): swap the image of
+// each container that runs the companion's repository, or still runs the
+// scratch placeholder. Unlike the app container, its secrets are left as the
+// template has them. The app's RUNTIME secrets belong to the app, and a
+// companion gets only what its own Terraform gives it. Throws when no container
+// runs the companion, since registering the template unchanged would run the
+// wrong image.
+export function composeCompanionTaskDefinition (taskDefinition, { repository, image, tags = [] }) {
+  const taskDef = registrationPayload(taskDefinition, tags)
+
+  let swapped = 0
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(container => {
+    if (container.image !== 'scratch' && !(container.image && parseImageRef(container.image).name.endsWith(`/${repository}`))) {
+      return container
+    }
+    swapped++
+    return { ...container, image }
+  })
+  if (swapped === 0) {
+    throw new Error(
+      `No container in task definition family ${taskDefinition.family} runs ${repository} or the scratch ` +
+      'placeholder, so there is nothing to swap the companion image into'
+    )
+  }
+
+  return taskDef
+}
+
+// A registration payload from a described task definition: the read-only
+// fields stripped, and the template's tags carried over (AWS rejects an empty
+// `tags` array, so the key is only set when there are some).
+function registrationPayload (taskDefinition, tags) {
   const taskDef = {}
   if (tags.length > 0) {
     taskDef.tags = tags
@@ -213,13 +256,6 @@ export function composeTaskDefinition (taskDefinition, { projectName, image, sec
     if (READ_ONLY_TASK_DEF_KEYS.includes(key)) continue
     taskDef[key] = value
   }
-
-  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(container =>
-    isEcsAppContainer(container, projectName)
-      ? { ...container, image, secrets }
-      : container
-  )
-
   return taskDef
 }
 
