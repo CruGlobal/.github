@@ -50773,7 +50773,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var DeleteFunctionCodeSigningConfigCommand = class extends command5(_ep05, _mw05, "DeleteFunctionCodeSigningConfig", DeleteFunctionCodeSigningConfig$) {
     };
-    var DeleteFunctionCommand = class extends command5(_ep05, _mw05, "DeleteFunction", DeleteFunction$) {
+    var DeleteFunctionCommand2 = class extends command5(_ep05, _mw05, "DeleteFunction", DeleteFunction$) {
     };
     var DeleteFunctionConcurrencyCommand = class extends command5(_ep05, _mw05, "DeleteFunctionConcurrency", DeleteFunctionConcurrency$) {
     };
@@ -50789,7 +50789,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var GetAccountSettingsCommand = class extends command5(_ep05, _mw05, "GetAccountSettings", GetAccountSettings$) {
     };
-    var GetAliasCommand = class extends command5(_ep05, _mw05, "GetAlias", GetAlias$) {
+    var GetAliasCommand2 = class extends command5(_ep05, _mw05, "GetAlias", GetAlias$) {
     };
     var GetCapacityProviderCommand = class extends command5(_ep05, _mw05, "GetCapacityProvider", GetCapacityProvider$) {
     };
@@ -50871,7 +50871,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var PublishLayerVersionCommand = class extends command5(_ep05, _mw05, "PublishLayerVersion", PublishLayerVersion$) {
     };
-    var PublishVersionCommand = class extends command5(_ep05, _mw05, "PublishVersion", PublishVersion$) {
+    var PublishVersionCommand2 = class extends command5(_ep05, _mw05, "PublishVersion", PublishVersion$) {
     };
     var PutFunctionCodeSigningConfigCommand = class extends command5(_ep05, _mw05, "PutFunctionCodeSigningConfig", PutFunctionCodeSigningConfig$) {
     };
@@ -50905,7 +50905,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var UntagResourceCommand = class extends command5(_ep05, _mw05, "UntagResource", UntagResource$) {
     };
-    var UpdateAliasCommand = class extends command5(_ep05, _mw05, "UpdateAlias", UpdateAlias$) {
+    var UpdateAliasCommand2 = class extends command5(_ep05, _mw05, "UpdateAlias", UpdateAlias$) {
     };
     var UpdateCapacityProviderCommand = class extends command5(_ep05, _mw05, "UpdateCapacityProvider", UpdateCapacityProvider$) {
     };
@@ -51204,7 +51204,7 @@ var require_dist_cjs16 = __commonJS({
       DeleteCapacityProviderCommand,
       DeleteCodeSigningConfigCommand,
       DeleteEventSourceMappingCommand,
-      DeleteFunctionCommand,
+      DeleteFunctionCommand: DeleteFunctionCommand2,
       DeleteFunctionCodeSigningConfigCommand,
       DeleteFunctionConcurrencyCommand,
       DeleteFunctionEventInvokeConfigCommand,
@@ -51213,7 +51213,7 @@ var require_dist_cjs16 = __commonJS({
       DeleteProvisionedConcurrencyConfigCommand,
       DeleteResourcePolicyCommand,
       GetAccountSettingsCommand,
-      GetAliasCommand,
+      GetAliasCommand: GetAliasCommand2,
       GetCapacityProviderCommand,
       GetCodeSigningConfigCommand,
       GetDurableExecutionCommand,
@@ -51254,7 +51254,7 @@ var require_dist_cjs16 = __commonJS({
       ListTagsCommand,
       ListVersionsByFunctionCommand,
       PublishLayerVersionCommand,
-      PublishVersionCommand,
+      PublishVersionCommand: PublishVersionCommand2,
       PutFunctionCodeSigningConfigCommand,
       PutFunctionConcurrencyCommand,
       PutFunctionEventInvokeConfigCommand,
@@ -51271,7 +51271,7 @@ var require_dist_cjs16 = __commonJS({
       StopDurableExecutionCommand,
       TagResourceCommand,
       UntagResourceCommand,
-      UpdateAliasCommand,
+      UpdateAliasCommand: UpdateAliasCommand2,
       UpdateCapacityProviderCommand,
       UpdateCodeSigningConfigCommand,
       UpdateEventSourceMappingCommand,
@@ -51794,7 +51794,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeleteFunctionCodeSigningConfig$ = DeleteFunctionCodeSigningConfig$;
     exports2.DeleteFunctionCodeSigningConfigCommand = DeleteFunctionCodeSigningConfigCommand;
     exports2.DeleteFunctionCodeSigningConfigRequest$ = DeleteFunctionCodeSigningConfigRequest$;
-    exports2.DeleteFunctionCommand = DeleteFunctionCommand;
+    exports2.DeleteFunctionCommand = DeleteFunctionCommand2;
     exports2.DeleteFunctionConcurrency$ = DeleteFunctionConcurrency$;
     exports2.DeleteFunctionConcurrencyCommand = DeleteFunctionConcurrencyCommand;
     exports2.DeleteFunctionConcurrencyRequest$ = DeleteFunctionConcurrencyRequest$;
@@ -51888,7 +51888,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.GetAccountSettingsRequest$ = GetAccountSettingsRequest$;
     exports2.GetAccountSettingsResponse$ = GetAccountSettingsResponse$;
     exports2.GetAlias$ = GetAlias$;
-    exports2.GetAliasCommand = GetAliasCommand;
+    exports2.GetAliasCommand = GetAliasCommand2;
     exports2.GetAliasRequest$ = GetAliasRequest$;
     exports2.GetCapacityProvider$ = GetCapacityProvider$;
     exports2.GetCapacityProviderCommand = GetCapacityProviderCommand;
@@ -52124,7 +52124,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.PublishLayerVersionRequest$ = PublishLayerVersionRequest$;
     exports2.PublishLayerVersionResponse$ = PublishLayerVersionResponse$;
     exports2.PublishVersion$ = PublishVersion$;
-    exports2.PublishVersionCommand = PublishVersionCommand;
+    exports2.PublishVersionCommand = PublishVersionCommand2;
     exports2.PublishVersionRequest$ = PublishVersionRequest$;
     exports2.PutFunctionCodeSigningConfig$ = PutFunctionCodeSigningConfig$;
     exports2.PutFunctionCodeSigningConfigCommand = PutFunctionCodeSigningConfigCommand;
@@ -52259,7 +52259,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.UntagResourceCommand = UntagResourceCommand;
     exports2.UntagResourceRequest$ = UntagResourceRequest$;
     exports2.UpdateAlias$ = UpdateAlias$;
-    exports2.UpdateAliasCommand = UpdateAliasCommand;
+    exports2.UpdateAliasCommand = UpdateAliasCommand2;
     exports2.UpdateAliasRequest$ = UpdateAliasRequest$;
     exports2.UpdateCapacityProvider$ = UpdateCapacityProvider$;
     exports2.UpdateCapacityProviderCommand = UpdateCapacityProviderCommand;
@@ -52800,9 +52800,9 @@ async function lambdaListFunctionNames(projectName, environment) {
   }
   return functionNames;
 }
-async function lambdaGetFunction(functionName) {
+async function lambdaGetFunction(functionName, qualifier) {
   const client = new import_client_lambda.LambdaClient({ ...RETRY_CONFIG });
-  const command5 = new import_client_lambda.GetFunctionCommand({ FunctionName: functionName });
+  const command5 = new import_client_lambda.GetFunctionCommand({ FunctionName: functionName, ...qualifier ? { Qualifier: qualifier } : {} });
   return await client.send(command5);
 }
 async function lambdaUpdateFunctionCode(functionName, imageUri) {
