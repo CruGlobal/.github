@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import yaml from 'js-yaml'
+import * as yaml from 'js-yaml'
 
 // Mocked octokit + @actions/core. `inputs` backs getInput; the octokit calls
 // are per-test mocks so each case says exactly what GitHub answers.

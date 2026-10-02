@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import yaml from 'js-yaml'
+import * as yaml from 'js-yaml'
 
 // The workflows that read what a Cloud Run environment is running, driven end
 // to end at the level a unit test can reach: the real resolve-image run()
