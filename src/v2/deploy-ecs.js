@@ -16,7 +16,8 @@ import {
 } from '../aws'
 import { ecsCluster, runtimeSecrets } from '../ecs-config'
 import { environmentNickname, legacyEnvironment } from './env'
-import { composeTaskDefinition, ecsServiceRegExp, isEcsAppContainer } from './aws'
+import { composeCompanionTaskDefinition, composeTaskDefinition, ecrDigestExists, ecsServiceRegExp, isEcsAppContainer } from './aws'
+import { companionFamily, parseCompanions } from './companions'
 import { rollOutServices } from './ecs-rollout'
 import { assertDigestRef } from './image-ref'
 import { openImage } from './oci'
@@ -33,7 +34,8 @@ const DB_MIGRATE_CONTAINER = 'db-migrate'
 // swap ONLY the app container's image to the given digest ref, refresh RUNTIME
 // secrets from SSM, register a new revision, update every matching service, and
 // re-point EventBridge scheduled tasks. Sidecars (nginx, fluentbit, …) pass
-// through untouched.
+// through untouched. Companion images the app image names are registered into
+// their own families once the services land (./companions.js).
 //
 // Each service update is waited on until its deployment lands, one service
 // after another, within one rollout budget for the whole deploy
@@ -77,6 +79,19 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
   // one read.
   const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster)
 
+  // One handle for everything that reads this image: openImage caches what it
+  // reads on the handle, so opening it twice would fetch the same blobs twice.
+  let handle = null
+  const openSharedImage = () => {
+    if (handle === null) handle = openImage(image)
+    return handle
+  }
+
+  // The companions the image names, checked and composed BEFORE anything
+  // changes, so a label that breaks the contract fails the deploy with the
+  // migration not run and every service untouched.
+  const companions = await prepareCompanions({ projectName, nickname, image, taskDefinitions, stopRolloutOnFailure, openSharedImage })
+
   // Pre-deploy migration phase — runs to completion BEFORE any service is
   // updated, so a failure fails the deploy with the running services untouched.
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns })
@@ -89,7 +104,7 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
   // would leave the first seconds of a deployment's errors permanently
   // unresolved — exactly the window a bad deploy produces errors in. Same
   // placement, and the same reasoning, as the Cloud Run path.
-  const sourcemaps = await uploadSourceMaps({ projectName, image, appUrl, secrets, taskDefinitions })
+  const sourcemaps = await uploadSourceMaps({ projectName, appUrl, secrets, taskDefinitions, openSharedImage })
 
   // Each service's PRIMARY deployment right before any is touched: only one
   // that had COMPLETED is a release known to have been live, and so the only
@@ -97,18 +112,159 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
   const starting = serviceArns.length > 0 ? await ecsDescribeServices(serviceArns, cluster) : []
   const updates = await registerServiceRevisions({ projectName, image, secrets, serviceArns, taskDefinitions, starting })
 
-  // ORDER IS LOAD BEARING: the scheduled tasks are re-pointed only once every
-  // service has landed. rollOutServices throws on any rollout that ends short,
-  // which leaves them on the task definitions they ran before, so a job never
-  // runs a release no service went live on. (A jobs-only app has no services to
-  // wait on, and goes straight to them.) A rollback is the exception: it moves
-  // them however its rollout ends, except when another update took the service
-  // over, so rollOutServices runs this itself then (see ./ecs-rollout.js).
-  const repointScheduledTasks = () => updateScheduledTasks({ projectName, nickname, image, secrets })
-  const services = await rollOutServices(updates, { cluster, stopRolloutOnFailure, repointScheduledTasks, ...rollout })
+  // ORDER IS LOAD BEARING: the scheduled tasks and the companions are
+  // re-pointed only once every service has landed. rollOutServices throws on
+  // any rollout that ends short, which leaves them on the task definitions they
+  // ran before, so a job never runs a release no service went live on, and a
+  // companion always matches the release its app serves. (A jobs-only app has
+  // no services to wait on, and goes straight to them.) A rollback is the
+  // exception: it moves them however its rollout ends, except when another
+  // update took the service over, so rollOutServices runs this itself then
+  // (see ./ecs-rollout.js).
+  //
+  // The companions are registered even when re-pointing the scheduled tasks
+  // fails: by then the services serve the new release, and so should they.
+  let companionsMoved = false
+  const repointScheduledTasks = async () => {
+    let jobsFailed
+    try {
+      await updateScheduledTasks({ projectName, nickname, image, secrets })
+    } catch (error) {
+      jobsFailed = error
+    }
+    try {
+      await registerCompanions(companions, { stopRolloutOnFailure })
+      companionsMoved = true
+    } catch (error) {
+      if (!jobsFailed) throw error
+      jobsFailed.message += ` Registering the companions failed as well: ${error.message}`
+    }
+    if (jobsFailed) throw jobsFailed
+  }
+  let services
+  try {
+    services = await rollOutServices(updates, { cluster, stopRolloutOnFailure, repointScheduledTasks, ...rollout })
+  } catch (error) {
+    if (companions.length > 0 && !companionsMoved) {
+      error.message += ` The companions (${companions.map(companion => companion.family).join(', ')}) were not ` +
+        're-registered either: they still run the task definitions they ran before this deploy.'
+    }
+    throw error
+  }
   await repointScheduledTasks()
 
   return { deployedImage: image, services, sourcemaps }
+}
+
+// Read the companions the image names (./companions.js) and check each one
+// against the registry and its family, so the deploy fails before anything
+// changes if it would fail later. Returns [{ name, family, repository, image }]
+// for the companions whose family exists.
+//
+// What each kind of trouble does, on purpose:
+//
+//   - The image cannot be read: a warning, and no companions. Every ECS deploy
+//     reads the labels, and almost no app has a companion, so a registry
+//     hiccup must not fail a deploy that never needed the read. An app that
+//     does have one keeps its companion on the release before, until a deploy
+//     reads it.
+//   - A label breaks the contract, its image is not in the registry, or its
+//     family has no container to swap: the deploy fails here, before anything
+//     changes. A missing image would otherwise pass every deploy and first
+//     fail when promote tags it, after production has moved.
+//   - The family does not exist: skipped. The app's Terraform creates it, so
+//     until it does there is nothing to register, exactly as with db-migrate.
+//
+// A rollback never fails over a companion: in the middle of an incident the
+// services matter, so anything wrong here is a warning and the companions are
+// left where they are.
+async function prepareCompanions ({ projectName, nickname, image, taskDefinitions, stopRolloutOnFailure, openSharedImage }) {
+  let labels
+  try {
+    labels = (await openSharedImage()).labels
+  } catch (error) {
+    core.warning(`could not read the image's labels, so no companion images were looked for: ${error.message}`)
+    return []
+  }
+
+  try {
+    const named = parseCompanions(labels, { projectName, appImage: image })
+    if (named.length === 0) return []
+    await assertOwnFamilies(named, { projectName, nickname, taskDefinitions })
+
+    const companions = []
+    for (const companion of named) {
+      // Promote tags every companion the label names, so even one whose family
+      // is skipped below must exist.
+      if (!await ecrDigestExists(companion.repository, companion.digest)) {
+        throw new Error(`Companion ${companion.name}'s image ${companion.image} is not in the registry`)
+      }
+      const family = companionFamily(projectName, nickname, companion.name)
+      let latest
+      try {
+        latest = await ecsDescribeTaskDefinition(family)
+      } catch (error) {
+        if (!(error instanceof ClientException)) throw error
+        core.info(`no ${family} task definition family yet, so companion ${companion.name} is skipped`)
+        continue
+      }
+      // Composed here only to fail early. registerCompanions composes again
+      // from the family's latest, which a Terraform apply during the rollout
+      // may have changed.
+      composeCompanionTaskDefinition(latest.taskDefinition, { repository: companion.repository, image: companion.image })
+      companions.push({ name: companion.name, family, repository: companion.repository, image: companion.image })
+      core.info(`companion ${companion.name}: ${companion.image} -> ${family}`)
+    }
+    return companions
+  } catch (error) {
+    if (stopRolloutOnFailure) throw error
+    core.warning(`companions left as they are for this rollback: ${error.message}`)
+    return []
+  }
+}
+
+// A companion's family must be its own. One that is also a service's or a
+// scheduled task's would be registered twice by one deploy, with two different
+// images, so it is refused before anything changes.
+async function assertOwnFamilies (companions, { projectName, nickname, taskDefinitions }) {
+  const taken = new Set(Object.values(taskDefinitions).map(taskDefinition => taskDefinition?.family).filter(Boolean))
+  const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`)
+  for (const rule of rules) {
+    for (const target of await eventBridgeListTargets(rule.Name)) {
+      const family = familyOf(target.EcsParameters?.TaskDefinitionArn)
+      if (family) taken.add(family)
+    }
+  }
+  const clashes = companions
+    .map(companion => companionFamily(projectName, nickname, companion.name))
+    .filter(family => taken.has(family))
+  if (clashes.length > 0) {
+    throw new Error(`Companion families ${clashes.join(', ')} are already used by a service or scheduled task`)
+  }
+}
+
+// Register each companion's next revision, composed from its family's latest
+// as it is now. That is all a deploy does for a companion: the app starts its
+// task itself, from the newest revision that runs the digest its own image
+// expects (./companions.js says why not the bare family). On a rollback a
+// failure is a warning (see prepareCompanions).
+async function registerCompanions (companions, { stopRolloutOnFailure }) {
+  for (const companion of companions) {
+    try {
+      const latest = await ecsDescribeTaskDefinition(companion.family)
+      const taskDefinitionArn = await ecsRegisterTaskDefinition(composeCompanionTaskDefinition(latest.taskDefinition, {
+        repository: companion.repository,
+        image: companion.image,
+        tags: latest.tags ?? []
+      }))
+      core.info(`registered companion ${companion.name}: ${taskDefinitionArn}`)
+    } catch (error) {
+      if (stopRolloutOnFailure) {
+        throw new Error(`Could not register companion ${companion.name} (${companion.family}): ${error.message}`, { cause: error })
+      }
+      core.warning(`companion ${companion.name} left as it is for this rollback: ${error.message}`)
+    }
+  }
 }
 
 // Upload the image's browser source maps, never failing the deploy.
@@ -126,7 +282,8 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
 //      call at all — and crucially no registry read. Its absence is the signal
 //      that it is not, which is the overwhelmingly common case and must stay
 //      silent.
-//   2. LABEL. Only now is the image opened (one small config blob).
+//   2. LABEL. The image's config blob, which the companion check has already
+//      read (the handle is shared).
 //   3. APP URL. Needed to turn a staged path into the URL a browser reports.
 //   4. FILES. Only now is a layer downloaded.
 //
@@ -135,7 +292,7 @@ export async function deployEcs ({ projectName, environment, image, appUrl, stop
 // is neither the v2 environment name nor the legacy one, and runtimeSecrets has
 // already resolved it correctly — so reading it back is one fewer place for the
 // three spellings to be confused.
-async function uploadSourceMaps ({ projectName, image, appUrl, secrets, taskDefinitions }) {
+async function uploadSourceMaps ({ projectName, appUrl, secrets, taskDefinitions, openSharedImage }) {
   const skipped = { status: 'skipped', uploaded: 0, failed: 0 }
   const parameter = secrets.find(secret => secret.name === TOKEN_SECRET)?.valueFrom
   if (!parameter) return skipped
@@ -144,7 +301,7 @@ async function uploadSourceMaps ({ projectName, image, appUrl, secrets, taskDefi
     const token = await ssmParameterValue(parameter)
     if (!token) return skipped
     return await publishSourceMaps({
-      oci: await openImage(image),
+      oci: await openSharedImage(),
       appUrl,
       token,
       endpoint: sourceMapsEndpoint(taskDefinitions, projectName)

@@ -2,17 +2,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Mock the provider tagging fns + @actions/core. `inputs` is the per-test
 // getInput backing map, enforcing `required` the way @actions/core does.
-const { addTag, ecrRetagDigest, setOutputMock, setFailedMock, infoMock, inputs } = vi.hoisted(() => ({
+const { addTag, ecrRetagDigest, openImage, setOutputMock, setFailedMock, infoMock, warningMock, inputs } = vi.hoisted(() => ({
   addTag: vi.fn(),
   ecrRetagDigest: vi.fn(),
+  openImage: vi.fn(),
   setOutputMock: vi.fn(),
   setFailedMock: vi.fn(),
   infoMock: vi.fn(),
+  warningMock: vi.fn(),
   inputs: {}
 }))
 
+const REGISTRY = '000000000000.dkr.ecr.us-east-1.amazonaws.com'
+
 vi.mock('../src/v2/gcp.js', () => ({ addTag, sharedRegistryRepo: name => name }))
-vi.mock('../src/v2/aws.js', () => ({ ecrRetagDigest }))
+vi.mock('../src/v2/aws.js', () => ({ ecrRetagDigest, ecrImageRef: (name, digest) => `${REGISTRY}/${name}@${digest}` }))
+// The app image's labels, which name its companions (src/v2/companions.js).
+vi.mock('../src/v2/oci.js', () => ({ openImage }))
 vi.mock('@actions/core', () => ({
   getInput: (name, opts) => {
     const value = inputs[name] ?? ''
@@ -21,7 +27,8 @@ vi.mock('@actions/core', () => ({
   },
   setOutput: setOutputMock,
   setFailed: setFailedMock,
-  info: infoMock
+  info: infoMock,
+  warning: warningMock
 }))
 
 import { assertDigest, run } from '../src/tag-image.js'
@@ -35,6 +42,9 @@ beforeEach(() => {
   setOutputMock.mockReset()
   setFailedMock.mockReset()
   infoMock.mockReset()
+  warningMock.mockReset()
+  openImage.mockReset()
+  openImage.mockResolvedValue({ labels: {} })
   for (const key of Object.keys(inputs)) delete inputs[key]
   // As in a promote job after authorize-actor passed for this attempt.
   vi.stubEnv('GITHUB_RUN_ATTEMPT', '1')
@@ -97,6 +107,79 @@ describe('run ecs / lambda', () => {
     expect(ecrRetagDigest).toHaveBeenCalledWith('example-app', DIGEST, 'release-10038')
     expect(addTag).not.toHaveBeenCalled()
     expect(setOutputMock).toHaveBeenCalledWith('image', 'ecr-ref@sha256')
+  })
+})
+
+describe('run ecs companions', () => {
+  const WORKER_DIGEST = 'sha256:' + 'b'.repeat(64)
+  const AGENT_DIGEST = 'sha256:' + 'c'.repeat(64)
+
+  beforeEach(() => {
+    inputs.type = 'ecs'
+    inputs['project-name'] = 'example-app'
+    inputs.digest = DIGEST
+    inputs.tag = 'release-10038'
+    ecrRetagDigest.mockImplementation(async (repository, digest, tag) => ({ image: `${repository}@${digest}`, tag }))
+    openImage.mockResolvedValue({
+      labels: {
+        'org.cru.companion.worker': `${REGISTRY}/example-app/worker@${WORKER_DIGEST}`,
+        'org.cru.companion.agent': `${REGISTRY}/example-app/agent@${AGENT_DIGEST}`,
+        'org.cru.sourcemaps': '1.2.3'
+      }
+    })
+  })
+
+  it('tags every companion the app image names, then the app', async () => {
+    await run()
+
+    expect(openImage).toHaveBeenCalledWith(`${REGISTRY}/example-app@${DIGEST}`)
+    expect(ecrRetagDigest.mock.calls).toEqual([
+      ['example-app/agent', AGENT_DIGEST, 'release-10038'],
+      ['example-app/worker', WORKER_DIGEST, 'release-10038'],
+      ['example-app', DIGEST, 'release-10038']
+    ])
+    expect(setOutputMock).toHaveBeenCalledWith('image', `example-app@${DIGEST}`)
+    expect(setFailedMock).not.toHaveBeenCalled()
+  })
+
+  it('fails without tagging the app when a companion cannot be tagged', async () => {
+    ecrRetagDigest.mockImplementation(async repository => {
+      if (repository === 'example-app/worker') throw new Error('Digest not found in ECR repository example-app/worker')
+      return { image: 'x' }
+    })
+
+    await run()
+
+    expect(setFailedMock).toHaveBeenCalledWith('Digest not found in ECR repository example-app/worker')
+    expect(ecrRetagDigest).not.toHaveBeenCalledWith('example-app', DIGEST, 'release-10038')
+  })
+
+  it('warns and still tags the app when the image cannot be read', async () => {
+    openImage.mockRejectedValue(new Error('registry unreachable'))
+
+    await run()
+
+    expect(warningMock).toHaveBeenCalledWith(expect.stringMatching(/^no companion images tagged release-10038: registry unreachable\. If this image names companions .* re-run this job/))
+    expect(ecrRetagDigest.mock.calls).toEqual([['example-app', DIGEST, 'release-10038']])
+    expect(setFailedMock).not.toHaveBeenCalled()
+  })
+
+  it('warns and still tags the app when a label breaks the contract', async () => {
+    openImage.mockResolvedValue({ labels: { 'org.cru.companion.worker': `${REGISTRY}/other-app/worker@${WORKER_DIGEST}` } })
+
+    await run()
+
+    expect(warningMock).toHaveBeenCalledWith(expect.stringMatching(/^no companion images tagged release-10038: .*is not one name under "example-app\/"/))
+    expect(ecrRetagDigest.mock.calls).toEqual([['example-app', DIGEST, 'release-10038']])
+  })
+
+  it('reads no image on lambda, which has no companions', async () => {
+    inputs.type = 'lambda'
+
+    await run()
+
+    expect(openImage).not.toHaveBeenCalled()
+    expect(ecrRetagDigest.mock.calls).toEqual([['example-app', DIGEST, 'release-10038']])
   })
 })
 
