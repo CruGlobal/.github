@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.0](https://github.com/CruGlobal/.github/compare/v2.9.2...v2.10.0) (2026-10-02)
+
+
+### Features
+
+* **ecs:** deploy and release companion images with the app ([#524](https://github.com/CruGlobal/.github/issues/524)) ([275b23c](https://github.com/CruGlobal/.github/commit/275b23cc5e94230f2e820cf93cfe5edf52c96aae))
+
 ## [2.9.2](https://github.com/CruGlobal/.github/compare/v2.9.1...v2.9.2) (2026-09-29)
 
 
