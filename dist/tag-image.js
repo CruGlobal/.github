@@ -2742,12 +2742,12 @@ var require_constants2 = __commonJS({
       ERROR2[ERROR2["PAUSED_H2_UPGRADE"] = 23] = "PAUSED_H2_UPGRADE";
       ERROR2[ERROR2["USER"] = 24] = "USER";
     })(ERROR = exports2.ERROR || (exports2.ERROR = {}));
-    var TYPE;
-    (function(TYPE2) {
-      TYPE2[TYPE2["BOTH"] = 0] = "BOTH";
-      TYPE2[TYPE2["REQUEST"] = 1] = "REQUEST";
-      TYPE2[TYPE2["RESPONSE"] = 2] = "RESPONSE";
-    })(TYPE = exports2.TYPE || (exports2.TYPE = {}));
+    var TYPE2;
+    (function(TYPE3) {
+      TYPE3[TYPE3["BOTH"] = 0] = "BOTH";
+      TYPE3[TYPE3["REQUEST"] = 1] = "REQUEST";
+      TYPE3[TYPE3["RESPONSE"] = 2] = "RESPONSE";
+    })(TYPE2 = exports2.TYPE || (exports2.TYPE = {}));
     var FLAGS;
     (function(FLAGS2) {
       FLAGS2[FLAGS2["CONNECTION_KEEP_ALIVE"] = 1] = "CONNECTION_KEEP_ALIVE";
@@ -13605,7 +13605,7 @@ var require_fetch = __commonJS({
     function handleFetchDone(response) {
       finalizeAndReportTiming(response, "fetch");
     }
-    function fetch2(input, init = void 0) {
+    function fetch3(input, init = void 0) {
       webidl.argumentLengthCheck(arguments, 1, "globalThis.fetch");
       let p3 = createDeferredPromise();
       let requestObject;
@@ -14562,7 +14562,7 @@ var require_fetch = __commonJS({
       }
     }
     module2.exports = {
-      fetch: fetch2,
+      fetch: fetch3,
       Fetch,
       fetching,
       finalizeAndReportTiming
@@ -18326,12 +18326,12 @@ var require_eventsource_stream = __commonJS({
       }
       return true;
     }
-    function isFieldName(line, length, field) {
-      if (length !== field.length) {
+    function isFieldName(line, length, field2) {
+      if (length !== field2.length) {
         return false;
       }
       for (let i6 = 0; i6 < length; i6++) {
-        if (line[i6] !== field[i6]) {
+        if (line[i6] !== field2[i6]) {
           return false;
         }
       }
@@ -19022,7 +19022,7 @@ var require_undici = __commonJS({
     module2.exports.setGlobalDispatcher = setGlobalDispatcher;
     module2.exports.getGlobalDispatcher = getGlobalDispatcher;
     var fetchImpl = require_fetch().fetch;
-    module2.exports.fetch = async function fetch2(init, options = void 0) {
+    module2.exports.fetch = async function fetch3(init, options = void 0) {
       try {
         return await fetchImpl(init, options);
       } catch (err) {
@@ -21070,9 +21070,9 @@ var require_ponyfill_es2018 = __commonJS({
           throw new TypeError(`Parameter ${position} is required in '${context}'.`);
         }
       }
-      function assertRequiredField(x2, field, context) {
+      function assertRequiredField(x2, field2, context) {
         if (x2 === void 0) {
-          throw new TypeError(`${field} is required in '${context}'.`);
+          throw new TypeError(`${field2} is required in '${context}'.`);
         }
       }
       function convertUnrestrictedDouble(value) {
@@ -26958,12 +26958,12 @@ __export(src_exports, {
   Response: () => Response,
   blobFrom: () => blobFrom,
   blobFromSync: () => blobFromSync,
-  default: () => fetch,
+  default: () => fetch2,
   fileFrom: () => fileFrom,
   fileFromSync: () => fileFromSync,
   isRedirect: () => isRedirect
 });
-async function fetch(url, options_) {
+async function fetch2(url, options_) {
   return new Promise((resolve, reject) => {
     const request = new Request(url, options_);
     const { parsedURL, options } = getNodeRequestOptions(request);
@@ -27095,7 +27095,7 @@ async function fetch(url, options_) {
             if (responseReferrerPolicy) {
               requestOptions.referrerPolicy = responseReferrerPolicy;
             }
-            resolve(fetch(new Request(locationURL, requestOptions)));
+            resolve(fetch2(new Request(locationURL, requestOptions)));
             finalize();
             return;
           }
@@ -43943,9 +43943,9 @@ var require_service_config = __commonJS({
         "clientHostname",
         "serviceConfig"
       ];
-      for (const field in obj) {
-        if (!allowedFields.includes(field)) {
-          throw new Error(`Invalid service config choice: unexpected field ${field}`);
+      for (const field2 in obj) {
+        if (!allowedFields.includes(field2)) {
+          throw new Error(`Invalid service config choice: unexpected field ${field2}`);
         }
       }
       return result;
@@ -47536,15 +47536,15 @@ var require_pool2 = __commonJS({
     "use strict";
     module2.exports = pool;
     function pool(alloc2, slice, size) {
-      var SIZE = size || 8192;
-      var MAX = SIZE >>> 1;
+      var SIZE2 = size || 8192;
+      var MAX = SIZE2 >>> 1;
       var slab = null;
-      var offset = SIZE;
+      var offset = SIZE2;
       return function pool_alloc(size2) {
         if (size2 < 1 || size2 > MAX)
           return alloc2(size2);
-        if (offset + size2 > SIZE) {
-          slab = alloc2(SIZE);
+        if (offset + size2 > SIZE2) {
+          slab = alloc2(SIZE2);
           offset = 0;
         }
         var buf2 = slice.call(slab, offset, offset += size2);
@@ -49558,24 +49558,24 @@ var require_fs = __commonJS({
 var require_fetch2 = __commonJS({
   "node_modules/@protobufjs/fetch/index.js"(exports2, module2) {
     "use strict";
-    module2.exports = fetch2;
+    module2.exports = fetch3;
     var asPromise = require_aspromise();
     var fs4 = require_fs();
-    function fetch2(filename, options, callback) {
+    function fetch3(filename, options, callback) {
       if (typeof options === "function") {
         callback = options;
         options = {};
       } else if (!options)
         options = {};
       if (!callback)
-        return asPromise(fetch2, this, filename, options);
+        return asPromise(fetch3, this, filename, options);
       if (!options.xhr && fs4 && fs4.readFile)
         return fs4.readFile(filename, function fetchReadFileCallback(err, contents) {
-          return err && typeof XMLHttpRequest !== "undefined" ? fetch2.xhr(filename, options, callback) : err ? callback(err) : callback(null, options.binary ? contents : contents.toString("utf8"));
+          return err && typeof XMLHttpRequest !== "undefined" ? fetch3.xhr(filename, options, callback) : err ? callback(err) : callback(null, options.binary ? contents : contents.toString("utf8"));
         });
-      return fetch2.xhr(filename, options, callback);
+      return fetch3.xhr(filename, options, callback);
     }
-    fetch2.xhr = function fetch_xhr(filename, options, callback) {
+    fetch3.xhr = function fetch_xhr(filename, options, callback) {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function fetchOnReadyStateChange() {
         if (xhr.readyState !== 4)
@@ -50256,39 +50256,39 @@ var require_decoder = __commonJS({
     var Enum = require_enum();
     var types3 = require_types2();
     var util = require_util11();
-    function missing(field) {
-      return "missing required '" + field.name + "'";
+    function missing(field2) {
+      return "missing required '" + field2.name + "'";
     }
     function decoder(mtype) {
-      var gen = util.codegen(["r", "l", "e", "n"], mtype.name + "$decode")("if(!(r instanceof Reader))")("r=Reader.create(r)")("if(n===undefined)n=0")("if(n>Reader.recursionLimit)")('throw Error("maximum nesting depth exceeded")')("var c,m" + (mtype.fieldsArray.filter(function(field2) {
-        return field2.map;
+      var gen = util.codegen(["r", "l", "e", "n"], mtype.name + "$decode")("if(!(r instanceof Reader))")("r=Reader.create(r)")("if(n===undefined)n=0")("if(n>Reader.recursionLimit)")('throw Error("maximum nesting depth exceeded")')("var c,m" + (mtype.fieldsArray.filter(function(field3) {
+        return field3.map;
       }).length ? ",k,value" : ""))("if(l===undefined)")("c=r.len")("else{")("c=r.pos+l")("if(c>r.len)")('throw RangeError("index out of range")')("l=r.len")("r.len=c")("}")("m=new this.ctor")("while(r.pos<c){")("var t=r.uint32()")("if(t===e)")("break")("switch(t>>>3){");
       var i6 = 0;
       for (; i6 < /* initializes */
       mtype.fieldsArray.length; ++i6) {
-        var field = mtype._fieldsArray[i6].resolve(), type = field.resolvedType instanceof Enum ? "int32" : field.type, ref = "m" + util.safeProp(field.name);
-        gen("case %i: {", field.id);
-        if (field.map) {
+        var field2 = mtype._fieldsArray[i6].resolve(), type = field2.resolvedType instanceof Enum ? "int32" : field2.type, ref = "m" + util.safeProp(field2.name);
+        gen("case %i: {", field2.id);
+        if (field2.map) {
           gen("if(%s===util.emptyObject)", ref)("%s={}", ref)("var c2=r.uint32()+r.pos")("if(c2>r.len)")('throw RangeError("index out of range")')("r.len=c2");
-          if (types3.defaults[field.keyType] !== void 0) gen("k=%j", types3.defaults[field.keyType]);
+          if (types3.defaults[field2.keyType] !== void 0) gen("k=%j", types3.defaults[field2.keyType]);
           else gen("k=null");
           if (types3.defaults[type] !== void 0) gen("value=%j", types3.defaults[type]);
           else gen("value=null");
-          gen("while(r.pos<c2){")("var tag2=r.uint32()")("switch(tag2>>>3){")("case 1: k=r.%s(); break", field.keyType)("case 2:");
+          gen("while(r.pos<c2){")("var tag2=r.uint32()")("switch(tag2>>>3){")("case 1: k=r.%s(); break", field2.keyType)("case 2:");
           if (types3.basic[type] === void 0) gen("value=types[%i].decode(r,r.uint32(),undefined,n+1)", i6);
           else gen("value=r.%s()", type);
           gen("break")("default:")("r.skipType(tag2&7,n)")("break")("}")("}")("if(r.pos!==c2)")('throw RangeError("index out of range")')("r.len=c");
-          if (types3.long[field.keyType] !== void 0) gen('%s[typeof k==="object"?util.longToHash(k):k]=value', ref);
+          if (types3.long[field2.keyType] !== void 0) gen('%s[typeof k==="object"?util.longToHash(k):k]=value', ref);
           else {
-            if (field.keyType === "string") gen('if(k==="__proto__")')("util.makeProp(%s,k)", ref);
+            if (field2.keyType === "string") gen('if(k==="__proto__")')("util.makeProp(%s,k)", ref);
             gen("%s[k]=value", ref);
           }
-        } else if (field.repeated) {
+        } else if (field2.repeated) {
           gen("if(!(%s&&%s.length))", ref, ref)("%s=[]", ref);
           if (types3.packed[type] !== void 0) gen("if((t&7)===2){")("var c2=r.uint32()+r.pos")("if(c2>r.len)")('throw RangeError("index out of range")')("r.len=c2")("while(r.pos<c2)")("%s.push(r.%s())", ref, type)("if(r.pos!==c2)")('throw RangeError("index out of range")')("r.len=c")("}else");
-          if (types3.basic[type] === void 0) gen(field.delimited ? "%s.push(types[%i].decode(r,undefined,((t&~7)|4),n+1))" : "%s.push(types[%i].decode(r,r.uint32(),undefined,n+1))", ref, i6);
+          if (types3.basic[type] === void 0) gen(field2.delimited ? "%s.push(types[%i].decode(r,undefined,((t&~7)|4),n+1))" : "%s.push(types[%i].decode(r,r.uint32(),undefined,n+1))", ref, i6);
           else gen("%s.push(r.%s())", ref, type);
-        } else if (types3.basic[type] === void 0) gen(field.delimited ? "%s=types[%i].decode(r,undefined,((t&~7)|4),n+1)" : "%s=types[%i].decode(r,r.uint32(),undefined,n+1)", ref, i6);
+        } else if (types3.basic[type] === void 0) gen(field2.delimited ? "%s=types[%i].decode(r,undefined,((t&~7)|4),n+1)" : "%s=types[%i].decode(r,r.uint32(),undefined,n+1)", ref, i6);
         else gen("%s=r.%s()", ref, type);
         gen("break")("}");
       }
@@ -50310,69 +50310,69 @@ var require_verifier = __commonJS({
     module2.exports = verifier;
     var Enum = require_enum();
     var util = require_util11();
-    function invalid(field, expected) {
-      return field.name + ": " + expected + (field.repeated && expected !== "array" ? "[]" : field.map && expected !== "object" ? "{k:" + field.keyType + "}" : "") + " expected";
+    function invalid(field2, expected) {
+      return field2.name + ": " + expected + (field2.repeated && expected !== "array" ? "[]" : field2.map && expected !== "object" ? "{k:" + field2.keyType + "}" : "") + " expected";
     }
-    function genVerifyValue(gen, field, fieldIndex, ref) {
-      if (field.resolvedType) {
-        if (field.resolvedType instanceof Enum) {
-          gen("switch(%s){", ref)("default:")("return%j", invalid(field, "enum value"));
-          for (var keys = Object.keys(field.resolvedType.values), j5 = 0; j5 < keys.length; ++j5) gen("case %i:", field.resolvedType.values[keys[j5]]);
+    function genVerifyValue(gen, field2, fieldIndex, ref) {
+      if (field2.resolvedType) {
+        if (field2.resolvedType instanceof Enum) {
+          gen("switch(%s){", ref)("default:")("return%j", invalid(field2, "enum value"));
+          for (var keys = Object.keys(field2.resolvedType.values), j5 = 0; j5 < keys.length; ++j5) gen("case %i:", field2.resolvedType.values[keys[j5]]);
           gen("break")("}");
         } else {
-          gen("{")("var e=types[%i].verify(%s,n+1);", fieldIndex, ref)("if(e)")("return%j+e", field.name + ".")("}");
+          gen("{")("var e=types[%i].verify(%s,n+1);", fieldIndex, ref)("if(e)")("return%j+e", field2.name + ".")("}");
         }
       } else {
-        switch (field.type) {
+        switch (field2.type) {
           case "int32":
           case "uint32":
           case "sint32":
           case "fixed32":
           case "sfixed32":
-            gen("if(!util.isInteger(%s))", ref)("return%j", invalid(field, "integer"));
+            gen("if(!util.isInteger(%s))", ref)("return%j", invalid(field2, "integer"));
             break;
           case "int64":
           case "uint64":
           case "sint64":
           case "fixed64":
           case "sfixed64":
-            gen("if(!util.isInteger(%s)&&!(%s&&util.isInteger(%s.low)&&util.isInteger(%s.high)))", ref, ref, ref, ref)("return%j", invalid(field, "integer|Long"));
+            gen("if(!util.isInteger(%s)&&!(%s&&util.isInteger(%s.low)&&util.isInteger(%s.high)))", ref, ref, ref, ref)("return%j", invalid(field2, "integer|Long"));
             break;
           case "float":
           case "double":
-            gen('if(typeof %s!=="number")', ref)("return%j", invalid(field, "number"));
+            gen('if(typeof %s!=="number")', ref)("return%j", invalid(field2, "number"));
             break;
           case "bool":
-            gen('if(typeof %s!=="boolean")', ref)("return%j", invalid(field, "boolean"));
+            gen('if(typeof %s!=="boolean")', ref)("return%j", invalid(field2, "boolean"));
             break;
           case "string":
-            gen("if(!util.isString(%s))", ref)("return%j", invalid(field, "string"));
+            gen("if(!util.isString(%s))", ref)("return%j", invalid(field2, "string"));
             break;
           case "bytes":
-            gen('if(!(%s&&typeof %s.length==="number"||util.isString(%s)))', ref, ref, ref)("return%j", invalid(field, "buffer"));
+            gen('if(!(%s&&typeof %s.length==="number"||util.isString(%s)))', ref, ref, ref)("return%j", invalid(field2, "buffer"));
             break;
         }
       }
       return gen;
     }
-    function genVerifyKey(gen, field, ref) {
-      switch (field.keyType) {
+    function genVerifyKey(gen, field2, ref) {
+      switch (field2.keyType) {
         case "int32":
         case "uint32":
         case "sint32":
         case "fixed32":
         case "sfixed32":
-          gen("if(!util.key32Re.test(%s))", ref)("return%j", invalid(field, "integer key"));
+          gen("if(!util.key32Re.test(%s))", ref)("return%j", invalid(field2, "integer key"));
           break;
         case "int64":
         case "uint64":
         case "sint64":
         case "fixed64":
         case "sfixed64":
-          gen("if(!util.key64Re.test(%s))", ref)("return%j", invalid(field, "integer|Long key"));
+          gen("if(!util.key64Re.test(%s))", ref)("return%j", invalid(field2, "integer|Long key"));
           break;
         case "bool":
-          gen("if(!util.key2Re.test(%s))", ref)("return%j", invalid(field, "boolean key"));
+          gen("if(!util.key2Re.test(%s))", ref)("return%j", invalid(field2, "boolean key"));
           break;
       }
       return gen;
@@ -50383,25 +50383,25 @@ var require_verifier = __commonJS({
       if (oneofs.length) gen("var p={}");
       for (var i6 = 0; i6 < /* initializes */
       mtype.fieldsArray.length; ++i6) {
-        var field = mtype._fieldsArray[i6].resolve(), ref = "m" + util.safeProp(field.name);
-        if (field.optional) gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j)){", ref, field.name);
-        if (field.map) {
-          gen("if(!util.isObject(%s))", ref)("return%j", invalid(field, "object"))("var k=Object.keys(%s)", ref)("for(var i=0;i<k.length;++i){");
-          genVerifyKey(gen, field, "k[i]");
-          genVerifyValue(gen, field, i6, ref + "[k[i]]")("}");
-        } else if (field.repeated) {
-          gen("if(!Array.isArray(%s))", ref)("return%j", invalid(field, "array"))("for(var i=0;i<%s.length;++i){", ref);
-          genVerifyValue(gen, field, i6, ref + "[i]")("}");
+        var field2 = mtype._fieldsArray[i6].resolve(), ref = "m" + util.safeProp(field2.name);
+        if (field2.optional) gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j)){", ref, field2.name);
+        if (field2.map) {
+          gen("if(!util.isObject(%s))", ref)("return%j", invalid(field2, "object"))("var k=Object.keys(%s)", ref)("for(var i=0;i<k.length;++i){");
+          genVerifyKey(gen, field2, "k[i]");
+          genVerifyValue(gen, field2, i6, ref + "[k[i]]")("}");
+        } else if (field2.repeated) {
+          gen("if(!Array.isArray(%s))", ref)("return%j", invalid(field2, "array"))("for(var i=0;i<%s.length;++i){", ref);
+          genVerifyValue(gen, field2, i6, ref + "[i]")("}");
         } else {
-          if (field.partOf) {
-            var oneofProp = util.safeProp(field.partOf.name);
-            if (seenFirstField[field.partOf.name] === 1) gen("if(p%s===1)", oneofProp)("return%j", field.partOf.name + ": multiple values");
-            seenFirstField[field.partOf.name] = 1;
+          if (field2.partOf) {
+            var oneofProp = util.safeProp(field2.partOf.name);
+            if (seenFirstField[field2.partOf.name] === 1) gen("if(p%s===1)", oneofProp)("return%j", field2.partOf.name + ": multiple values");
+            seenFirstField[field2.partOf.name] = 1;
             gen("p%s=1", oneofProp);
           }
-          genVerifyValue(gen, field, i6, ref);
+          genVerifyValue(gen, field2, i6, ref);
         }
-        if (field.optional) gen("}");
+        if (field2.optional) gen("}");
       }
       return gen("return null");
     }
@@ -50415,24 +50415,24 @@ var require_converter = __commonJS({
     var converter = exports2;
     var Enum = require_enum();
     var util = require_util11();
-    function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
+    function genValuePartial_fromObject(gen, field2, fieldIndex, prop) {
       var defaultAlreadyEmitted = false;
-      if (field.resolvedType) {
-        if (field.resolvedType instanceof Enum) {
+      if (field2.resolvedType) {
+        if (field2.resolvedType instanceof Enum) {
           gen("switch(d%s){", prop);
-          for (var values = field.resolvedType.values, keys = Object.keys(values), i6 = 0; i6 < keys.length; ++i6) {
-            if (values[keys[i6]] === field.typeDefault && !defaultAlreadyEmitted) {
+          for (var values = field2.resolvedType.values, keys = Object.keys(values), i6 = 0; i6 < keys.length; ++i6) {
+            if (values[keys[i6]] === field2.typeDefault && !defaultAlreadyEmitted) {
               gen("default:")('if(typeof(d%s)==="number"){m%s=d%s;break}', prop, prop, prop);
-              if (!field.repeated) gen("break");
+              if (!field2.repeated) gen("break");
               defaultAlreadyEmitted = true;
             }
             gen("case%j:", keys[i6])("case %i:", values[keys[i6]])("m%s=%j", prop, values[keys[i6]])("break");
           }
           gen("}");
-        } else gen("if(!util.isObject(d%s))", prop)("throw TypeError(%j)", field.fullName + ": object expected")("m%s=types[%i].fromObject(d%s,n+1)", prop, fieldIndex, prop);
+        } else gen("if(!util.isObject(d%s))", prop)("throw TypeError(%j)", field2.fullName + ": object expected")("m%s=types[%i].fromObject(d%s,n+1)", prop, fieldIndex, prop);
       } else {
         var isUnsigned = false;
-        switch (field.type) {
+        switch (field2.type) {
           case "double":
           case "float":
             gen("m%s=Number(d%s)", prop, prop);
@@ -50475,47 +50475,47 @@ var require_converter = __commonJS({
       gen("if(!util.isObject(d))")("throw TypeError(%j)", mtype.fullName + ": object expected")("if(n===undefined)n=0")("if(n>util.recursionLimit)")('throw Error("maximum nesting depth exceeded")');
       gen("var m=new this.ctor");
       for (var i6 = 0; i6 < fields.length; ++i6) {
-        var field = fields[i6].resolve(), prop = util.safeProp(field.name);
-        if (field.map) {
-          gen("if(d%s){", prop)("if(!util.isObject(d%s))", prop)("throw TypeError(%j)", field.fullName + ": object expected")("m%s={}", prop)("for(var ks=Object.keys(d%s),i=0;i<ks.length;++i){", prop);
+        var field2 = fields[i6].resolve(), prop = util.safeProp(field2.name);
+        if (field2.map) {
+          gen("if(d%s){", prop)("if(!util.isObject(d%s))", prop)("throw TypeError(%j)", field2.fullName + ": object expected")("m%s={}", prop)("for(var ks=Object.keys(d%s),i=0;i<ks.length;++i){", prop);
           gen('if(ks[i]==="__proto__")')("util.makeProp(m%s,ks[i])", prop);
           genValuePartial_fromObject(
             gen,
-            field,
+            field2,
             /* not sorted */
             i6,
             prop + "[ks[i]]"
           )("}")("}");
-        } else if (field.repeated) {
-          gen("if(d%s){", prop)("if(!Array.isArray(d%s))", prop)("throw TypeError(%j)", field.fullName + ": array expected")("m%s=[]", prop)("for(var i=0;i<d%s.length;++i){", prop);
+        } else if (field2.repeated) {
+          gen("if(d%s){", prop)("if(!Array.isArray(d%s))", prop)("throw TypeError(%j)", field2.fullName + ": array expected")("m%s=[]", prop)("for(var i=0;i<d%s.length;++i){", prop);
           genValuePartial_fromObject(
             gen,
-            field,
+            field2,
             /* not sorted */
             i6,
             prop + "[i]"
           )("}")("}");
         } else {
-          if (!(field.resolvedType instanceof Enum)) gen("if(d%s!=null){", prop);
+          if (!(field2.resolvedType instanceof Enum)) gen("if(d%s!=null){", prop);
           genValuePartial_fromObject(
             gen,
-            field,
+            field2,
             /* not sorted */
             i6,
             prop
           );
-          if (!(field.resolvedType instanceof Enum)) gen("}");
+          if (!(field2.resolvedType instanceof Enum)) gen("}");
         }
       }
       return gen("return m");
     };
-    function genValuePartial_toObject(gen, field, fieldIndex, prop) {
-      if (field.resolvedType) {
-        if (field.resolvedType instanceof Enum) gen("d%s=o.enums===String?(types[%i].values[m%s]===undefined?m%s:types[%i].values[m%s]):m%s", prop, fieldIndex, prop, prop, fieldIndex, prop, prop);
+    function genValuePartial_toObject(gen, field2, fieldIndex, prop) {
+      if (field2.resolvedType) {
+        if (field2.resolvedType instanceof Enum) gen("d%s=o.enums===String?(types[%i].values[m%s]===undefined?m%s:types[%i].values[m%s]):m%s", prop, fieldIndex, prop, prop, fieldIndex, prop, prop);
         else gen("d%s=types[%i].toObject(m%s,o,q+1)", prop, fieldIndex, prop);
       } else {
         var isUnsigned = false;
-        switch (field.type) {
+        switch (field2.type) {
           case "double":
           case "float":
             gen("d%s=o.json&&!isFinite(m%s)?String(m%s):m%s", prop, prop, prop, prop);
@@ -50561,20 +50561,20 @@ var require_converter = __commonJS({
       if (normalFields.length) {
         gen("if(o.defaults){");
         for (i6 = 0; i6 < normalFields.length; ++i6) {
-          var field = normalFields[i6], prop = util.safeProp(field.name);
-          if (field.resolvedType instanceof Enum) gen("d%s=o.enums===String?%j:%j", prop, field.resolvedType.valuesById[field.typeDefault], field.typeDefault);
-          else if (field.long) gen("if(util.Long){")("var n=new util.Long(%i,%i,%j)", field.typeDefault.low, field.typeDefault.high, field.typeDefault.unsigned)('d%s=o.longs===String?n.toString():o.longs===Number?n.toNumber():typeof BigInt!=="undefined"&&o.longs===BigInt?n.toBigInt():n', prop)("}else")('d%s=o.longs===String?%j:typeof BigInt!=="undefined"&&o.longs===BigInt?BigInt(%j):%i', prop, field.typeDefault.toString(), field.typeDefault.toString(), field.typeDefault.toNumber());
-          else if (field.bytes) {
-            var arrayDefault = Array.prototype.slice.call(field.typeDefault);
-            gen("if(o.bytes===String)d%s=%j", prop, String.fromCharCode.apply(String, field.typeDefault))("else{")("d%s=%j", prop, arrayDefault)("if(o.bytes!==Array)d%s=util.newBuffer(d%s)", prop, prop)("}");
-          } else gen("d%s=%j", prop, field.typeDefault);
+          var field2 = normalFields[i6], prop = util.safeProp(field2.name);
+          if (field2.resolvedType instanceof Enum) gen("d%s=o.enums===String?%j:%j", prop, field2.resolvedType.valuesById[field2.typeDefault], field2.typeDefault);
+          else if (field2.long) gen("if(util.Long){")("var n=new util.Long(%i,%i,%j)", field2.typeDefault.low, field2.typeDefault.high, field2.typeDefault.unsigned)('d%s=o.longs===String?n.toString():o.longs===Number?n.toNumber():typeof BigInt!=="undefined"&&o.longs===BigInt?n.toBigInt():n', prop)("}else")('d%s=o.longs===String?%j:typeof BigInt!=="undefined"&&o.longs===BigInt?BigInt(%j):%i', prop, field2.typeDefault.toString(), field2.typeDefault.toString(), field2.typeDefault.toNumber());
+          else if (field2.bytes) {
+            var arrayDefault = Array.prototype.slice.call(field2.typeDefault);
+            gen("if(o.bytes===String)d%s=%j", prop, String.fromCharCode.apply(String, field2.typeDefault))("else{")("d%s=%j", prop, arrayDefault)("if(o.bytes!==Array)d%s=util.newBuffer(d%s)", prop, prop)("}");
+          } else gen("d%s=%j", prop, field2.typeDefault);
         }
         gen("}");
       }
       var hasKs2 = false;
       for (i6 = 0; i6 < fields.length; ++i6) {
-        var field = fields[i6], index = mtype._fieldsArray.indexOf(field), prop = util.safeProp(field.name);
-        if (field.map) {
+        var field2 = fields[i6], index = mtype._fieldsArray.indexOf(field2), prop = util.safeProp(field2.name);
+        if (field2.map) {
           if (!hasKs2) {
             hasKs2 = true;
             gen("var ks2");
@@ -50583,30 +50583,30 @@ var require_converter = __commonJS({
           gen('if(ks2[j]==="__proto__")')("util.makeProp(d%s,ks2[j])", prop);
           genValuePartial_toObject(
             gen,
-            field,
+            field2,
             /* sorted */
             index,
             prop + "[ks2[j]]"
           )("}");
-        } else if (field.repeated) {
+        } else if (field2.repeated) {
           gen("if(m%s&&m%s.length){", prop, prop)("d%s=[]", prop)("for(var j=0;j<m%s.length;++j){", prop);
           genValuePartial_toObject(
             gen,
-            field,
+            field2,
             /* sorted */
             index,
             prop + "[j]"
           )("}");
         } else {
-          gen("if(m%s!=null&&Object.hasOwnProperty.call(m,%j)){", prop, field.name);
+          gen("if(m%s!=null&&Object.hasOwnProperty.call(m,%j)){", prop, field2.name);
           genValuePartial_toObject(
             gen,
-            field,
+            field2,
             /* sorted */
             index,
             prop
           );
-          if (field.partOf) gen("if(o.oneofs)")("d%s=%j", util.safeProp(field.partOf.name), field.name);
+          if (field2.partOf) gen("if(o.oneofs)")("d%s=%j", util.safeProp(field2.partOf.name), field2.name);
         }
         gen("}");
       }
@@ -50722,10 +50722,10 @@ var require_type = __commonJS({
             return this._fieldsById;
           this._fieldsById = {};
           for (var names = Object.keys(this.fields), i6 = 0; i6 < names.length; ++i6) {
-            var field = this.fields[names[i6]], id = field.id;
+            var field2 = this.fields[names[i6]], id = field2.id;
             if (this._fieldsById[id])
               throw Error("duplicate id " + id + " in " + this);
-            this._fieldsById[id] = field;
+            this._fieldsById[id] = field2;
           }
           return this._fieldsById;
         }
@@ -50789,9 +50789,9 @@ var require_type = __commonJS({
     });
     Type.generateConstructor = function generateConstructor(mtype) {
       var gen = util.codegen(["p"], mtype.name);
-      for (var i6 = 0, field; i6 < mtype.fieldsArray.length; ++i6)
-        if ((field = mtype._fieldsArray[i6]).map) gen("this%s={}", util.safeProp(field.name));
-        else if (field.repeated) gen("this%s=[]", util.safeProp(field.name));
+      for (var i6 = 0, field2; i6 < mtype.fieldsArray.length; ++i6)
+        if ((field2 = mtype._fieldsArray[i6]).map) gen("this%s={}", util.safeProp(field2.name));
+        else if (field2.repeated) gen("this%s=[]", util.safeProp(field2.name));
       return gen('if(p)for(var ks=Object.keys(p),i=0;i<ks.length;++i)if(p[ks[i]]!=null&&ks[i]!=="__proto__")')("this[ks[i]]=p[ks[i]]");
     };
     function clearCache(type) {
@@ -50883,8 +50883,8 @@ var require_type = __commonJS({
       this.oneofsArray.forEach((oneof) => {
         oneof._resolveFeatures(edition);
       });
-      this.fieldsArray.forEach((field) => {
-        field._resolveFeatures(edition);
+      this.fieldsArray.forEach((field2) => {
+        field2._resolveFeatures(edition);
       });
       return this;
     };
@@ -51109,12 +51109,12 @@ var require_root = __commonJS({
             if (parsed.imports) {
               for (; i7 < parsed.imports.length; ++i7)
                 if (resolved2 = getBundledFileName(parsed.imports[i7]) || self2.resolvePath(filename2, parsed.imports[i7]))
-                  fetch2(resolved2, false, depth + 1);
+                  fetch3(resolved2, false, depth + 1);
             }
             if (parsed.weakImports) {
               for (i7 = 0; i7 < parsed.weakImports.length; ++i7)
                 if (resolved2 = getBundledFileName(parsed.weakImports[i7]) || self2.resolvePath(filename2, parsed.weakImports[i7]))
-                  fetch2(resolved2, true, depth + 1);
+                  fetch3(resolved2, true, depth + 1);
             }
           }
         } catch (err) {
@@ -51124,7 +51124,7 @@ var require_root = __commonJS({
           finish(null, self2);
         }
       }
-      function fetch2(filename2, weak, depth) {
+      function fetch3(filename2, weak, depth) {
         if (depth === void 0)
           depth = 0;
         filename2 = getBundledFileName(filename2) || filename2;
@@ -51178,7 +51178,7 @@ var require_root = __commonJS({
       }
       for (var i6 = 0, resolved; i6 < filename.length; ++i6)
         if (resolved = self2.resolvePath("", filename[i6]))
-          fetch2(resolved);
+          fetch3(resolved);
       if (sync) {
         self2.resolveAll();
         return self2;
@@ -51196,21 +51196,21 @@ var require_root = __commonJS({
     Root.prototype.resolveAll = function resolveAll() {
       if (!this._needsRecursiveResolve) return this;
       if (this.deferred.length)
-        throw Error("unresolvable extensions: " + this.deferred.map(function(field) {
-          return "'extend " + field.extend + "' in " + field.parent.fullName;
+        throw Error("unresolvable extensions: " + this.deferred.map(function(field2) {
+          return "'extend " + field2.extend + "' in " + field2.parent.fullName;
         }).join(", "));
       return Namespace.prototype.resolveAll.call(this);
     };
     var exposeRe = /^[A-Z]/;
-    function tryHandleExtension(root5, field) {
-      var extendedType = field.parent.lookup(field.extend);
+    function tryHandleExtension(root5, field2) {
+      var extendedType = field2.parent.lookup(field2.extend);
       if (extendedType) {
-        var sisterField = new Field2(field.fullName, field.id, field.type, field.rule, void 0, field.options);
+        var sisterField = new Field2(field2.fullName, field2.id, field2.type, field2.rule, void 0, field2.options);
         if (extendedType.get(sisterField.name)) {
           return true;
         }
-        sisterField.declaringField = field;
-        field.extensionField = sisterField;
+        sisterField.declaringField = field2;
+        field2.extensionField = sisterField;
         extendedType.add(sisterField);
         return true;
       }
@@ -51598,11 +51598,11 @@ var require_field = __commonJS({
     var Type;
     var ruleRe = /^required|optional|repeated$/;
     Field2.fromJSON = function fromJSON(name, json) {
-      var field = new Field2(name, json.id, json.type, json.rule, json.extend, json.options, json.comment);
+      var field2 = new Field2(name, json.id, json.type, json.rule, json.extend, json.options, json.comment);
       if (json.edition)
-        field._edition = json.edition;
-      field._defaultEdition = "proto3";
-      return field;
+        field2._edition = json.edition;
+      field2._defaultEdition = "proto3";
+      return field2;
     };
     function Field2(name, id, type, rule, extend, options, comment) {
       if (util.isObject(rule)) {
@@ -51824,46 +51824,46 @@ var require_oneof = __commonJS({
             oneof.parent.add(oneof.fieldsArray[i6]);
       }
     }
-    OneOf.prototype.add = function add(field) {
-      if (!(field instanceof Field2))
+    OneOf.prototype.add = function add(field2) {
+      if (!(field2 instanceof Field2))
         throw TypeError("field must be a Field");
-      if (field.parent && field.parent !== this.parent)
-        field.parent.remove(field);
-      this.oneof.push(field.name);
-      this.fieldsArray.push(field);
-      field.partOf = this;
+      if (field2.parent && field2.parent !== this.parent)
+        field2.parent.remove(field2);
+      this.oneof.push(field2.name);
+      this.fieldsArray.push(field2);
+      field2.partOf = this;
       addFieldsToParent(this);
       return this;
     };
-    OneOf.prototype.remove = function remove(field) {
-      if (!(field instanceof Field2))
+    OneOf.prototype.remove = function remove(field2) {
+      if (!(field2 instanceof Field2))
         throw TypeError("field must be a Field");
-      var index = this.fieldsArray.indexOf(field);
+      var index = this.fieldsArray.indexOf(field2);
       if (index < 0)
-        throw Error(field + " is not a member of " + this);
+        throw Error(field2 + " is not a member of " + this);
       this.fieldsArray.splice(index, 1);
-      index = this.oneof.indexOf(field.name);
+      index = this.oneof.indexOf(field2.name);
       if (index > -1)
         this.oneof.splice(index, 1);
-      field.partOf = null;
+      field2.partOf = null;
       return this;
     };
     OneOf.prototype.onAdd = function onAdd(parent) {
       ReflectionObject.prototype.onAdd.call(this, parent);
       var self2 = this;
       for (var i6 = 0; i6 < this.oneof.length; ++i6) {
-        var field = parent.get(this.oneof[i6]);
-        if (field && !field.partOf) {
-          field.partOf = self2;
-          self2.fieldsArray.push(field);
+        var field2 = parent.get(this.oneof[i6]);
+        if (field2 && !field2.partOf) {
+          field2.partOf = self2;
+          self2.fieldsArray.push(field2);
         }
       }
       addFieldsToParent(this);
     };
     OneOf.prototype.onRemove = function onRemove(parent) {
-      for (var i6 = 0, field; i6 < this.fieldsArray.length; ++i6)
-        if ((field = this.fieldsArray[i6]).parent)
-          field.parent.remove(field);
+      for (var i6 = 0, field2; i6 < this.fieldsArray.length; ++i6)
+        if ((field2 = this.fieldsArray[i6]).parent)
+          field2.parent.remove(field2);
       ReflectionObject.prototype.onRemove.call(this, parent);
     };
     Object.defineProperty(OneOf.prototype, "isProto3Optional", {
@@ -51871,8 +51871,8 @@ var require_oneof = __commonJS({
         if (this.fieldsArray == null || this.fieldsArray.length !== 1) {
           return false;
         }
-        var field = this.fieldsArray[0];
-        return field.options != null && field.options["proto3_optional"] === true;
+        var field2 = this.fieldsArray[0];
+        return field2.options != null && field2.options["proto3_optional"] === true;
       }
     });
     OneOf.d = function decorateOneOf() {
@@ -52213,8 +52213,8 @@ var require_encoder = __commonJS({
     var Enum = require_enum();
     var types3 = require_types2();
     var util = require_util11();
-    function genTypePartial(gen, field, fieldIndex, ref) {
-      return field.delimited ? gen("types[%i].encode(%s,w.uint32(%i),q+1).uint32(%i)", fieldIndex, ref, (field.id << 3 | 3) >>> 0, (field.id << 3 | 4) >>> 0) : gen("types[%i].encode(%s,w.uint32(%i).fork(),q+1).ldelim()", fieldIndex, ref, (field.id << 3 | 2) >>> 0);
+    function genTypePartial(gen, field2, fieldIndex, ref) {
+      return field2.delimited ? gen("types[%i].encode(%s,w.uint32(%i),q+1).uint32(%i)", fieldIndex, ref, (field2.id << 3 | 3) >>> 0, (field2.id << 3 | 4) >>> 0) : gen("types[%i].encode(%s,w.uint32(%i).fork(),q+1).ldelim()", fieldIndex, ref, (field2.id << 3 | 2) >>> 0);
     }
     function encoder2(mtype) {
       var gen = util.codegen(["m", "w", "q"], mtype.name + "$encode")("if(!w)")("w=Writer.create()")("if(q===undefined)q=0")("if(q>util.recursionLimit)")('throw Error("max depth exceeded")');
@@ -52224,29 +52224,29 @@ var require_encoder = __commonJS({
         mtype.fieldsArray.slice().sort(util.compareFieldsById)
       );
       for (var i6 = 0; i6 < fields.length; ++i6) {
-        var field = fields[i6].resolve(), index = mtype._fieldsArray.indexOf(field), type = field.resolvedType instanceof Enum ? "int32" : field.type, wireType = types3.basic[type];
-        ref = "m" + util.safeProp(field.name);
-        if (field.map) {
-          gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j)){", ref, field.name)("for(var ks=Object.keys(%s),i=0;i<ks.length;++i){", ref)("w.uint32(%i).fork().uint32(%i).%s(ks[i])", (field.id << 3 | 2) >>> 0, 8 | types3.mapKey[field.keyType], field.keyType);
+        var field2 = fields[i6].resolve(), index = mtype._fieldsArray.indexOf(field2), type = field2.resolvedType instanceof Enum ? "int32" : field2.type, wireType = types3.basic[type];
+        ref = "m" + util.safeProp(field2.name);
+        if (field2.map) {
+          gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j)){", ref, field2.name)("for(var ks=Object.keys(%s),i=0;i<ks.length;++i){", ref)("w.uint32(%i).fork().uint32(%i).%s(ks[i])", (field2.id << 3 | 2) >>> 0, 8 | types3.mapKey[field2.keyType], field2.keyType);
           if (wireType === void 0) gen("types[%i].encode(%s[ks[i]],w.uint32(18).fork(),q+1).ldelim().ldelim()", index, ref);
           else gen(".uint32(%i).%s(%s[ks[i]]).ldelim()", 16 | wireType, type, ref);
           gen("}")("}");
-        } else if (field.repeated) {
+        } else if (field2.repeated) {
           gen("if(%s!=null&&%s.length){", ref, ref);
-          if (field.packed && types3.packed[type] !== void 0) {
-            gen("w.uint32(%i).fork()", (field.id << 3 | 2) >>> 0)("for(var i=0;i<%s.length;++i)", ref)("w.%s(%s[i])", type, ref)("w.ldelim()");
+          if (field2.packed && types3.packed[type] !== void 0) {
+            gen("w.uint32(%i).fork()", (field2.id << 3 | 2) >>> 0)("for(var i=0;i<%s.length;++i)", ref)("w.%s(%s[i])", type, ref)("w.ldelim()");
           } else {
             gen("for(var i=0;i<%s.length;++i)", ref);
             if (wireType === void 0)
-              genTypePartial(gen, field, index, ref + "[i]");
-            else gen("w.uint32(%i).%s(%s[i])", (field.id << 3 | wireType) >>> 0, type, ref);
+              genTypePartial(gen, field2, index, ref + "[i]");
+            else gen("w.uint32(%i).%s(%s[i])", (field2.id << 3 | wireType) >>> 0, type, ref);
           }
           gen("}");
         } else {
-          if (field.optional) gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j))", ref, field.name);
+          if (field2.optional) gen("if(%s!=null&&Object.hasOwnProperty.call(m,%j))", ref, field2.name);
           if (wireType === void 0)
-            genTypePartial(gen, field, index, ref);
-          else gen("w.uint32(%i).%s(%s)", (field.id << 3 | wireType) >>> 0, type, ref);
+            genTypePartial(gen, field2, index, ref);
+          else gen("w.uint32(%i).%s(%s)", (field2.id << 3 | wireType) >>> 0, type, ref);
         }
       }
       return gen("return w");
@@ -52888,26 +52888,26 @@ var require_parse3 = __commonJS({
           throw illegal(name, "name");
         name = applyCase(name);
         skip("=");
-        var field = new Field2(name, parseId(next()), type, rule, extend);
-        ifBlock(field, function parseField_block(token2) {
+        var field2 = new Field2(name, parseId(next()), type, rule, extend);
+        ifBlock(field2, function parseField_block(token2) {
           if (token2 === "option") {
-            parseOption(field, token2);
+            parseOption(field2, token2);
             skip(";");
           } else
             throw illegal(token2);
         }, function parseField_line() {
-          parseInlineOptions(field);
+          parseInlineOptions(field2);
         });
         if (rule === "proto3_optional") {
           var oneof = new OneOf("_" + name);
-          field.setOption("proto3_optional", true);
-          oneof.add(field);
+          field2.setOption("proto3_optional", true);
+          oneof.add(field2);
           parent.add(oneof);
         } else {
-          parent.add(field);
+          parent.add(field2);
         }
         if (parent === ptr) {
-          topLevelObjects.push(field);
+          topLevelObjects.push(field2);
         }
       }
       function parseGroup(parent, rule, depth) {
@@ -52928,8 +52928,8 @@ var require_parse3 = __commonJS({
         var id = parseId(next());
         var type = new Type(name);
         type.group = true;
-        var field = new Field2(fieldName, id, name, rule);
-        field.filename = parse.filename;
+        var field2 = new Field2(fieldName, id, name, rule);
+        field2.filename = parse.filename;
         ifBlock(type, function parseGroup_block(token2) {
           switch (token2) {
             case "option":
@@ -52961,7 +52961,7 @@ var require_parse3 = __commonJS({
               throw illegal(token2);
           }
         });
-        parent.add(type).add(field);
+        parent.add(type).add(field2);
       }
       function parseMapField(parent) {
         skip("<");
@@ -52977,17 +52977,17 @@ var require_parse3 = __commonJS({
         if (!nameRe.test(name))
           throw illegal(name, "name");
         skip("=");
-        var field = new MapField(applyCase(name), parseId(next()), keyType, valueType);
-        ifBlock(field, function parseMapField_block(token2) {
+        var field2 = new MapField(applyCase(name), parseId(next()), keyType, valueType);
+        ifBlock(field2, function parseMapField_block(token2) {
           if (token2 === "option") {
-            parseOption(field, token2);
+            parseOption(field2, token2);
             skip(";");
           } else
             throw illegal(token2);
         }, function parseMapField_line() {
-          parseInlineOptions(field);
+          parseInlineOptions(field2);
         });
-        parent.add(field);
+        parent.add(field2);
       }
       function parseOneOf(parent, token2, depth) {
         if (!nameRe.test(token2 = next()))
@@ -55124,10 +55124,10 @@ var require_descriptor2 = __commonJS({
           type.add(OneOf.fromDescriptor(descriptor.oneofDecl[i6]));
       if (descriptor.field)
         for (i6 = 0; i6 < descriptor.field.length; ++i6) {
-          var field = Field2.fromDescriptor(descriptor.field[i6], edition, true);
-          type.add(field);
+          var field2 = Field2.fromDescriptor(descriptor.field[i6], edition, true);
+          type.add(field2);
           if (descriptor.field[i6].hasOwnProperty("oneofIndex"))
-            type.oneofsArray[descriptor.field[i6].oneofIndex].add(field);
+            type.oneofsArray[descriptor.field[i6].oneofIndex].add(field2);
         }
       if (descriptor.extension)
         for (i6 = 0; i6 < descriptor.extension.length; ++i6)
@@ -55232,7 +55232,7 @@ var require_descriptor2 = __commonJS({
           throw Error("illegal type name: " + extendee);
       } else
         extendee = void 0;
-      var field = new Field2(
+      var field2 = new Field2(
         descriptor.name.length ? descriptor.name : "field" + descriptor.number,
         descriptor.number,
         fieldType,
@@ -55240,10 +55240,10 @@ var require_descriptor2 = __commonJS({
         extendee
       );
       if (!nested)
-        field._edition = edition;
-      field.options = fromDescriptorOptions(descriptor.options, exports2.FieldOptions);
+        field2._edition = edition;
+      field2.options = fromDescriptorOptions(descriptor.options, exports2.FieldOptions);
       if (descriptor.proto3_optional)
-        field.options.proto3_optional = true;
+        field2.options.proto3_optional = true;
       if (descriptor.defaultValue && descriptor.defaultValue.length) {
         var defaultValue = descriptor.defaultValue;
         switch (defaultValue) {
@@ -55261,16 +55261,16 @@ var require_descriptor2 = __commonJS({
               defaultValue = parseInt(defaultValue);
             break;
         }
-        field.setOption("default", defaultValue);
+        field2.setOption("default", defaultValue);
       }
       if (packableDescriptorType(descriptor.type)) {
         if (edition === "proto3") {
           if (descriptor.options && !descriptor.options.packed)
-            field.setOption("packed", false);
+            field2.setOption("packed", false);
         } else if ((!edition || edition === "proto2") && descriptor.options && descriptor.options.packed)
-          field.setOption("packed", true);
+          field2.setOption("packed", true);
       }
-      return field;
+      return field2;
     };
     Field2.prototype.toDescriptor = function toDescriptor(edition) {
       var descriptor = exports2.FieldDescriptorProto.create({ name: this.name, number: this.id });
@@ -55527,14 +55527,14 @@ var require_descriptor2 = __commonJS({
     }
     function fromDescriptorOptionsRecursive(obj, type) {
       var val = {};
-      for (var i6 = 0, field, key; i6 < type.fieldsArray.length; ++i6) {
-        if ((key = (field = type._fieldsArray[i6]).name) === "uninterpretedOption") continue;
+      for (var i6 = 0, field2, key; i6 < type.fieldsArray.length; ++i6) {
+        if ((key = (field2 = type._fieldsArray[i6]).name) === "uninterpretedOption") continue;
         if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
         var newKey = underScore(key);
-        if (field.resolvedType instanceof Type) {
-          val[newKey] = fromDescriptorOptionsRecursive(obj[key], field.resolvedType);
-        } else if (field.resolvedType instanceof Enum) {
-          val[newKey] = field.resolvedType.valuesById[obj[key]];
+        if (field2.resolvedType instanceof Type) {
+          val[newKey] = fromDescriptorOptionsRecursive(obj[key], field2.resolvedType);
+        } else if (field2.resolvedType instanceof Enum) {
+          val[newKey] = field2.resolvedType.valuesById[obj[key]];
         } else {
           val[newKey] = obj[key];
         }
@@ -55553,13 +55553,13 @@ var require_descriptor2 = __commonJS({
         var key = keys[i6];
         var newKey = $protobuf.util.camelCase(key);
         if (!Object.prototype.hasOwnProperty.call(type.fields, newKey)) continue;
-        var field = type.fields[newKey];
-        if (field.resolvedType instanceof Type) {
-          val[newKey] = toDescriptorOptionsRecursive(obj[key], field.resolvedType);
+        var field2 = type.fields[newKey];
+        if (field2.resolvedType instanceof Type) {
+          val[newKey] = toDescriptorOptionsRecursive(obj[key], field2.resolvedType);
         } else {
           val[newKey] = obj[key];
         }
-        if (field.repeated && !Array.isArray(val[newKey])) {
+        if (field2.repeated && !Array.isArray(val[newKey])) {
           val[newKey] = [val[newKey]];
         }
       }
@@ -77484,13 +77484,13 @@ var require_fromproto3json = __commonJS({
       }
       const result = {};
       for (const [key, value] of Object.entries(json)) {
-        const field = type.fields[key];
-        if (!field) {
+        const field2 = type.fields[key];
+        if (!field2) {
           continue;
         }
-        const resolvedType = field.resolvedType;
-        const fieldType = field.type;
-        if (field.repeated) {
+        const resolvedType = field2.resolvedType;
+        const fieldType = field2.type;
+        if (field2.repeated) {
           if (value === null) {
             result[key] = [];
           } else {
@@ -77499,7 +77499,7 @@ var require_fromproto3json = __commonJS({
             }
             result[key] = value.map((element) => fromProto3JSONToInternalRepresentation(resolvedType || fieldType, element));
           }
-        } else if (field.map) {
+        } else if (field2.map) {
           const map3 = {};
           for (const [mapKey, mapValue] of Object.entries(value)) {
             map3[mapKey] = fromProto3JSONToInternalRepresentation(resolvedType || fieldType, mapValue);
@@ -77507,26 +77507,26 @@ var require_fromproto3json = __commonJS({
           result[key] = map3;
         } else if (fieldType.match(/^(?:(?:(?:u?int|fixed)(?:32|64))|float|double)$/)) {
           if (typeof value !== "number" && typeof value !== "string") {
-            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field.type} cannot contain value ${value}`);
+            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field2.type} cannot contain value ${value}`);
           }
           result[key] = value;
         } else if (fieldType === "string") {
           if (typeof value !== "string") {
-            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field.type} cannot contain value ${value}`);
+            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field2.type} cannot contain value ${value}`);
           }
           result[key] = value;
         } else if (fieldType === "bool") {
           if (typeof value !== "boolean") {
-            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field.type} cannot contain value ${value}`);
+            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field2.type} cannot contain value ${value}`);
           }
           result[key] = value;
         } else if (fieldType === "bytes") {
           if (typeof value !== "string") {
-            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field.type} cannot contain value ${value}`);
+            throw new Error(`fromProto3JSONToInternalRepresentation: field ${key} of type ${field2.type} cannot contain value ${value}`);
           }
           result[key] = (0, bytes_1.bytesFromProto3JSON)(value);
         } else {
-          (0, util_1.assert)(resolvedType !== null, `Expected to be able to resolve type for field ${field.name}`);
+          (0, util_1.assert)(resolvedType !== null, `Expected to be able to resolve type for field ${field2.name}`);
           const deserializedValue = fromProto3JSONToInternalRepresentation(resolvedType, value);
           result[key] = deserializedValue;
         }
@@ -77694,8 +77694,8 @@ var require_toproto3json = __commonJS({
       }
       const result = {};
       for (const [key, value] of Object.entries(obj)) {
-        const field = objType.fields[key];
-        const fieldResolvedType = field.resolvedType;
+        const field2 = objType.fields[key];
+        const fieldResolvedType = field2.resolvedType;
         const fieldFullyQualifiedTypeName = fieldResolvedType ? (0, util_1.getFullyQualifiedTypeName)(fieldResolvedType) : null;
         if (value === null) {
           result[key] = null;
@@ -77710,7 +77710,7 @@ var require_toproto3json = __commonJS({
           });
           continue;
         }
-        if (field.map) {
+        if (field2.map) {
           const map3 = {};
           for (const [mapKey, mapValue] of Object.entries(value)) {
             map3[mapKey] = convertRepeatedOrMapValue(fieldResolvedType, mapValue, options);
@@ -77838,8 +77838,8 @@ var require_transcoding = __commonJS({
     var httpOptionName = "(google.api.http)";
     var proto3OptionalName = "proto3_optional";
     var supportedHttpMethods = ["get", "post", "put", "patch", "delete"];
-    function getField(request, field, allowObjects = false) {
-      const parts = field.split(".");
+    function getField(request, field2, allowObjects = false) {
+      const parts = field2.split(".");
       let value = request;
       for (const part of parts) {
         if (typeof value !== "object") {
@@ -77871,8 +77871,8 @@ var require_transcoding = __commonJS({
       }
       return copy;
     }
-    function deleteField(request, field) {
-      const parts = field.split(".");
+    function deleteField(request, field2) {
+      const parts = field2.split(".");
       while (parts.length > 1) {
         if (typeof request !== "object") {
           return;
@@ -77956,8 +77956,8 @@ var require_transcoding = __commonJS({
       }
       return encodeWithoutSlashes(fieldValue);
     }
-    function fieldToCamelCase(field) {
-      const parts = field.split(".");
+    function fieldToCamelCase(field2) {
+      const parts = field2.split(".");
       return parts.map((part) => (0, util_1.toCamelCase)(part)).join(".");
     }
     function match(request, pattern) {
@@ -77968,8 +77968,8 @@ var require_transcoding = __commonJS({
         if (!match2) {
           break;
         }
-        const [, before, field, pattern2, after] = match2;
-        const camelCasedField = fieldToCamelCase(field);
+        const [, before, field2, pattern2, after] = match2;
+        const camelCasedField = fieldToCamelCase(field2);
         matchedFields.push(fieldToCamelCase(camelCasedField));
         const fieldValue = getField(request, camelCasedField);
         if (fieldValue === void 0) {
@@ -78004,8 +78004,8 @@ var require_transcoding = __commonJS({
       }
       return result;
     }
-    function isProto3OptionalField(field) {
-      return field && field.options && field.options[proto3OptionalName];
+    function isProto3OptionalField(field2) {
+      return field2 && field2.options && field2.options[proto3OptionalName];
     }
     function transcode(request, parsedOptions) {
       const httpRules = [];
@@ -83283,8 +83283,8 @@ var require_bundlingUtils = __commonJS({
     function computeBundleId(obj, discriminatorFields) {
       const ids = [];
       let hasIds = false;
-      for (const field of discriminatorFields) {
-        const id = at(obj, field);
+      for (const field2 of discriminatorFields) {
+        const id = at(obj, field2);
         if (id === void 0) {
           ids.push(null);
         } else {
@@ -83297,8 +83297,8 @@ var require_bundlingUtils = __commonJS({
       }
       return JSON.stringify(ids);
     }
-    function at(obj, field) {
-      const pathParts = field.split(".");
+    function at(obj, field2) {
+      const pathParts = field2.split(".");
       let currentObj = obj;
       for (const pathPart of pathParts) {
         currentObj = currentObj?.[pathPart];
@@ -165338,14 +165338,14 @@ var init_Sha256Js = __esm({
           const h6 = new _Sha256Js();
           h6.update(key);
           const out = h6.digestSync();
-          const padded = new Uint8Array(BLOCK);
-          padded.set(out);
-          return padded;
+          const padded2 = new Uint8Array(BLOCK);
+          padded2.set(out);
+          return padded2;
         }
         if (key.byteLength < BLOCK) {
-          const padded = new Uint8Array(BLOCK);
-          padded.set(key);
-          return padded;
+          const padded2 = new Uint8Array(BLOCK);
+          padded2.set(key);
+          return padded2;
         }
         return key;
       }
@@ -167655,8 +167655,8 @@ var init_Fields = __esm({
         fields.forEach(this.setField.bind(this));
         this.encoding = encoding;
       }
-      setField(field) {
-        this.entries[field.name.toLowerCase()] = field;
+      setField(field2) {
+        this.entries[field2.name.toLowerCase()] = field2;
       }
       getField(name) {
         return this.entries[name.toLowerCase()];
@@ -167665,7 +167665,7 @@ var init_Fields = __esm({
         delete this.entries[name.toLowerCase()];
       }
       getByType(kind) {
-        return Object.values(this.entries).filter((field) => field.kind === kind);
+        return Object.values(this.entries).filter((field2) => field2.kind === kind);
       }
     };
   }
@@ -171311,18 +171311,18 @@ function stsRegionDefaultResolver(loaderConfig = {}) {
   return loadConfig({
     ...NODE_REGION_CONFIG_OPTIONS,
     async default() {
-      if (!warning.silence) {
+      if (!warning2.silence) {
         console.warn("@aws-sdk - WARN - default STS region of us-east-1 used. See @aws-sdk/credential-providers README and set a region explicitly.");
       }
       return "us-east-1";
     }
   }, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig });
 }
-var warning;
+var warning2;
 var init_stsRegionDefaultResolver = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/region-config-resolver/stsRegionDefaultResolver.js"() {
     init_config2();
-    warning = {
+    warning2 = {
       silence: false
     };
   }
@@ -171399,7 +171399,7 @@ __export(client_exports2, {
   setTokenFeature: () => setTokenFeature,
   state: () => state,
   stsRegionDefaultResolver: () => stsRegionDefaultResolver,
-  stsRegionWarning: () => warning,
+  stsRegionWarning: () => warning2,
   toEndpointV1: () => toEndpointV12,
   useDefaultPartitionInfo: () => useDefaultPartitionInfo,
   userAgentMiddleware: () => userAgentMiddleware
@@ -177580,9 +177580,9 @@ var require_dist_cjs7 = __commonJS({
         }
         return this;
       }
-      cc(input, field, withName = field) {
-        if (input[field] != null) {
-          const node = _XmlNode.of(field, input[field]).withName(withName);
+      cc(input, field2, withName = field2) {
+        if (input[field2] != null) {
+          const node = _XmlNode.of(field2, input[field2]).withName(withName);
           this.c(node);
         }
       }
@@ -184077,7 +184077,7 @@ var require_dist_cjs16 = __commonJS({
         Object.setPrototypeOf(this, _InvalidParameterException.prototype);
       }
     };
-    var RepositoryNotFoundException = class _RepositoryNotFoundException extends ECRServiceException {
+    var RepositoryNotFoundException2 = class _RepositoryNotFoundException extends ECRServiceException {
       name = "RepositoryNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -184415,7 +184415,7 @@ var require_dist_cjs16 = __commonJS({
         Object.setPrototypeOf(this, _ExclusionNotFoundException.prototype);
       }
     };
-    var ImageNotFoundException = class _ImageNotFoundException extends ECRServiceException {
+    var ImageNotFoundException2 = class _ImageNotFoundException extends ECRServiceException {
       name = "ImageNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -185222,7 +185222,7 @@ var require_dist_cjs16 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException);
+    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException2);
     var ImageStorageClassUpdateNotSupportedException$ = [
       -3,
       n05,
@@ -185420,7 +185420,7 @@ var require_dist_cjs16 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException);
+    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException2);
     var RepositoryPolicyNotFoundException$ = [
       -3,
       n05,
@@ -187817,7 +187817,7 @@ var require_dist_cjs16 = __commonJS({
       extensions.forEach((extension) => extension.configure(extensionConfiguration));
       return Object.assign(runtimeConfig, resolveAwsRegionExtensionConfiguration2(extensionConfiguration), resolveDefaultRuntimeConfig2(extensionConfiguration), resolveHttpHandlerRuntimeConfig2(extensionConfiguration), resolveHttpAuthRuntimeConfig5(extensionConfiguration));
     };
-    var ECRClient2 = class extends Client2 {
+    var ECRClient3 = class extends Client2 {
       config;
       constructor(...[configuration]) {
         const _config_0 = getRuntimeConfig9(configuration || {});
@@ -187858,7 +187858,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var BatchDeleteImageCommand = class extends command5(_ep05, _mw05, "BatchDeleteImage", BatchDeleteImage$) {
     };
-    var BatchGetImageCommand2 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
+    var BatchGetImageCommand3 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
     };
     var BatchGetRepositoryScanningConfigurationCommand = class extends command5(_ep05, _mw05, "BatchGetRepositoryScanningConfiguration", BatchGetRepositoryScanningConfiguration$) {
     };
@@ -187906,7 +187906,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var GetAuthorizationTokenCommand = class extends command5(_ep05, _mw05, "GetAuthorizationToken", GetAuthorizationToken$) {
     };
-    var GetDownloadUrlForLayerCommand = class extends command5(_ep05, _mw05, "GetDownloadUrlForLayer", GetDownloadUrlForLayer$) {
+    var GetDownloadUrlForLayerCommand2 = class extends command5(_ep05, _mw05, "GetDownloadUrlForLayer", GetDownloadUrlForLayer$) {
     };
     var GetLifecyclePolicyCommand = class extends command5(_ep05, _mw05, "GetLifecyclePolicy", GetLifecyclePolicy$) {
     };
@@ -187970,13 +187970,13 @@ var require_dist_cjs16 = __commonJS({
     };
     var ValidatePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "ValidatePullThroughCacheRule", ValidatePullThroughCacheRule$) {
     };
-    var paginateDescribeImageScanFindings = createPaginator2(ECRClient2, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeImages = createPaginator2(ECRClient2, DescribeImagesCommand2, "nextToken", "nextToken", "maxResults");
-    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient2, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeRepositories = createPaginator2(ECRClient2, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient2, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient2, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListImages = createPaginator2(ECRClient2, ListImagesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImageScanFindings = createPaginator2(ECRClient3, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImages = createPaginator2(ECRClient3, DescribeImagesCommand2, "nextToken", "nextToken", "maxResults");
+    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient3, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositories = createPaginator2(ECRClient3, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient3, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient3, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListImages = createPaginator2(ECRClient3, ListImagesCommand, "nextToken", "nextToken", "maxResults");
     var checkState$1 = async (client, input) => {
       let reason;
       try {
@@ -188054,7 +188054,7 @@ var require_dist_cjs16 = __commonJS({
     var commands5 = {
       BatchCheckLayerAvailabilityCommand,
       BatchDeleteImageCommand,
-      BatchGetImageCommand: BatchGetImageCommand2,
+      BatchGetImageCommand: BatchGetImageCommand3,
       BatchGetRepositoryScanningConfigurationCommand,
       CompleteLayerUploadCommand,
       CreatePullThroughCacheRuleCommand,
@@ -188078,7 +188078,7 @@ var require_dist_cjs16 = __commonJS({
       DescribeRepositoryCreationTemplatesCommand,
       GetAccountSettingCommand,
       GetAuthorizationTokenCommand,
-      GetDownloadUrlForLayerCommand,
+      GetDownloadUrlForLayerCommand: GetDownloadUrlForLayerCommand2,
       GetLifecyclePolicyCommand,
       GetLifecyclePolicyPreviewCommand,
       GetRegistryPolicyCommand,
@@ -188124,7 +188124,7 @@ var require_dist_cjs16 = __commonJS({
       waitUntilImageScanComplete,
       waitUntilLifecyclePolicyPreviewComplete
     };
-    var ECR = class extends ECRClient2 {
+    var ECR = class extends ECRClient3 {
     };
     createAggregatedClient2(commands5, ECR, { paginators, waiters });
     var LayerFailureCode = {
@@ -188292,7 +188292,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.BatchDeleteImageRequest$ = BatchDeleteImageRequest$;
     exports2.BatchDeleteImageResponse$ = BatchDeleteImageResponse$;
     exports2.BatchGetImage$ = BatchGetImage$;
-    exports2.BatchGetImageCommand = BatchGetImageCommand2;
+    exports2.BatchGetImageCommand = BatchGetImageCommand3;
     exports2.BatchGetImageRequest$ = BatchGetImageRequest$;
     exports2.BatchGetImageResponse$ = BatchGetImageResponse$;
     exports2.BatchGetRepositoryScanningConfiguration$ = BatchGetRepositoryScanningConfiguration$;
@@ -188386,7 +188386,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DescribeRepositoryCreationTemplatesRequest$ = DescribeRepositoryCreationTemplatesRequest$;
     exports2.DescribeRepositoryCreationTemplatesResponse$ = DescribeRepositoryCreationTemplatesResponse$;
     exports2.ECR = ECR;
-    exports2.ECRClient = ECRClient2;
+    exports2.ECRClient = ECRClient3;
     exports2.ECRServiceException = ECRServiceException;
     exports2.ECRServiceException$ = ECRServiceException$;
     exports2.EmptyUploadException = EmptyUploadException;
@@ -188409,7 +188409,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.GetAuthorizationTokenRequest$ = GetAuthorizationTokenRequest$;
     exports2.GetAuthorizationTokenResponse$ = GetAuthorizationTokenResponse$;
     exports2.GetDownloadUrlForLayer$ = GetDownloadUrlForLayer$;
-    exports2.GetDownloadUrlForLayerCommand = GetDownloadUrlForLayerCommand;
+    exports2.GetDownloadUrlForLayerCommand = GetDownloadUrlForLayerCommand2;
     exports2.GetDownloadUrlForLayerRequest$ = GetDownloadUrlForLayerRequest$;
     exports2.GetDownloadUrlForLayerResponse$ = GetDownloadUrlForLayerResponse$;
     exports2.GetLifecyclePolicy$ = GetLifecyclePolicy$;
@@ -188448,7 +188448,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.ImageFailure$ = ImageFailure$;
     exports2.ImageFailureCode = ImageFailureCode;
     exports2.ImageIdentifier$ = ImageIdentifier$;
-    exports2.ImageNotFoundException = ImageNotFoundException;
+    exports2.ImageNotFoundException = ImageNotFoundException2;
     exports2.ImageNotFoundException$ = ImageNotFoundException$;
     exports2.ImageReferrer$ = ImageReferrer$;
     exports2.ImageReplicationStatus$ = ImageReplicationStatus$;
@@ -188593,7 +188593,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.RepositoryFilterType = RepositoryFilterType;
     exports2.RepositoryNotEmptyException = RepositoryNotEmptyException;
     exports2.RepositoryNotEmptyException$ = RepositoryNotEmptyException$;
-    exports2.RepositoryNotFoundException = RepositoryNotFoundException;
+    exports2.RepositoryNotFoundException = RepositoryNotFoundException2;
     exports2.RepositoryNotFoundException$ = RepositoryNotFoundException$;
     exports2.RepositoryPolicyNotFoundException = RepositoryPolicyNotFoundException;
     exports2.RepositoryPolicyNotFoundException$ = RepositoryPolicyNotFoundException$;
@@ -189195,6 +189195,9 @@ function setFailed(message) {
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function warning(message, properties = {}) {
+  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
 function info(message) {
   process.stdout.write(message + os4.EOL);
 }
@@ -189237,6 +189240,20 @@ var READ_TIMEOUT_MS = 30 * 1e3;
 var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
 var START_DEADLINE_MS = 15 * 60 * 1e3;
 var POLL_INTERVAL_MS = 15 * 1e3;
+
+// src/v2/image-ref.js
+function parseImageRef(ref) {
+  const at = ref.indexOf("@");
+  if (at !== -1) {
+    return { name: ref.slice(0, at), digest: ref.slice(at + 1), tag: null };
+  }
+  const lastSlash = ref.lastIndexOf("/");
+  const lastColon = ref.lastIndexOf(":");
+  if (lastColon > lastSlash) {
+    return { name: ref.slice(0, lastColon), digest: null, tag: ref.slice(lastColon + 1) };
+  }
+  return { name: ref, digest: null, tag: null };
+}
 
 // src/v2/gcp.js
 var SHARED_LOCATION = DEFAULT_REGION;
@@ -189285,6 +189302,14 @@ async function addTag(project, repository, packageName, digest2, tag) {
   }
   const image = `${SHARED_LOCATION}-docker.pkg.dev/${project}/${repository}/${packageName}@${digest2}`;
   return { tag, version, image };
+}
+
+// node_modules/escape-string-regexp/index.js
+function escapeStringRegexp(string) {
+  if (typeof string !== "string") {
+    throw new TypeError("Expected a string");
+  }
+  return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
 }
 
 // src/v2/aws.js
@@ -189357,6 +189382,345 @@ function assertAttemptAuthorized(what, env2 = process.env) {
   }
 }
 
+// src/v2/companions.js
+var COMPANION_LABEL_PREFIX = "org.cru.companion.";
+var RESERVED_NAMES = ["db-migrate"];
+var NAME2 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+var DIGEST = /^sha256:[0-9a-f]{64}$/;
+function parseCompanions(labels, { projectName, appImage }) {
+  const registry = registryOf(appImage);
+  const repository = new RegExp(`^${escapeStringRegexp(projectName)}/[a-z0-9]+(?:[._-][a-z0-9]+)*$`);
+  const companions = [];
+  const problems = [];
+  for (const [label, value] of Object.entries(labels ?? {})) {
+    if (!label.startsWith(COMPANION_LABEL_PREFIX)) continue;
+    const name = label.slice(COMPANION_LABEL_PREFIX.length);
+    const problem = labelProblem({ name, value, registry, repository, projectName });
+    if (problem) {
+      problems.push(`${label}: ${problem}`);
+      continue;
+    }
+    const { name: ref, digest: digest2 } = parseImageRef(value);
+    companions.push({ name, image: value, repository: ref.slice(registry.length + 1), digest: digest2 });
+  }
+  if (problems.length > 0) {
+    throw new Error(`The image's companion labels break the contract: ${problems.join("; ")}`);
+  }
+  return companions.sort((a5, b5) => a5.name.localeCompare(b5.name));
+}
+function labelProblem({ name, value, registry, repository, projectName }) {
+  if (!NAME2.test(name)) return "the name must be lowercase letters and digits joined by single dashes";
+  if (RESERVED_NAMES.includes(name)) return `the name "${name}" is taken by the pipeline`;
+  if (typeof value !== "string" || value === "") return "the value is empty";
+  const { name: ref, digest: digest2 } = parseImageRef(value);
+  if (!digest2 || !DIGEST.test(digest2)) return `"${value}" is not pinned by a sha256 digest`;
+  if (registryOf(ref) !== registry) return `"${value}" is not in the app image's registry, ${registry}`;
+  const repo = ref.slice(registry.length + 1);
+  if (!repository.test(repo)) return `repository "${repo}" is not one name under "${projectName}/"`;
+  return void 0;
+}
+function registryOf(ref) {
+  return parseImageRef(ref).name.split("/")[0];
+}
+
+// src/v2/oci.js
+var import_node_zlib2 = require("node:zlib");
+var import_client_ecr2 = __toESM(require_dist_cjs16());
+
+// src/v2/tar.js
+var BLOCK2 = 512;
+var MAX_ENTRY_BYTES = 8 * 1024 * 1024;
+var NAME3 = [0, 100];
+var SIZE = [124, 12];
+var TYPE = 156;
+var PREFIX = [345, 155];
+var REGULAR = /* @__PURE__ */ new Set(["0", "\0"]);
+var PAX_EXTENDED = "x";
+function field(block, [offset, length]) {
+  const raw = block.subarray(offset, offset + length);
+  const end2 = raw.indexOf(0);
+  return raw.subarray(0, end2 === -1 ? raw.length : end2).toString("ascii").trim();
+}
+function octal(block, spec) {
+  const text = field(block, spec);
+  if (text === "") return 0;
+  const value = Number.parseInt(text, 8);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Malformed tar numeric field: "${text}"`);
+  }
+  return value;
+}
+function parsePaxRecords(body) {
+  const records = {};
+  let offset = 0;
+  while (offset < body.length) {
+    const space = body.indexOf(32, offset);
+    if (space === -1) break;
+    const length = Number.parseInt(body.subarray(offset, space).toString("ascii"), 10);
+    if (!Number.isFinite(length) || length <= space - offset || offset + length > body.length) break;
+    const pair = body.subarray(space + 1, offset + length - 1);
+    const equals = pair.indexOf(61);
+    if (equals !== -1) {
+      records[pair.subarray(0, equals).toString("utf8")] = pair.subarray(equals + 1).toString("utf8");
+    }
+    offset += length;
+  }
+  return records;
+}
+function normalizeTarPath(path) {
+  return path.replace(/^(?:\.?\/)+/, "");
+}
+function padded(size) {
+  return Math.ceil(size / BLOCK2) * BLOCK2;
+}
+function* walkTar(archive) {
+  let offset = 0;
+  let overridePath = null;
+  while (offset + BLOCK2 <= archive.length) {
+    const header = archive.subarray(offset, offset + BLOCK2);
+    const name = field(header, NAME3);
+    if (name === "") return;
+    const size = octal(header, SIZE);
+    const type = String.fromCharCode(header[TYPE]);
+    const body = offset + BLOCK2;
+    const next = body + padded(size);
+    if (type === PAX_EXTENDED) {
+      const { path } = parsePaxRecords(archive.subarray(body, body + size));
+      overridePath = typeof path === "string" && path !== "" ? path : null;
+      offset = next;
+      continue;
+    }
+    const prefix = field(header, PREFIX);
+    const stored = prefix === "" ? name : `${prefix}/${name}`;
+    yield { path: normalizeTarPath(overridePath ?? stored), type, size, offset: body };
+    overridePath = null;
+    offset = next;
+  }
+}
+function readEntry(archive, entry) {
+  return Buffer.from(archive.subarray(entry.offset, entry.offset + entry.size));
+}
+function findInTar(archive, target, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  const wanted = normalizeTarPath(target);
+  for (const entry of walkTar(archive)) {
+    if (!REGULAR.has(entry.type) || entry.path !== wanted) continue;
+    if (entry.size > maxBytes) {
+      throw new Error(`Tar entry "${entry.path}" is ${entry.size} bytes, over the ${maxBytes}-byte limit`);
+    }
+    return readEntry(archive, entry);
+  }
+  return null;
+}
+function listInTar(archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  const base = normalizeTarPath(prefix).replace(/\/+$/, "");
+  const dir = base === "" ? "" : `${base}/`;
+  const files = [];
+  for (const entry of walkTar(archive)) {
+    if (!REGULAR.has(entry.type)) continue;
+    if (!entry.path.startsWith(dir)) continue;
+    files.push({
+      path: entry.path,
+      name: entry.path.slice(dir.length),
+      size: entry.size,
+      contents: entry.size > maxBytes ? null : readEntry(archive, entry)
+    });
+  }
+  return files;
+}
+
+// src/v2/oci.js
+var MANIFEST_ACCEPT = MANIFEST_MEDIA_TYPES.join(", ");
+var PLATFORM = { os: "linux", architecture: "amd64" };
+var ECR_HOST = /^(\d{12})\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$/;
+var ECR_BLOB_TIMEOUT_MS = 60 * 1e3;
+var ECR_BLOB_ATTEMPTS = 3;
+var ECR_BLOB_RETRY_DELAY_MS = 500;
+var MAX_LAYER_BLOB_BYTES = 256 * 1024 * 1024;
+var MAX_LAYER_BYTES = 1024 * 1024 * 1024;
+var GAXIOS_RETRY2 = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ["GET"],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+};
+function parseRegistryRef(ref) {
+  const { name, digest: digest2, tag } = parseImageRef(ref);
+  const slash = name.indexOf("/");
+  if (slash === -1) {
+    throw new Error(`Image reference "${ref}" has no registry host`);
+  }
+  const reference = digest2 ?? tag;
+  if (!reference) {
+    throw new Error(`Image reference "${ref}" is not pinned to a digest or tag`);
+  }
+  return { host: name.slice(0, slash), repository: name.slice(slash + 1), reference };
+}
+function asDocument(body) {
+  return typeof body === "string" ? JSON.parse(body) : body;
+}
+function transportFor(target) {
+  const ecr = ECR_HOST.exec(target.host);
+  return ecr ? ecrTransport(target, ecr[1], ecr[2]) : artifactRegistryTransport(target);
+}
+function artifactRegistryTransport(target) {
+  const registryGet = async ({ kind, reference, accept, responseType }) => {
+    const client = await authClient();
+    const res = await client.request({
+      url: `https://${target.host}/v2/${target.repository}/${kind}/${reference}`,
+      method: "GET",
+      headers: accept ? { Accept: accept } : {},
+      responseType,
+      ...GAXIOS_RETRY2
+    });
+    return res.data;
+  };
+  return {
+    manifest: (reference) => registryGet({ kind: "manifests", reference, accept: MANIFEST_ACCEPT, responseType: "text" }).then(asDocument),
+    blobText: (digest2) => registryGet({ kind: "blobs", reference: digest2, responseType: "text" }),
+    blobBytes: (digest2) => registryGet({ kind: "blobs", reference: digest2, responseType: "arraybuffer" }).then((blob) => Buffer.from(blob))
+  };
+}
+function ecrTransport(target, registryId, region) {
+  const client = new import_client_ecr2.ECRClient({ region, ...RETRY_CONFIG });
+  const repositoryName = target.repository;
+  const manifest = async (reference) => {
+    const imageId = reference.startsWith("sha256:") ? { imageDigest: reference } : { imageTag: reference };
+    const response = await client.send(new import_client_ecr2.BatchGetImageCommand({
+      registryId,
+      repositoryName,
+      imageIds: [imageId],
+      acceptedMediaTypes: MANIFEST_MEDIA_TYPES
+    }));
+    const body = response.images?.[0]?.imageManifest;
+    if (!body) {
+      const failure = response.failures?.[0];
+      throw new Error(
+        `ECR returned no manifest for ${repositoryName}@${reference}${failure ? `: ${failure.failureCode} ${failure.failureReason ?? ""}`.trimEnd() : ""}`
+      );
+    }
+    return JSON.parse(body);
+  };
+  const blob = async (digest2) => {
+    const { downloadUrl } = await client.send(new import_client_ecr2.GetDownloadUrlForLayerCommand({
+      registryId,
+      repositoryName,
+      layerDigest: digest2
+    }));
+    if (!downloadUrl) {
+      throw new Error(`ECR returned no download URL for ${repositoryName}@${digest2}`);
+    }
+    return fetchBlob(downloadUrl, `${repositoryName}@${digest2}`);
+  };
+  return {
+    manifest,
+    blobText: (digest2) => blob(digest2).then((bytes) => bytes.toString("utf8")),
+    blobBytes: blob
+  };
+}
+async function fetchBlob(url, label) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(ECR_BLOB_TIMEOUT_MS) });
+      if (!response.ok) {
+        const error3 = new Error(`HTTP ${response.status} downloading ${label}`);
+        error3.status = response.status;
+        throw error3;
+      }
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error3) {
+      const permanent = error3.status !== void 0 && error3.status < 500 && error3.status !== 429;
+      if (attempt >= ECR_BLOB_ATTEMPTS || permanent) throw error3;
+      await new Promise((resolve) => setTimeout(resolve, ECR_BLOB_RETRY_DELAY_MS * 2 ** (attempt - 1)));
+    }
+  }
+}
+function selectPlatform(index) {
+  const candidates = (index.manifests ?? []).filter(
+    (entry) => entry.platform?.os === PLATFORM.os && entry.platform?.architecture === PLATFORM.architecture
+  );
+  if (candidates.length === 0) {
+    const seen = (index.manifests ?? []).map((entry) => `${entry.platform?.os ?? "?"}/${entry.platform?.architecture ?? "?"}`).join(", ");
+    throw new Error(
+      `Image index has no ${PLATFORM.os}/${PLATFORM.architecture} manifest (found: ${seen || "none"})`
+    );
+  }
+  return candidates[0].digest;
+}
+function decompressLayer(mediaType, blob) {
+  const limit = { maxOutputLength: MAX_LAYER_BYTES };
+  if (mediaType.includes("zstd")) return (0, import_node_zlib2.zstdDecompressSync)(blob, limit);
+  if (mediaType.includes("gzip")) return (0, import_node_zlib2.gunzipSync)(blob, limit);
+  return blob;
+}
+function isReadableLayer(mediaType) {
+  return mediaType.includes(".tar") && !mediaType.includes("foreign") && !mediaType.includes("nondistributable");
+}
+var MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024;
+async function openImage(imageRef) {
+  const target = parseRegistryRef(imageRef);
+  const transport = transportFor(target);
+  let manifest = await transport.manifest(target.reference);
+  if (manifest.manifests) {
+    manifest = await transport.manifest(selectPlatform(manifest));
+  }
+  if (!manifest.config?.digest) {
+    throw new Error(`Image manifest for ${imageRef} has no config descriptor`);
+  }
+  const config = asDocument(await transport.blobText(manifest.config.digest));
+  const cache5 = /* @__PURE__ */ new Map();
+  let cached = 0;
+  async function layerTar(layer) {
+    const hit = cache5.get(layer.digest);
+    if (hit) return hit;
+    const blob = await transport.blobBytes(layer.digest);
+    const tar = decompressLayer(layer.mediaType, blob);
+    if (cached + tar.length <= MAX_CACHED_LAYER_BYTES) {
+      cache5.set(layer.digest, tar);
+      cached += tar.length;
+    }
+    return tar;
+  }
+  async function scanLayers(label, inspect) {
+    const layers = (manifest.layers ?? []).filter((layer) => isReadableLayer(layer.mediaType));
+    for (const [index, layer] of [...layers].reverse().entries()) {
+      const position = `${layers.length - index}/${layers.length}`;
+      if (layer.size > MAX_LAYER_BLOB_BYTES) {
+        info(
+          `skipping layer ${position} (${layer.digest}): ${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit`
+        );
+        continue;
+      }
+      const found = inspect(await layerTar(layer));
+      if (found !== null) {
+        info(`found ${label} in layer ${position} (${layer.digest})`);
+        return found;
+      }
+    }
+    return null;
+  }
+  return {
+    labels: config.config?.Labels ?? {},
+    /** Contents of one file, or null when no layer contains the path. */
+    readFile(path) {
+      return scanLayers(path, (tar) => findInTar(tar, path));
+    },
+    /**
+     * Every regular file under `prefix`, as tar.js's
+     * `[{ path, name, size, contents }]`. `[]` when no layer has anything there.
+     */
+    async readDir(prefix, { maxBytes } = {}) {
+      const found = await scanLayers(prefix, (tar) => {
+        const files = listInTar(tar, prefix, maxBytes === void 0 ? {} : { maxBytes });
+        return files.length > 0 ? files : null;
+      });
+      return found ?? [];
+    }
+  };
+}
+
 // src/tag-image.js
 var DEFAULT_REGISTRY_PROJECT = "cru-shared-artifacts";
 function assertDigest(digest2) {
@@ -189386,10 +189750,27 @@ function dispatch(type, { projectName, digest: digest2, tag, registryProject }) 
     case "cloudrun":
       return addTag(registryProject, sharedRegistryRepo(projectName), projectName, digest2, tag);
     case "ecs":
+      return tagCompanions(projectName, digest2, tag).then(() => ecrRetagDigest(projectName, digest2, tag));
     case "lambda":
       return ecrRetagDigest(projectName, digest2, tag);
     default:
       throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`);
+  }
+}
+async function tagCompanions(projectName, digest2, tag) {
+  const appImage = ecrImageRef(projectName, digest2);
+  let companions;
+  try {
+    companions = parseCompanions((await openImage(appImage)).labels, { projectName, appImage });
+  } catch (error3) {
+    warning(
+      `no companion images tagged ${tag}: ${error3.message}. If this image names companions in org.cru.companion.* labels, re-run this job, or their images expire after 60 days and a rollback to this release cannot run them.`
+    );
+    return;
+  }
+  for (const companion of companions) {
+    await ecrRetagDigest(companion.repository, companion.digest, tag);
+    info(`tagged companion ${companion.name} (${companion.image}) as ${tag}`);
   }
 }
 

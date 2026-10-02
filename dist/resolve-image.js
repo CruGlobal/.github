@@ -192479,7 +192479,7 @@ var require_dist_cjs17 = __commonJS({
         Object.setPrototypeOf(this, _InvalidParameterException.prototype);
       }
     };
-    var RepositoryNotFoundException = class _RepositoryNotFoundException extends ECRServiceException {
+    var RepositoryNotFoundException2 = class _RepositoryNotFoundException extends ECRServiceException {
       name = "RepositoryNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -192817,7 +192817,7 @@ var require_dist_cjs17 = __commonJS({
         Object.setPrototypeOf(this, _ExclusionNotFoundException.prototype);
       }
     };
-    var ImageNotFoundException = class _ImageNotFoundException extends ECRServiceException {
+    var ImageNotFoundException2 = class _ImageNotFoundException extends ECRServiceException {
       name = "ImageNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -193624,7 +193624,7 @@ var require_dist_cjs17 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException);
+    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException2);
     var ImageStorageClassUpdateNotSupportedException$ = [
       -3,
       n05,
@@ -193822,7 +193822,7 @@ var require_dist_cjs17 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException);
+    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException2);
     var RepositoryPolicyNotFoundException$ = [
       -3,
       n05,
@@ -196850,7 +196850,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.ImageFailure$ = ImageFailure$;
     exports2.ImageFailureCode = ImageFailureCode;
     exports2.ImageIdentifier$ = ImageIdentifier$;
-    exports2.ImageNotFoundException = ImageNotFoundException;
+    exports2.ImageNotFoundException = ImageNotFoundException2;
     exports2.ImageNotFoundException$ = ImageNotFoundException$;
     exports2.ImageReferrer$ = ImageReferrer$;
     exports2.ImageReplicationStatus$ = ImageReplicationStatus$;
@@ -196995,7 +196995,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.RepositoryFilterType = RepositoryFilterType;
     exports2.RepositoryNotEmptyException = RepositoryNotEmptyException;
     exports2.RepositoryNotEmptyException$ = RepositoryNotEmptyException$;
-    exports2.RepositoryNotFoundException = RepositoryNotFoundException;
+    exports2.RepositoryNotFoundException = RepositoryNotFoundException2;
     exports2.RepositoryNotFoundException$ = RepositoryNotFoundException$;
     exports2.RepositoryPolicyNotFoundException = RepositoryPolicyNotFoundException;
     exports2.RepositoryPolicyNotFoundException$ = RepositoryPolicyNotFoundException$;

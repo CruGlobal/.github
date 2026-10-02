@@ -210481,7 +210481,7 @@ var require_dist_cjs19 = __commonJS({
         Object.setPrototypeOf(this, _InvalidParameterException.prototype);
       }
     };
-    var RepositoryNotFoundException = class _RepositoryNotFoundException extends ECRServiceException {
+    var RepositoryNotFoundException2 = class _RepositoryNotFoundException extends ECRServiceException {
       name = "RepositoryNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -210819,7 +210819,7 @@ var require_dist_cjs19 = __commonJS({
         Object.setPrototypeOf(this, _ExclusionNotFoundException.prototype);
       }
     };
-    var ImageNotFoundException = class _ImageNotFoundException extends ECRServiceException {
+    var ImageNotFoundException2 = class _ImageNotFoundException extends ECRServiceException {
       name = "ImageNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -210903,7 +210903,7 @@ var require_dist_cjs19 = __commonJS({
         Object.setPrototypeOf(this, _UnableToListUpstreamImageReferrersException.prototype);
       }
     };
-    var ImageAlreadyExistsException = class _ImageAlreadyExistsException extends ECRServiceException {
+    var ImageAlreadyExistsException2 = class _ImageAlreadyExistsException extends ECRServiceException {
       name = "ImageAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -211599,7 +211599,7 @@ var require_dist_cjs19 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(ImageAlreadyExistsException$, ImageAlreadyExistsException);
+    n0_registry5.registerError(ImageAlreadyExistsException$, ImageAlreadyExistsException2);
     var ImageArchivedException$ = [
       -3,
       n05,
@@ -211626,7 +211626,7 @@ var require_dist_cjs19 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException);
+    n0_registry5.registerError(ImageNotFoundException$, ImageNotFoundException2);
     var ImageStorageClassUpdateNotSupportedException$ = [
       -3,
       n05,
@@ -211824,7 +211824,7 @@ var require_dist_cjs19 = __commonJS({
       [_m4],
       [0]
     ];
-    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException);
+    n0_registry5.registerError(RepositoryNotFoundException$, RepositoryNotFoundException2);
     var RepositoryPolicyNotFoundException$ = [
       -3,
       n05,
@@ -214221,7 +214221,7 @@ var require_dist_cjs19 = __commonJS({
       extensions.forEach((extension) => extension.configure(extensionConfiguration));
       return Object.assign(runtimeConfig, resolveAwsRegionExtensionConfiguration2(extensionConfiguration), resolveDefaultRuntimeConfig2(extensionConfiguration), resolveHttpHandlerRuntimeConfig2(extensionConfiguration), resolveHttpAuthRuntimeConfig5(extensionConfiguration));
     };
-    var ECRClient2 = class extends Client2 {
+    var ECRClient3 = class extends Client2 {
       config;
       constructor(...[configuration]) {
         const _config_0 = getRuntimeConfig9(configuration || {});
@@ -214262,7 +214262,7 @@ var require_dist_cjs19 = __commonJS({
     };
     var BatchDeleteImageCommand = class extends command5(_ep05, _mw05, "BatchDeleteImage", BatchDeleteImage$) {
     };
-    var BatchGetImageCommand2 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
+    var BatchGetImageCommand3 = class extends command5(_ep05, _mw05, "BatchGetImage", BatchGetImage$) {
     };
     var BatchGetRepositoryScanningConfigurationCommand = class extends command5(_ep05, _mw05, "BatchGetRepositoryScanningConfiguration", BatchGetRepositoryScanningConfiguration$) {
     };
@@ -214294,7 +214294,7 @@ var require_dist_cjs19 = __commonJS({
     };
     var DescribeImageScanFindingsCommand = class extends command5(_ep05, _mw05, "DescribeImageScanFindings", DescribeImageScanFindings$) {
     };
-    var DescribeImagesCommand = class extends command5(_ep05, _mw05, "DescribeImages", DescribeImages$) {
+    var DescribeImagesCommand2 = class extends command5(_ep05, _mw05, "DescribeImages", DescribeImages$) {
     };
     var DescribeImageSigningStatusCommand = class extends command5(_ep05, _mw05, "DescribeImageSigningStatus", DescribeImageSigningStatus$) {
     };
@@ -214336,7 +214336,7 @@ var require_dist_cjs19 = __commonJS({
     };
     var PutAccountSettingCommand = class extends command5(_ep05, _mw05, "PutAccountSetting", PutAccountSetting$) {
     };
-    var PutImageCommand = class extends command5(_ep05, _mw05, "PutImage", PutImage$) {
+    var PutImageCommand2 = class extends command5(_ep05, _mw05, "PutImage", PutImage$) {
     };
     var PutImageScanningConfigurationCommand = class extends command5(_ep05, _mw05, "PutImageScanningConfiguration", PutImageScanningConfiguration$) {
     };
@@ -214374,13 +214374,13 @@ var require_dist_cjs19 = __commonJS({
     };
     var ValidatePullThroughCacheRuleCommand = class extends command5(_ep05, _mw05, "ValidatePullThroughCacheRule", ValidatePullThroughCacheRule$) {
     };
-    var paginateDescribeImageScanFindings = createPaginator2(ECRClient2, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeImages = createPaginator2(ECRClient2, DescribeImagesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient2, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeRepositories = createPaginator2(ECRClient2, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient2, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient2, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListImages = createPaginator2(ECRClient2, ListImagesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImageScanFindings = createPaginator2(ECRClient3, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeImages = createPaginator2(ECRClient3, DescribeImagesCommand2, "nextToken", "nextToken", "maxResults");
+    var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient3, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositories = createPaginator2(ECRClient3, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient3, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient3, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListImages = createPaginator2(ECRClient3, ListImagesCommand, "nextToken", "nextToken", "maxResults");
     var checkState$1 = async (client, input) => {
       let reason;
       try {
@@ -214458,7 +214458,7 @@ var require_dist_cjs19 = __commonJS({
     var commands5 = {
       BatchCheckLayerAvailabilityCommand,
       BatchDeleteImageCommand,
-      BatchGetImageCommand: BatchGetImageCommand2,
+      BatchGetImageCommand: BatchGetImageCommand3,
       BatchGetRepositoryScanningConfigurationCommand,
       CompleteLayerUploadCommand,
       CreatePullThroughCacheRuleCommand,
@@ -214473,7 +214473,7 @@ var require_dist_cjs19 = __commonJS({
       DeleteSigningConfigurationCommand,
       DeregisterPullTimeUpdateExclusionCommand,
       DescribeImageReplicationStatusCommand,
-      DescribeImagesCommand,
+      DescribeImagesCommand: DescribeImagesCommand2,
       DescribeImageScanFindingsCommand,
       DescribeImageSigningStatusCommand,
       DescribePullThroughCacheRulesCommand,
@@ -214495,7 +214495,7 @@ var require_dist_cjs19 = __commonJS({
       ListPullTimeUpdateExclusionsCommand,
       ListTagsForResourceCommand: ListTagsForResourceCommand2,
       PutAccountSettingCommand,
-      PutImageCommand,
+      PutImageCommand: PutImageCommand2,
       PutImageScanningConfigurationCommand,
       PutImageTagMutabilityCommand,
       PutLifecyclePolicyCommand,
@@ -214528,7 +214528,7 @@ var require_dist_cjs19 = __commonJS({
       waitUntilImageScanComplete,
       waitUntilLifecyclePolicyPreviewComplete
     };
-    var ECR = class extends ECRClient2 {
+    var ECR = class extends ECRClient3 {
     };
     createAggregatedClient2(commands5, ECR, { paginators, waiters });
     var LayerFailureCode = {
@@ -214696,7 +214696,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.BatchDeleteImageRequest$ = BatchDeleteImageRequest$;
     exports2.BatchDeleteImageResponse$ = BatchDeleteImageResponse$;
     exports2.BatchGetImage$ = BatchGetImage$;
-    exports2.BatchGetImageCommand = BatchGetImageCommand2;
+    exports2.BatchGetImageCommand = BatchGetImageCommand3;
     exports2.BatchGetImageRequest$ = BatchGetImageRequest$;
     exports2.BatchGetImageResponse$ = BatchGetImageResponse$;
     exports2.BatchGetRepositoryScanningConfiguration$ = BatchGetRepositoryScanningConfiguration$;
@@ -214769,7 +214769,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.DescribeImageSigningStatusRequest$ = DescribeImageSigningStatusRequest$;
     exports2.DescribeImageSigningStatusResponse$ = DescribeImageSigningStatusResponse$;
     exports2.DescribeImages$ = DescribeImages$;
-    exports2.DescribeImagesCommand = DescribeImagesCommand;
+    exports2.DescribeImagesCommand = DescribeImagesCommand2;
     exports2.DescribeImagesFilter$ = DescribeImagesFilter$;
     exports2.DescribeImagesRequest$ = DescribeImagesRequest$;
     exports2.DescribeImagesResponse$ = DescribeImagesResponse$;
@@ -214790,7 +214790,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.DescribeRepositoryCreationTemplatesRequest$ = DescribeRepositoryCreationTemplatesRequest$;
     exports2.DescribeRepositoryCreationTemplatesResponse$ = DescribeRepositoryCreationTemplatesResponse$;
     exports2.ECR = ECR;
-    exports2.ECRClient = ECRClient2;
+    exports2.ECRClient = ECRClient3;
     exports2.ECRServiceException = ECRServiceException;
     exports2.ECRServiceException$ = ECRServiceException$;
     exports2.EmptyUploadException = EmptyUploadException;
@@ -214842,7 +214842,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.GetSigningConfigurationResponse$ = GetSigningConfigurationResponse$;
     exports2.Image$ = Image$;
     exports2.ImageActionType = ImageActionType;
-    exports2.ImageAlreadyExistsException = ImageAlreadyExistsException;
+    exports2.ImageAlreadyExistsException = ImageAlreadyExistsException2;
     exports2.ImageAlreadyExistsException$ = ImageAlreadyExistsException$;
     exports2.ImageArchivedException = ImageArchivedException;
     exports2.ImageArchivedException$ = ImageArchivedException$;
@@ -214852,7 +214852,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.ImageFailure$ = ImageFailure$;
     exports2.ImageFailureCode = ImageFailureCode;
     exports2.ImageIdentifier$ = ImageIdentifier$;
-    exports2.ImageNotFoundException = ImageNotFoundException;
+    exports2.ImageNotFoundException = ImageNotFoundException2;
     exports2.ImageNotFoundException$ = ImageNotFoundException$;
     exports2.ImageReferrer$ = ImageReferrer$;
     exports2.ImageReplicationStatus$ = ImageReplicationStatus$;
@@ -214941,7 +214941,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.PutAccountSettingRequest$ = PutAccountSettingRequest$;
     exports2.PutAccountSettingResponse$ = PutAccountSettingResponse$;
     exports2.PutImage$ = PutImage$;
-    exports2.PutImageCommand = PutImageCommand;
+    exports2.PutImageCommand = PutImageCommand2;
     exports2.PutImageRequest$ = PutImageRequest$;
     exports2.PutImageResponse$ = PutImageResponse$;
     exports2.PutImageScanningConfiguration$ = PutImageScanningConfiguration$;
@@ -214997,7 +214997,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.RepositoryFilterType = RepositoryFilterType;
     exports2.RepositoryNotEmptyException = RepositoryNotEmptyException;
     exports2.RepositoryNotEmptyException$ = RepositoryNotEmptyException$;
-    exports2.RepositoryNotFoundException = RepositoryNotFoundException;
+    exports2.RepositoryNotFoundException = RepositoryNotFoundException2;
     exports2.RepositoryNotFoundException$ = RepositoryNotFoundException$;
     exports2.RepositoryPolicyNotFoundException = RepositoryPolicyNotFoundException;
     exports2.RepositoryPolicyNotFoundException$ = RepositoryPolicyNotFoundException$;
@@ -223878,7 +223878,7 @@ function updateTrafficCommand(name, revision) {
 
 // src/v2/oci.js
 var import_node_zlib2 = require("node:zlib");
-var import_client_ecr = __toESM(require_dist_cjs19());
+var import_client_ecr2 = __toESM(require_dist_cjs19());
 
 // node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
@@ -223889,7 +223889,9 @@ function escapeStringRegexp(string) {
 }
 
 // src/v2/aws.js
+var import_client_ecr = __toESM(require_dist_cjs19());
 var RETRY_CONFIG2 = { maxAttempts: 5, retryMode: "standard" };
+var REGION = "us-east-1";
 var MANIFEST_MEDIA_TYPES = [
   "application/vnd.docker.distribution.manifest.v2+json",
   "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -223898,6 +223900,21 @@ var MANIFEST_MEDIA_TYPES = [
 ];
 function ecrRepo(projectName) {
   return projectName;
+}
+function ecrClient() {
+  return new import_client_ecr.ECRClient({ region: REGION, ...RETRY_CONFIG2 });
+}
+async function ecrDigestExists(repositoryName, digest2) {
+  try {
+    const response = await ecrClient().send(new import_client_ecr.DescribeImagesCommand({
+      repositoryName,
+      imageIds: [{ imageDigest: digest2 }]
+    }));
+    return (response.imageDetails ?? []).length > 0;
+  } catch (error3) {
+    if (error3 instanceof import_client_ecr.ImageNotFoundException || error3 instanceof import_client_ecr.RepositoryNotFoundException) return false;
+    throw error3;
+  }
 }
 function ecsServiceRegExp(projectName, legacyEnv, nickname) {
   return new RegExp(
@@ -223921,6 +223938,31 @@ var READ_ONLY_TASK_DEF_KEYS = [
   "deregisteredAt"
 ];
 function composeTaskDefinition(taskDefinition, { projectName, image, secrets, tags = [] }) {
+  const taskDef = registrationPayload(taskDefinition, tags);
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(
+    (container) => isEcsAppContainer(container, projectName) ? { ...container, image, secrets } : container
+  );
+  return taskDef;
+}
+function composeCompanionTaskDefinition(taskDefinition, { repository, image, tags = [] }) {
+  const taskDef = registrationPayload(taskDefinition, tags);
+  const companionName = parseImageRef(image).name;
+  let swapped = 0;
+  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map((container) => {
+    if (container.image !== "scratch" && !(container.image && parseImageRef(container.image).name === companionName)) {
+      return container;
+    }
+    swapped++;
+    return { ...container, image };
+  });
+  if (swapped === 0) {
+    throw new Error(
+      `No container in task definition family ${taskDefinition.family} runs ${repository} or the scratch placeholder, so there is nothing to swap the companion image into`
+    );
+  }
+  return taskDef;
+}
+function registrationPayload(taskDefinition, tags) {
   const taskDef = {};
   if (tags.length > 0) {
     taskDef.tags = tags;
@@ -223929,9 +223971,6 @@ function composeTaskDefinition(taskDefinition, { projectName, image, secrets, ta
     if (READ_ONLY_TASK_DEF_KEYS.includes(key)) continue;
     taskDef[key] = value;
   }
-  taskDef.containerDefinitions = (taskDef.containerDefinitions ?? []).map(
-    (container) => isEcsAppContainer(container, projectName) ? { ...container, image, secrets } : container
-  );
   return taskDef;
 }
 
@@ -224092,11 +224131,11 @@ function artifactRegistryTransport(target) {
   };
 }
 function ecrTransport(target, registryId, region) {
-  const client = new import_client_ecr.ECRClient({ region, ...RETRY_CONFIG2 });
+  const client = new import_client_ecr2.ECRClient({ region, ...RETRY_CONFIG2 });
   const repositoryName = target.repository;
   const manifest = async (reference) => {
     const imageId = reference.startsWith("sha256:") ? { imageDigest: reference } : { imageTag: reference };
-    const response = await client.send(new import_client_ecr.BatchGetImageCommand({
+    const response = await client.send(new import_client_ecr2.BatchGetImageCommand({
       registryId,
       repositoryName,
       imageIds: [imageId],
@@ -224112,7 +224151,7 @@ function ecrTransport(target, registryId, region) {
     return JSON.parse(body);
   };
   const blob = async (digest2) => {
-    const { downloadUrl } = await client.send(new import_client_ecr.GetDownloadUrlForLayerCommand({
+    const { downloadUrl } = await client.send(new import_client_ecr2.GetDownloadUrlForLayerCommand({
       registryId,
       repositoryName,
       layerDigest: digest2
@@ -224648,6 +224687,50 @@ function mergeEnvVars(currentEnv, secrets) {
 // src/v2/deploy-ecs.js
 var import_client_ecs2 = __toESM(require_dist_cjs16());
 
+// src/v2/companions.js
+var COMPANION_LABEL_PREFIX = "org.cru.companion.";
+var RESERVED_NAMES = ["db-migrate"];
+var NAME3 = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+var DIGEST = /^sha256:[0-9a-f]{64}$/;
+function parseCompanions(labels, { projectName, appImage }) {
+  const registry = registryOf(appImage);
+  const repository = new RegExp(`^${escapeStringRegexp(projectName)}/[a-z0-9]+(?:[._-][a-z0-9]+)*$`);
+  const companions = [];
+  const problems = [];
+  for (const [label, value] of Object.entries(labels ?? {})) {
+    if (!label.startsWith(COMPANION_LABEL_PREFIX)) continue;
+    const name = label.slice(COMPANION_LABEL_PREFIX.length);
+    const problem = labelProblem({ name, value, registry, repository, projectName });
+    if (problem) {
+      problems.push(`${label}: ${problem}`);
+      continue;
+    }
+    const { name: ref, digest: digest2 } = parseImageRef(value);
+    companions.push({ name, image: value, repository: ref.slice(registry.length + 1), digest: digest2 });
+  }
+  if (problems.length > 0) {
+    throw new Error(`The image's companion labels break the contract: ${problems.join("; ")}`);
+  }
+  return companions.sort((a5, b5) => a5.name.localeCompare(b5.name));
+}
+function labelProblem({ name, value, registry, repository, projectName }) {
+  if (!NAME3.test(name)) return "the name must be lowercase letters and digits joined by single dashes";
+  if (RESERVED_NAMES.includes(name)) return `the name "${name}" is taken by the pipeline`;
+  if (typeof value !== "string" || value === "") return "the value is empty";
+  const { name: ref, digest: digest2 } = parseImageRef(value);
+  if (!digest2 || !DIGEST.test(digest2)) return `"${value}" is not pinned by a sha256 digest`;
+  if (registryOf(ref) !== registry) return `"${value}" is not in the app image's registry, ${registry}`;
+  const repo = ref.slice(registry.length + 1);
+  if (!repository.test(repo)) return `repository "${repo}" is not one name under "${projectName}/"`;
+  return void 0;
+}
+function registryOf(ref) {
+  return parseImageRef(ref).name.split("/")[0];
+}
+function companionFamily(projectName, nickname, name) {
+  return `${projectName}-${nickname}-${name}`;
+}
+
 // src/v2/ecs-rollout.js
 var SEND_BACK_RESERVE_MS = 2 * 60 * 1e3;
 var UPDATE_TIMEOUT_MS = 60 * 1e3;
@@ -224966,16 +225049,115 @@ async function deployEcs({ projectName, environment, image, appUrl, stopRolloutO
   const serviceArns = await ecsListServices(regexp, cluster);
   info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName4))}`);
   const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster);
+  let handle = null;
+  const openSharedImage = () => {
+    if (handle === null) handle = openImage(image);
+    return handle;
+  };
+  const companions = await prepareCompanions({ projectName, nickname, image, taskDefinitions, stopRolloutOnFailure, openSharedImage });
   await runDatabaseMigrations({ projectName, nickname, cluster, image, secrets, serviceArns });
-  const sourcemaps = await uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions });
+  const sourcemaps = await uploadSourceMaps2({ projectName, appUrl, secrets, taskDefinitions, openSharedImage });
   const starting = serviceArns.length > 0 ? await ecsDescribeServices(serviceArns, cluster) : [];
   const updates = await registerServiceRevisions({ projectName, image, secrets, serviceArns, taskDefinitions, starting });
-  const repointScheduledTasks = () => updateScheduledTasks({ projectName, nickname, image, secrets });
-  const services = await rollOutServices2(updates, { cluster, stopRolloutOnFailure, repointScheduledTasks, ...rollout });
+  let companionsMoved = false;
+  const repointScheduledTasks = async () => {
+    let jobsFailed;
+    try {
+      await updateScheduledTasks({ projectName, nickname, image, secrets });
+    } catch (error3) {
+      jobsFailed = error3;
+    }
+    try {
+      await registerCompanions(companions, { stopRolloutOnFailure });
+      companionsMoved = true;
+    } catch (error3) {
+      if (!jobsFailed) throw error3;
+      jobsFailed.message += ` Registering the companions failed as well: ${error3.message}`;
+    }
+    if (jobsFailed) throw jobsFailed;
+  };
+  let services;
+  try {
+    services = await rollOutServices2(updates, { cluster, stopRolloutOnFailure, repointScheduledTasks, ...rollout });
+  } catch (error3) {
+    if (companions.length > 0 && !companionsMoved) {
+      error3.message += ` The companions (${companions.map((companion) => companion.family).join(", ")}) were not re-registered either: they still run the task definitions they ran before this deploy.`;
+    }
+    throw error3;
+  }
   await repointScheduledTasks();
   return { deployedImage: image, services, sourcemaps };
 }
-async function uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefinitions }) {
+async function prepareCompanions({ projectName, nickname, image, taskDefinitions, stopRolloutOnFailure, openSharedImage }) {
+  let labels;
+  try {
+    labels = (await openSharedImage()).labels;
+  } catch (error3) {
+    warning(`could not read the image's labels, so no companion images were looked for: ${error3.message}`);
+    return [];
+  }
+  try {
+    const named = parseCompanions(labels, { projectName, appImage: image });
+    if (named.length === 0) return [];
+    await assertOwnFamilies(named, { projectName, nickname, taskDefinitions });
+    const companions = [];
+    for (const companion of named) {
+      if (!await ecrDigestExists(companion.repository, companion.digest)) {
+        throw new Error(`Companion ${companion.name}'s image ${companion.image} is not in the registry`);
+      }
+      const family = companionFamily(projectName, nickname, companion.name);
+      let latest;
+      try {
+        latest = await ecsDescribeTaskDefinition(family);
+      } catch (error3) {
+        if (!(error3 instanceof import_client_ecs2.ClientException)) throw error3;
+        info(`no ${family} task definition family yet, so companion ${companion.name} is skipped`);
+        continue;
+      }
+      composeCompanionTaskDefinition(latest.taskDefinition, { repository: companion.repository, image: companion.image });
+      companions.push({ name: companion.name, family, repository: companion.repository, image: companion.image });
+      info(`companion ${companion.name}: ${companion.image} -> ${family}`);
+    }
+    return companions;
+  } catch (error3) {
+    if (stopRolloutOnFailure) throw error3;
+    warning(`companions left as they are for this rollback: ${error3.message}`);
+    return [];
+  }
+}
+async function assertOwnFamilies(companions, { projectName, nickname, taskDefinitions }) {
+  const taken = new Set(Object.values(taskDefinitions).map((taskDefinition) => taskDefinition?.family).filter(Boolean));
+  const rules = await eventBridgeListRules(`ecstask-${projectName}-${nickname}`);
+  for (const rule of rules) {
+    for (const target of await eventBridgeListTargets(rule.Name)) {
+      const family = familyOf(target.EcsParameters?.TaskDefinitionArn);
+      if (family) taken.add(family);
+    }
+  }
+  const clashes = companions.map((companion) => companionFamily(projectName, nickname, companion.name)).filter((family) => taken.has(family));
+  if (clashes.length > 0) {
+    throw new Error(`Companion families ${clashes.join(", ")} are already used by a service or scheduled task`);
+  }
+}
+async function registerCompanions(companions, { stopRolloutOnFailure }) {
+  for (const companion of companions) {
+    try {
+      const latest = await ecsDescribeTaskDefinition(companion.family);
+      const taskDefinitionArn = await ecsRegisterTaskDefinition(composeCompanionTaskDefinition(latest.taskDefinition, {
+        repository: companion.repository,
+        image: companion.image,
+        tags: latest.tags ?? []
+      }));
+      info(`registered companion ${companion.name}: ${taskDefinitionArn}`);
+    } catch (error3) {
+      if (stopRolloutOnFailure) {
+        throw new Error(`Could not register companion ${companion.name} (${companion.family}): ${error3.message}`, { cause: error3 });
+      }
+      warning(`companion ${companion.name} left as it is for this rollback: ${error3.message}`);
+    }
+  }
+}
+async function uploadSourceMaps2({ projectName, appUrl, secrets, taskDefinitions, openSharedImage }) {
   const skipped = { status: "skipped", uploaded: 0, failed: 0 };
   const parameter = secrets.find((secret) => secret.name === TOKEN_SECRET)?.valueFrom;
   if (!parameter) return skipped;
@@ -224983,7 +225165,7 @@ async function uploadSourceMaps2({ projectName, image, appUrl, secrets, taskDefi
     const token = await ssmParameterValue(parameter);
     if (!token) return skipped;
     return await publishSourceMaps({
-      oci: await openImage(image),
+      oci: await openSharedImage(),
       appUrl,
       token,
       endpoint: sourceMapsEndpoint2(taskDefinitions, projectName)
