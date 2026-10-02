@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import yaml from 'js-yaml'
+import * as yaml from 'js-yaml'
 
 // Helpers for tests that read the real workflow files and run one step the
 // way the runner would: `${{ }}` expressions filled in from a context the

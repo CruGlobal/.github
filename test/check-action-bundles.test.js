@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import yaml from 'js-yaml'
+import * as yaml from 'js-yaml'
 import { checkActionBundles, readRuns } from '../.github/scripts/check-action-bundles.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
