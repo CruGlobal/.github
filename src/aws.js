@@ -37,7 +37,11 @@ import {
 
 import {
   LambdaClient,
+  DeleteFunctionCommand,
+  GetAliasCommand,
   GetFunctionCommand,
+  PublishVersionCommand,
+  UpdateAliasCommand,
   UpdateFunctionCodeCommand,
   paginateListFunctions,
   waitUntilFunctionUpdatedV2
@@ -299,10 +303,52 @@ export async function lambdaListFunctionNames(projectName, environment) {
   return functionNames
 }
 
-export async function lambdaGetFunction(functionName) {
+// `qualifier` reads one published version (or an alias) instead of $LATEST.
+export async function lambdaGetFunction(functionName, qualifier) {
   const client = new LambdaClient({...RETRY_CONFIG})
-  const command = new GetFunctionCommand({ FunctionName: functionName })
+  const command = new GetFunctionCommand({ FunctionName: functionName, ...(qualifier ? { Qualifier: qualifier } : {}) })
   return await client.send(command)
+}
+
+export async function lambdaGetAlias(functionName, name) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  return await client.send(new GetAliasCommand({ FunctionName: functionName, Name: name }))
+}
+
+// Publish $LATEST as a version, but only while it still holds the code and the
+// config that were read: CodeSha256 and RevisionId make Lambda refuse the
+// publish if either changed since.
+export async function lambdaPublishVersion(functionName, { codeSha256, revisionId, description }) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  return await client.send(new PublishVersionCommand({
+    FunctionName: functionName,
+    CodeSha256: codeSha256,
+    RevisionId: revisionId,
+    Description: description
+  }))
+}
+
+// Point an alias at one version, sending it all the traffic. `revisionId` is
+// the alias's own: Lambda refuses the move if the alias changed since it was
+// read.
+export async function lambdaUpdateAlias(functionName, name, functionVersion, revisionId) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  return await client.send(new UpdateAliasCommand({
+    FunctionName: functionName,
+    Name: name,
+    FunctionVersion: functionVersion,
+    RevisionId: revisionId
+  }))
+}
+
+// Delete one published version. Anything but a version number is refused here:
+// DeleteFunction without a qualifier deletes the whole function.
+export async function lambdaDeleteFunctionVersion(functionName, version) {
+  if (!/^[0-9]+$/.test(String(version ?? ''))) {
+    throw new Error(`Refusing to delete ${functionName} at "${version}": only a published version number may be deleted`)
+  }
+  const client = new LambdaClient({...RETRY_CONFIG})
+  return await client.send(new DeleteFunctionCommand({ FunctionName: functionName, Qualifier: String(version) }))
 }
 
 export async function lambdaUpdateFunctionCode(functionName, imageUri) {

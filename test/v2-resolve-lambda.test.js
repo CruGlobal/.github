@@ -5,7 +5,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // real (ecrRegistry is pure; the ECR helpers hit the mocked SDK).
 vi.mock('../src/aws.js', () => ({
   lambdaListFunctionNames: vi.fn(),
-  lambdaGetFunction: vi.fn()
+  lambdaGetFunction: vi.fn(),
+  lambdaGetAlias: vi.fn()
 }))
 
 const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }))
@@ -34,6 +35,8 @@ function zipFn () {
 beforeEach(() => {
   aws.lambdaListFunctionNames.mockReset()
   aws.lambdaGetFunction.mockReset()
+  aws.lambdaGetAlias.mockReset()
+  aws.lambdaGetAlias.mockRejectedValue(Object.assign(new Error('Alias not found'), { name: 'ResourceNotFoundException' }))
   sendMock.mockReset()
 })
 
@@ -110,6 +113,59 @@ describe('resolveLambda mode=environment', () => {
     await expect(
       resolveLambda({ mode: 'environment', projectName: 'example-app', environment: 'production' })
     ).rejects.toThrow(/Could not find a deployed app image/)
+  })
+})
+
+describe('resolveLambda mode=environment, for a function with a live alias', () => {
+  const LATEST = `${REGISTRY}/example-app@sha256:latest`
+  const LIVE = `${REGISTRY}/example-app@sha256:live`
+  beforeEach(() => {
+    aws.lambdaListFunctionNames.mockResolvedValue(['example-app-prod-a'])
+    aws.lambdaGetFunction.mockImplementation(async (name, qualifier) => imageFn(qualifier === '7' ? LIVE : LATEST))
+    sendMock.mockResolvedValue({ imageDetails: [{ imageTags: [] }] })
+  })
+  const resolve = () => resolveLambda({ mode: 'environment', projectName: 'example-app', environment: 'production' })
+
+  it('returns the image of the version the alias points at, which is what its triggers call', async () => {
+    aws.lambdaGetAlias.mockResolvedValue({ FunctionVersion: '7', RevisionId: 'r' })
+
+    expect((await resolve()).image).toBe(LIVE)
+    expect(aws.lambdaGetAlias).toHaveBeenCalledWith('example-app-prod-a', 'live')
+    expect(aws.lambdaGetFunction).toHaveBeenCalledWith('example-app-prod-a', '7')
+  })
+
+  it('returns $LATEST\'s image when the alias points at $LATEST', async () => {
+    aws.lambdaGetAlias.mockResolvedValue({ FunctionVersion: '$LATEST', RevisionId: 'r' })
+    expect((await resolve()).image).toBe(LATEST)
+  })
+
+  it('returns $LATEST\'s image when the role cannot read aliases yet', async () => {
+    aws.lambdaGetAlias.mockRejectedValue(Object.assign(new Error('not authorized'), {
+      name: 'AccessDeniedException',
+      $metadata: { httpStatusCode: 403 }
+    }))
+    expect((await resolve()).image).toBe(LATEST)
+  })
+
+  it('reads no alias on a function that is not the app\'s, so it cannot fail the resolve', async () => {
+    aws.lambdaListFunctionNames.mockResolvedValue(['example-app-prod-other', 'example-app-prod-a'])
+    aws.lambdaGetFunction.mockImplementation(async (name, qualifier) =>
+      name === 'example-app-prod-other' ? imageFn(`${REGISTRY}/scratch@sha256:zzz`) : imageFn(qualifier === '7' ? LIVE : LATEST))
+    aws.lambdaGetAlias.mockImplementation(async name => name === 'example-app-prod-other'
+      ? { FunctionVersion: '2', RoutingConfig: { AdditionalVersionWeights: { 1: 0.5 } } }
+      : { FunctionVersion: '7', RevisionId: 'r' })
+
+    expect((await resolve()).image).toBe(LIVE)
+    expect(aws.lambdaGetAlias).not.toHaveBeenCalledWith('example-app-prod-other', 'live')
+  })
+
+  it('throws when the alias splits traffic between versions', async () => {
+    aws.lambdaGetAlias.mockResolvedValue({
+      FunctionVersion: '7',
+      RevisionId: 'r',
+      RoutingConfig: { AdditionalVersionWeights: { 6: 0.5 } }
+    })
+    await expect(resolve()).rejects.toThrow(/splits traffic between version 7 and version 6/)
   })
 })
 

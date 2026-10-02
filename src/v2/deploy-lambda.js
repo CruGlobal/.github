@@ -1,15 +1,21 @@
 import * as core from '@actions/core'
+import { randomUUID } from 'node:crypto'
 import {
   isPermanentAwsError,
   isWaiterTimeout,
+  lambdaDeleteFunctionVersion,
+  lambdaGetAlias,
   lambdaGetFunction,
   lambdaListFunctionNames,
+  lambdaPublishVersion,
+  lambdaUpdateAlias,
   lambdaUpdateFunctionCode,
   lambdaWaitForFunctionUpdated
 } from '../aws'
 import { DEFAULT_ACCOUNT, ecrRegistry } from '../ecs-config'
 import { environmentNickname } from './env'
-import { assertDigestRef } from './image-ref'
+import { assertDigestRef, parseImageRef } from './image-ref'
+import { LIVE_ALIAS, explainAccessDenied, isVersionNumber, readLiveAlias } from './lambda-alias'
 import { POLL_INTERVAL_MS, PROGRESS_INTERVAL_MS, formatDuration, progressLogger, rolloutBudget } from './rollout-budget'
 
 // Max seconds the SDK waiter waits for a single function's code update. Past
@@ -52,6 +58,16 @@ const RESTORE_POLL_INTERVAL_MS = 5 * 1000
 // false, never sends anything back: that would be the release it is rolling
 // back from. Nor does a read that fails for good while polling: what the
 // update did is then unknown.
+//
+// A FUNCTION WITH A `live` ALIAS deploys through it (see ./lambda-alias.js for
+// why, and for the two rules every step keeps). Once the new image has landed
+// on $LATEST, the deploy publishes $LATEST as a version, waits for Lambda to
+// make that version runnable, and points the alias at it. The alias moving is
+// the moment the function's triggers switch to the new image. Sending such a
+// function back moves the alias back to its old version, deletes the version
+// this deploy published (so the old one is the newest again), and sends
+// $LATEST back to the old version's image. A function without the alias
+// deploys exactly as it always has.
 //
 // Like ECS, Lambda derives everything from the env nickname + naming
 // conventions, so runtime-project (a GCP-only input) is ignored here.
@@ -96,6 +112,22 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
       continue
     }
 
+    // Null for a function that deploys to $LATEST, as every function did
+    // before aliases.
+    let alias
+    try {
+      alias = await readLiveAlias(functionName)
+    } catch (error) {
+      throw await stop({ functionName, error })
+    }
+    if (alias && alias.image !== resolved) {
+      core.warning(
+        `${functionName}: $LATEST runs ${resolved}, but version ${alias.version}, which its ${LIVE_ALIAS} alias ` +
+        `points at, runs ${alias.image}. The alias's image is the release that is live, so that is the one a ` +
+        'send-back restores.'
+      )
+    }
+
     budget.start()
     if (budget.remaining(RESTORE_RESERVE_MS) <= 0) throw await stop({ functionName, untouched: true })
     core.info(`updating Lambda function ${functionName} -> ${image}`)
@@ -105,7 +137,10 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
       // Refused, so this function was not moved.
       throw await stop({ functionName, error })
     }
-    moved.push({ functionName, previousImage: resolved })
+    // The image to send it back to is the one that was live: the alias's, for
+    // a function that has one.
+    const entry = { functionName, previousImage: alias ? alias.image : resolved, alias }
+    moved.push(entry)
     // Block until the new image is live so a subsequent resolve/verify sees the
     // deployed digest, not the previous one.
     let outcome
@@ -118,6 +153,15 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
     }
     if (outcome.unreadable) throw withCause(new Error(unreadable(outcome)), outcome.error)
     if (!outcome.landed) throw await stop(outcome)
+    if (alias) {
+      try {
+        await goLive(entry, image, budget, timing)
+      } catch (error) {
+        // The new image landed on this function's $LATEST, so it goes back
+        // too, whatever step failed.
+        throw await stop({ functionName, error: explainAccessDenied(error), restoreSelf: true })
+      }
+    }
     updated.push(functionName)
   }
 
@@ -128,6 +172,123 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
   }
 
   return { deployedImage: image, services: updated }
+}
+
+// Put the image that just landed on $LATEST live through the function's alias:
+// publish $LATEST as a version, wait until Lambda can run it, then point the
+// alias at it. `entry` records what changed, for a send-back. Throws when a
+// step fails or the budget runs out; the alias then has not moved.
+async function goLive (entry, image, budget, timing) {
+  const { functionName, alias } = entry
+
+  // Publish only what this deploy sent. Lambda refuses the publish if the code
+  // or the config changed after this read.
+  const { Configuration: latest = {}, Code: code = {} } = await lambdaGetFunction(functionName)
+  const running = code.ResolvedImageUri ?? ''
+  if (parseImageRef(running).digest !== parseImageRef(image).digest) {
+    throw new Error(
+      `${functionName}: $LATEST runs ${running || 'no image'}, not the image this deploy sent, so it was not ` +
+      'published. Something else changed the function during the deploy.'
+    )
+  }
+  const description = versionDescription(image)
+  let published
+  try {
+    published = await lambdaPublishVersion(functionName, {
+      codeSha256: latest.CodeSha256,
+      revisionId: latest.RevisionId,
+      description
+    })
+  } catch (error) {
+    // A publish that failed for a passing reason (a lost answer, a 5xx) may
+    // have created a version before the error reached us.
+    if (!isPermanentAwsError(error)) entry.publishUncertain = description
+    throw error
+  }
+  const version = published.Version
+  if (!isVersionNumber(version)) throw new Error(`Publishing ${functionName} returned version "${version}"`)
+  if (version === alias.version) {
+    core.info(`${functionName}: $LATEST matches version ${version}, which the ${LIVE_ALIAS} alias is already on.`)
+    return
+  }
+  // When $LATEST already matches the newest version, Lambda publishes nothing
+  // and returns that version. Only a version this deploy created may be deleted
+  // in a send-back; its own description, and a number above the alias's, tell.
+  const created = published.Description === description && Number(version) > Number(alias.version)
+  entry.published = { version, created }
+  core.info(created
+    ? `${functionName}: published version ${version}.`
+    : `${functionName}: $LATEST matches version ${version}, which was already published.`)
+
+  await waitForVersion(functionName, version, budget, timing)
+
+  let moved
+  try {
+    moved = await lambdaUpdateAlias(functionName, LIVE_ALIAS, version, alias.revisionId)
+  } catch (error) {
+    // A move that worked but whose answer was lost comes back from the SDK's
+    // retry as a revision mismatch, so look where the alias is first.
+    const current = await aliasState(functionName)
+    if (current?.version !== version) throw error
+    moved = { RevisionId: current.revisionId }
+  }
+  entry.aliasMoved = { revisionId: moved.RevisionId }
+  core.info(`${functionName}: moved the ${LIVE_ALIAS} alias from version ${alias.version} to version ${version}.`)
+}
+
+// Unique to this deploy, so a publish that created a version can be told from
+// one that returned an older version.
+function versionDescription (image) {
+  const run = process.env.GITHUB_RUN_ID
+    ? `run ${process.env.GITHUB_RUN_ID}.${process.env.GITHUB_RUN_ATTEMPT ?? '1'}, `
+    : ''
+  return `Deployed ${parseImageRef(image).digest} (${run}${randomUUID().slice(0, 8)})`
+}
+
+// A published version starts out Pending while Lambda prepares it, and an
+// alias must not point at a version Lambda cannot run yet. Wait for Active
+// within the budget.
+async function waitForVersion (functionName, version, budget, timing) {
+  const { pollIntervalMs = POLL_INTERVAL_MS, progressIntervalMs = PROGRESS_INTERVAL_MS } = timing
+  const log = progressLogger(budget, progressIntervalMs)
+  const publishedAt = budget.now()
+  for (;;) {
+    let state, reason
+    try {
+      const { Configuration: configuration = {} } = await lambdaGetFunction(functionName, version)
+      state = configuration.State ?? 'unknown'
+      reason = configuration.StateReason ?? ''
+    } catch (error) {
+      if (isPermanentAwsError(error)) throw error
+      state = 'unreadable'
+      reason = error.message
+    }
+    if (state === 'Active') return
+    // Only a version that was already published, and then went unused for
+    // weeks, is Inactive. Lambda only wakes it on an invocation, which fails.
+    if (state === 'Inactive') {
+      throw new Error(
+        `Version ${version} of ${functionName} is Inactive (Lambda reclaimed it after it went unused), so the ` +
+        `${LIVE_ALIAS} alias was not moved to it.`
+      )
+    }
+    if (state === 'Failed') {
+      throw new Error(`Version ${version} of ${functionName} failed to become active: ${reason || 'Lambda gave no reason'}`)
+    }
+    const detail = `State ${state}${reason ? `: ${reason}` : ''}`
+    const left = budget.remaining(RESTORE_RESERVE_MS)
+    if (left <= 0) {
+      throw new Error(
+        `Version ${version} of ${functionName} was not active ${formatDuration(budget.now() - publishedAt)} after ` +
+        `it was published (${detail}), so the ${LIVE_ALIAS} alias was not moved to it.`
+      )
+    }
+    log(
+      `${functionName}: waiting for version ${version} to become active (${detail}). ` +
+      `Waited ${formatDuration(budget.now() - publishedAt)}, ${formatDuration(left)} left.`
+    )
+    await budget.sleep(Math.min(pollIntervalMs, left))
+  }
 }
 
 // Wait for one function's update: the SDK waiter first, as before, then, if it
@@ -218,8 +379,16 @@ const unreadable = ({ functionName, error }) =>
 // the lesser harm: once it finishes, every function runs the new image. Once
 // Lambda has taken the stalled one's change, the others go back even if it
 // cannot be seen to finish in time: it is on its way back, and so are they.
+//
+// A stalled function with a live alias is different: its alias has not moved,
+// so it keeps the previous release however its $LATEST ends, and the others
+// go back without splitting the app.
+//
+// The function that failed goes back too when its new image had already
+// landed (`restoreSelf`): a step after the update failed, such as publishing
+// it or moving its alias.
 async function stopRollout (moved, outcome, budget, stopRolloutOnFailure) {
-  const others = moved.filter(entry => entry.functionName !== outcome.functionName)
+  const others = moved.filter(entry => outcome.restoreSelf || entry.functionName !== outcome.functionName)
   if (outcome.error && others.length === 0) return outcome.error
   const lines = [headline(outcome, budget)]
   if (!stopRolloutOnFailure) {
@@ -227,18 +396,20 @@ async function stopRollout (moved, outcome, budget, stopRolloutOnFailure) {
       'This deploy does not stop a rollout (a rollback), so no function was sent back: that would be the ' +
       'release it is rolling back from.' +
       (outcome.stalled ? ` ${outcome.functionName} may still go live on the new image, and nothing will record it.` : '') +
-      ' Check which image each function runs.'
+      ' Check which image each function runs' +
+      (moved.some(entry => entry.alias) ? ` (for a function with a ${LIVE_ALIAS} alias, the image of the version it points at).` : '.')
     )
     return withCause(new Error(lines.join(' ')), outcome.error)
   }
   if (outcome.stalled) {
     const stalled = moved.find(entry => entry.functionName === outcome.functionName)
     const restored = await restoreStalled(stalled, budget)
-    if (!restored.taken) {
+    if (!restored.taken && !stalled.alias) {
       lines.push(restored.message, leftOnNewImage(moved))
       return new Error(lines.join(' '))
     }
     lines.push(restored.message)
+    if (!restored.taken) lines.push(stalledBehindAlias(stalled))
   }
   lines.push(...await restoreAll(others))
   return withCause(new Error(lines.join(' ')), outcome.error)
@@ -278,36 +449,179 @@ async function restoreStalled ({ functionName, previousImage }, budget) {
 // the change, and finishes it on its own.
 async function restoreAll (entries) {
   const restored = []
-  const lines = []
-  for (const { functionName, previousImage } of entries) {
+  const throughAlias = []
+  const problems = []
+  for (const entry of entries) {
+    const { functionName, previousImage } = entry
+    if (entry.alias) {
+      const result = await restoreThroughAlias(entry)
+      if (result.done) throughAlias.push(result.done)
+      problems.push(...result.problems)
+      continue
+    }
     try {
       await lambdaUpdateFunctionCode(functionName, previousImage)
       restored.push(`${functionName} (${previousImage})`)
     } catch (error) {
-      lines.push(
+      problems.push(
         `Could not restore ${functionName} to ${previousImage} (${error.message}), so it may keep the new image ` +
         `unrecorded. Restore it by hand: ${updateCodeCommand(functionName, previousImage)}`
       )
     }
   }
+  const lines = []
   if (restored.length > 0) {
-    lines.unshift(
+    lines.push(
       'To keep the app on the release that was live before this deploy, the previous image was sent back to ' +
       `${restored.join(', ')}. Lambda finishes that update on its own.`
     )
   }
-  return lines
+  return [...lines, ...throughAlias, ...problems]
 }
+
+// Send back a function with a live alias, in the order that keeps its triggers
+// on the previous release at every step: the alias back to its old version
+// (the moment the triggers switch back), then the version this deploy
+// published deleted, so the old one is the newest again (rule 1), then $LATEST
+// back to the old version's image (rule 2). Returns { done, problems }.
+async function restoreThroughAlias (entry) {
+  const { functionName, previousImage, alias, published, aliasMoved } = entry
+  const steps = []
+  const problems = []
+
+  // The alias revision to move it back from, when this deploy moved it.
+  let movedFrom = aliasMoved?.revisionId
+  if (!movedFrom) {
+    const current = await aliasState(functionName)
+    if (current && published && current.version === published.version) {
+      // This deploy's own move, whose answer never arrived.
+      movedFrom = current.revisionId
+    } else if (current && current.version !== alias.version) {
+      // Something else moved it during the deploy. Sending $LATEST back would
+      // put it on a different image from the alias's, so leave it as it is.
+      return {
+        problems: [
+          `The ${LIVE_ALIAS} alias of ${functionName} was moved from version ${alias.version} to version ` +
+          `${current.version} by something other than this deploy, so this function was not sent back. Check ` +
+          'which image that version runs.'
+        ]
+      }
+    }
+  }
+
+  if (movedFrom) {
+    try {
+      await lambdaUpdateAlias(functionName, LIVE_ALIAS, alias.version, movedFrom)
+    } catch (error) {
+      // The alias still points at the new version, so that version can't be
+      // deleted, and sending $LATEST back would break rule 2. Leave it whole.
+      return {
+        problems: [
+          `Could not move the ${LIVE_ALIAS} alias of ${functionName} back to version ${alias.version} ` +
+          `(${error.message}), so it keeps serving the new image unrecorded, and nothing else about it was ` +
+          `changed. Move it back by hand: ${handCommands(entry, { aliasMoved: true }).join('; then ')}`
+        ]
+      }
+    }
+    steps.push(`its ${LIVE_ALIAS} alias points at version ${alias.version} again`)
+  } else {
+    steps.push(`its ${LIVE_ALIAS} alias never left version ${alias.version}`)
+  }
+
+  if (published && !published.created && Number(published.version) > Number(alias.version)) {
+    // A version that already ran the new image, newer than the alias's.
+    problems.push(
+      `Version ${published.version} of ${functionName} already ran the new image before this deploy, and it is ` +
+      `newer than version ${alias.version}, which the ${LIVE_ALIAS} alias is on. The next Terraform apply would ` +
+      'point the alias at it and put the new image live. This deploy did not publish it, so it was left alone. ' +
+      `Delete it by hand if nothing needs it: ${deleteVersionCommand(functionName, published.version)}`
+    )
+  }
+  if (entry.publishUncertain) {
+    problems.push(
+      `Publishing ${functionName} failed in a way that may have created a version anyway. If it has a version ` +
+      `described "${entry.publishUncertain}", that version is the newest, and the next Terraform apply would ` +
+      `point the ${LIVE_ALIAS} alias at it. Find it with aws lambda list-versions-by-function --function-name ` +
+      `${functionName}, then delete it: ${deleteVersionCommand(functionName, '<version>')}`
+    )
+  }
+
+  if (published?.created) {
+    try {
+      await lambdaDeleteFunctionVersion(functionName, published.version)
+      steps.push(`version ${published.version}, which this deploy published, was deleted`)
+    } catch (error) {
+      problems.push(
+        `Could not delete version ${published.version} of ${functionName} (${error.message}). It is still the ` +
+        `newest version, so the next Terraform apply would point the ${LIVE_ALIAS} alias at it and put the new ` +
+        `image live. Delete it by hand: ${deleteVersionCommand(functionName, published.version)}`
+      )
+    }
+  }
+
+  try {
+    await lambdaUpdateFunctionCode(functionName, previousImage)
+    steps.push(`its $LATEST was sent back to ${previousImage}`)
+  } catch (error) {
+    problems.push(
+      `Could not send $LATEST of ${functionName} back to ${previousImage} (${error.message}). Its ${LIVE_ALIAS} ` +
+      'alias serves the previous release, but $LATEST keeps the new image, so a Terraform config change would ' +
+      `publish it and put it live. Send it back by hand: ${updateCodeCommand(functionName, previousImage)}`
+    )
+  }
+
+  return { done: `${functionName} is back on the previous release: ${joinSteps(steps)}.`, problems }
+}
+
+// Where the live alias points now, as { version, revisionId }, or undefined
+// when it can't be read.
+async function aliasState (functionName) {
+  try {
+    const { FunctionVersion: version, RevisionId: revisionId } = await lambdaGetAlias(functionName, LIVE_ALIAS)
+    return { version, revisionId }
+  } catch {
+    return undefined
+  }
+}
+
+// The commands that send one function back by hand, in the order that keeps
+// its triggers on the previous release: for a function behind its alias, the
+// alias back, the new version deleted, then $LATEST back.
+function handCommands ({ functionName, previousImage, alias, published, aliasMoved }, { aliasMoved: moved = !!aliasMoved } = {}) {
+  if (!alias) return [updateCodeCommand(functionName, previousImage)]
+  return [
+    ...(moved ? [updateAliasCommand(functionName, alias.version)] : []),
+    ...(published?.created ? [deleteVersionCommand(functionName, published.version)] : []),
+    updateCodeCommand(functionName, previousImage)
+  ]
+}
+
+const joinSteps = steps => steps.length < 2
+  ? steps.join('')
+  : `${steps.slice(0, -1).join(', ')} and ${steps[steps.length - 1]}`
+
+// A stalled function whose send-back Lambda refused keeps its alias on the old
+// version, but its $LATEST may still land the new image.
+const stalledBehindAlias = ({ functionName, previousImage, alias }) =>
+  `Its ${LIVE_ALIAS} alias is still on version ${alias.version}, so it keeps serving the previous release. But ` +
+  'its $LATEST may still land the new image, and a Terraform config change would then publish that and put it ' +
+  `live. Once its update is done, send it back by hand: ${updateCodeCommand(functionName, previousImage)}`
 
 function leftOnNewImage (moved) {
   return 'The other functions were left on the new image too, so the new image may go live on every function ' +
     'once that update finishes, and nothing will record it. Check which image each function runs. To go back by ' +
     'hand once no update is in progress: ' +
-    moved.map(({ functionName, previousImage }) => updateCodeCommand(functionName, previousImage)).join('; ')
+    moved.map(entry => handCommands(entry).join(', then ')).join('; ')
 }
 
 const updateCodeCommand = (functionName, image) =>
   `aws lambda update-function-code --function-name ${functionName} --image-uri ${image}`
+
+const updateAliasCommand = (functionName, version) =>
+  `aws lambda update-alias --function-name ${functionName} --name ${LIVE_ALIAS} --function-version ${version}`
+
+const deleteVersionCommand = (functionName, version) =>
+  `aws lambda delete-function --function-name ${functionName} --qualifier ${version}`
 
 function headline (outcome, budget) {
   if (outcome.error) return outcome.error.message

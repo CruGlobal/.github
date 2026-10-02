@@ -10,7 +10,11 @@ vi.mock('../src/aws.js', async importOriginal => ({
   lambdaListFunctionNames: vi.fn(),
   lambdaGetFunction: vi.fn(),
   lambdaUpdateFunctionCode: vi.fn(),
-  lambdaWaitForFunctionUpdated: vi.fn()
+  lambdaWaitForFunctionUpdated: vi.fn(),
+  lambdaGetAlias: vi.fn(),
+  lambdaPublishVersion: vi.fn(),
+  lambdaUpdateAlias: vi.fn(),
+  lambdaDeleteFunctionVersion: vi.fn()
 }))
 
 import * as aws from '../src/aws.js'
@@ -31,6 +35,8 @@ beforeEach(() => {
   for (const fn of Object.values(aws)) fn.mockReset?.()
   aws.lambdaUpdateFunctionCode.mockResolvedValue({})
   aws.lambdaWaitForFunctionUpdated.mockResolvedValue({})
+  // No function has a live alias here; ./v2-deploy-lambda-alias.test.js covers those.
+  aws.lambdaGetAlias.mockRejectedValue(Object.assign(new Error('Alias not found'), { name: 'ResourceNotFoundException' }))
 })
 
 describe('deployLambda digest invariant', () => {

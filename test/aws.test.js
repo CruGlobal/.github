@@ -37,18 +37,35 @@ vi.mock('@aws-sdk/client-ecs', async importOriginal => ({
   }
 }))
 
+// The Lambda client, recording each command it is sent.
+const { lambdaState } = vi.hoisted(() => ({ lambdaState: { sent: [] } }))
+vi.mock('@aws-sdk/client-lambda', async importOriginal => ({
+  ...(await importOriginal()),
+  LambdaClient: class {
+    async send (command) {
+      lambdaState.sent.push(command)
+      return {}
+    }
+  }
+}))
+
 import {
   ECS_QUICK_READ_TIMEOUT_MS,
   ecsDescribeService,
   ecsDescribeServices,
   ecsUpdateService,
   isPermanentAwsError,
+  lambdaDeleteFunctionVersion,
+  lambdaGetFunction,
+  lambdaPublishVersion,
+  lambdaUpdateAlias,
   ssmParameters
 } from '../src/aws.js'
 
 const param = n => ({ Name: `/ecs/example-app/prod/PARAM_${n}`, Value: `value-${n}` })
 
 beforeEach(() => {
+  lambdaState.sent = []
   ecsState.sent = []
   ecsState.answer = () => ({})
   ssmState.pages = []
@@ -164,5 +181,41 @@ describe('the ECS calls a rollout makes', () => {
     expect(ecsState.sent[0].command.input).toEqual({ service: 'arn:one', cluster: 'prod', taskDefinition: 'arn:td:2' })
     expect(ecsState.sent[0].options.abortSignal).toBeInstanceOf(AbortSignal)
     expect(ecsState.sent[1].options).toBeUndefined()
+  })
+})
+
+describe('the Lambda calls a deploy through an alias makes', () => {
+  const sent = () => lambdaState.sent.map(command => ({ name: command.constructor.name, input: command.input }))
+
+  it('reads $LATEST without a qualifier, and a version with one', async () => {
+    await lambdaGetFunction('example-app-prod-a')
+    await lambdaGetFunction('example-app-prod-a', '7')
+
+    expect(sent()).toEqual([
+      { name: 'GetFunctionCommand', input: { FunctionName: 'example-app-prod-a' } },
+      { name: 'GetFunctionCommand', input: { FunctionName: 'example-app-prod-a', Qualifier: '7' } }
+    ])
+  })
+
+  it('publishes and moves the alias only against the revisions that were read', async () => {
+    await lambdaPublishVersion('example-app-prod-a', { codeSha256: 'abc', revisionId: 'r1', description: 'd' })
+    await lambdaUpdateAlias('example-app-prod-a', 'live', '7', 'a1')
+
+    expect(sent()).toEqual([
+      { name: 'PublishVersionCommand', input: { FunctionName: 'example-app-prod-a', CodeSha256: 'abc', RevisionId: 'r1', Description: 'd' } },
+      { name: 'UpdateAliasCommand', input: { FunctionName: 'example-app-prod-a', Name: 'live', FunctionVersion: '7', RevisionId: 'a1' } }
+    ])
+  })
+
+  it('deletes a version by its number', async () => {
+    await lambdaDeleteFunctionVersion('example-app-prod-a', '7')
+
+    expect(sent()).toEqual([{ name: 'DeleteFunctionCommand', input: { FunctionName: 'example-app-prod-a', Qualifier: '7' } }])
+  })
+
+  // Without a version, DeleteFunction deletes the whole function.
+  it.each([undefined, null, '', '$LATEST', 'live', '7a', ' 7'])('refuses to delete at %j, sending nothing', async version => {
+    await expect(lambdaDeleteFunctionVersion('example-app-prod-a', version)).rejects.toThrow(/only a published version number/)
+    expect(lambdaState.sent).toEqual([])
   })
 })
