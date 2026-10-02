@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.0](https://github.com/CruGlobal/.github/compare/v2.10.0...v2.11.0) (2026-10-02)
+
+
+### Features
+
+* **lambda:** deploy a function with a live alias through a published version ([#529](https://github.com/CruGlobal/.github/issues/529)) ([17c6290](https://github.com/CruGlobal/.github/commit/17c62909f0a4f5bb04d5b57ce893408e7c92f10a))
+
 ## [2.10.0](https://github.com/CruGlobal/.github/compare/v2.9.2...v2.10.0) (2026-10-02)
 
 
