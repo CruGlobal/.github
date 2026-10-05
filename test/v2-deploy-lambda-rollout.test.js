@@ -12,7 +12,8 @@ vi.mock('../src/aws.js', async importOriginal => ({
   lambdaGetAlias: vi.fn(),
   lambdaPublishVersion: vi.fn(),
   lambdaUpdateAlias: vi.fn(),
-  lambdaDeleteFunctionVersion: vi.fn()
+  lambdaDeleteFunctionVersion: vi.fn(),
+  lambdaListVersions: vi.fn()
 }))
 
 vi.mock('@actions/core', async importOriginal => ({

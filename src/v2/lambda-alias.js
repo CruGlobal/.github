@@ -23,7 +23,7 @@ const VERSION = /^[0-9]+$/
 
 // What the deploy role needs to deploy through the alias.
 const PERMISSIONS = 'lambda:GetAlias, lambda:GetFunction on the function\'s versions, lambda:PublishVersion, ' +
-  'lambda:UpdateAlias, and lambda:DeleteFunction on its versions'
+  'lambda:UpdateAlias, lambda:ListVersionsByFunction, and lambda:DeleteFunction on its versions'
 
 // The function's live alias, as { version, revisionId, image }: the version it
 // points at, the alias's own revision (to move it safely), and the image that

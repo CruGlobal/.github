@@ -44,6 +44,7 @@ import {
   UpdateAliasCommand,
   UpdateFunctionCodeCommand,
   paginateListFunctions,
+  paginateListVersionsByFunction,
   waitUntilFunctionUpdatedV2
 } from '@aws-sdk/client-lambda'
 
@@ -326,6 +327,18 @@ export async function lambdaPublishVersion(functionName, { codeSha256, revisionI
     RevisionId: revisionId,
     Description: description
   }))
+}
+
+// Every published version of a function, as Lambda lists them (each with its
+// Version and CodeSha256), without $LATEST. For an image function CodeSha256
+// is the hex of the image's digest.
+export async function lambdaListVersions(functionName) {
+  const client = new LambdaClient({...RETRY_CONFIG})
+  const versions = []
+  for await (const page of paginateListVersionsByFunction({ client, pageSize: 50 }, { FunctionName: functionName })) {
+    versions.push(...(page.Versions ?? []).filter(version => version.Version !== '$LATEST'))
+  }
+  return versions
 }
 
 // Point an alias at one version, sending it all the traffic. `revisionId` is

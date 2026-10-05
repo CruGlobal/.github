@@ -38,16 +38,20 @@ vi.mock('@aws-sdk/client-ecs', async importOriginal => ({
 }))
 
 // The Lambda client, recording each command it is sent.
-const { lambdaState } = vi.hoisted(() => ({ lambdaState: { sent: [] } }))
-vi.mock('@aws-sdk/client-lambda', async importOriginal => ({
-  ...(await importOriginal()),
-  LambdaClient: class {
-    async send (command) {
-      lambdaState.sent.push(command)
-      return {}
+const { lambdaState } = vi.hoisted(() => ({ lambdaState: { sent: [], answer: () => ({}) } }))
+// It extends the real client, because the SDK's paginators check for one.
+vi.mock('@aws-sdk/client-lambda', async importOriginal => {
+  const original = await importOriginal()
+  return {
+    ...original,
+    LambdaClient: class extends original.LambdaClient {
+      async send (command) {
+        lambdaState.sent.push(command)
+        return lambdaState.answer(command)
+      }
     }
   }
-}))
+})
 
 import {
   ECS_QUICK_READ_TIMEOUT_MS,
@@ -57,6 +61,7 @@ import {
   isPermanentAwsError,
   lambdaDeleteFunctionVersion,
   lambdaGetFunction,
+  lambdaListVersions,
   lambdaPublishVersion,
   lambdaUpdateAlias,
   ssmParameters
@@ -66,6 +71,7 @@ const param = n => ({ Name: `/ecs/example-app/prod/PARAM_${n}`, Value: `value-${
 
 beforeEach(() => {
   lambdaState.sent = []
+  lambdaState.answer = () => ({})
   ecsState.sent = []
   ecsState.answer = () => ({})
   ssmState.pages = []
@@ -205,6 +211,18 @@ describe('the Lambda calls a deploy through an alias makes', () => {
       { name: 'PublishVersionCommand', input: { FunctionName: 'example-app-prod-a', CodeSha256: 'abc', RevisionId: 'r1', Description: 'd' } },
       { name: 'UpdateAliasCommand', input: { FunctionName: 'example-app-prod-a', Name: 'live', FunctionVersion: '7', RevisionId: 'a1' } }
     ])
+  })
+
+  it('lists every published version across pages, leaving out $LATEST', async () => {
+    const pages = [
+      { Versions: [{ Version: '$LATEST' }, { Version: '1' }], NextMarker: 'm1' },
+      { Versions: [{ Version: '2', CodeSha256: 'abc' }] }
+    ]
+    lambdaState.answer = command => pages[command.input.Marker ? 1 : 0]
+
+    await expect(lambdaListVersions('example-app-prod-a')).resolves.toEqual([{ Version: '1' }, { Version: '2', CodeSha256: 'abc' }])
+    // The paginator reuses one input object, so only the page count is worth checking here.
+    expect(sent().map(({ name }) => name)).toEqual(['ListVersionsByFunctionCommand', 'ListVersionsByFunctionCommand'])
   })
 
   it('deletes a version by its number', async () => {
