@@ -7,6 +7,7 @@ import {
   lambdaGetAlias,
   lambdaGetFunction,
   lambdaListFunctionNames,
+  lambdaListVersions,
   lambdaPublishVersion,
   lambdaUpdateAlias,
   lambdaUpdateFunctionCode,
@@ -69,6 +70,11 @@ const RESTORE_POLL_INTERVAL_MS = 5 * 1000
 // $LATEST back to the old version's image. A function without the alias
 // deploys exactly as it always has.
 //
+// A rollback through an alias starts by moving the alias straight back to a
+// version that already runs the image (see rollBackAliases), so the triggers
+// are back on it within seconds. And once a deploy lands, old versions are
+// pruned (see pruneVersions).
+//
 // Like ECS, Lambda derives everything from the env nickname + naming
 // conventions, so runtime-project (a GCP-only input) is ignored here.
 //
@@ -93,11 +99,10 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
   const functionNames = await lambdaListFunctionNames(projectName, nickname)
   core.info(`functions matching ${projectName}-${nickname}: ${JSON.stringify(functionNames)}`)
 
-  const updated = []
-  // Every function this deploy sent the new image to, with the image it ran
-  // before, so they can be sent back.
-  const moved = []
-  const stop = outcome => stopRollout(moved, outcome, budget, stopRolloutOnFailure)
+  // Read every function first, so a read that fails or an alias that is
+  // refused stops the deploy before anything has changed, and a rollback can
+  // move every alias before it updates any function.
+  const targets = []
   for (const functionName of functionNames) {
     const fn = await lambdaGetFunction(functionName)
     if (fn.Configuration?.PackageType !== 'Image') {
@@ -111,15 +116,9 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
       core.info(`skipping ${functionName} (not using the app or scratch ECR image)`)
       continue
     }
-
     // Null for a function that deploys to $LATEST, as every function did
     // before aliases.
-    let alias
-    try {
-      alias = await readLiveAlias(functionName)
-    } catch (error) {
-      throw await stop({ functionName, error })
-    }
+    const alias = await readLiveAlias(functionName)
     if (alias && alias.image !== resolved) {
       core.warning(
         `${functionName}: $LATEST runs ${resolved}, but version ${alias.version}, which its ${LIVE_ALIAS} alias ` +
@@ -127,7 +126,40 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
         'send-back restores.'
       )
     }
+    if (alias) await warnIfBehind(functionName, alias)
+    targets.push({ functionName, resolved, alias, config: fn.Configuration })
+  }
 
+  // A rollback moves its aliases back first. Then the functions it did not
+  // move go before the ones it did, so a function that can't go back at once
+  // isn't left on the other release for longer than it has to be.
+  let order = targets
+  if (!stopRolloutOnFailure) {
+    await rollBackAliases(targets, image)
+    order = [...targets.filter(target => !target.rolledBack), ...targets.filter(target => target.rolledBack)]
+  }
+
+  const updated = []
+  // Every function this deploy sent the new image to, with the image it ran
+  // before, so they can be sent back.
+  const moved = []
+  // A rollback that moved an alias at once but did not finish has left the
+  // alias behind the newest version (rule 1), and says so.
+  const unfinished = () => targets.filter(target => target.rolledBack && !updated.includes(target.functionName))
+  const stop = outcome => stopRollout(moved, outcome, budget, stopRolloutOnFailure, unfinished())
+  for (const target of order) {
+    const { functionName, resolved } = target
+    if (target.aliasUncertain) {
+      // Whether the rollback's move of this alias happened is unknown: read it
+      // again, so the rest of the rollback starts from where it really is.
+      try {
+        target.alias = await readLiveAlias(functionName)
+      } catch (error) {
+        throw await stop({ functionName, error })
+      }
+      if (target.alias?.version === target.aliasUncertain.to) target.rolledBack = target.aliasUncertain
+    }
+    const { alias } = target
     budget.start()
     if (budget.remaining(RESTORE_RESERVE_MS) <= 0) throw await stop({ functionName, untouched: true })
     core.info(`updating Lambda function ${functionName} -> ${image}`)
@@ -141,6 +173,7 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
     // a function that has one.
     const entry = { functionName, previousImage: alias ? alias.image : resolved, alias }
     moved.push(entry)
+    target.entry = entry
     // Block until the new image is live so a subsequent resolve/verify sees the
     // deployed digest, not the previous one.
     let outcome
@@ -151,7 +184,9 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
       // functions before it go back.
       throw await stop({ functionName, error })
     }
-    if (outcome.unreadable) throw withCause(new Error(unreadable(outcome)), outcome.error)
+    if (outcome.unreadable) {
+      throw withCause(new Error([unreadable(outcome), ...unfinished().map(rolledBackBehind)].join(' ')), outcome.error)
+    }
     if (!outcome.landed) throw await stop(outcome)
     if (alias) {
       try {
@@ -171,7 +206,207 @@ export async function deployLambda ({ projectName, environment, image, stopRollo
     )
   }
 
+  // A rollback leaves pruning to the next deploy, so its calls go to getting
+  // back and recording it.
+  if (stopRolloutOnFailure) {
+    for (const entry of moved) {
+      if (!entry.alias) continue
+      await pruneVersions(entry.functionName, entry.aliasMoved ? entry.published.version : entry.alias.version, budget.sleep)
+    }
+  }
+
   return { deployedImage: image, services: updated }
+}
+
+// A ROLLBACK THROUGH AN ALIAS goes back at once, before it updates anything:
+// each live alias moves to the newest Active version that already runs the
+// image being rolled back to. The deploy that follows publishes that image
+// again with the function's current config and moves the alias there, which
+// puts the alias back on the newest version (rule 1). Until it does, an apply
+// could move the alias forward again, to the release being rolled back from.
+// A function with no such version rolls back the ordinary way. Pruning keeps
+// a version of each recent image for this.
+async function rollBackAliases (targets, image) {
+  const { digest } = parseImageRef(image)
+  for (const target of targets) {
+    const { functionName, alias } = target
+    if (!alias || parseImageRef(alias.image).digest === digest) continue
+    let found
+    try {
+      found = await newestVersionRunning(functionName, digest)
+    } catch (error) {
+      core.warning(
+        `${functionName}: could not look for a published version that runs ${image} ` +
+        `(${explainAccessDenied(error).message}), so it rolls back through a new version.`
+      )
+      continue
+    }
+    if (!found) {
+      core.info(`${functionName}: no Active published version runs ${image}, so it rolls back through a new version.`)
+      continue
+    }
+    const move = { from: alias.version, fromImage: alias.image, to: found.version }
+    let revisionId
+    try {
+      revisionId = (await lambdaUpdateAlias(functionName, LIVE_ALIAS, found.version, alias.revisionId)).RevisionId
+    } catch (error) {
+      // A move whose answer was lost: see goLive.
+      const current = await aliasState(functionName)
+      if (!current) {
+        target.aliasUncertain = move
+        core.warning(
+          `${functionName}: moving the ${LIVE_ALIAS} alias to version ${found.version} failed ` +
+          `(${explainAccessDenied(error).message}), and the alias could not be read to see whether it moved. ` +
+          'It is read again before this function is rolled back.'
+        )
+        continue
+      }
+      if (current.version !== found.version) {
+        core.warning(
+          `${functionName}: could not move the ${LIVE_ALIAS} alias to version ${found.version} at once ` +
+          `(${explainAccessDenied(error).message}), so it rolls back through a new version.`
+        )
+        continue
+      }
+      revisionId = current.revisionId
+    }
+    target.rolledBack = move
+    target.alias = { version: found.version, revisionId, image: found.image }
+    core.info(
+      `${functionName}: moved the ${LIVE_ALIAS} alias from version ${alias.version} back to version ` +
+      `${found.version}, which runs ${image}. Next it publishes that image again with the current settings.`
+    )
+    // The version froze the settings it was published with. Until the
+    // republish lands they are the ones that run, for better or worse.
+    const changed = settingsChangedSince(target.config, found.configuration)
+    if (changed.length > 0) {
+      core.warning(
+        `${functionName}: version ${found.version} runs with older settings than the function has now ` +
+        `(${changed.join(', ')}), until this rollback publishes the image again with today's.`
+      )
+    }
+  }
+}
+
+// The settings a version freezes, and how a message names them.
+const SETTINGS = [
+  ['MemorySize', 'memory'],
+  ['Timeout', 'timeout'],
+  ['Environment', 'environment variables'],
+  ['Role', 'role'],
+  ['VpcConfig', 'VPC settings'],
+  ['EphemeralStorage', 'ephemeral storage'],
+  ['Layers', 'layers']
+]
+
+// The names of the settings a version runs with that differ from $LATEST's.
+function settingsChangedSince (latest = {}, version = {}) {
+  return SETTINGS
+    .filter(([key]) => stableJson(latest[key]) !== stableJson(version[key]))
+    .map(([, name]) => name)
+}
+
+const stableJson = value => JSON.stringify(value ?? null, (key, inner) =>
+  inner && typeof inner === 'object' && !Array.isArray(inner)
+    ? Object.fromEntries(Object.entries(inner).sort(([a], [b]) => a.localeCompare(b)))
+    : inner)
+
+// Rule 1 says the alias is on the newest version. When it is not, the next
+// apply moves it there, whatever that version runs: a rollback that stopped
+// after moving the alias back leaves exactly that. Say so before anything
+// changes. A deploy that lands puts the alias back on the newest version.
+async function warnIfBehind (functionName, alias) {
+  let versions
+  try {
+    versions = await lambdaListVersions(functionName)
+  } catch {
+    return
+  }
+  const newest = versions.filter(version => isVersionNumber(version.Version))
+    .sort((a, b) => Number(b.Version) - Number(a.Version))[0]
+  if (!newest || Number(newest.Version) <= Number(alias.version)) return
+  core.warning(
+    `${functionName}: its ${LIVE_ALIAS} alias is on version ${alias.version}, but version ${newest.Version} is ` +
+    `newer${newest.CodeSha256 ? ` (image sha256:${newest.CodeSha256})` : ''}, so the next Terraform apply would ` +
+    'move the alias to it. This deploy puts the alias back on the newest version once it lands.'
+  )
+}
+
+// The newest published version that runs `digest` and is Active, as
+// { version, image }, or null. Only the newest few that run it are checked.
+async function newestVersionRunning (functionName, digest) {
+  const sha = digest.replace(/^sha256:/, '')
+  const candidates = (await lambdaListVersions(functionName))
+    .filter(version => version.CodeSha256 === sha && isVersionNumber(version.Version))
+    .map(version => version.Version)
+    .sort((a, b) => Number(b) - Number(a))
+    .slice(0, 3)
+  for (const version of candidates) {
+    const { Configuration: configuration = {}, Code: code = {} } = await lambdaGetFunction(functionName, version)
+    const running = code.ResolvedImageUri ?? ''
+    if (configuration.State === 'Active' && parseImageRef(running).digest === digest) {
+      return { version, image: running, configuration }
+    }
+  }
+  return null
+}
+
+// How many recent images keep a version for a rollback to go back to.
+const KEEP_IMAGES = 5
+// A bound on one deploy's deletes, and a pause between them: Lambda's
+// control-plane rate is shared by every deploy and apply in the account.
+const MAX_DELETES = 20
+const PRUNE_PAUSE_MS = 200
+
+// Versions pile up: every deploy publishes one, and so does every Terraform
+// config change. Once a deploy has landed, keep the newest version of each of
+// the last KEEP_IMAGES images the function ran, and delete the rest. Never the
+// alias's version, never one newer than it (an apply may have just published
+// it), and never one something else holds: Lambda refuses to delete a version
+// another alias points at, and that version is skipped. Pruning never fails a
+// deploy.
+async function pruneVersions (functionName, live, sleep) {
+  let versions
+  try {
+    versions = await lambdaListVersions(functionName)
+  } catch (error) {
+    core.warning(`${functionName}: could not list its versions to prune old ones (${explainAccessDenied(error).message}).`)
+    return
+  }
+
+  const images = new Set()
+  const old = []
+  const newestFirst = versions
+    .filter(version => isVersionNumber(version.Version))
+    .sort((a, b) => Number(b.Version) - Number(a.Version))
+  for (const { Version: version, CodeSha256: sha } of newestFirst) {
+    const image = sha || `version ${version}`
+    if (Number(version) > Number(live)) continue
+    if (version === live || (!images.has(image) && images.size < KEEP_IMAGES)) {
+      images.add(image)
+      continue
+    }
+    old.push(version)
+  }
+
+  const deleted = []
+  for (const [index, version] of old.slice(0, MAX_DELETES).entries()) {
+    if (index > 0) await sleep(PRUNE_PAUSE_MS)
+    try {
+      await lambdaDeleteFunctionVersion(functionName, version)
+      deleted.push(version)
+    } catch (error) {
+      if (error?.name === 'ResourceConflictException') {
+        core.info(`${functionName}: kept version ${version} for now (Lambda refused to delete it: ${error.message}).`)
+        continue
+      }
+      core.warning(`${functionName}: stopped pruning at version ${version} (${explainAccessDenied(error).message}).`)
+      break
+    }
+  }
+  if (deleted.length > 0) {
+    core.info(`${functionName}: deleted old versions ${deleted.join(', ')}, keeping a version of each of the last ${KEEP_IMAGES} images.`)
+  }
 }
 
 // Put the image that just landed on $LATEST live through the function's alias:
@@ -387,9 +622,9 @@ const unreadable = ({ functionName, error }) =>
 // The function that failed goes back too when its new image had already
 // landed (`restoreSelf`): a step after the update failed, such as publishing
 // it or moving its alias.
-async function stopRollout (moved, outcome, budget, stopRolloutOnFailure) {
+async function stopRollout (moved, outcome, budget, stopRolloutOnFailure, unfinished = []) {
   const others = moved.filter(entry => outcome.restoreSelf || entry.functionName !== outcome.functionName)
-  if (outcome.error && others.length === 0) return outcome.error
+  if (outcome.error && others.length === 0 && unfinished.length === 0) return outcome.error
   const lines = [headline(outcome, budget)]
   if (!stopRolloutOnFailure) {
     lines.push(
@@ -397,7 +632,8 @@ async function stopRollout (moved, outcome, budget, stopRolloutOnFailure) {
       'release it is rolling back from.' +
       (outcome.stalled ? ` ${outcome.functionName} may still go live on the new image, and nothing will record it.` : '') +
       ' Check which image each function runs' +
-      (moved.some(entry => entry.alias) ? ` (for a function with a ${LIVE_ALIAS} alias, the image of the version it points at).` : '.')
+      (moved.some(entry => entry.alias) ? ` (for a function with a ${LIVE_ALIAS} alias, the image of the version it points at).` : '.'),
+      ...unfinished.map(rolledBackBehind)
     )
     return withCause(new Error(lines.join(' ')), outcome.error)
   }
@@ -594,6 +830,23 @@ function handCommands ({ functionName, previousImage, alias, published, aliasMov
     ...(published?.created ? [deleteVersionCommand(functionName, published.version)] : []),
     updateCodeCommand(functionName, previousImage)
   ]
+}
+
+// A rollback that moved an alias back at once, then did not finish. Once it
+// published the image again, the newest version runs it too; until then the
+// newest is the release being rolled back from.
+function rolledBackBehind ({ functionName, rolledBack, entry }) {
+  const head = `${functionName}'s ${LIVE_ALIAS} alias went back to version ${rolledBack.to} at once, so it runs ` +
+    'the image this rollback is for.'
+  const published = entry?.published
+  if (published && Number(published.version) > Number(rolledBack.from)) {
+    return `${head} The newest version, ${published.version}, runs that image too, so the next Terraform apply ` +
+      'would move the alias there, with today\'s settings. Run the rollback again to finish it.'
+  }
+  return `${head} But version ${rolledBack.from}, which runs ${rolledBack.fromImage}, the release this rollback is ` +
+    `from, is still newer than version ${rolledBack.to}, and $LATEST may still run that image. So the next ` +
+    'Terraform apply, or any config change, would put that release live again, with nothing to record it. Run ' +
+    'the rollback again to finish it.'
 }
 
 const joinSteps = steps => steps.length < 2

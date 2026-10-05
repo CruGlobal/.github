@@ -13,7 +13,8 @@ vi.mock('../src/aws.js', async importOriginal => ({
   lambdaGetAlias: vi.fn(),
   lambdaPublishVersion: vi.fn(),
   lambdaUpdateAlias: vi.fn(),
-  lambdaDeleteFunctionVersion: vi.fn()
+  lambdaDeleteFunctionVersion: vi.fn(),
+  lambdaListVersions: vi.fn()
 }))
 
 vi.mock('@actions/core', async importOriginal => ({
@@ -159,6 +160,13 @@ function installFakeLambda () {
     fn.alias = { version, revision: fn.alias.revision + 1 }
     return { RevisionId: `a${fn.alias.revision}`, FunctionVersion: version }
   })
+  aws.lambdaListVersions.mockImplementation(async name => {
+    const error = failing(`listVersions:${name}`)
+    if (error) throw error
+    return Object.entries(functions[name].versions)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([Version, { image }]) => ({ Version, CodeSha256: shaOf(image) }))
+  })
   aws.lambdaDeleteFunctionVersion.mockImplementation(async (name, version) => {
     const error = failing(`delete:${name}`)
     if (error) throw error
@@ -267,6 +275,19 @@ describe('deployLambda through a live alias', () => {
     expect(Object.keys(functions['example-app-prod-a'].versions)).toEqual(['3'])
   })
 
+  it('warns before anything changes when the alias is behind the newest version', async () => {
+    addFunction('example-app-prod-a', { versions: { 3: OLD, 4: OTHER } })
+
+    await deploy()
+
+    expect(warnings()[0]).toBe(
+      `example-app-prod-a: its live alias is on version 3, but version 4 is newer (image sha256:${hex('c')}), so ` +
+      'the next Terraform apply would move the alias to it. This deploy puts the alias back on the newest version ' +
+      'once it lands.'
+    )
+    expectRulesKept('example-app-prod-a')
+  })
+
   it('waits for a version that starts out Pending before moving the alias to it', async () => {
     addFunction('example-app-prod-a', { becomesActiveIn: 2 * MINUTE })
 
@@ -290,16 +311,14 @@ describe('deployLambda through a live alias', () => {
 })
 
 describe('deployLambda through a live alias, when it ends short', () => {
-  it('refuses an alias that splits traffic, and sends back the functions before it', async () => {
+  it('refuses an alias that splits traffic before it changes any function', async () => {
     addFunction('example-app-prod-a', { alias: null })
     addFunction('example-app-prod-b', { weights: { 2: 0.1 } })
 
     const error = await failure(deploy())
 
     expect(error.message).toMatch(/^The live alias of example-app-prod-b splits traffic between version 3 and version 2/)
-    expect(error.message).toContain(`the previous image was sent back to example-app-prod-a (${OLD})`)
-    expect(functions['example-app-prod-b'].update).toBeNull()
-    expect(functions['example-app-prod-b'].image).toBe(OLD)
+    expect(aws.lambdaUpdateFunctionCode).not.toHaveBeenCalled()
   })
 
   it('sends a function back when its publish is refused, leaving its alias alone', async () => {
@@ -568,5 +587,351 @@ describe('deployLambda through a live alias, when it ends short', () => {
       /^example-app-prod-a: \$LATEST runs .*sha256:c+, not the image this deploy sent, so it was not published/
     )
     expect(aws.lambdaPublishVersion).not.toHaveBeenCalled()
+  })
+})
+
+describe('a rollback through a live alias', () => {
+  // The release being rolled back from is version 4 (NEW); version 3 still
+  // runs OLD, the image the rollback goes back to.
+  const rollingBack = (name, options = {}) =>
+    addFunction(name, { image: NEW, alias: '4', versions: { 2: OTHER, 3: OLD, 4: NEW }, ...options })
+  const rollbackTo = () => deployLambda(
+    { projectName: 'example-app', environment: 'production', image: OLD, stopRolloutOnFailure: false },
+    { budget: rolloutBudget({ now: () => now, sleep, stepStartedAt: 0 }) }
+  )
+
+  it('moves every alias back to a version that runs the image before it updates anything, then finishes', async () => {
+    rollingBack('example-app-prod-a')
+    rollingBack('example-app-prod-b')
+
+    await rollbackTo()
+
+    const flips = aws.lambdaUpdateAlias.mock.calls.slice(0, 2)
+    expect(flips).toEqual([
+      ['example-app-prod-a', 'live', '3', 'a1'],
+      ['example-app-prod-b', 'live', '3', 'a1']
+    ])
+    const lastFlip = aws.lambdaUpdateAlias.mock.invocationCallOrder[1]
+    expect(aws.lambdaUpdateFunctionCode.mock.invocationCallOrder[0]).toBeGreaterThan(lastFlip)
+    // Then it publishes the image again with the current config, and the
+    // alias ends on the newest version.
+    for (const name of ['example-app-prod-a', 'example-app-prod-b']) {
+      expect(functions[name].alias.version).toBe('5')
+      expect(functions[name].versions['5'].image).toBe(OLD)
+      expectRulesKept(name)
+    }
+  })
+
+  it('rolls back the ordinary way when no published version runs the image', async () => {
+    rollingBack('example-app-prod-a', { versions: { 2: OTHER, 4: NEW } })
+
+    await rollbackTo()
+
+    expect(aws.lambdaUpdateAlias.mock.calls).toEqual([['example-app-prod-a', 'live', '5', 'a1']])
+    expectRulesKept('example-app-prod-a')
+  })
+
+  it('does not move an alias to a version that is not Active', async () => {
+    rollingBack('example-app-prod-a')
+    const read = aws.lambdaGetFunction.getMockImplementation()
+    aws.lambdaGetFunction.mockImplementation(async (name, qualifier) => {
+      const response = await read(name, qualifier)
+      if (qualifier === '3') response.Configuration.State = 'Inactive'
+      return response
+    })
+
+    await rollbackTo()
+
+    expect(aws.lambdaUpdateAlias.mock.calls).toEqual([['example-app-prod-a', 'live', '5', 'a1']])
+  })
+
+  it('rolls back the ordinary way, with a warning, when it cannot list versions', async () => {
+    rollingBack('example-app-prod-a')
+    aws.lambdaListVersions.mockRejectedValue(awsError('AccessDeniedException', 403, 'not authorized'))
+
+    await rollbackTo()
+
+    expect(warnings()[0]).toMatch(/could not look for a published version that runs .* \(not authorized \(to deploy through a live alias/)
+    expectRulesKept('example-app-prod-a')
+  })
+
+  it('says the alias is behind the newest version when the rollback stops after moving it', async () => {
+    rollingBack('example-app-prod-a')
+    rollingBack('example-app-prod-b')
+    failNext['update:example-app-prod-a'] = awsError('ServiceException', 500, 'boom')
+
+    const error = await failure(rollbackTo())
+
+    expect(error.message).toContain('so no function was sent back')
+    for (const name of ['example-app-prod-a', 'example-app-prod-b']) {
+      expect(error.message).toContain(
+        `${name}'s live alias went back to version 3 at once, so it runs the image this rollback is for. But ` +
+        `version 4, which runs ${NEW}, the release this rollback is from, is still newer than version 3, and ` +
+        '$LATEST may still run that image. So the next Terraform apply, or any config change, would put that ' +
+        'release live again, with nothing to record it. Run the rollback again to finish it.'
+      )
+      expect(functions[name].alias.version).toBe('3')
+    }
+  })
+
+  it('updates the functions it could not move back before the ones it did', async () => {
+    rollingBack('example-app-prod-a')
+    rollingBack('example-app-prod-b', { versions: { 2: OTHER, 4: NEW } })
+
+    await rollbackTo()
+
+    expect(aws.lambdaUpdateFunctionCode.mock.calls.map(([name]) => name)).toEqual(['example-app-prod-b', 'example-app-prod-a'])
+  })
+
+  it('rolls back the ordinary way when the alias would not move at once', async () => {
+    rollingBack('example-app-prod-a')
+    aws.lambdaUpdateAlias.mockImplementationOnce(async () => { throw awsError('PreconditionFailedException', 412, 'The alias changed') })
+
+    await rollbackTo()
+
+    expect(warnings()).toContainEqual(expect.stringMatching(
+      /^example-app-prod-a: could not move the live alias to version 3 at once \(The alias changed\)/
+    ))
+    expectRulesKept('example-app-prod-a')
+  })
+
+  it('counts a move back whose answer was lost as done', async () => {
+    rollingBack('example-app-prod-a')
+    rollingBack('example-app-prod-b', { versions: { 2: OTHER, 4: NEW } })
+    const move = aws.lambdaUpdateAlias.getMockImplementation()
+    aws.lambdaUpdateAlias.mockImplementationOnce(async (...args) => {
+      await move(...args)
+      throw awsError('ServiceException', 500, 'boom')
+    })
+
+    await rollbackTo()
+
+    // a was moved back, so b goes first.
+    expect(aws.lambdaUpdateFunctionCode.mock.calls.map(([name]) => name)).toEqual(['example-app-prod-b', 'example-app-prod-a'])
+    expectRulesKept('example-app-prod-a')
+  })
+
+  it('reads the alias again before going on when a move back is lost and the alias cannot be read', async () => {
+    rollingBack('example-app-prod-a')
+    const move = aws.lambdaUpdateAlias.getMockImplementation()
+    aws.lambdaUpdateAlias.mockImplementationOnce(async (...args) => {
+      await move(...args)
+      failNext['getAlias:example-app-prod-a'] = awsError('ServiceException', 500, 'boom')
+      throw awsError('ServiceException', 500, 'boom')
+    })
+
+    await rollbackTo()
+
+    expect(warnings()).toContainEqual(expect.stringMatching(/the alias could not be read to see whether it moved/))
+    expect(functions['example-app-prod-a'].alias.version).toBe('5')
+    expectRulesKept('example-app-prod-a')
+  })
+
+  it('says when the version it moves back to runs with older settings', async () => {
+    rollingBack('example-app-prod-a')
+    const read = aws.lambdaGetFunction.getMockImplementation()
+    aws.lambdaGetFunction.mockImplementation(async (name, qualifier) => {
+      const response = await read(name, qualifier)
+      response.Configuration.MemorySize = qualifier === '3' ? 128 : 512
+      response.Configuration.Environment = { Variables: { B: '2', A: '1' } }
+      return response
+    })
+
+    await rollbackTo()
+
+    expect(warnings()).toContainEqual(
+      'example-app-prod-a: version 3 runs with older settings than the function has now (memory), until this ' +
+      'rollback publishes the image again with today\'s.'
+    )
+  })
+
+  it('checks only the three newest versions that report the image, and only one that really runs it', async () => {
+    rollingBack('example-app-prod-a', { versions: { 1: OLD, 2: OLD, 3: OLD, 4: OTHER, 5: NEW }, alias: '5' })
+    const list = aws.lambdaListVersions.getMockImplementation()
+    // Version 4 claims the image's digest but runs another one; 3 and 2 are
+    // Inactive, and 1, which would do, is past the three checked.
+    aws.lambdaListVersions.mockImplementation(async name =>
+      (await list(name)).map(version => version.Version === '4' ? { ...version, CodeSha256: hex('a') } : version))
+    const read = aws.lambdaGetFunction.getMockImplementation()
+    aws.lambdaGetFunction.mockImplementation(async (name, qualifier) => {
+      const response = await read(name, qualifier)
+      if (qualifier === '3' || qualifier === '2') response.Configuration.State = 'Inactive'
+      return response
+    })
+
+    await rollbackTo()
+
+    expect(aws.lambdaGetFunction.mock.calls.filter(([, qualifier]) => qualifier === '1')).toEqual([])
+    expect(aws.lambdaUpdateAlias.mock.calls).toEqual([['example-app-prod-a', 'live', '6', 'a1']])
+  })
+
+  it('says when the newest version already runs the image, after the rollback stops waiting on it', async () => {
+    rollingBack('example-app-prod-a', { becomesActiveIn: 60 * MINUTE })
+
+    const error = await failure(rollbackTo())
+
+    expect(error.message).toContain(
+      "example-app-prod-a's live alias went back to version 3 at once, so it runs the image this rollback is " +
+      'for. The newest version, 5, runs that image too'
+    )
+  })
+
+  it('says the alias went back when a read fails for good after the move', async () => {
+    rollingBack('example-app-prod-a', { takes: 10 * MINUTE })
+    let broken = false
+    const read = aws.lambdaGetFunction.getMockImplementation()
+    aws.lambdaGetFunction.mockImplementation(async (name, qualifier) => {
+      if (broken && !qualifier) throw awsError('AccessDeniedException', 403, 'not authorized')
+      return read(name, qualifier)
+    })
+    const wait = aws.lambdaWaitForFunctionUpdated.getMockImplementation()
+    aws.lambdaWaitForFunctionUpdated.mockImplementation(async (...args) => {
+      try {
+        return await wait(...args)
+      } finally {
+        broken = true
+      }
+    })
+
+    const error = await failure(rollbackTo())
+
+    expect(error.message).toMatch(/could not read the function while waiting for its update/)
+    expect(error.message).toContain("example-app-prod-a's live alias went back to version 3 at once")
+  })
+
+  it('does not prune in a rollback', async () => {
+    rollingBack('example-app-prod-a', { versions: { 1: OTHER, 2: OTHER, 3: OLD, 4: NEW } })
+
+    await rollbackTo()
+
+    expect(aws.lambdaDeleteFunctionVersion).not.toHaveBeenCalled()
+  })
+
+  it('moves no alias at once in an ordinary deploy, even when an older version runs the image', async () => {
+    rollingBack('example-app-prod-a')
+
+    await deployLambda({ projectName: 'example-app', environment: 'production', image: OLD },
+      { budget: rolloutBudget({ now: () => now, sleep, stepStartedAt: 0 }) })
+
+    expect(aws.lambdaUpdateAlias.mock.calls).toEqual([['example-app-prod-a', 'live', '5', 'a1']])
+  })
+
+  it('finishes a rollback whose alias is already on the image', async () => {
+    // An earlier rollback moved the alias at once, then stopped.
+    rollingBack('example-app-prod-a', { alias: '3', image: OLD })
+
+    await rollbackTo()
+
+    // It says the alias is behind, moves nothing at once, and finishes.
+    expect(warnings()).toContainEqual(expect.stringMatching(
+      /^example-app-prod-a: its live alias is on version 3, but version 4 is newer \(image sha256:b+\)/
+    ))
+    expect(aws.lambdaUpdateAlias.mock.calls).toEqual([['example-app-prod-a', 'live', '5', 'a1']])
+    expectRulesKept('example-app-prod-a')
+  })
+})
+
+describe('pruning old versions after a deploy through a live alias', () => {
+  const versionsOf = name => Object.keys(functions[name].versions).map(Number)
+
+  it('keeps the newest version of each of the last five images, and deletes the rest', async () => {
+    const image = c => `${REGISTRY}/example-app@sha256:${hex(c)}`
+    // Seven images, with config-only versions (the same image twice) mixed in.
+    addFunction('example-app-prod-a', {
+      image: image('7'),
+      alias: '10',
+      versions: {
+        1: image('1'), 2: image('2'), 3: image('3'), 4: image('3'), 5: image('4'),
+        6: image('5'), 7: image('5'), 8: image('6'), 9: image('7'), 10: image('7')
+      }
+    })
+
+    await deploy()
+
+    // NEW is version 11; then images 7, 6, 5 and 4, newest version of each.
+    expect(versionsOf('example-app-prod-a')).toEqual([5, 7, 8, 10, 11])
+  })
+
+  it('never deletes a version newer than the alias\'s', async () => {
+    addFunction('example-app-prod-a')
+    const move = aws.lambdaUpdateAlias.getMockImplementation()
+    aws.lambdaUpdateAlias.mockImplementationOnce(async (...args) => {
+      const result = await move(...args)
+      // An apply publishes again right after the deploy moved the alias.
+      const fn = functions['example-app-prod-a']
+      fn.versions[String(fn.nextVersion++)] = { image: OTHER, description: '', activeAt: 0, fails: '' }
+      return result
+    })
+
+    await deploy()
+
+    expect(versionsOf('example-app-prod-a')).toEqual([2, 3, 4, 5])
+  })
+
+  it('skips a version something else still holds, and keeps going', async () => {
+    const image = c => `${REGISTRY}/example-app@sha256:${hex(c)}`
+    addFunction('example-app-prod-a', {
+      versions: { 1: image('1'), 2: image('2'), 3: OLD, 4: image('4'), 5: image('5'), 6: image('6'), 7: OLD }, alias: '7'
+    })
+    aws.lambdaDeleteFunctionVersion.mockImplementationOnce(async () => {
+      throw awsError('ResourceConflictException', 409, 'Version is in use by another alias')
+    })
+
+    await deploy()
+
+    // NEW is version 8. Version 3 (an older OLD) goes first, refused; 2 and 1
+    // still go.
+    expect(versionsOf('example-app-prod-a')).toEqual([3, 4, 5, 6, 7, 8])
+  })
+
+  it('deletes at most twenty versions a deploy, pausing between them', async () => {
+    const versions = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [i + 1, OLD]))
+    addFunction('example-app-prod-a', { versions, alias: '30' })
+
+    await deploy()
+
+    // Version 30 stays (newest of OLD), 31 is the new one; 20 of the other 29 go.
+    expect(versionsOf('example-app-prod-a')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 30, 31])
+    expect(aws.lambdaDeleteFunctionVersion).toHaveBeenCalledTimes(20)
+  })
+
+  it('stops pruning, with a warning, at a delete that fails for another reason', async () => {
+    const image = c => `${REGISTRY}/example-app@sha256:${hex(c)}`
+    addFunction('example-app-prod-a', {
+      versions: { 1: image('1'), 2: image('2'), 3: OLD, 4: image('4'), 5: image('5'), 6: image('6'), 7: OLD }, alias: '7'
+    })
+    aws.lambdaDeleteFunctionVersion.mockImplementationOnce(async () => { throw awsError('ServiceException', 500, 'boom') })
+
+    await deploy()
+
+    expect(versionsOf('example-app-prod-a')).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(warnings()).toContainEqual('example-app-prod-a: stopped pruning at version 3 (boom).')
+  })
+
+  it('never fails the deploy', async () => {
+    addFunction('example-app-prod-a')
+    aws.lambdaListVersions.mockRejectedValue(awsError('ServiceException', 500, 'boom'))
+
+    expect(await deploy()).toEqual({ deployedImage: NEW, services: ['example-app-prod-a'] })
+    expect(warnings()).toContainEqual('example-app-prod-a: could not list its versions to prune old ones (boom).')
+  })
+
+  it('does not prune after a deploy that failed', async () => {
+    addFunction('example-app-prod-a')
+    addFunction('example-app-prod-b', { alias: null })
+    failNext['update:example-app-prod-b'] = awsError('ServiceException', 500, 'boom')
+
+    await failure(deploy())
+
+    // Only the read before the deploy lists versions.
+    expect(aws.lambdaListVersions).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves functions without the alias alone', async () => {
+    addFunction('example-app-prod-a', { alias: null })
+
+    await deploy()
+
+    expect(aws.lambdaListVersions).not.toHaveBeenCalled()
   })
 })
