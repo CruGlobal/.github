@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.12.0](https://github.com/CruGlobal/.github/compare/v2.11.0...v2.12.0) (2026-10-07)
+
+
+### Features
+
+* **lambda:** roll back through a live alias at once, and prune old versions ([#531](https://github.com/CruGlobal/.github/issues/531)) ([1ebd736](https://github.com/CruGlobal/.github/commit/1ebd736ad13ee10a043fc22ac50e4e544bfaa046))
+
 ## [2.11.0](https://github.com/CruGlobal/.github/compare/v2.10.0...v2.11.0) (2026-10-02)
 
 
