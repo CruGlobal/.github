@@ -45140,7 +45140,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1140.0";
+    var version = "3.1145.0";
     var packageInfo = {
       version
     };
@@ -46065,6 +46065,8 @@ var require_dist_cjs16 = __commonJS({
     var _SRO = "ServiceRevisionOverrides";
     var _SRS = "ServiceRevisionSummary";
     var _SRSL = "ServiceRevisionsSummaryList";
+    var _SRVLC = "ServiceRevisionVpcLatticeConfiguration";
+    var _SRVLCe = "ServiceRevisionVpcLatticeConfigurations";
     var _SRe = "ServiceRevision";
     var _SRer = "ServiceRegistries";
     var _SRerv = "ServiceRevisions";
@@ -46165,6 +46167,7 @@ var require_dist_cjs16 = __commonJS({
     var _VFL = "VolumeFromList";
     var _VI = "VersionInfo";
     var _VL = "VolumeList";
+    var _VLAC = "VpcLatticeAdvancedConfiguration";
     var _VLC = "VpcLatticeConfiguration";
     var _VLCp = "VpcLatticeConfigurations";
     var _a2 = "attachments";
@@ -49127,8 +49130,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _RCe,
       0,
-      [_lB],
-      [() => ServiceRevisionLoadBalancers]
+      [_lB, _vLC],
+      [() => ServiceRevisionLoadBalancers, () => ServiceRevisionVpcLatticeConfigurations]
     ];
     var Resource$ = [
       3,
@@ -49406,6 +49409,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_ar, _rTCe, _rTCu, _pTCe, _rTTW, _rPTW],
       [0, 1, 1, 1, 1, 1]
+    ];
+    var ServiceRevisionVpcLatticeConfiguration$ = [
+      3,
+      n05,
+      _SRVLC,
+      0,
+      [_tGA, _pLR],
+      [0, 0]
     ];
     var ServiceVolumeConfiguration$ = [
       3,
@@ -49937,13 +49948,21 @@ var require_dist_cjs16 = __commonJS({
       [_sCo, _rO],
       [0, 2]
     ];
+    var VpcLatticeAdvancedConfiguration$ = [
+      3,
+      n05,
+      _VLAC,
+      0,
+      [_aTGA, _pLR, _tLR],
+      [0, 0, 0]
+    ];
     var VpcLatticeConfiguration$ = [
       3,
       n05,
       _VLC,
       0,
-      [_rA, _tGA, _pN],
-      [0, 0, 0],
+      [_rA, _tGA, _pN, _aCd],
+      [0, 0, 0, () => VpcLatticeAdvancedConfiguration$],
       3
     ];
     var AcceleratorManufacturerSet = [
@@ -50565,6 +50584,13 @@ var require_dist_cjs16 = __commonJS({
       _SRSL,
       0,
       () => ServiceRevisionSummary$
+    ];
+    var ServiceRevisionVpcLatticeConfigurations = [
+      1,
+      n05,
+      _SRVLCe,
+      0,
+      () => ServiceRevisionVpcLatticeConfiguration$
     ];
     var Services = [
       1,
@@ -53310,6 +53336,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.ServiceRevisionLoadBalancer$ = ServiceRevisionLoadBalancer$;
     exports2.ServiceRevisionOverrides$ = ServiceRevisionOverrides$;
     exports2.ServiceRevisionSummary$ = ServiceRevisionSummary$;
+    exports2.ServiceRevisionVpcLatticeConfiguration$ = ServiceRevisionVpcLatticeConfiguration$;
     exports2.ServiceVolumeConfiguration$ = ServiceVolumeConfiguration$;
     exports2.Session$ = Session$;
     exports2.Setting$ = Setting$;
@@ -53439,6 +53466,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.VersionInfo$ = VersionInfo$;
     exports2.Volume$ = Volume$;
     exports2.VolumeFrom$ = VolumeFrom$;
+    exports2.VpcLatticeAdvancedConfiguration$ = VpcLatticeAdvancedConfiguration$;
     exports2.VpcLatticeConfiguration$ = VpcLatticeConfiguration$;
     exports2.errorTypeRegistries = errorTypeRegistries5;
     exports2.paginateListAccountSettings = paginateListAccountSettings;
@@ -53542,7 +53570,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1140.0";
+    var version = "3.1145.0";
     var packageInfo = {
       version
     };
@@ -55935,6 +55963,7 @@ var require_dist_cjs17 = __commonJS({
     var _DKVF = "DocumentKeyValuesFilter";
     var _DKVFL = "DocumentKeyValuesFilterList";
     var _DLE = "DocumentLimitExceeded";
+    var _DM = "DeletionMode";
     var _DMI = "DeregisterManagedInstance";
     var _DMIR = "DeregisterManagedInstanceRequest";
     var _DMIRe = "DeregisterManagedInstanceResult";
@@ -59163,8 +59192,8 @@ var require_dist_cjs17 = __commonJS({
       n05,
       _DRPR,
       0,
-      [_RAe, _PI2, _PH],
-      [0, 0, 0],
+      [_RAe, _PI2, _PH, _DM],
+      [0, 0, 0, 0],
       3
     ];
     var DeleteResourcePolicyResponse$ = [
@@ -65727,6 +65756,10 @@ var require_dist_cjs17 = __commonJS({
       DELETE_SCHEMA: "DeleteSchema",
       DISABLE_SCHEMA: "DisableSchema"
     };
+    var DeletionMode = {
+      RemoveSharing: "RemoveSharing",
+      RollbackMigration: "RollbackMigration"
+    };
     var DescribeActivationsFilterKeys = {
       ACTIVATION_IDS: "ActivationIds",
       DEFAULT_INSTANCE_NAME: "DefaultInstanceName",
@@ -66478,6 +66511,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.DeleteResourcePolicyCommand = DeleteResourcePolicyCommand;
     exports2.DeleteResourcePolicyRequest$ = DeleteResourcePolicyRequest$;
     exports2.DeleteResourcePolicyResponse$ = DeleteResourcePolicyResponse$;
+    exports2.DeletionMode = DeletionMode;
     exports2.DeregisterManagedInstance$ = DeregisterManagedInstance$;
     exports2.DeregisterManagedInstanceCommand = DeregisterManagedInstanceCommand;
     exports2.DeregisterManagedInstanceRequest$ = DeregisterManagedInstanceRequest$;
@@ -67805,7 +67839,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1140.0";
+    var version = "3.1145.0";
     var packageInfo = {
       version
     };

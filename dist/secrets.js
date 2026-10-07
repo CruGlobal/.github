@@ -45140,7 +45140,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1140.0";
+    var version = "3.1145.0";
     var packageInfo = {
       version
     };
@@ -47533,6 +47533,7 @@ var require_dist_cjs16 = __commonJS({
     var _DKVF = "DocumentKeyValuesFilter";
     var _DKVFL = "DocumentKeyValuesFilterList";
     var _DLE = "DocumentLimitExceeded";
+    var _DM = "DeletionMode";
     var _DMI = "DeregisterManagedInstance";
     var _DMIR = "DeregisterManagedInstanceRequest";
     var _DMIRe = "DeregisterManagedInstanceResult";
@@ -50761,8 +50762,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DRPR,
       0,
-      [_RAe, _PI2, _PH],
-      [0, 0, 0],
+      [_RAe, _PI2, _PH, _DM],
+      [0, 0, 0, 0],
       3
     ];
     var DeleteResourcePolicyResponse$ = [
@@ -57325,6 +57326,10 @@ var require_dist_cjs16 = __commonJS({
       DELETE_SCHEMA: "DeleteSchema",
       DISABLE_SCHEMA: "DisableSchema"
     };
+    var DeletionMode = {
+      RemoveSharing: "RemoveSharing",
+      RollbackMigration: "RollbackMigration"
+    };
     var DescribeActivationsFilterKeys = {
       ACTIVATION_IDS: "ActivationIds",
       DEFAULT_INSTANCE_NAME: "DefaultInstanceName",
@@ -58076,6 +58081,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeleteResourcePolicyCommand = DeleteResourcePolicyCommand;
     exports2.DeleteResourcePolicyRequest$ = DeleteResourcePolicyRequest$;
     exports2.DeleteResourcePolicyResponse$ = DeleteResourcePolicyResponse$;
+    exports2.DeletionMode = DeletionMode;
     exports2.DeregisterManagedInstance$ = DeregisterManagedInstance$;
     exports2.DeregisterManagedInstanceCommand = DeregisterManagedInstanceCommand;
     exports2.DeregisterManagedInstanceRequest$ = DeregisterManagedInstanceRequest$;

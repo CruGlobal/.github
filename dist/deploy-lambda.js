@@ -45141,7 +45141,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1140.0";
+    var version = "3.1145.0";
     var packageInfo = {
       version
     };
@@ -50936,7 +50936,7 @@ var require_dist_cjs16 = __commonJS({
     var paginateListLayers = createPaginator2(LambdaClient2, ListLayersCommand, "Marker", "NextMarker", "MaxItems");
     var paginateListLayerVersions = createPaginator2(LambdaClient2, ListLayerVersionsCommand, "Marker", "NextMarker", "MaxItems");
     var paginateListProvisionedConcurrencyConfigs = createPaginator2(LambdaClient2, ListProvisionedConcurrencyConfigsCommand, "Marker", "NextMarker", "MaxItems");
-    var paginateListVersionsByFunction = createPaginator2(LambdaClient2, ListVersionsByFunctionCommand, "Marker", "NextMarker", "MaxItems");
+    var paginateListVersionsByFunction2 = createPaginator2(LambdaClient2, ListVersionsByFunctionCommand, "Marker", "NextMarker", "MaxItems");
     var checkState$5 = async (client, input) => {
       let reason;
       try {
@@ -51296,7 +51296,7 @@ var require_dist_cjs16 = __commonJS({
       paginateListLayers,
       paginateListLayerVersions,
       paginateListProvisionedConcurrencyConfigs,
-      paginateListVersionsByFunction
+      paginateListVersionsByFunction: paginateListVersionsByFunction2
     };
     var waiters = {
       waitUntilFunctionActiveV2,
@@ -52309,7 +52309,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.paginateListLayerVersions = paginateListLayerVersions;
     exports2.paginateListLayers = paginateListLayers;
     exports2.paginateListProvisionedConcurrencyConfigs = paginateListProvisionedConcurrencyConfigs;
-    exports2.paginateListVersionsByFunction = paginateListVersionsByFunction;
+    exports2.paginateListVersionsByFunction = paginateListVersionsByFunction2;
     exports2.waitForFunctionActive = waitForFunctionActive;
     exports2.waitForFunctionActiveV2 = waitForFunctionActiveV2;
     exports2.waitForFunctionExists = waitForFunctionExists;

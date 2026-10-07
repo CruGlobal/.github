@@ -46948,6 +46948,7 @@ var require_dist_cjs19 = __commonJS({
     var _FE = "FailureException";
     var _FEi = "FilterExpression";
     var _FM = "FailureMessage";
+    var _FS = "FilterSpecification";
     var _G = "Get";
     var _GI = "GetItem";
     var _GII = "GetItemInput";
@@ -48495,8 +48496,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _ED,
       0,
-      [_EA, _ES, _ST2, _ET, _EM, _TA, _TI, _ETx, _CT2, _SB, _SBO, _SPr, _SSA, _SSKKI, _FC, _FM, _EF, _BSBi, _IC, _ETxp, _IES],
-      [0, 0, 4, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, () => IncrementalExportSpecification$]
+      [_EA, _ES, _ST2, _ET, _EM, _TA, _TI, _ETx, _CT2, _SB, _SBO, _SPr, _SSA, _SSKKI, _FC, _FM, _EF, _BSBi, _IC, _ETxp, _IES, _FS],
+      [0, 0, 4, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, () => IncrementalExportSpecification$, () => FilterSpecification$]
     ];
     var ExportSummary$ = [
       3,
@@ -48511,8 +48512,8 @@ var require_dist_cjs19 = __commonJS({
       n05,
       _ETTPITI,
       0,
-      [_TA, _SB, _ETx, _CT2, _SBO, _SPr, _SSA, _SSKKI, _EF, _ETxp, _IES],
-      [0, 0, 4, [0, 4], 0, 0, 0, 0, 0, 0, () => IncrementalExportSpecification$],
+      [_TA, _SB, _ETx, _CT2, _SBO, _SPr, _SSA, _SSKKI, _EF, _ETxp, _IES, _FS],
+      [0, 0, 4, [0, 4], 0, 0, 0, 0, 0, 0, () => IncrementalExportSpecification$, () => FilterSpecification$],
       2
     ];
     var ExportTableToPointInTimeOutput$ = [
@@ -48530,6 +48531,14 @@ var require_dist_cjs19 = __commonJS({
       0,
       [_EN, _EDx],
       [0, 0]
+    ];
+    var FilterSpecification$ = [
+      3,
+      n05,
+      _FS,
+      0,
+      [_FEi, _PE, _KCE, _EAN, _EAV],
+      [0, 0, 0, 128 | 0, () => ExpressionAttributeValueMap]
     ];
     var Get$ = [
       3,
@@ -50732,7 +50741,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1140.0";
+    var version = "3.1145.0";
     var packageInfo = {
       version
     };
@@ -50817,7 +50826,7 @@ var require_dist_cjs19 = __commonJS({
         ["{Endpoint}", G],
         [a5, "Invalid Configuration: FIPS and local endpoint are not supported"],
         [a5, "Invalid Configuration: Dualstack and local endpoint are not supported"],
-        ["http://localhost:8000", { authSchemes: [{ signingRegion: "us-east-1", name: "sigv4", signingName: m3 }] }],
+        ["http://localhost:8000", { authSchemes: [{ signingRegion: "us-east-1", signingName: m3, name: "sigv4" }] }],
         [a5, "Invalid Configuration: AccountIdEndpointMode is required and FIPS is enabled, but FIPS account endpoints are not supported"],
         ["https://search-dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
         ["https://dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
@@ -52124,6 +52133,7 @@ var require_dist_cjs19 = __commonJS({
     exports2.ExportType = ExportType;
     exports2.ExportViewType = ExportViewType;
     exports2.FailureException$ = FailureException$;
+    exports2.FilterSpecification$ = FilterSpecification$;
     exports2.Get$ = Get$;
     exports2.GetItem$ = GetItem$;
     exports2.GetItemCommand = GetItemCommand;
