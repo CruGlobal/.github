@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// Mock google-auth-library so the apigateway.googleapis.com calls hit a canned
-// client, and src/v2/oci.js so no registry reads happen (openImage itself is
-// covered by v2-oci.test.js).
+// google-auth-library is mocked so apigateway.googleapis.com calls hit a canned
+// client; oci.js so no registry reads happen (covered by v2-oci.test.js).
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
 vi.mock('google-auth-library', () => ({
   GoogleAuth: class {
@@ -20,26 +19,23 @@ import {
   apigEnv,
   apigSpecKey,
   configIdFor,
-  publishApiConfig,
+  pointGateway,
+  prepareApiConfig,
   renderSpec
 } from '../src/v2/apigateway.js'
 
-const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/mcp/mcp'
+const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/example-app/example-app'
 const IMAGE = `${REPO}@sha256:new`
-const PROJECT = 'mcp-stage-1234'
-const GATEWAY_ID = 'mcp-gw'
-const BACKEND_URI = 'https://mcp-api-abc-uc.a.run.app'
-const BACKEND_SA = 'gateway-backend@mcp-stage-1234.iam.gserviceaccount.com'
-const API = `projects/${PROJECT}/locations/global/apis/mcp-api`
+const PROJECT = 'example-app-stage-0000'
+const GATEWAY_ID = 'example-app-gw'
+const BACKEND_URI = 'https://api-abc-uc.a.run.app'
+const BACKEND_SA = `example-app-gw@${PROJECT}.iam.gserviceaccount.com`
+const API = `projects/${PROJECT}/locations/global/apis/example-app`
 const GATEWAY = `projects/${PROJECT}/locations/us-central1/gateways/${GATEWAY_ID}`
-// Shape-agnostic on purpose: publishing is a textual render of ${VAR}, so the
-// same code path carries an OpenAPI 2.0 or a 3.0.x document. This fixture is
-// 3.0.x, matching what the apps now ship.
 const SPEC = 'openapi: "3.0.3"\naddress: ${API_GATEWAY_BACKEND}\nissuer: ${OAUTH_ISSUER}\n'
 const RENDERED = `openapi: "3.0.3"\naddress: ${BACKEND_URI}\nissuer: https://issuer.example\n`
-const CONFIG_ID = configIdFor(RENDERED)
+const CONFIG_ID = configIdFor(RENDERED, BACKEND_SA)
 
-// The gateway env Terraform injects, plus one unrelated var the spec uses.
 const APIG_VARS = [
   { name: APIG_GATEWAY_ENV, value: GATEWAY_ID },
   { name: APIG_BACKEND_SERVICE_ENV, value: 'api' },
@@ -47,7 +43,7 @@ const APIG_VARS = [
   { name: 'OAUTH_ISSUER', value: 'https://issuer.example' }
 ]
 
-// A Cloud Run service as the API returns it: app container plus a Datadog sidecar.
+// A Cloud Run service as the API returns it: app container plus a sidecar.
 function service (env, { name = 'api', uri = BACKEND_URI } = {}) {
   return {
     name: `projects/${PROJECT}/locations/us-central1/services/${name}`,
@@ -61,7 +57,6 @@ function service (env, { name = 'api', uri = BACKEND_URI } = {}) {
   }
 }
 
-// Stub an image with the given labels and file contents.
 function image ({ labels = { [APIG_LABEL]: 'openapi.yaml' }, files = { '/cru/api-gateway/openapi.yaml': SPEC } } = {}) {
   openImage.mockResolvedValue({
     labels,
@@ -69,23 +64,30 @@ function image ({ labels = { [APIG_LABEL]: 'openapi.yaml' }, files = { '/cru/api
   })
 }
 
-// Route the mocked client by URL+method, so tests describe the API surface they
-// expect rather than a call sequence.
-// `configPages` is the api's existing configs, as one array per response page.
-// `configStates` is what successive GETs of THIS spec's config report: a state
-// string, or null for a 404. The last entry repeats once the list runs out.
+const httpError = (status, message = `HTTP ${status}`) =>
+  Object.assign(new Error(message), { response: { status, data: { error: { message } } } })
+
+// Routes the mocked client by URL and method.
+// `configStates`: what successive GETs of this spec's config report (a state,
+//   or null for 404); the last entry repeats.
+// `configs`: the api's existing configs, as pages of { id, createTime }.
+// `fail`: { 'METHOD fragment': error } to make one call throw.
 function api ({
-  currentConfig = `${API}/configs/cfg-old`,
+  currentConfig = `${API}/configs/cfg-000000000000`,
   configStates = [null],
   operations = {},
-  configPages = [[]],
-  onDelete = () => {}
+  configs = [[]],
+  fail = {}
 } = {}) {
   const calls = []
   let configGets = 0
   requestMock.mockImplementation(async options => {
     calls.push(options)
     const { url, method = 'GET' } = options
+    for (const [key, error] of Object.entries(fail)) {
+      const [failMethod, fragment] = key.split(' ')
+      if (method === failMethod && url.includes(fragment)) throw error
+    }
 
     if (url.endsWith(GATEWAY) && method === 'GET') return { data: { name: GATEWAY, apiConfig: currentConfig } }
     if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: false } }
@@ -94,18 +96,15 @@ function api ({
       const page = Number(options.params?.pageToken ?? 0)
       return {
         data: {
-          apiConfigs: configPages[page].map(id => ({ name: `${API}/configs/${id}` })),
-          ...(page + 1 < configPages.length ? { nextPageToken: String(page + 1) } : {})
+          apiConfigs: configs[page].map(({ id, createTime }) => ({ name: `${API}/configs/${id}`, createTime })),
+          ...(page + 1 < configs.length ? { nextPageToken: String(page + 1) } : {})
         }
       }
     }
-    if (method === 'DELETE') {
-      onDelete(shortId(url))
-      return { data: { name: `operations/delete-${shortId(url)}`, done: true } }
-    }
+    if (method === 'DELETE') return { data: { name: `operations/delete-${shortId(url)}`, done: true } }
     if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) {
       const state = configStates[Math.min(configGets++, configStates.length - 1)]
-      if (state == null) throw Object.assign(new Error('not found'), { response: { status: 404 } })
+      if (state == null) throw httpError(404, 'not found')
       return { data: { name: `${API}/configs/${CONFIG_ID}`, state } }
     }
     for (const [name, data] of Object.entries(operations)) {
@@ -117,12 +116,18 @@ function api ({
   return calls
 }
 
-const publish = (overrides = {}) => publishApiConfig({
+// A fake clock, so waits of many minutes take no time.
+function fakeClock () {
+  let t = 0
+  return { now: () => t, sleep: async ms => { t += ms }, stepStartedAt: 0, elapsed: () => t }
+}
+
+const prepare = (overrides = {}) => prepareApiConfig({
   image: IMAGE,
   services: [service(APIG_VARS)],
   repo: REPO,
   runtimeProject: PROJECT,
-  pollIntervalMs: 0,
+  timing: { pollIntervalMs: 1000, ...fakeClock() },
   ...overrides
 })
 
@@ -137,7 +142,7 @@ beforeEach(() => {
 })
 
 describe('apigSpecKey', () => {
-  it('returns null for an image with no api-gateway label — most apps have none', () => {
+  it('returns null for an image with no api-gateway label - most apps have none', () => {
     expect(apigSpecKey({})).toBeNull()
     expect(apigSpecKey(undefined)).toBeNull()
   })
@@ -215,7 +220,7 @@ describe('renderSpec', () => {
     expect(error.message).toMatch(/unresolved placeholder\(s\): A, C/)
   })
 
-  it('leaves a bare $ and a brace-less $NAME alone — the spec is YAML', () => {
+  it('leaves a bare $ and a brace-less $NAME alone - the spec is YAML', () => {
     expect(renderSpec('cost: $5 and $NAME and ${lower}', {})).toBe('cost: $5 and $NAME and ${lower}')
   })
 
@@ -225,343 +230,246 @@ describe('renderSpec', () => {
 })
 
 describe('configIdFor', () => {
-  it('is stable and content-addressed', () => {
-    expect(configIdFor('hello')).toBe(configIdFor('hello'))
-    expect(configIdFor('hello')).toMatch(/^cfg-[0-9a-f]{12}$/)
-    expect(configIdFor('hello')).not.toBe(configIdFor('hello '))
+  it('is stable, short, lowercase and content-addressed', () => {
+    expect(configIdFor('hello', BACKEND_SA)).toBe(configIdFor('hello', BACKEND_SA))
+    expect(configIdFor('hello', BACKEND_SA)).toMatch(/^cfg-[0-9a-f]{12}$/)
+    expect(configIdFor('hello', BACKEND_SA)).not.toBe(configIdFor('hello ', BACKEND_SA))
+  })
+
+  // The SA is fixed for a config's life, so a new SA needs a new config.
+  it('changes when only the backend SA changes', () => {
+    expect(configIdFor('hello', BACKEND_SA)).not.toBe(configIdFor('hello', 'other@example.iam.gserviceaccount.com'))
   })
 })
 
-describe('publishApiConfig', () => {
-  it('does nothing for an environment with no gateway', async () => {
-    const result = await publish({ services: [service([{ name: 'FOO', value: 'bar' }])] })
-    expect(result).toEqual({ published: false, reason: 'not-configured' })
+describe('prepareApiConfig', () => {
+  it('does nothing for an environment with no gateway, without opening the image', async () => {
+    expect(await prepare({ services: [service([{ name: 'FOO', value: 'bar' }])] })).toBeNull()
     expect(openImage).not.toHaveBeenCalled()
     expect(requestMock).not.toHaveBeenCalled()
   })
 
-  it('reports no-label when the image ships no spec', async () => {
-    image({ labels: {} })
+  it('uses the shared image handle when given one', async () => {
+    image()
     api()
-    expect(await publish()).toEqual({ published: false, reason: 'no-label' })
+    const oci = vi.fn(() => openImage())
+    await prepare({ oci })
+    expect(oci).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails when the environment has a gateway but the image has no spec', async () => {
+    image({ labels: {} })
+    await expect(prepare()).rejects.toThrow(/has no org.cru.api-gateway label/)
     expect(requestMock).not.toHaveBeenCalled()
   })
 
   it('fails when the label promises a spec the image does not carry', async () => {
     image({ files: {} })
-    api()
-    await expect(publish()).rejects.toThrow(/has no file at \/cru\/api-gateway\/openapi\.yaml/)
+    await expect(prepare()).rejects.toThrow(/no file at \/cru\/api-gateway\/openapi.yaml/)
   })
 
   it('fails when the named backend service is not deployed here', async () => {
     image()
-    const env = APIG_VARS.map(e => e.name === APIG_BACKEND_SERVICE_ENV ? { ...e, value: 'nope' } : e)
-    await expect(publish({ services: [service(env)] })).rejects.toThrow(/names a Cloud Run service that does not exist/)
+    const services = [service(APIG_VARS, { name: 'web' })]
+    await expect(prepare({ services })).rejects.toThrow(/"api" must name a Cloud Run service .*found: web/)
   })
 
-  it('does nothing when the gateway already serves this exact spec', async () => {
+  it('fails when the backend service has no uri', async () => {
+    image()
+    await expect(prepare({ services: [service(APIG_VARS, { uri: '' })] })).rejects.toThrow(/with a URI/)
+  })
+
+  it('fails on an unresolved placeholder before calling the API', async () => {
+    image({ files: { '/cru/api-gateway/openapi.yaml': `${SPEC}aud: \${GATEWAY_JWT_AUDIENCE}\n` } })
+    await expect(prepare()).rejects.toThrow(/unresolved placeholder\(s\): GATEWAY_JWT_AUDIENCE/)
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
+  it('is unchanged, with no create, when the gateway already serves this spec', async () => {
     image()
     const calls = api({ currentConfig: `${API}/configs/${CONFIG_ID}` })
-
-    expect(await publish()).toEqual({
-      published: true,
-      reason: 'unchanged',
-      gatewayId: GATEWAY_ID,
-      configId: CONFIG_ID,
-      apiConfig: `${API}/configs/${CONFIG_ID}`
-    })
-
-    // Exactly one call: the gateway read that proved there was nothing to do.
+    const plan = await prepare()
+    expect(plan).toMatchObject({ status: 'unchanged', configId: CONFIG_ID, previousConfigId: CONFIG_ID })
     expect(calls).toHaveLength(1)
-    expect(calls[0].url).toBe(`https://apigateway.googleapis.com/v1/${GATEWAY}`)
   })
 
-  it('creates the config and re-points the gateway', async () => {
+  it('creates the config with the rendered spec and the backend SA', async () => {
     image()
-    const calls = api({
-      operations: {
-        'operations/create': { name: 'operations/create', done: true },
-        'operations/patch': { name: 'operations/patch', done: true }
-      }
-    })
+    const calls = api()
+    const plan = await prepare()
 
-    const result = await publish()
-    expect(result).toEqual({
-      published: true,
-      reason: 'created',
-      gatewayId: GATEWAY_ID,
-      configId: CONFIG_ID,
-      apiConfig: `${API}/configs/${CONFIG_ID}`,
-      previousConfigId: 'cfg-old',
-      deletedConfigIds: []
-    })
-
-    // The api's identity comes from parsing the gateway's CURRENT apiConfig, and
-    // configs live under locations/global regardless of the gateway's region.
+    expect(plan).toMatchObject({ status: 'created', configId: CONFIG_ID, previousConfigId: 'cfg-000000000000', apiName: API })
     const [create] = callsTo(calls, 'POST', '/configs')
-    expect(create.url).toBe(`https://apigateway.googleapis.com/v1/${API}/configs`)
     expect(create.params).toEqual({ apiConfigId: CONFIG_ID })
-    expect(create.data.displayName).toBe('sha256:new')
-    // Top-level per REST v1 discovery; the nested gatewayConfig.backendConfig
-    // shape belongs to the Terraform provider, not the API.
     expect(create.data.gatewayServiceAccount).toBe(BACKEND_SA)
-    expect(create.data).not.toHaveProperty('gatewayConfig')
-
-    const [document] = create.data.openapiDocuments
-    expect(document.document.path).toBe('openapi.yaml')
-    expect(Buffer.from(document.document.contents, 'base64').toString('utf8')).toBe(RENDERED)
-
-    const [patch] = callsTo(calls, 'PATCH', '/gateways/')
-    expect(patch.url).toBe(`https://apigateway.googleapis.com/v1/${GATEWAY}`)
-    expect(patch.params).toEqual({ updateMask: 'apiConfig' })
-    expect(patch.data).toEqual({ apiConfig: `${API}/configs/${CONFIG_ID}` })
+    expect(Buffer.from(create.data.openapiDocuments[0].document.contents, 'base64').toString()).toBe(RENDERED)
+    // Not pointed yet: that is pointGateway's job, after the rollout.
+    expect(callsTo(calls, 'PATCH', GATEWAY)).toHaveLength(0)
   })
 
-  it('polls both long-running operations until they report done', async () => {
+  it('reports a spec the gateway rejects, from the create operation', async () => {
     image()
-    let creates = 0
-    let patches = 0
-    const calls = []
-    requestMock.mockImplementation(async options => {
-      calls.push(options)
-      const { url, method = 'GET' } = options
-      if (url.endsWith(GATEWAY) && method === 'GET') return { data: { apiConfig: `${API}/configs/cfg-old` } }
-      if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: false } }
-      if (url.endsWith(`${API}/configs`) && method === 'POST') return { data: { name: 'operations/create', done: false } }
-      if (url.endsWith(`${API}/configs`) && method === 'GET') return { data: { apiConfigs: [] } }
-      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) throw Object.assign(new Error('nope'), { response: { status: 404 } })
-      if (url.endsWith('operations/create')) return { data: { name: 'operations/create', done: ++creates >= 2 } }
-      if (url.endsWith('operations/patch')) return { data: { name: 'operations/patch', done: ++patches >= 3 } }
-      throw new Error(`unexpected request: ${method} ${url}`)
-    })
-
-    await publish()
-    expect(creates).toBe(2)
-    expect(patches).toBe(3)
+    api({ operations: { 'operations/create': { name: 'operations/create', done: true, error: { message: 'invalid openapi' } } } })
+    await expect(prepare()).rejects.toThrow(/api config cfg-[0-9a-f]{12} create failed: invalid openapi/)
   })
 
-  it('surfaces an operation error — a bad spec only fails inside the LRO', async () => {
+  it('says which grants are missing on a 403', async () => {
     image()
-    api({ operations: { 'operations/create': { name: 'operations/create', done: true, error: { code: 3, message: 'invalid openapi: duplicate operationId' } } } })
-
-    await expect(publish()).rejects.toThrow(/invalid openapi: duplicate operationId/)
+    api({ fail: { 'POST /configs': httpError(403, "Permission 'iam.serviceAccounts.actAs' denied") } })
+    await expect(prepare()).rejects.toThrow(
+      new RegExp(`creating api config .*HTTP 403.*actAs' denied.*roles/apigateway.admin.*roles/iam.serviceAccountUser on ${BACKEND_SA}`)
+    )
   })
 
-  it('surfaces an API error rather than swallowing it', async () => {
+  it('says what it was doing when reading the gateway fails', async () => {
     image()
-    api()
-    const routed = requestMock.getMockImplementation()
-    requestMock.mockImplementation(async options => {
-      if (options.url.endsWith(GATEWAY)) throw Object.assign(new Error('backend error'), { response: { status: 503 } })
-      return routed(options)
-    })
+    api({ fail: { [`GET ${GATEWAY}`]: httpError(404, 'gateway not found') } })
+    await expect(prepare()).rejects.toThrow(`reading gateway ${GATEWAY_ID} failed (HTTP 404): gateway not found`)
+  })
 
-    await expect(publish()).rejects.toThrow(/backend error/)
+  it('times out a create that never finishes, inside the wait', async () => {
+    image()
+    const clock = fakeClock()
+    api({ operations: { 'operations/create': { name: 'operations/create', done: false } } })
+    await expect(prepare({ timing: { pollIntervalMs: 5000, ...clock } })).rejects.toThrow(/did not finish in time/)
+    expect(clock.elapsed()).toBeGreaterThanOrEqual(10 * 60 * 1000)
+    expect(clock.elapsed()).toBeLessThan(11 * 60 * 1000)
+  })
+
+  it('reuses an ACTIVE config, the rollback path', async () => {
+    image()
+    const calls = api({ configStates: ['ACTIVE'] })
+    expect((await prepare()).status).toBe('reused')
+    expect(callsTo(calls, 'POST', '/configs')).toHaveLength(0)
+  })
+
+  it('waits out a config another run is still creating', async () => {
+    image()
+    const calls = api({ configStates: ['CREATING', 'CREATING', 'ACTIVE'] })
+    expect((await prepare()).status).toBe('reused')
+    expect(callsTo(calls, 'POST', '/configs')).toHaveLength(0)
+  })
+
+  it('replaces a FAILED config left by an earlier run', async () => {
+    image()
+    const calls = api({ configStates: ['FAILED'] })
+    expect((await prepare()).status).toBe('created')
+    expect(callsTo(calls, 'DELETE', `/configs/${CONFIG_ID}`)).toHaveLength(1)
+    expect(callsTo(calls, 'POST', '/configs')).toHaveLength(1)
   })
 
   it('treats a 409 on create as success once the racing create is ACTIVE', async () => {
     image()
-    const calls = []
-    let configGets = 0
-    requestMock.mockImplementation(async options => {
-      calls.push(options)
-      const { url, method = 'GET' } = options
-      if (url.endsWith(GATEWAY) && method === 'GET') return { data: { apiConfig: `${API}/configs/cfg-old` } }
-      if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: true } }
-      if (url.endsWith(`${API}/configs`) && method === 'POST') throw Object.assign(new Error('exists'), { response: { status: 409 } })
-      if (url.endsWith(`${API}/configs`) && method === 'GET') return { data: { apiConfigs: [] } }
-      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) {
-        // Absent when we looked, then the other run's create lands.
-        if (configGets++ === 0) throw Object.assign(new Error('nope'), { response: { status: 404 } })
-        return { data: { name: `${API}/configs/${CONFIG_ID}`, state: 'ACTIVE' } }
-      }
-      throw new Error(`unexpected request: ${method} ${url}`)
-    })
-
-    const result = await publish()
-    expect(result.published).toBe(true)
-    // Re-pointed only after confirming the racing config is servable.
-    expect(callsTo(calls, 'PATCH', '/gateways/')).toHaveLength(1)
-    expect(configGets).toBe(2)
+    api({ configStates: [null, 'CREATING', 'ACTIVE'], fail: { 'POST /configs': httpError(409, 'already exists') } })
+    expect((await prepare()).status).toBe('reused')
   })
 
-  it('fails when a racing create is deleted under us', async () => {
-    // A concurrent deploy's GC took it back out: nothing to re-point at, so this
-    // deploy fails and the next one creates it cleanly.
+  it.each([[null, 'gone'], ['FAILED', 'FAILED']])('fails when a racing create ends up %s', async (state, word) => {
     image()
-    api({ configStates: [null] })
-    const routed = requestMock.getMockImplementation()
-    requestMock.mockImplementation(async options => {
-      if (options.url.endsWith(`${API}/configs`) && options.method === 'POST') {
-        throw Object.assign(new Error('exists'), { response: { status: 409 } })
-      }
-      return routed(options)
-    })
-
-    await expect(publish()).rejects.toThrow(/created concurrently but is gone/)
+    api({ configStates: [null, state], fail: { 'POST /configs': httpError(409, 'already exists') } })
+    await expect(prepare()).rejects.toThrow(`created concurrently but is ${word}`)
   })
 
-  it('skips the create when the config already exists — the rollback path', async () => {
-    image()
-    const calls = api({ configStates: ['ACTIVE'], operations: { 'operations/patch': { name: 'operations/patch', done: true } } })
-
-    const result = await publish()
-    expect(result.reason).toBe('repointed')
-    expect(callsTo(calls, 'POST', '/configs')).toHaveLength(0)
-    expect(callsTo(calls, 'PATCH', '/gateways/')).toHaveLength(1)
-  })
-
-  it('treats a config with no state field as usable — the API always sets one', async () => {
-    image()
-    requestMock.mockImplementation(async options => {
-      const { url, method = 'GET' } = options
-      if (url.endsWith(GATEWAY) && method === 'GET') return { data: { apiConfig: `${API}/configs/cfg-old` } }
-      if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: true } }
-      if (url.endsWith(`${API}/configs`) && method === 'GET') return { data: { apiConfigs: [] } }
-      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) return { data: { name: `${API}/configs/${CONFIG_ID}` } }
-      throw new Error(`unexpected request: ${method} ${url}`)
-    })
-
-    expect((await publish()).reason).toBe('repointed')
-  })
-
-  it('waits out a config another run is still creating, then re-points', async () => {
-    image()
-    const calls = api({
-      configStates: ['CREATING', 'CREATING', 'ACTIVE'],
-      operations: { 'operations/patch': { name: 'operations/patch', done: true } }
-    })
-
-    const result = await publish()
-    expect(result.reason).toBe('repointed')
-    // Nothing created: the config that landed is the same bytes as ours.
-    expect(callsTo(calls, 'POST', '/configs')).toHaveLength(0)
-    expect(callsTo(calls, 'GET', `/configs/${CONFIG_ID}`)).toHaveLength(3)
-  })
-
-  it('replaces a FAILED config left by an earlier run instead of wedging on it', async () => {
-    // Config ids are content hashes, so a half-created config sits exactly where
-    // every future deploy of this spec looks. Re-pointing at it would serve
-    // nothing, and GC spares it (it is the id this deploy wants) — so without
-    // this the app is stuck until someone deletes the config by hand.
-    image()
-    const deletes = []
-    const calls = api({
-      configStates: ['FAILED'],
-      onDelete: id => deletes.push(id),
-      operations: {
-        'operations/create': { name: 'operations/create', done: true },
-        'operations/patch': { name: 'operations/patch', done: true }
-      }
-    })
-
-    const result = await publish()
-    expect(deletes).toContain(CONFIG_ID)
-    expect(result.reason).toBe('created')
-    // Deleted, then created again — in that order.
-    const [create] = callsTo(calls, 'POST', '/configs')
-    expect(calls.findIndex(call => call.method === 'DELETE')).toBeLessThan(calls.indexOf(create))
-    expect(callsTo(calls, 'PATCH', '/gateways/')).toHaveLength(1)
-  })
-
-  it('fails when a concurrently-created config is FAILED', async () => {
-    image()
-    // 404 on the look before the create, FAILED once the racing create landed.
-    api({ configStates: [null, 'FAILED'] })
-    const routed = requestMock.getMockImplementation()
-    requestMock.mockImplementation(async options => {
-      if (options.url.endsWith(`${API}/configs`) && options.method === 'POST') {
-        throw Object.assign(new Error('exists'), { response: { status: 409 } })
-      }
-      return routed(options)
-    })
-
-    // Same bytes as ours, so the gateway rejected this document — never re-point.
-    await expect(publish()).rejects.toThrow(/created concurrently but is FAILED/)
-  })
-
-  it('collects superseded configs, sparing the active, the previous and anything it did not mint', async () => {
-    image()
-    const previous = 'cfg-000000000000'
-    const deletes = []
-    const calls = api({
-      currentConfig: `${API}/configs/${previous}`,
-      onDelete: id => deletes.push(id),
-      configPages: [[
-        'bootstrap', // Terraform's seed config — not a cfg- id, never touched
-        'hand-made-2026', // someone's manual config — likewise
-        previous, // the config this deploy just replaced — kept for a 1-step rollback
-        CONFIG_ID, // the config now serving traffic
-        'cfg-aaaaaaaaaaaa',
-        'cfg-bbbbbbbbbbbb'
-      ]]
-    })
-
-    const result = await publish()
-    expect(deletes).toEqual(['cfg-aaaaaaaaaaaa', 'cfg-bbbbbbbbbbbb'])
-    expect(result.deletedConfigIds).toEqual(['cfg-aaaaaaaaaaaa', 'cfg-bbbbbbbbbbbb'])
-
-    // GC runs only after the gateway is safely re-pointed.
-    const [patch] = callsTo(calls, 'PATCH', '/gateways/')
-    expect(calls.indexOf(patch)).toBeLessThan(calls.findIndex(call => call.method === 'DELETE'))
-  })
-
-  it('follows pagination, so an api with many configs is fully collected', async () => {
-    image()
-    const deletes = []
-    api({
-      onDelete: id => deletes.push(id),
-      configPages: [['cfg-aaaaaaaaaaaa'], ['bootstrap', 'cfg-bbbbbbbbbbbb'], [CONFIG_ID]]
-    })
-
-    await publish()
-    expect(deletes).toEqual(['cfg-aaaaaaaaaaaa', 'cfg-bbbbbbbbbbbb'])
-  })
-
-  it('collects nothing when the spec is unchanged — the gateway was never re-pointed', async () => {
-    image()
-    const calls = api({ currentConfig: `${API}/configs/${CONFIG_ID}`, configPages: [['cfg-aaaaaaaaaaaa']] })
-
-    const result = await publish()
-    expect(result).not.toHaveProperty('deletedConfigIds')
-    expect(callsTo(calls, 'DELETE', '/configs/')).toHaveLength(0)
-  })
-
-  it('warns instead of failing the deploy when a delete is rejected', async () => {
-    image()
-    api({
-      onDelete: () => { throw Object.assign(new Error('403 apigateway.apiConfigs.delete denied'), { response: { status: 403 } }) },
-      configPages: [['cfg-aaaaaaaaaaaa']]
-    })
-
-    // Leaked configs are clutter, not an outage.
-    const result = await publish()
-    expect(result.published).toBe(true)
-    expect(result.deletedConfigIds).toEqual([])
-  })
-
-  it('warns instead of failing the deploy when the configs cannot be listed', async () => {
-    image()
-    const calls = []
-    requestMock.mockImplementation(async options => {
-      calls.push(options)
-      const { url, method = 'GET' } = options
-      if (url.endsWith(GATEWAY) && method === 'GET') return { data: { apiConfig: `${API}/configs/cfg-old` } }
-      if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: true } }
-      if (url.endsWith(`${API}/configs`) && method === 'POST') return { data: { name: 'operations/create', done: true } }
-      if (url.endsWith(`${API}/configs`) && method === 'GET') throw new Error('list blew up')
-      if (url.endsWith(`${API}/configs/${CONFIG_ID}`)) throw Object.assign(new Error('nope'), { response: { status: 404 } })
-      throw new Error(`unexpected request: ${method} ${url}`)
-    })
-
-    const result = await publish()
-    expect(result.published).toBe(true)
-    expect(result.deletedConfigIds).toEqual([])
-  })
-
-  it('fails when the gateway has no bootstrap config to learn the api name from', async () => {
+  it('fails when the gateway has no config to learn the api name from', async () => {
     image()
     api({ currentConfig: null })
-    await expect(publish()).rejects.toThrow(/has no usable apiConfig/)
+    await expect(prepare()).rejects.toThrow(/has no usable apiConfig/)
+  })
+})
+
+describe('pointGateway', () => {
+  async function prepared (options = {}) {
+    image()
+    const calls = api(options)
+    const plan = await prepare()
+    calls.length = 0
+    return { plan, calls }
+  }
+
+  it('does nothing when the spec is unchanged', async () => {
+    const { plan, calls } = await prepared({ currentConfig: `${API}/configs/${CONFIG_ID}` })
+    expect(await pointGateway(plan)).toMatchObject({ status: 'unchanged', configId: CONFIG_ID, deletedConfigIds: [] })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('points the gateway at the config and waits for the update', async () => {
+    const { plan, calls } = await prepared({
+      operations: { 'operations/patch': { name: 'operations/patch', done: true } }
+    })
+    const result = await pointGateway(plan)
+
+    expect(result).toMatchObject({ status: 'created', gatewayId: GATEWAY_ID, configId: CONFIG_ID, previousConfigId: 'cfg-000000000000' })
+    const [patch] = callsTo(calls, 'PATCH', GATEWAY)
+    expect(patch.params).toEqual({ updateMask: 'apiConfig' })
+    expect(patch.data).toEqual({ apiConfig: `${API}/configs/${CONFIG_ID}` })
+    expect(callsTo(calls, 'GET', 'operations/patch')).toHaveLength(1)
+  })
+
+  it('fails when the gateway update fails', async () => {
+    const { plan } = await prepared({
+      operations: { 'operations/patch': { name: 'operations/patch', done: true, error: { message: 'boom' } } }
+    })
+    await expect(pointGateway(plan)).rejects.toThrow(`gateway ${GATEWAY_ID} update failed: boom`)
+  })
+
+  it('stops waiting at the deploy step cap, not just its own 15 minutes', async () => {
+    image()
+    api({ operations: { 'operations/patch': { name: 'operations/patch', done: false } } })
+    // 48 minutes into a step capped at 50.
+    let t = 48 * 60 * 1000
+    const clock = { now: () => t, sleep: async ms => { t += ms }, stepStartedAt: 0 }
+    const plan = await prepare({ timing: { pollIntervalMs: 5000, ...clock } })
+    await expect(pointGateway(plan)).rejects.toThrow(/did not finish in time.*re-run the deploy/)
+    expect(t).toBeLessThanOrEqual(50 * 60 * 1000 + 5000)
+  })
+
+  it('deletes old generated configs, keeping the new, the previous, the 5 newest and anything it did not make', async () => {
+    const old = n => ({ id: `cfg-${String(n).padStart(12, '0')}`, createTime: `2026-01-${String(n).padStart(2, '0')}T00:00:00Z` })
+    const { plan, calls } = await prepared({
+      configs: [[
+        { id: 'bootstrap', createTime: '2025-01-01T00:00:00Z' },
+        ...[1, 2, 3, 4, 5, 6, 7, 8].map(old),
+        { id: CONFIG_ID, createTime: '2026-02-01T00:00:00Z' }
+      ]]
+    })
+    const result = await pointGateway(plan)
+    // Newest five are the new one and 8..5; the previous (cfg-0) is not listed.
+    expect(result.deletedConfigIds).toEqual([old(4).id, old(3).id, old(2).id, old(1).id])
+    expect(callsTo(calls, 'DELETE', '/configs/bootstrap')).toHaveLength(0)
+  })
+
+  it('never deletes the previous config, however old', async () => {
+    const { plan } = await prepared({
+      configs: [[
+        { id: 'cfg-000000000000', createTime: '2020-01-01T00:00:00Z' },
+        ...[1, 2, 3, 4, 5, 6].map(n => ({ id: `cfg-${'a'.repeat(11)}${n}`, createTime: `2026-01-0${n}T00:00:00Z` }))
+      ]]
+    })
+    const result = await pointGateway(plan)
+    expect(result.deletedConfigIds).toEqual(['cfg-aaaaaaaaaaa1'])
+  })
+
+  it('follows pagination when listing configs', async () => {
+    const ids = n => Array.from({ length: n }, (_, i) => ({ id: `cfg-${'b'.repeat(10)}${String(i).padStart(2, '0')}`, createTime: `2026-03-${String(i + 1).padStart(2, '0')}T00:00:00Z` }))
+    const all = ids(8)
+    const { plan } = await prepared({ configs: [all.slice(0, 4), all.slice(4)] })
+    expect((await pointGateway(plan)).deletedConfigIds).toHaveLength(3)
+  })
+
+  it.each([
+    ['a delete is rejected', false],
+    ['the configs cannot be listed', true]
+  ])('only warns when %s', async (_label, listFails) => {
+    const old = [1, 2, 3, 4, 5, 6, 7].map(n => ({ id: `cfg-${'c'.repeat(11)}${n}`, createTime: `2026-01-0${n}T00:00:00Z` }))
+    const { plan } = await prepared({ configs: [old] })
+    // Swapped in after prepare, so only the clean-up sees the failure.
+    const delegate = requestMock.getMockImplementation()
+    requestMock.mockImplementation(async options => {
+      const method = options.method ?? 'GET'
+      if (listFails && method === 'GET' && options.url.endsWith(`${API}/configs`)) throw new Error('list blew up')
+      if (!listFails && method === 'DELETE') throw httpError(403, 'denied')
+      return delegate(options)
+    })
+    await expect(pointGateway(plan)).resolves.toMatchObject({ status: 'created', deletedConfigIds: [] })
   })
 })

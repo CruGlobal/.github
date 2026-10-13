@@ -3,7 +3,7 @@ import { accessSecret, cloudrunListJobs, cloudrunListServices, listSecrets, runJ
 import { RUNTIME_PARAM_TYPES } from '../ecs-config'
 import { assertDigestRef, isAppContainer, parseImageRef } from './gcp'
 import { rollOutServices } from './cloudrun-rollout'
-import { publishApiConfig } from './apigateway'
+import { pointGateway, prepareApiConfig } from './apigateway'
 import { openImage } from './oci'
 import { publishSigninPage, signinBucket } from './signin'
 import { TOKEN_SECRET, publishSourceMaps, sourceMapsEndpoint } from './sourcemaps'
@@ -22,6 +22,9 @@ const shortName = resource => resource.split('/').pop()
 // Ported from v1's src/deploy-cloudrun.js, with one core change: the image is
 // an explicit digest reference passed in (build-once/promote-the-artifact),
 // never constructed from a tag here. Orchestration is otherwise identical:
+//   0. if the environment has an API gateway, render the image's spec and
+//      create its api config (./apigateway.js), so a bad spec fails the
+//      deploy before anything changes.
 //   1. if a `db-migrate` job exists, refresh + run it to completion first;
 //      a failure fails the deploy with services untouched.
 //   2. refresh other jobs' image/secrets without executing them.
@@ -34,9 +37,7 @@ const shortName = resource => resource.split('/').pop()
 //      services it moved are pinned back to what served before, unless this is
 //      a rollback (./cloudrun-rollout.js).
 //   5. publish the IAP friendly sign-in page the image carries, if any.
-//   6. publish the API Gateway config the image carries, if the environment
-//      has a gateway (./apigateway.js). Unlike the page, a failure here fails
-//      the deploy: the gateway must serve the spec matching the running code.
+//   6. point the API gateway at the config from step 0.
 //
 // DD_VERSION is BAKED into the image at build time (`--build-arg VERSION` ->
 // Dockerfile `ENV DD_VERSION`), never injected at deploy: the service's
@@ -66,6 +67,19 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRollo
   core.info(`jobs: ${JSON.stringify(jobs.map(j => j.name))}`)
   const secrets = await listSecrets(runtimeProject, RUNTIME_PARAM_TYPES)
 
+  // ONE registry handle for every read of this image, opened on first use. The
+  // source-map upload, the sign-in publish and the gateway spec all read it, so
+  // sharing the handle means sharing its layer cache and fetching each blob
+  // once. Lazy so an app that needs none of them never opens it.
+  let handle = null
+  const openSharedImage = () => {
+    if (handle === null) handle = openImage(image)
+    return handle
+  }
+
+  const rollback = stopRolloutOnFailure === false
+  const apigPlan = await prepareGateway({ image, services, repo, runtimeProject, openSharedImage, rollback })
+
   // Run database migrations (if the db-migrate job exists) to completion before
   // updating anything else. A failed migration fails the deploy and leaves the
   // running services and scheduled jobs untouched.
@@ -81,16 +95,6 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRollo
   for (const job of jobs) {
     if (job === migrateJob) continue
     await updateJobImage(job, image, secrets)
-  }
-
-  // ONE registry handle for every read of this image, opened on first use. Both
-  // the source-map upload and the sign-in publish scan layers newest-first, so
-  // sharing the handle means sharing its layer cache and fetching each blob
-  // once instead of twice. Lazy so an app that needs neither never opens it.
-  let handle = null
-  const openSharedImage = () => {
-    if (handle === null) handle = openImage(image)
-    return handle
   }
 
   // Upload the browser source maps this image carries, if any.
@@ -150,25 +154,47 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRollo
     }
   }
 
-  // Not caught: an unpublished config leaves the gateway serving the previous
-  // release's routes in front of this release's code. A re-run is cheap (the
-  // content-hash config id makes an already-published spec a no-op).
-  const apig = await publishApiConfig({ image, services, repo, runtimeProject, oci: openSharedImage })
-  if (apig.published) {
-    core.info(
-      apig.reason === 'unchanged'
-        ? `api gateway config: ${apig.configId} (unchanged)`
-        : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
-    )
-  } else if (apig.reason === 'no-label') {
-    core.warning(
-      `this environment has an API gateway but ${image} carries no OpenAPI spec; ` +
-      'leaving the existing api config in place. Expected in a rollback to a ' +
-      'release built before the image carried the spec.'
-    )
-  }
+  const apig = await finishGateway(apigPlan, { rollback })
 
   return { deployedImage: image, services: updatedServices, signin, sourcemaps, apig }
+}
+
+// Step 0: render the image's gateway spec and create its config, before
+// anything changes. A failure fails the deploy, including an image with no
+// spec, since the gateway would keep serving the previous release's routes.
+// A rollback is the exception, as with ECS companions: mid-incident the
+// services matter more, so it warns and leaves the gateway as it is.
+async function prepareGateway ({ image, services, repo, runtimeProject, openSharedImage, rollback }) {
+  try {
+    return await prepareApiConfig({ image, services, repo, runtimeProject, oci: openSharedImage })
+  } catch (error) {
+    if (!rollback) throw error
+    core.warning(`api gateway left as it is for this rollback: ${error.message}`)
+    return { status: 'left' }
+  }
+}
+
+// Step 6: point the gateway at the prepared config. By now the services run
+// the new image, so a failure fails the deploy (re-running it is cheap: the
+// config already exists), except on a rollback.
+async function finishGateway (plan, { rollback }) {
+  if (plan === null) return { status: 'skipped' }
+  if (plan.status === 'left') return plan
+  try {
+    const result = await pointGateway(plan)
+    core.info(`api gateway ${result.gatewayId}: ${result.configId} (${result.status})`)
+    return result
+  } catch (error) {
+    if (!rollback) {
+      throw new Error(
+        `The services run the new image, but api gateway ${plan.gatewayId} is not confirmed on ` +
+        `${plan.configId} (it served ${plan.previousConfigId} before): ${error.message}`,
+        { cause: error }
+      )
+    }
+    core.warning(`api gateway left on ${plan.previousConfigId} for this rollback: ${error.message}`)
+    return { status: 'left', gatewayId: plan.gatewayId, configId: plan.previousConfigId }
+  }
 }
 
 // Upload the image's browser source maps, never failing the deploy.
