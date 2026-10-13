@@ -179,8 +179,9 @@ async function prepareGateway ({ image, services, repo, runtimeProject, openShar
 }
 
 // Step 6: point the gateway at the prepared config. By now the services run
-// the new image, so a failure fails the deploy (re-running it is cheap: the
-// config already exists), except on a rollback.
+// the new image, so a failure fails the deploy, as a companion failure does on
+// ECS: the gateway must serve the spec matching the code. Re-running is cheap
+// (the config already exists). A rollback only warns.
 async function finishGateway (plan, { rollback }) {
   if (plan === null) return { status: 'skipped' }
   if (plan.status === 'left') return plan
@@ -192,7 +193,8 @@ async function finishGateway (plan, { rollback }) {
     if (!rollback) {
       throw new Error(
         `The services run the new image, but api gateway ${plan.gatewayId} is not confirmed on ` +
-        `${plan.configId} (it served ${plan.previousConfigId} before): ${error.message}`,
+        `${plan.configId} (it served ${plan.previousConfigId} before): ${error.message} ` +
+        'Re-run the deploy to finish; a release-candidate re-run needs force, since the services already run this image.',
         { cause: error }
       )
     }

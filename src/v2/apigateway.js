@@ -153,18 +153,25 @@ const PLACEHOLDER = /\$\{([A-Z][A-Z0-9_]*)\}/g
  */
 export function renderSpec (template, vars) {
   const unresolved = new Set()
+  const multiline = new Set()
   const rendered = template.replace(PLACEHOLDER, (match, name) => {
-    if (!Object.hasOwn(vars, name) || vars[name] == null) {
+    if (!Object.hasOwn(vars, name) || vars[name] == null || vars[name] === '') {
       unresolved.add(name)
       return match
     }
+    // A newline in a value could add YAML structure to the spec.
+    if (/[\r\n]/.test(vars[name])) multiline.add(name)
     return String(vars[name])
   })
+
+  if (multiline.size > 0) {
+    throw new Error(`API gateway spec placeholder value(s) contain a newline: ${[...multiline].join(', ')}.`)
+  }
 
   if (unresolved.size > 0) {
     throw new Error(
       `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(', ')}. ` +
-      'Each must be a plain-valued env var on the app container, or ' +
+      'Each must be a non-empty, plain-valued env var on the app container, or ' +
       `${BACKEND_VAR}. Placeholders in YAML comments are filled too.`
     )
   }
@@ -240,6 +247,22 @@ async function configState (client, configName, { budget, pollIntervalMs }) {
       throw new Error(`api config ${id} was still ${state}; another deploy may be mid-flight`)
     }
     core.info(`api config ${id} is ${state}; waiting...`)
+    await budget.sleep(pollIntervalMs)
+  }
+}
+
+// The gateway, once no update is in flight. An earlier deploy's update that
+// timed out here carries on at Google; comparing against its old config, or
+// patching over it, would leave the gateway on the wrong release.
+async function settledGateway (client, { gatewayName, gatewayId, region, backendSa, budget, pollIntervalMs }) {
+  while (true) {
+    const gateway = await call(client, `reading gateway ${gatewayId} in ${region}`, getter(gatewayName), { backendSa })
+    const state = gateway?.state ?? 'ACTIVE'
+    if (!['CREATING', 'UPDATING', 'DELETING'].includes(state)) return gateway
+    if (budget.remaining() <= 0) {
+      throw new Error(`gateway ${gatewayId} was still ${state}; another deploy may be mid-flight`)
+    }
+    core.info(`gateway ${gatewayId} is ${state}; waiting...`)
     await budget.sleep(pollIntervalMs)
   }
 }
@@ -333,7 +356,8 @@ export async function prepareApiConfig ({ image, services, repo, runtimeProject,
 
   const client = await authClient()
   const gatewayName = `projects/${runtimeProject}/locations/${region}/gateways/${gatewayId}`
-  const gateway = await call(client, `reading gateway ${gatewayId}`, getter(gatewayName), { backendSa })
+  const budget = waitBudget(CONFIG_WAIT_MS, clock)
+  const gateway = await settledGateway(client, { gatewayName, gatewayId, region, backendSa, budget, pollIntervalMs })
 
   // Configs live under locations/global, under an api Terraform owns; the
   // gateway's current config is the only place that api is named.
@@ -347,7 +371,6 @@ export async function prepareApiConfig ({ image, services, repo, runtimeProject,
 
   if (previousConfigId === configId) return { ...plan, status: 'unchanged' }
 
-  const budget = waitBudget(CONFIG_WAIT_MS, clock)
   const status = await ensureConfig(client, { apiName, configId, rendered, backendSa, budget, pollIntervalMs })
   core.info(`api config ${configId} is ready (${status})`)
   return { ...plan, status }
@@ -377,8 +400,12 @@ async function collectGarbage (client, { apiName, keep }) {
     for (const config of generated) {
       const id = shortName(config.name)
       if (kept.has(id)) continue
-      await call(client, `deleting api config ${id}`, { url: `${APIG_API}/${config.name}`, method: 'DELETE' })
-      deleted.push(id)
+      try {
+        await call(client, `deleting api config ${id}`, { url: `${APIG_API}/${config.name}`, method: 'DELETE' })
+        deleted.push(id)
+      } catch (error) {
+        core.warning(`old api config ${id} not deleted (deploy unaffected): ${error.message}`)
+      }
     }
     if (deleted.length > 0) core.info(`deleting old api configs: ${deleted.join(', ')}`)
   } catch (error) {

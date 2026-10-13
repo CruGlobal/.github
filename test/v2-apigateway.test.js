@@ -24,7 +24,7 @@ import {
   renderSpec
 } from '../src/v2/apigateway.js'
 
-const REPO = 'us-central1-docker.pkg.dev/cru-shared-artifacts/example-app/example-app'
+const REPO = 'us-central1-docker.pkg.dev/example-registry/example-app/example-app'
 const IMAGE = `${REPO}@sha256:new`
 const PROJECT = 'example-app-stage-0000'
 const GATEWAY_ID = 'example-app-gw'
@@ -77,10 +77,12 @@ function api ({
   configStates = [null],
   operations = {},
   configs = [[]],
-  fail = {}
+  fail = {},
+  gatewayStates = ['ACTIVE']
 } = {}) {
   const calls = []
   let configGets = 0
+  let gatewayGets = 0
   requestMock.mockImplementation(async options => {
     calls.push(options)
     const { url, method = 'GET' } = options
@@ -89,7 +91,10 @@ function api ({
       if (method === failMethod && url.includes(fragment)) throw error
     }
 
-    if (url.endsWith(GATEWAY) && method === 'GET') return { data: { name: GATEWAY, apiConfig: currentConfig } }
+    if (url.endsWith(GATEWAY) && method === 'GET') {
+      const state = gatewayStates[Math.min(gatewayGets++, gatewayStates.length - 1)]
+      return { data: { name: GATEWAY, apiConfig: currentConfig, state } }
+    }
     if (url.endsWith(GATEWAY) && method === 'PATCH') return { data: { name: 'operations/patch', done: false } }
     if (url.endsWith(`${API}/configs`) && method === 'POST') return { data: { name: 'operations/create', done: false } }
     if (url.endsWith(`${API}/configs`) && method === 'GET') {
@@ -224,6 +229,14 @@ describe('renderSpec', () => {
     expect(renderSpec('cost: $5 and $NAME and ${lower}', {})).toBe('cost: $5 and $NAME and ${lower}')
   })
 
+  it('treats an empty value as unresolved', () => {
+    expect(() => renderSpec('${A}', { A: '' })).toThrow(/unresolved placeholder\(s\): A/)
+  })
+
+  it('refuses a value with a newline, which could add YAML structure', () => {
+    expect(() => renderSpec('x: ${A}', { A: 'a\nb: c' })).toThrow(/contain a newline: A/)
+  })
+
   it('inserts values literally, so $& in a value cannot corrupt the output', () => {
     expect(renderSpec('${A}', { A: 'a$&b' })).toBe('a$&b')
   })
@@ -324,7 +337,7 @@ describe('prepareApiConfig', () => {
   it('says what it was doing when reading the gateway fails', async () => {
     image()
     api({ fail: { [`GET ${GATEWAY}`]: httpError(404, 'gateway not found') } })
-    await expect(prepare()).rejects.toThrow(`reading gateway ${GATEWAY_ID} failed (HTTP 404): gateway not found`)
+    await expect(prepare()).rejects.toThrow(`reading gateway ${GATEWAY_ID} in us-central1 failed (HTTP 404): gateway not found`)
   })
 
   it('times out a create that never finishes, inside the wait', async () => {
@@ -334,6 +347,19 @@ describe('prepareApiConfig', () => {
     await expect(prepare({ timing: { pollIntervalMs: 5000, ...clock } })).rejects.toThrow(/did not finish in time/)
     expect(clock.elapsed()).toBeGreaterThanOrEqual(10 * 60 * 1000)
     expect(clock.elapsed()).toBeLessThan(11 * 60 * 1000)
+  })
+
+  it('waits out an earlier update still in flight before comparing', async () => {
+    image()
+    const calls = api({ gatewayStates: ['UPDATING', 'UPDATING', 'ACTIVE'], currentConfig: `${API}/configs/${CONFIG_ID}` })
+    expect((await prepare()).status).toBe('unchanged')
+    expect(callsTo(calls, 'GET', GATEWAY)).toHaveLength(3)
+  })
+
+  it('gives up on a gateway that stays UPDATING', async () => {
+    image()
+    api({ gatewayStates: ['UPDATING'] })
+    await expect(prepare()).rejects.toThrow(/gateway example-app-gw was still UPDATING/)
   })
 
   it('reuses an ACTIVE config, the rollback path', async () => {
@@ -471,5 +497,11 @@ describe('pointGateway', () => {
       return delegate(options)
     })
     await expect(pointGateway(plan)).resolves.toMatchObject({ status: 'created', deletedConfigIds: [] })
+  })
+
+  it('keeps deleting after one delete fails', async () => {
+    const old = [1, 2, 3, 4, 5, 6, 7].map(n => ({ id: `cfg-${'d'.repeat(11)}${n}`, createTime: `2026-01-0${n}T00:00:00Z` }))
+    const { plan } = await prepared({ configs: [old], fail: { 'DELETE dddd2': httpError(400, 'in use') } })
+    expect((await pointGateway(plan)).deletedConfigIds).toEqual(['cfg-ddddddddddd1'])
   })
 })
