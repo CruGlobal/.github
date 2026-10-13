@@ -357,6 +357,13 @@ describe('deployCloudRun api gateway config', () => {
       expect(result.apig).toEqual({ status: 'left' })
     })
 
+    it('prepares the config only after the services are back', async () => {
+      await deployCloudRun({ image: IMAGE, runtimeProject: 'p', stopRolloutOnFailure: false })
+
+      expect(prepareApiConfig.mock.invocationCallOrder[0]).toBeGreaterThan(gcp.updateService.mock.invocationCallOrder[0])
+      expect(pointGateway).toHaveBeenCalledWith(PLAN)
+    })
+
     it('only warns when the gateway cannot be pointed', async () => {
       pointGateway.mockRejectedValue(new Error('boom'))
 

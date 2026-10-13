@@ -24,7 +24,7 @@ const shortName = resource => resource.split('/').pop()
 // never constructed from a tag here. Orchestration is otherwise identical:
 //   0. if the environment has an API gateway, render the image's spec and
 //      create its api config (./apigateway.js), so a bad spec fails the
-//      deploy before anything changes.
+//      deploy before anything changes (a rollback does this after step 5).
 //   1. if a `db-migrate` job exists, refresh + run it to completion first;
 //      a failure fails the deploy with services untouched.
 //   2. refresh other jobs' image/secrets without executing them.
@@ -77,8 +77,11 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRollo
     return handle
   }
 
+  // A rollback prepares after its rollout instead, so a config create never
+  // delays the services going back.
   const rollback = stopRolloutOnFailure === false
-  const apigPlan = await prepareGateway({ image, services, repo, runtimeProject, openSharedImage, rollback })
+  const gateway = { image, services, repo, runtimeProject, openSharedImage, rollback }
+  let apigPlan = rollback ? null : await prepareGateway(gateway)
 
   // Run database migrations (if the db-migrate job exists) to completion before
   // updating anything else. A failed migration fails the deploy and leaves the
@@ -154,6 +157,7 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRollo
     }
   }
 
+  if (rollback) apigPlan = await prepareGateway(gateway)
   const apig = await finishGateway(apigPlan, { rollback })
 
   return { deployedImage: image, services: updatedServices, signin, sourcemaps, apig }
