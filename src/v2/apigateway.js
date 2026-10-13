@@ -385,7 +385,8 @@ export async function publishApiConfig ({
   repo,
   runtimeProject,
   region = DEFAULT_REGION,
-  pollIntervalMs = POLL_INTERVAL_MS
+  pollIntervalMs = POLL_INTERVAL_MS,
+  oci
 }) {
   const wiring = apigEnv(services, repo)
   if (!wiring) return { published: false, reason: 'not-configured' }
@@ -395,13 +396,14 @@ export async function publishApiConfig ({
     throw new Error('runtime-project is required to publish an api gateway config')
   }
 
-  const oci = await openImage(image)
-  const specKey = apigSpecKey(oci.labels)
+  // `oci` is the deploy's shared, lazily opened handle (see deploy-cloudrun.js).
+  const handle = oci ? await oci() : await openImage(image)
+  const specKey = apigSpecKey(handle.labels)
   if (specKey === null) return { published: false, reason: 'no-label' }
 
   const source = `${APIG_IMAGE_DIR}/${specKey}`
   core.info(`extracting ${source} from ${image}`)
-  const template = await oci.readFile(source)
+  const template = await handle.readFile(source)
   if (!template) {
     throw new Error(
       `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. ` +

@@ -3,6 +3,7 @@ import { accessSecret, cloudrunListJobs, cloudrunListServices, listSecrets, runJ
 import { RUNTIME_PARAM_TYPES } from '../ecs-config'
 import { assertDigestRef, isAppContainer, parseImageRef } from './gcp'
 import { rollOutServices } from './cloudrun-rollout'
+import { publishApiConfig } from './apigateway'
 import { openImage } from './oci'
 import { publishSigninPage, signinBucket } from './signin'
 import { TOKEN_SECRET, publishSourceMaps, sourceMapsEndpoint } from './sourcemaps'
@@ -33,6 +34,9 @@ const shortName = resource => resource.split('/').pop()
 //      services it moved are pinned back to what served before, unless this is
 //      a rollback (./cloudrun-rollout.js).
 //   5. publish the IAP friendly sign-in page the image carries, if any.
+//   6. publish the API Gateway config the image carries, if the environment
+//      has a gateway (./apigateway.js). Unlike the page, a failure here fails
+//      the deploy: the gateway must serve the spec matching the running code.
 //
 // DD_VERSION is BAKED into the image at build time (`--build-arg VERSION` ->
 // Dockerfile `ENV DD_VERSION`), never injected at deploy: the service's
@@ -41,7 +45,8 @@ const shortName = resource => resource.split('/').pop()
 // is invisible to Terraform and identical in every environment — one true
 // version per build. Sidecars are untouched.
 //
-// Returns { deployedImage, services } (services = short names updated).
+// Returns { deployedImage, services, signin, sourcemaps, apig } (services =
+// short names updated).
 //
 // `stopRolloutOnFailure` false (a rollback) means a rollout that ends short is
 // never stopped by pinning traffic (see ./cloudrun-rollout.js). `rollout` is
@@ -145,7 +150,25 @@ export async function deployCloudRun ({ image, runtimeProject, appUrl, stopRollo
     }
   }
 
-  return { deployedImage: image, services: updatedServices, signin, sourcemaps }
+  // Not caught: an unpublished config leaves the gateway serving the previous
+  // release's routes in front of this release's code. A re-run is cheap (the
+  // content-hash config id makes an already-published spec a no-op).
+  const apig = await publishApiConfig({ image, services, repo, runtimeProject, oci: openSharedImage })
+  if (apig.published) {
+    core.info(
+      apig.reason === 'unchanged'
+        ? `api gateway config: ${apig.configId} (unchanged)`
+        : `published api gateway config: ${apig.configId} on ${apig.gatewayId}`
+    )
+  } else if (apig.reason === 'no-label') {
+    core.warning(
+      `this environment has an API gateway but ${image} carries no OpenAPI spec; ` +
+      'leaving the existing api config in place. Expected in a rollback to a ' +
+      'release built before the image carried the spec.'
+    )
+  }
+
+  return { deployedImage: image, services: updatedServices, signin, sourcemaps, apig }
 }
 
 // Upload the image's browser source maps, never failing the deploy.
