@@ -43,10 +43,19 @@ vi.mock('../src/v2/sourcemaps.js', async importOriginal => ({
   publishSourceMaps: vi.fn()
 }))
 
+// The two gateway phases are stubbed. Covered in depth by
+// test/v2-apigateway.test.js.
+vi.mock('../src/v2/apigateway.js', async importOriginal => ({
+  ...(await importOriginal()),
+  prepareApiConfig: vi.fn(),
+  pointGateway: vi.fn()
+}))
+
 import * as gcp from '../src/gcp.js'
 import { openImage } from '../src/v2/oci.js'
 import { publishSigninPage } from '../src/v2/signin.js'
 import { publishSourceMaps } from '../src/v2/sourcemaps.js'
+import { pointGateway, prepareApiConfig } from '../src/v2/apigateway.js'
 import { deployCloudRun } from '../src/v2/deploy-cloudrun.js'
 
 const HOST = 'us-central1-docker.pkg.dev'
@@ -123,6 +132,9 @@ beforeEach(() => {
   publishSigninPage.mockResolvedValue({ published: true, bucket: BUCKET, objectKey: 'signin', bytes: 42 })
   publishSourceMaps.mockReset()
   publishSourceMaps.mockResolvedValue(UPLOADED)
+  prepareApiConfig.mockReset()
+  prepareApiConfig.mockResolvedValue(null)
+  pointGateway.mockReset()
   gcp.accessSecret.mockResolvedValue(TOKEN)
   gcp.cloudrunGetService.mockImplementation(readBack)
   gcp.cloudrunGetRevision.mockResolvedValue({ conditions: [{ type: 'Ready', state: 'CONDITION_SUCCEEDED' }] })
@@ -180,7 +192,9 @@ describe('deployCloudRun orchestration', () => {
       // No IAP_SIGNIN_BUCKET on this service -> nothing to publish.
       signin: { published: false },
       // No ROLLBAR_ACCESS_TOKEN secret -> not wired for error tracking.
-      sourcemaps: { status: 'skipped', uploaded: 0, failed: 0 }
+      sourcemaps: { status: 'skipped', uploaded: 0, failed: 0 },
+      // No API_GATEWAY_GATEWAY_ID either -> no gateway.
+      apig: { status: 'skipped' }
     })
   })
 
@@ -281,6 +295,82 @@ describe('deployCloudRun publishes the IAP sign-in page', () => {
 
     expect(result.services).toEqual(['example-app-web'])
     expect(result.signin).toEqual({ published: false, reason: 'no-label' })
+  })
+})
+
+describe('deployCloudRun api gateway config', () => {
+  const PLAN = { status: 'created', gatewayId: 'gw', configId: 'cfg-111111111111', previousConfigId: 'cfg-000000000000' }
+
+  beforeEach(() => {
+    gcp.cloudrunListServices.mockResolvedValue([service()])
+    gcp.cloudrunListJobs.mockResolvedValue(jobs())
+    gcp.listSecrets.mockResolvedValue(SECRETS)
+    gcp.runJob.mockResolvedValue({})
+    gcp.updateJob.mockResolvedValue({})
+    gcp.updateService.mockResolvedValue({})
+    prepareApiConfig.mockResolvedValue(PLAN)
+    pointGateway.mockResolvedValue({ ...PLAN, deletedConfigIds: [] })
+  })
+
+  it('prepares the config before anything changes, and points the gateway after the rollout', async () => {
+    const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p' })
+
+    expect(prepareApiConfig).toHaveBeenCalledWith(expect.objectContaining({
+      image: IMAGE,
+      services: [service()],
+      repo: REPO,
+      runtimeProject: 'p'
+    }))
+    const prepared = prepareApiConfig.mock.invocationCallOrder[0]
+    expect(prepared).toBeLessThan(gcp.updateJob.mock.invocationCallOrder[0])
+    expect(pointGateway).toHaveBeenCalledWith(PLAN)
+    expect(pointGateway.mock.invocationCallOrder[0]).toBeGreaterThan(gcp.updateService.mock.invocationCallOrder[0])
+    expect(result.apig).toEqual({ ...PLAN, deletedConfigIds: [] })
+  })
+
+  it('fails with nothing changed when the config cannot be prepared', async () => {
+    prepareApiConfig.mockRejectedValue(new Error('API gateway spec has unresolved placeholder(s): OAUTH_ISSUER.'))
+
+    await expect(deployCloudRun({ image: IMAGE, runtimeProject: 'p' })).rejects.toThrow(/OAUTH_ISSUER/)
+    expect(gcp.updateJob).not.toHaveBeenCalled()
+    expect(gcp.runJob).not.toHaveBeenCalled()
+    expect(gcp.updateService).not.toHaveBeenCalled()
+  })
+
+  it('fails, saying the services moved, when the gateway cannot be pointed', async () => {
+    pointGateway.mockRejectedValue(new Error('gateway gw update failed: boom'))
+
+    await expect(deployCloudRun({ image: IMAGE, runtimeProject: 'p' })).rejects.toThrow(
+      'The services run the new image, but api gateway gw is not confirmed on cfg-111111111111 (it served cfg-000000000000 before): gateway gw update failed: boom'
+    )
+    expect(gcp.updateService).toHaveBeenCalledTimes(1)
+  })
+
+  describe('on a rollback', () => {
+    it('rolls the services back and leaves the gateway when the config cannot be prepared', async () => {
+      prepareApiConfig.mockRejectedValue(new Error('no org.cru.api-gateway label'))
+
+      const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', stopRolloutOnFailure: false })
+
+      expect(gcp.updateService).toHaveBeenCalledTimes(1)
+      expect(pointGateway).not.toHaveBeenCalled()
+      expect(result.apig).toEqual({ status: 'left' })
+    })
+
+    it('prepares the config only after the services are back', async () => {
+      await deployCloudRun({ image: IMAGE, runtimeProject: 'p', stopRolloutOnFailure: false })
+
+      expect(prepareApiConfig.mock.invocationCallOrder[0]).toBeGreaterThan(gcp.updateService.mock.invocationCallOrder[0])
+      expect(pointGateway).toHaveBeenCalledWith(PLAN)
+    })
+
+    it('only warns when the gateway cannot be pointed', async () => {
+      pointGateway.mockRejectedValue(new Error('boom'))
+
+      const result = await deployCloudRun({ image: IMAGE, runtimeProject: 'p', stopRolloutOnFailure: false })
+
+      expect(result.apig).toEqual({ status: 'left', gatewayId: 'gw', configId: 'cfg-000000000000' })
+    })
   })
 })
 

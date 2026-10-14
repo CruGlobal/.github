@@ -91,7 +91,8 @@ const NORMAL_RESULT = {
   deployedImage: NEW,
   services: ['app'],
   signin: { published: false },
-  sourcemaps: { status: 'skipped', uploaded: 0, failed: 0 }
+  sourcemaps: { status: 'skipped', uploaded: 0, failed: 0 },
+  apig: { status: 'skipped' }
 }
 const BACK_ON_APP = 'all traffic is pinned: app to revision app-00001-abc.'
 const MIGRATION_NOTE = 'Only the services go back: the database migration, if the app has one, has already run, ' +
