@@ -20695,6 +20695,9 @@ var init_TypeRegistry = __esm({
         const $error = es;
         const ns = $error[1];
         const qualifiedName = ns + "#" + $error[2];
+        if (!ctor.hasOwnProperty?.("shapeId")) {
+          ctor.shapeId = qualifiedName;
+        }
         for (const r5 of [this, _TypeRegistry.for(ns)]) {
           if (!r5.schemas.has(qualifiedName) && !r5.exceptions.has($error)) {
             r5.schemas.set(qualifiedName, $error);
@@ -21044,6 +21047,7 @@ var ServiceException, decorateServiceException;
 var init_exceptions = __esm({
   "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js"() {
     ServiceException = class _ServiceException extends Error {
+      static shapeId = "smithy.ts.sdk.synthetic.nonamespace.client#ServiceException";
       $fault;
       $response;
       $retryable;
@@ -21072,22 +21076,39 @@ var init_exceptions = __esm({
           if (this.prototype.isPrototypeOf(instance)) {
             return true;
           }
-          const targetName = this.name;
-          if (!targetName || !candidate.name) {
+          const targetId = Object.prototype.hasOwnProperty.call(this, "shapeId") ? this.shapeId : void 0;
+          let candidateHasShapeId = false;
+          if (targetId) {
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctor = proto.constructor;
+              const candidateId = ctor !== _ServiceException && Object.prototype.hasOwnProperty.call(ctor, "shapeId") ? ctor?.shapeId : void 0;
+              if (candidateId) {
+                candidateHasShapeId = true;
+                if (candidateId === targetId) {
+                  return true;
+                }
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
+          }
+          if (targetId && candidateHasShapeId) {
             return false;
           }
-          if (candidate.name === targetName) {
-            return true;
-          }
-          let proto = Object.getPrototypeOf(candidate);
-          while (proto && proto !== Object.prototype) {
-            const ctorName = proto.constructor?.name;
-            if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+          const targetName = this.name;
+          if (targetName && targetName.length >= 6) {
+            if (candidate.name === targetName) {
               return true;
             }
-            proto = Object.getPrototypeOf(proto);
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctorName = proto.constructor?.name;
+              if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+                return true;
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
           }
-          return false;
         }
         return false;
       }
@@ -24311,7 +24332,8 @@ var init_EndpointCache = __esm({
           return false;
         }
         for (const param of parameters) {
-          const val = String(endpointParams[param] ?? "");
+          const raw = endpointParams[param];
+          const val = raw == null ? "\0" : String(raw);
           if (val.includes("|;")) {
             return false;
           }
@@ -35902,7 +35924,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.46",
+      version: "3.997.47",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -36002,10 +36024,10 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.978.1",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.47",
+        "@aws-sdk/core": "^3.978.2",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.48",
         "@aws-sdk/types": "^3.974.6",
-        "@smithy/core": "^3.35.0",
+        "@smithy/core": "^3.35.2",
         "@smithy/fetch-http-handler": "^5.8.0",
         "@smithy/node-http-handler": "^4.12.1",
         "@smithy/types": "^4.19.0",
@@ -41086,6 +41108,7 @@ var init_SSOOIDCServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso-oidc/models/SSOOIDCServiceException.js"() {
     init_client2();
     SSOOIDCServiceException = class _SSOOIDCServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ssooidc#SSOOIDCServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSOOIDCServiceException.prototype);
@@ -41100,6 +41123,7 @@ var init_errors = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso-oidc/models/errors.js"() {
     init_SSOOIDCServiceException();
     AccessDeniedException = class _AccessDeniedException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       error;
@@ -41118,6 +41142,7 @@ var init_errors = __esm({
       }
     };
     AuthorizationPendingException = class _AuthorizationPendingException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#AuthorizationPendingException";
       name = "AuthorizationPendingException";
       $fault = "client";
       error;
@@ -41134,6 +41159,7 @@ var init_errors = __esm({
       }
     };
     ExpiredTokenException = class _ExpiredTokenException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#ExpiredTokenException";
       name = "ExpiredTokenException";
       $fault = "client";
       error;
@@ -41150,6 +41176,7 @@ var init_errors = __esm({
       }
     };
     InternalServerException = class _InternalServerException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InternalServerException";
       name = "InternalServerException";
       $fault = "server";
       error;
@@ -41166,6 +41193,7 @@ var init_errors = __esm({
       }
     };
     InvalidClientException = class _InvalidClientException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidClientException";
       name = "InvalidClientException";
       $fault = "client";
       error;
@@ -41182,6 +41210,7 @@ var init_errors = __esm({
       }
     };
     InvalidGrantException = class _InvalidGrantException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidGrantException";
       name = "InvalidGrantException";
       $fault = "client";
       error;
@@ -41198,6 +41227,7 @@ var init_errors = __esm({
       }
     };
     InvalidRequestException = class _InvalidRequestException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidRequestException";
       name = "InvalidRequestException";
       $fault = "client";
       error;
@@ -41216,6 +41246,7 @@ var init_errors = __esm({
       }
     };
     InvalidScopeException = class _InvalidScopeException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidScopeException";
       name = "InvalidScopeException";
       $fault = "client";
       error;
@@ -41232,6 +41263,7 @@ var init_errors = __esm({
       }
     };
     SlowDownException = class _SlowDownException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#SlowDownException";
       name = "SlowDownException";
       $fault = "client";
       error;
@@ -41248,6 +41280,7 @@ var init_errors = __esm({
       }
     };
     UnauthorizedClientException = class _UnauthorizedClientException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#UnauthorizedClientException";
       name = "UnauthorizedClientException";
       $fault = "client";
       error;
@@ -41264,6 +41297,7 @@ var init_errors = __esm({
       }
     };
     UnsupportedGrantTypeException = class _UnsupportedGrantTypeException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#UnsupportedGrantTypeException";
       name = "UnsupportedGrantTypeException";
       $fault = "client";
       error;
@@ -42153,6 +42187,7 @@ var init_SSOServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso/models/SSOServiceException.js"() {
     init_client2();
     SSOServiceException = class _SSOServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.sso#SSOServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSOServiceException.prototype);
@@ -42167,6 +42202,7 @@ var init_errors2 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso/models/errors.js"() {
     init_SSOServiceException();
     InvalidRequestException2 = class _InvalidRequestException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#InvalidRequestException";
       name = "InvalidRequestException";
       $fault = "client";
       constructor(opts) {
@@ -42179,6 +42215,7 @@ var init_errors2 = __esm({
       }
     };
     ResourceNotFoundException = class _ResourceNotFoundException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -42191,6 +42228,7 @@ var init_errors2 = __esm({
       }
     };
     TooManyRequestsException = class _TooManyRequestsException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#TooManyRequestsException";
       name = "TooManyRequestsException";
       $fault = "client";
       constructor(opts) {
@@ -42203,6 +42241,7 @@ var init_errors2 = __esm({
       }
     };
     UnauthorizedException = class _UnauthorizedException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#UnauthorizedException";
       name = "UnauthorizedException";
       $fault = "client";
       constructor(opts) {
@@ -43316,6 +43355,7 @@ var init_STSServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/models/STSServiceException.js"() {
     init_client2();
     STSServiceException = class _STSServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.sts#STSServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _STSServiceException.prototype);
@@ -43330,6 +43370,7 @@ var init_errors3 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/models/errors.js"() {
     init_STSServiceException();
     ExpiredTokenException2 = class _ExpiredTokenException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#ExpiredTokenException";
       name = "ExpiredTokenException";
       $fault = "client";
       constructor(opts) {
@@ -43342,6 +43383,7 @@ var init_errors3 = __esm({
       }
     };
     MalformedPolicyDocumentException = class _MalformedPolicyDocumentException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#MalformedPolicyDocumentException";
       name = "MalformedPolicyDocumentException";
       $fault = "client";
       constructor(opts) {
@@ -43354,6 +43396,7 @@ var init_errors3 = __esm({
       }
     };
     PackedPolicyTooLargeException = class _PackedPolicyTooLargeException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#PackedPolicyTooLargeException";
       name = "PackedPolicyTooLargeException";
       $fault = "client";
       constructor(opts) {
@@ -43366,6 +43409,7 @@ var init_errors3 = __esm({
       }
     };
     RegionDisabledException = class _RegionDisabledException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#RegionDisabledException";
       name = "RegionDisabledException";
       $fault = "client";
       constructor(opts) {
@@ -43378,6 +43422,7 @@ var init_errors3 = __esm({
       }
     };
     IDPRejectedClaimException = class _IDPRejectedClaimException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#IDPRejectedClaimException";
       name = "IDPRejectedClaimException";
       $fault = "client";
       constructor(opts) {
@@ -43390,6 +43435,7 @@ var init_errors3 = __esm({
       }
     };
     InvalidIdentityTokenException = class _InvalidIdentityTokenException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#InvalidIdentityTokenException";
       name = "InvalidIdentityTokenException";
       $fault = "client";
       constructor(opts) {
@@ -43402,6 +43448,7 @@ var init_errors3 = __esm({
       }
     };
     IDPCommunicationErrorException = class _IDPCommunicationErrorException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#IDPCommunicationErrorException";
       name = "IDPCommunicationErrorException";
       $fault = "client";
       $retryable = {};
@@ -44485,6 +44532,7 @@ var init_SigninServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/models/SigninServiceException.js"() {
     init_client2();
     SigninServiceException = class _SigninServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.signin#SigninServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SigninServiceException.prototype);
@@ -44499,6 +44547,7 @@ var init_errors4 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/models/errors.js"() {
     init_SigninServiceException();
     AccessDeniedException2 = class _AccessDeniedException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       error;
@@ -44513,6 +44562,7 @@ var init_errors4 = __esm({
       }
     };
     InternalServerException2 = class _InternalServerException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#InternalServerException";
       name = "InternalServerException";
       $fault = "server";
       error;
@@ -44527,6 +44577,7 @@ var init_errors4 = __esm({
       }
     };
     TooManyRequestsError = class _TooManyRequestsError extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#TooManyRequestsError";
       name = "TooManyRequestsError";
       $fault = "client";
       error;
@@ -44541,6 +44592,7 @@ var init_errors4 = __esm({
       }
     };
     ValidationException = class _ValidationException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#ValidationException";
       name = "ValidationException";
       $fault = "client";
       error;
@@ -46273,12 +46325,14 @@ var require_dist_cjs19 = __commonJS({
     };
     var _mw05 = (Command3, cs, config, o4) => [];
     var DynamoDBServiceException = class _DynamoDBServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.dynamodb#DynamoDBServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _DynamoDBServiceException.prototype);
       }
     };
     var BackupInUseException = class _BackupInUseException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#BackupInUseException";
       name = "BackupInUseException";
       $fault = "client";
       constructor(opts) {
@@ -46291,6 +46345,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var BackupNotFoundException = class _BackupNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#BackupNotFoundException";
       name = "BackupNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46303,6 +46358,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InternalServerError = class _InternalServerError extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#InternalServerError";
       name = "InternalServerError";
       $fault = "server";
       constructor(opts) {
@@ -46315,6 +46371,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var RequestLimitExceeded = class _RequestLimitExceeded extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#RequestLimitExceeded";
       name = "RequestLimitExceeded";
       $fault = "client";
       ThrottlingReasons;
@@ -46329,6 +46386,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ThrottlingException = class _ThrottlingException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ThrottlingException";
       name = "ThrottlingException";
       $fault = "client";
       throttlingReasons;
@@ -46343,6 +46401,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InvalidEndpointException = class _InvalidEndpointException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#InvalidEndpointException";
       name = "InvalidEndpointException";
       $fault = "client";
       Message;
@@ -46357,6 +46416,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ProvisionedThroughputExceededException = class _ProvisionedThroughputExceededException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ProvisionedThroughputExceededException";
       name = "ProvisionedThroughputExceededException";
       $fault = "client";
       ThrottlingReasons;
@@ -46371,6 +46431,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46383,6 +46444,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ItemCollectionSizeLimitExceededException = class _ItemCollectionSizeLimitExceededException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ItemCollectionSizeLimitExceededException";
       name = "ItemCollectionSizeLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -46395,6 +46457,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ReplicatedWriteConflictException = class _ReplicatedWriteConflictException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ReplicatedWriteConflictException";
       name = "ReplicatedWriteConflictException";
       $fault = "client";
       $retryable = {};
@@ -46408,6 +46471,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ContinuousBackupsUnavailableException = class _ContinuousBackupsUnavailableException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ContinuousBackupsUnavailableException";
       name = "ContinuousBackupsUnavailableException";
       $fault = "client";
       constructor(opts) {
@@ -46420,6 +46484,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LimitExceededException = class _LimitExceededException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#LimitExceededException";
       name = "LimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -46432,6 +46497,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TableInUseException = class _TableInUseException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#TableInUseException";
       name = "TableInUseException";
       $fault = "client";
       constructor(opts) {
@@ -46444,6 +46510,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TableNotFoundException = class _TableNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#TableNotFoundException";
       name = "TableNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46456,6 +46523,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var GlobalTableAlreadyExistsException = class _GlobalTableAlreadyExistsException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#GlobalTableAlreadyExistsException";
       name = "GlobalTableAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -46468,6 +46536,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ResourceInUseException = class _ResourceInUseException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ResourceInUseException";
       name = "ResourceInUseException";
       $fault = "client";
       constructor(opts) {
@@ -46480,6 +46549,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TransactionConflictException = class _TransactionConflictException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#TransactionConflictException";
       name = "TransactionConflictException";
       $fault = "client";
       constructor(opts) {
@@ -46492,6 +46562,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var PolicyNotFoundException = class _PolicyNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#PolicyNotFoundException";
       name = "PolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46504,6 +46575,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ExportNotFoundException = class _ExportNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ExportNotFoundException";
       name = "ExportNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46516,6 +46588,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var GlobalTableNotFoundException = class _GlobalTableNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#GlobalTableNotFoundException";
       name = "GlobalTableNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46528,6 +46601,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImportNotFoundException = class _ImportNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ImportNotFoundException";
       name = "ImportNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46540,6 +46614,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var DuplicateItemException = class _DuplicateItemException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#DuplicateItemException";
       name = "DuplicateItemException";
       $fault = "client";
       constructor(opts) {
@@ -46552,6 +46627,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var IdempotentParameterMismatchException = class _IdempotentParameterMismatchException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#IdempotentParameterMismatchException";
       name = "IdempotentParameterMismatchException";
       $fault = "client";
       Message;
@@ -46566,6 +46642,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TransactionInProgressException = class _TransactionInProgressException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#TransactionInProgressException";
       name = "TransactionInProgressException";
       $fault = "client";
       Message;
@@ -46580,6 +46657,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ExportConflictException = class _ExportConflictException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ExportConflictException";
       name = "ExportConflictException";
       $fault = "client";
       constructor(opts) {
@@ -46592,6 +46670,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InvalidExportTimeException = class _InvalidExportTimeException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#InvalidExportTimeException";
       name = "InvalidExportTimeException";
       $fault = "client";
       constructor(opts) {
@@ -46604,6 +46683,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var PointInTimeRecoveryUnavailableException = class _PointInTimeRecoveryUnavailableException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#PointInTimeRecoveryUnavailableException";
       name = "PointInTimeRecoveryUnavailableException";
       $fault = "client";
       constructor(opts) {
@@ -46616,6 +46696,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImportConflictException = class _ImportConflictException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ImportConflictException";
       name = "ImportConflictException";
       $fault = "client";
       constructor(opts) {
@@ -46628,6 +46709,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TableAlreadyExistsException = class _TableAlreadyExistsException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#TableAlreadyExistsException";
       name = "TableAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -46640,6 +46722,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InvalidRestoreTimeException = class _InvalidRestoreTimeException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#InvalidRestoreTimeException";
       name = "InvalidRestoreTimeException";
       $fault = "client";
       constructor(opts) {
@@ -46652,6 +46735,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ReplicaAlreadyExistsException = class _ReplicaAlreadyExistsException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ReplicaAlreadyExistsException";
       name = "ReplicaAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -46664,6 +46748,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ReplicaNotFoundException = class _ReplicaNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ReplicaNotFoundException";
       name = "ReplicaNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46676,6 +46761,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var IndexNotFoundException = class _IndexNotFoundException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#IndexNotFoundException";
       name = "IndexNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -46688,6 +46774,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ConditionalCheckFailedException = class _ConditionalCheckFailedException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#ConditionalCheckFailedException";
       name = "ConditionalCheckFailedException";
       $fault = "client";
       Item;
@@ -46702,6 +46789,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TransactionCanceledException = class _TransactionCanceledException extends DynamoDBServiceException {
+      static shapeId = "com.amazonaws.dynamodb#TransactionCanceledException";
       name = "TransactionCanceledException";
       $fault = "client";
       Message;
@@ -50741,7 +50829,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };

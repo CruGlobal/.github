@@ -60228,7 +60228,7 @@ var require_package3 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.1.0",
+      version: "11.2.0",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -60297,7 +60297,7 @@ var require_package3 = __commonJS({
         "!build/src/**/*.map"
       ],
       scripts: {
-        test: "c8 mocha build/test",
+        test: "node ../../../bin/run-test.cjs --fetch-shim --gaxios-shim --assert-deep-equal-shim --crypto-verify-shim --keypair-shim build/test",
         clean: "gts clean",
         prepare: "npm run compile",
         lint: "gts check --no-inline-config",

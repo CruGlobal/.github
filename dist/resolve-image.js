@@ -60228,7 +60228,7 @@ var require_package3 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.1.0",
+      version: "11.2.0",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -60297,7 +60297,7 @@ var require_package3 = __commonJS({
         "!build/src/**/*.map"
       ],
       scripts: {
-        test: "c8 mocha build/test",
+        test: "node ../../../bin/run-test.cjs --fetch-shim --gaxios-shim --assert-deep-equal-shim --crypto-verify-shim --keypair-shim build/test",
         clean: "gts clean",
         prepare: "npm run compile",
         lint: "gts check --no-inline-config",
@@ -179361,6 +179361,9 @@ var init_TypeRegistry = __esm({
         const $error = es;
         const ns = $error[1];
         const qualifiedName = ns + "#" + $error[2];
+        if (!ctor.hasOwnProperty?.("shapeId")) {
+          ctor.shapeId = qualifiedName;
+        }
         for (const r6 of [this, _TypeRegistry.for(ns)]) {
           if (!r6.schemas.has(qualifiedName) && !r6.exceptions.has($error)) {
             r6.schemas.set(qualifiedName, $error);
@@ -179710,6 +179713,7 @@ var ServiceException, decorateServiceException;
 var init_exceptions = __esm({
   "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js"() {
     ServiceException = class _ServiceException extends Error {
+      static shapeId = "smithy.ts.sdk.synthetic.nonamespace.client#ServiceException";
       $fault;
       $response;
       $retryable;
@@ -179738,22 +179742,39 @@ var init_exceptions = __esm({
           if (this.prototype.isPrototypeOf(instance)) {
             return true;
           }
-          const targetName = this.name;
-          if (!targetName || !candidate.name) {
+          const targetId = Object.prototype.hasOwnProperty.call(this, "shapeId") ? this.shapeId : void 0;
+          let candidateHasShapeId = false;
+          if (targetId) {
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctor = proto.constructor;
+              const candidateId = ctor !== _ServiceException && Object.prototype.hasOwnProperty.call(ctor, "shapeId") ? ctor?.shapeId : void 0;
+              if (candidateId) {
+                candidateHasShapeId = true;
+                if (candidateId === targetId) {
+                  return true;
+                }
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
+          }
+          if (targetId && candidateHasShapeId) {
             return false;
           }
-          if (candidate.name === targetName) {
-            return true;
-          }
-          let proto = Object.getPrototypeOf(candidate);
-          while (proto && proto !== Object.prototype) {
-            const ctorName = proto.constructor?.name;
-            if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+          const targetName = this.name;
+          if (targetName && targetName.length >= 6) {
+            if (candidate.name === targetName) {
               return true;
             }
-            proto = Object.getPrototypeOf(proto);
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctorName = proto.constructor?.name;
+              if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+                return true;
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
           }
-          return false;
         }
         return false;
       }
@@ -182818,7 +182839,8 @@ var init_EndpointCache = __esm({
           return false;
         }
         for (const param of parameters) {
-          const val = String(endpointParams[param] ?? "");
+          const raw = endpointParams[param];
+          const val = raw == null ? "\0" : String(raw);
           if (val.includes("|;")) {
             return false;
           }
@@ -193702,7 +193724,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.46",
+      version: "3.997.47",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -193802,10 +193824,10 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.978.1",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.47",
+        "@aws-sdk/core": "^3.978.2",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.48",
         "@aws-sdk/types": "^3.974.6",
-        "@smithy/core": "^3.35.0",
+        "@smithy/core": "^3.35.2",
         "@smithy/fetch-http-handler": "^5.8.0",
         "@smithy/node-http-handler": "^4.12.1",
         "@smithy/types": "^4.19.0",
@@ -198886,6 +198908,7 @@ var init_SSOOIDCServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso-oidc/models/SSOOIDCServiceException.js"() {
     init_client2();
     SSOOIDCServiceException = class _SSOOIDCServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ssooidc#SSOOIDCServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSOOIDCServiceException.prototype);
@@ -198900,6 +198923,7 @@ var init_errors = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso-oidc/models/errors.js"() {
     init_SSOOIDCServiceException();
     AccessDeniedException = class _AccessDeniedException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       error;
@@ -198918,6 +198942,7 @@ var init_errors = __esm({
       }
     };
     AuthorizationPendingException = class _AuthorizationPendingException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#AuthorizationPendingException";
       name = "AuthorizationPendingException";
       $fault = "client";
       error;
@@ -198934,6 +198959,7 @@ var init_errors = __esm({
       }
     };
     ExpiredTokenException = class _ExpiredTokenException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#ExpiredTokenException";
       name = "ExpiredTokenException";
       $fault = "client";
       error;
@@ -198950,6 +198976,7 @@ var init_errors = __esm({
       }
     };
     InternalServerException = class _InternalServerException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InternalServerException";
       name = "InternalServerException";
       $fault = "server";
       error;
@@ -198966,6 +198993,7 @@ var init_errors = __esm({
       }
     };
     InvalidClientException = class _InvalidClientException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidClientException";
       name = "InvalidClientException";
       $fault = "client";
       error;
@@ -198982,6 +199010,7 @@ var init_errors = __esm({
       }
     };
     InvalidGrantException = class _InvalidGrantException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidGrantException";
       name = "InvalidGrantException";
       $fault = "client";
       error;
@@ -198998,6 +199027,7 @@ var init_errors = __esm({
       }
     };
     InvalidRequestException = class _InvalidRequestException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidRequestException";
       name = "InvalidRequestException";
       $fault = "client";
       error;
@@ -199016,6 +199046,7 @@ var init_errors = __esm({
       }
     };
     InvalidScopeException = class _InvalidScopeException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidScopeException";
       name = "InvalidScopeException";
       $fault = "client";
       error;
@@ -199032,6 +199063,7 @@ var init_errors = __esm({
       }
     };
     SlowDownException = class _SlowDownException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#SlowDownException";
       name = "SlowDownException";
       $fault = "client";
       error;
@@ -199048,6 +199080,7 @@ var init_errors = __esm({
       }
     };
     UnauthorizedClientException = class _UnauthorizedClientException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#UnauthorizedClientException";
       name = "UnauthorizedClientException";
       $fault = "client";
       error;
@@ -199064,6 +199097,7 @@ var init_errors = __esm({
       }
     };
     UnsupportedGrantTypeException = class _UnsupportedGrantTypeException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#UnsupportedGrantTypeException";
       name = "UnsupportedGrantTypeException";
       $fault = "client";
       error;
@@ -199953,6 +199987,7 @@ var init_SSOServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso/models/SSOServiceException.js"() {
     init_client2();
     SSOServiceException = class _SSOServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.sso#SSOServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSOServiceException.prototype);
@@ -199967,6 +200002,7 @@ var init_errors2 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso/models/errors.js"() {
     init_SSOServiceException();
     InvalidRequestException2 = class _InvalidRequestException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#InvalidRequestException";
       name = "InvalidRequestException";
       $fault = "client";
       constructor(opts) {
@@ -199979,6 +200015,7 @@ var init_errors2 = __esm({
       }
     };
     ResourceNotFoundException = class _ResourceNotFoundException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -199991,6 +200028,7 @@ var init_errors2 = __esm({
       }
     };
     TooManyRequestsException = class _TooManyRequestsException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#TooManyRequestsException";
       name = "TooManyRequestsException";
       $fault = "client";
       constructor(opts) {
@@ -200003,6 +200041,7 @@ var init_errors2 = __esm({
       }
     };
     UnauthorizedException = class _UnauthorizedException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#UnauthorizedException";
       name = "UnauthorizedException";
       $fault = "client";
       constructor(opts) {
@@ -201116,6 +201155,7 @@ var init_STSServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/models/STSServiceException.js"() {
     init_client2();
     STSServiceException = class _STSServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.sts#STSServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _STSServiceException.prototype);
@@ -201130,6 +201170,7 @@ var init_errors3 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/models/errors.js"() {
     init_STSServiceException();
     ExpiredTokenException2 = class _ExpiredTokenException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#ExpiredTokenException";
       name = "ExpiredTokenException";
       $fault = "client";
       constructor(opts) {
@@ -201142,6 +201183,7 @@ var init_errors3 = __esm({
       }
     };
     MalformedPolicyDocumentException = class _MalformedPolicyDocumentException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#MalformedPolicyDocumentException";
       name = "MalformedPolicyDocumentException";
       $fault = "client";
       constructor(opts) {
@@ -201154,6 +201196,7 @@ var init_errors3 = __esm({
       }
     };
     PackedPolicyTooLargeException = class _PackedPolicyTooLargeException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#PackedPolicyTooLargeException";
       name = "PackedPolicyTooLargeException";
       $fault = "client";
       constructor(opts) {
@@ -201166,6 +201209,7 @@ var init_errors3 = __esm({
       }
     };
     RegionDisabledException = class _RegionDisabledException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#RegionDisabledException";
       name = "RegionDisabledException";
       $fault = "client";
       constructor(opts) {
@@ -201178,6 +201222,7 @@ var init_errors3 = __esm({
       }
     };
     IDPRejectedClaimException = class _IDPRejectedClaimException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#IDPRejectedClaimException";
       name = "IDPRejectedClaimException";
       $fault = "client";
       constructor(opts) {
@@ -201190,6 +201235,7 @@ var init_errors3 = __esm({
       }
     };
     InvalidIdentityTokenException = class _InvalidIdentityTokenException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#InvalidIdentityTokenException";
       name = "InvalidIdentityTokenException";
       $fault = "client";
       constructor(opts) {
@@ -201202,6 +201248,7 @@ var init_errors3 = __esm({
       }
     };
     IDPCommunicationErrorException = class _IDPCommunicationErrorException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#IDPCommunicationErrorException";
       name = "IDPCommunicationErrorException";
       $fault = "client";
       $retryable = {};
@@ -202285,6 +202332,7 @@ var init_SigninServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/models/SigninServiceException.js"() {
     init_client2();
     SigninServiceException = class _SigninServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.signin#SigninServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SigninServiceException.prototype);
@@ -202299,6 +202347,7 @@ var init_errors4 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/models/errors.js"() {
     init_SigninServiceException();
     AccessDeniedException2 = class _AccessDeniedException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       error;
@@ -202313,6 +202362,7 @@ var init_errors4 = __esm({
       }
     };
     InternalServerException2 = class _InternalServerException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#InternalServerException";
       name = "InternalServerException";
       $fault = "server";
       error;
@@ -202327,6 +202377,7 @@ var init_errors4 = __esm({
       }
     };
     TooManyRequestsError = class _TooManyRequestsError extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#TooManyRequestsError";
       name = "TooManyRequestsError";
       $fault = "client";
       error;
@@ -202341,6 +202392,7 @@ var init_errors4 = __esm({
       }
     };
     ValidationException = class _ValidationException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#ValidationException";
       name = "ValidationException";
       $fault = "client";
       error;
@@ -203731,7 +203783,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -203827,12 +203879,14 @@ var require_dist_cjs16 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var ECSServiceException = class _ECSServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ecs#ECSServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _ECSServiceException.prototype);
       }
     };
     var AccessDeniedException3 = class _AccessDeniedException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       constructor(opts) {
@@ -203845,6 +203899,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClientException = class _ClientException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClientException";
       name = "ClientException";
       $fault = "client";
       constructor(opts) {
@@ -203857,6 +203912,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterNotFoundException = class _ClusterNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterNotFoundException";
       name = "ClusterNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -203869,6 +203925,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var InvalidParameterException = class _InvalidParameterException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#InvalidParameterException";
       name = "InvalidParameterException";
       $fault = "client";
       constructor(opts) {
@@ -203881,6 +203938,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var LimitExceededException = class _LimitExceededException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#LimitExceededException";
       name = "LimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -203893,6 +203951,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServerException = class _ServerException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServerException";
       name = "ServerException";
       $fault = "server";
       constructor(opts) {
@@ -203905,6 +203964,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var UnsupportedFeatureException = class _UnsupportedFeatureException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#UnsupportedFeatureException";
       name = "UnsupportedFeatureException";
       $fault = "client";
       constructor(opts) {
@@ -203917,6 +203977,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var UpdateInProgressException = class _UpdateInProgressException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#UpdateInProgressException";
       name = "UpdateInProgressException";
       $fault = "client";
       constructor(opts) {
@@ -203929,6 +203990,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var NamespaceNotFoundException = class _NamespaceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#NamespaceNotFoundException";
       name = "NamespaceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -203941,6 +204003,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsCapacityProviderException = class _ClusterContainsCapacityProviderException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsCapacityProviderException";
       name = "ClusterContainsCapacityProviderException";
       $fault = "client";
       constructor(opts) {
@@ -203953,6 +204016,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsContainerInstancesException = class _ClusterContainsContainerInstancesException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsContainerInstancesException";
       name = "ClusterContainsContainerInstancesException";
       $fault = "client";
       constructor(opts) {
@@ -203965,6 +204029,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsServicesException = class _ClusterContainsServicesException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsServicesException";
       name = "ClusterContainsServicesException";
       $fault = "client";
       constructor(opts) {
@@ -203977,6 +204042,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsTasksException = class _ClusterContainsTasksException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsTasksException";
       name = "ClusterContainsTasksException";
       $fault = "client";
       constructor(opts) {
@@ -203989,6 +204055,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var TargetNotConnectedException = class _TargetNotConnectedException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#TargetNotConnectedException";
       name = "TargetNotConnectedException";
       $fault = "client";
       constructor(opts) {
@@ -204001,6 +204068,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ResourceInUseException = class _ResourceInUseException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ResourceInUseException";
       name = "ResourceInUseException";
       $fault = "client";
       constructor(opts) {
@@ -204013,6 +204081,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var TargetNotFoundException = class _TargetNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#TargetNotFoundException";
       name = "TargetNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204025,6 +204094,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServiceNotFoundException = class _ServiceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServiceNotFoundException";
       name = "ServiceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204037,6 +204107,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var AttributeLimitExceededException = class _AttributeLimitExceededException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#AttributeLimitExceededException";
       name = "AttributeLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -204049,6 +204120,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var MissingVersionException = class _MissingVersionException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#MissingVersionException";
       name = "MissingVersionException";
       $fault = "client";
       constructor(opts) {
@@ -204061,6 +204133,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var NoUpdateAvailableException = class _NoUpdateAvailableException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#NoUpdateAvailableException";
       name = "NoUpdateAvailableException";
       $fault = "client";
       constructor(opts) {
@@ -204073,6 +204146,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServiceDeploymentNotFoundException = class _ServiceDeploymentNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServiceDeploymentNotFoundException";
       name = "ServiceDeploymentNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204085,6 +204159,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var PlatformUnknownException = class _PlatformUnknownException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#PlatformUnknownException";
       name = "PlatformUnknownException";
       $fault = "client";
       constructor(opts) {
@@ -204097,6 +204172,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var DaemonNotActiveException = class _DaemonNotActiveException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#DaemonNotActiveException";
       name = "DaemonNotActiveException";
       $fault = "client";
       constructor(opts) {
@@ -204109,6 +204185,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var DaemonNotFoundException = class _DaemonNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#DaemonNotFoundException";
       name = "DaemonNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204121,6 +204198,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var PlatformTaskDefinitionIncompatibilityException = class _PlatformTaskDefinitionIncompatibilityException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#PlatformTaskDefinitionIncompatibilityException";
       name = "PlatformTaskDefinitionIncompatibilityException";
       $fault = "client";
       constructor(opts) {
@@ -204133,6 +204211,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServiceNotActiveException = class _ServiceNotActiveException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServiceNotActiveException";
       name = "ServiceNotActiveException";
       $fault = "client";
       constructor(opts) {
@@ -204145,6 +204224,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204157,6 +204237,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ConflictException = class _ConflictException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ConflictException";
       name = "ConflictException";
       $fault = "client";
       resourceIds;
@@ -204171,6 +204252,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var TaskSetNotFoundException = class _TaskSetNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#TaskSetNotFoundException";
       name = "TaskSetNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204183,6 +204265,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var BlockedException = class _BlockedException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#BlockedException";
       name = "BlockedException";
       $fault = "client";
       constructor(opts) {
@@ -212161,7 +212244,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -212302,12 +212385,14 @@ var require_dist_cjs17 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var ECRServiceException = class _ECRServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ecr#ECRServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _ECRServiceException.prototype);
       }
     };
     var InvalidParameterException = class _InvalidParameterException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidParameterException";
       name = "InvalidParameterException";
       $fault = "client";
       constructor(opts) {
@@ -212320,6 +212405,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var RepositoryNotFoundException2 = class _RepositoryNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryNotFoundException";
       name = "RepositoryNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212332,6 +212418,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ServerException = class _ServerException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ServerException";
       name = "ServerException";
       $fault = "server";
       constructor(opts) {
@@ -212344,6 +212431,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LimitExceededException = class _LimitExceededException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LimitExceededException";
       name = "LimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -212356,6 +212444,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnableToGetUpstreamImageException = class _UnableToGetUpstreamImageException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToGetUpstreamImageException";
       name = "UnableToGetUpstreamImageException";
       $fault = "client";
       constructor(opts) {
@@ -212368,6 +212457,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ValidationException2 = class _ValidationException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ValidationException";
       name = "ValidationException";
       $fault = "client";
       constructor(opts) {
@@ -212380,6 +212470,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var EmptyUploadException = class _EmptyUploadException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#EmptyUploadException";
       name = "EmptyUploadException";
       $fault = "client";
       constructor(opts) {
@@ -212392,6 +212483,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidLayerException = class _InvalidLayerException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidLayerException";
       name = "InvalidLayerException";
       $fault = "client";
       constructor(opts) {
@@ -212404,6 +212496,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var KmsException = class _KmsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#KmsException";
       name = "KmsException";
       $fault = "client";
       kmsError;
@@ -212418,6 +212511,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LayerAlreadyExistsException = class _LayerAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayerAlreadyExistsException";
       name = "LayerAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212430,6 +212524,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LayerPartTooSmallException = class _LayerPartTooSmallException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayerPartTooSmallException";
       name = "LayerPartTooSmallException";
       $fault = "client";
       constructor(opts) {
@@ -212442,6 +212537,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UploadNotFoundException = class _UploadNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UploadNotFoundException";
       name = "UploadNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212454,6 +212550,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var PullThroughCacheRuleAlreadyExistsException = class _PullThroughCacheRuleAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#PullThroughCacheRuleAlreadyExistsException";
       name = "PullThroughCacheRuleAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212466,6 +212563,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var SecretNotFoundException = class _SecretNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#SecretNotFoundException";
       name = "SecretNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212478,6 +212576,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnableToAccessSecretException = class _UnableToAccessSecretException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToAccessSecretException";
       name = "UnableToAccessSecretException";
       $fault = "client";
       constructor(opts) {
@@ -212490,6 +212589,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnableToDecryptSecretValueException = class _UnableToDecryptSecretValueException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToDecryptSecretValueException";
       name = "UnableToDecryptSecretValueException";
       $fault = "client";
       constructor(opts) {
@@ -212502,6 +212602,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedUpstreamRegistryException = class _UnsupportedUpstreamRegistryException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnsupportedUpstreamRegistryException";
       name = "UnsupportedUpstreamRegistryException";
       $fault = "client";
       constructor(opts) {
@@ -212514,6 +212615,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidTagParameterException = class _InvalidTagParameterException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidTagParameterException";
       name = "InvalidTagParameterException";
       $fault = "client";
       constructor(opts) {
@@ -212526,6 +212628,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var RepositoryAlreadyExistsException = class _RepositoryAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryAlreadyExistsException";
       name = "RepositoryAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212538,6 +212641,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TooManyTagsException = class _TooManyTagsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#TooManyTagsException";
       name = "TooManyTagsException";
       $fault = "client";
       constructor(opts) {
@@ -212550,6 +212654,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TemplateAlreadyExistsException = class _TemplateAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#TemplateAlreadyExistsException";
       name = "TemplateAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212562,6 +212667,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LifecyclePolicyNotFoundException = class _LifecyclePolicyNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LifecyclePolicyNotFoundException";
       name = "LifecyclePolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212574,6 +212680,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var PullThroughCacheRuleNotFoundException = class _PullThroughCacheRuleNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#PullThroughCacheRuleNotFoundException";
       name = "PullThroughCacheRuleNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212586,6 +212693,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var RegistryPolicyNotFoundException = class _RegistryPolicyNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RegistryPolicyNotFoundException";
       name = "RegistryPolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212598,6 +212706,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var RepositoryNotEmptyException = class _RepositoryNotEmptyException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryNotEmptyException";
       name = "RepositoryNotEmptyException";
       $fault = "client";
       constructor(opts) {
@@ -212610,6 +212719,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TemplateNotFoundException = class _TemplateNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#TemplateNotFoundException";
       name = "TemplateNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212622,6 +212732,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var RepositoryPolicyNotFoundException = class _RepositoryPolicyNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryPolicyNotFoundException";
       name = "RepositoryPolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212634,6 +212745,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var SigningConfigurationNotFoundException = class _SigningConfigurationNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#SigningConfigurationNotFoundException";
       name = "SigningConfigurationNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212646,6 +212758,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ExclusionNotFoundException = class _ExclusionNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ExclusionNotFoundException";
       name = "ExclusionNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212658,6 +212771,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ImageNotFoundException2 = class _ImageNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageNotFoundException";
       name = "ImageNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212670,6 +212784,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ScanNotFoundException = class _ScanNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ScanNotFoundException";
       name = "ScanNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212682,6 +212797,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LayerInaccessibleException = class _LayerInaccessibleException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayerInaccessibleException";
       name = "LayerInaccessibleException";
       $fault = "client";
       constructor(opts) {
@@ -212694,6 +212810,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LayersNotFoundException = class _LayersNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayersNotFoundException";
       name = "LayersNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212706,6 +212823,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnableToGetUpstreamLayerException = class _UnableToGetUpstreamLayerException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToGetUpstreamLayerException";
       name = "UnableToGetUpstreamLayerException";
       $fault = "client";
       constructor(opts) {
@@ -212718,6 +212836,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LifecyclePolicyPreviewNotFoundException = class _LifecyclePolicyPreviewNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LifecyclePolicyPreviewNotFoundException";
       name = "LifecyclePolicyPreviewNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212730,6 +212849,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnableToListUpstreamImageReferrersException = class _UnableToListUpstreamImageReferrersException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToListUpstreamImageReferrersException";
       name = "UnableToListUpstreamImageReferrersException";
       $fault = "client";
       constructor(opts) {
@@ -212742,6 +212862,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ImageAlreadyExistsException2 = class _ImageAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageAlreadyExistsException";
       name = "ImageAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212754,6 +212875,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ImageDigestDoesNotMatchException = class _ImageDigestDoesNotMatchException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageDigestDoesNotMatchException";
       name = "ImageDigestDoesNotMatchException";
       $fault = "client";
       constructor(opts) {
@@ -212766,6 +212888,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ImageTagAlreadyExistsException = class _ImageTagAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageTagAlreadyExistsException";
       name = "ImageTagAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212778,6 +212901,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ReferencedImagesNotFoundException = class _ReferencedImagesNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ReferencedImagesNotFoundException";
       name = "ReferencedImagesNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -212790,6 +212914,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var BlockedByOrganizationPolicyException = class _BlockedByOrganizationPolicyException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#BlockedByOrganizationPolicyException";
       name = "BlockedByOrganizationPolicyException";
       $fault = "client";
       constructor(opts) {
@@ -212802,6 +212927,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ExclusionAlreadyExistsException = class _ExclusionAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ExclusionAlreadyExistsException";
       name = "ExclusionAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212814,6 +212940,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ImageArchivedException = class _ImageArchivedException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageArchivedException";
       name = "ImageArchivedException";
       $fault = "client";
       constructor(opts) {
@@ -212826,6 +212953,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedImageTypeException = class _UnsupportedImageTypeException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnsupportedImageTypeException";
       name = "UnsupportedImageTypeException";
       $fault = "client";
       constructor(opts) {
@@ -212838,6 +212966,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var LifecyclePolicyPreviewInProgressException = class _LifecyclePolicyPreviewInProgressException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LifecyclePolicyPreviewInProgressException";
       name = "LifecyclePolicyPreviewInProgressException";
       $fault = "client";
       constructor(opts) {
@@ -212850,6 +212979,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ImageStorageClassUpdateNotSupportedException = class _ImageStorageClassUpdateNotSupportedException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageStorageClassUpdateNotSupportedException";
       name = "ImageStorageClassUpdateNotSupportedException";
       $fault = "client";
       constructor(opts) {
@@ -212862,6 +212992,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidLayerPartException = class _InvalidLayerPartException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidLayerPartException";
       name = "InvalidLayerPartException";
       $fault = "client";
       registryId;
@@ -217021,7 +217152,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -217117,12 +217248,14 @@ var require_dist_cjs18 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var LambdaServiceException = class _LambdaServiceException extends ServiceException$1 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.lambda#LambdaServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _LambdaServiceException.prototype);
       }
     };
     var InvalidParameterValueException = class _InvalidParameterValueException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidParameterValueException";
       name = "InvalidParameterValueException";
       $fault = "client";
       Type;
@@ -217137,6 +217270,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var PolicyLengthExceededException = class _PolicyLengthExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#PolicyLengthExceededException";
       name = "PolicyLengthExceededException";
       $fault = "client";
       Type;
@@ -217151,6 +217285,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var PreconditionFailedException = class _PreconditionFailedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#PreconditionFailedException";
       name = "PreconditionFailedException";
       $fault = "client";
       Type;
@@ -217165,6 +217300,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ResourceConflictException = class _ResourceConflictException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceConflictException";
       name = "ResourceConflictException";
       $fault = "client";
       Type;
@@ -217179,6 +217315,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       Type;
@@ -217195,6 +217332,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ServiceException2 = class _ServiceException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ServiceException";
       name = "ServiceException";
       $fault = "server";
       Type;
@@ -217211,6 +217349,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var TooManyRequestsException2 = class _TooManyRequestsException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#TooManyRequestsException";
       name = "TooManyRequestsException";
       $fault = "client";
       retryAfterSeconds;
@@ -217229,6 +217368,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var PublicPolicyException = class _PublicPolicyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#PublicPolicyException";
       name = "PublicPolicyException";
       $fault = "client";
       Type;
@@ -217245,6 +217385,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var AliasLimitExceededException = class _AliasLimitExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#AliasLimitExceededException";
       name = "AliasLimitExceededException";
       $fault = "client";
       Type;
@@ -217259,6 +217400,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CapacityProviderLimitExceededException = class _CapacityProviderLimitExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CapacityProviderLimitExceededException";
       name = "CapacityProviderLimitExceededException";
       $fault = "client";
       Type;
@@ -217273,6 +217415,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var KMSAccessDeniedException = class _KMSAccessDeniedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSAccessDeniedException";
       name = "KMSAccessDeniedException";
       $fault = "server";
       Type;
@@ -217289,6 +217432,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var KMSDisabledException = class _KMSDisabledException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSDisabledException";
       name = "KMSDisabledException";
       $fault = "server";
       Type;
@@ -217305,6 +217449,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var KMSInvalidStateException = class _KMSInvalidStateException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSInvalidStateException";
       name = "KMSInvalidStateException";
       $fault = "server";
       Type;
@@ -217321,6 +217466,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var KMSNotFoundException = class _KMSNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSNotFoundException";
       name = "KMSNotFoundException";
       $fault = "server";
       Type;
@@ -217337,6 +217483,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ResourceInUseException = class _ResourceInUseException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceInUseException";
       name = "ResourceInUseException";
       $fault = "client";
       Type;
@@ -217353,6 +217500,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CodeSigningConfigNotFoundException = class _CodeSigningConfigNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeSigningConfigNotFoundException";
       name = "CodeSigningConfigNotFoundException";
       $fault = "client";
       Type;
@@ -217369,6 +217517,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CodeStorageExceededException = class _CodeStorageExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeStorageExceededException";
       name = "CodeStorageExceededException";
       $fault = "client";
       Type;
@@ -217383,6 +217532,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CodeVerificationFailedException = class _CodeVerificationFailedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeVerificationFailedException";
       name = "CodeVerificationFailedException";
       $fault = "client";
       Type;
@@ -217399,6 +217549,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var FunctionVersionsPerCapacityProviderLimitExceededException = class _FunctionVersionsPerCapacityProviderLimitExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#FunctionVersionsPerCapacityProviderLimitExceededException";
       name = "FunctionVersionsPerCapacityProviderLimitExceededException";
       $fault = "client";
       Type;
@@ -217413,6 +217564,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidCodeSignatureException = class _InvalidCodeSignatureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidCodeSignatureException";
       name = "InvalidCodeSignatureException";
       $fault = "client";
       Type;
@@ -217429,6 +217581,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CodeArtifactUserDeletedException = class _CodeArtifactUserDeletedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeArtifactUserDeletedException";
       name = "CodeArtifactUserDeletedException";
       $fault = "client";
       Type;
@@ -217443,6 +217596,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CodeArtifactUserFailedException = class _CodeArtifactUserFailedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeArtifactUserFailedException";
       name = "CodeArtifactUserFailedException";
       $fault = "client";
       Type;
@@ -217457,6 +217611,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CodeArtifactUserPendingException = class _CodeArtifactUserPendingException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeArtifactUserPendingException";
       name = "CodeArtifactUserPendingException";
       $fault = "client";
       Type;
@@ -217471,6 +217626,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var DurableExecutionAlreadyStartedException = class _DurableExecutionAlreadyStartedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#DurableExecutionAlreadyStartedException";
       name = "DurableExecutionAlreadyStartedException";
       $fault = "client";
       Type;
@@ -217487,6 +217643,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EC2AccessDeniedException = class _EC2AccessDeniedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EC2AccessDeniedException";
       name = "EC2AccessDeniedException";
       $fault = "server";
       Type;
@@ -217503,6 +217660,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EC2ThrottledException = class _EC2ThrottledException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EC2ThrottledException";
       name = "EC2ThrottledException";
       $fault = "server";
       Type;
@@ -217519,6 +217677,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EC2UnexpectedException = class _EC2UnexpectedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EC2UnexpectedException";
       name = "EC2UnexpectedException";
       $fault = "server";
       Type;
@@ -217537,6 +217696,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EFSIOException = class _EFSIOException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSIOException";
       name = "EFSIOException";
       $fault = "client";
       Type;
@@ -217553,6 +217713,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EFSMountConnectivityException = class _EFSMountConnectivityException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSMountConnectivityException";
       name = "EFSMountConnectivityException";
       $fault = "client";
       Type;
@@ -217569,6 +217730,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EFSMountFailureException = class _EFSMountFailureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSMountFailureException";
       name = "EFSMountFailureException";
       $fault = "client";
       Type;
@@ -217585,6 +217747,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var EFSMountTimeoutException = class _EFSMountTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSMountTimeoutException";
       name = "EFSMountTimeoutException";
       $fault = "client";
       Type;
@@ -217601,6 +217764,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ENILimitReachedException = class _ENILimitReachedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ENILimitReachedException";
       name = "ENILimitReachedException";
       $fault = "server";
       Type;
@@ -217617,6 +217781,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ENINotReadyException = class _ENINotReadyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ENINotReadyException";
       name = "ENINotReadyException";
       $fault = "server";
       Type;
@@ -217633,6 +217798,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidRequestContentException = class _InvalidRequestContentException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidRequestContentException";
       name = "InvalidRequestContentException";
       $fault = "client";
       Type;
@@ -217647,6 +217813,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidRuntimeException = class _InvalidRuntimeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidRuntimeException";
       name = "InvalidRuntimeException";
       $fault = "server";
       Type;
@@ -217663,6 +217830,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidSecurityGroupIDException = class _InvalidSecurityGroupIDException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidSecurityGroupIDException";
       name = "InvalidSecurityGroupIDException";
       $fault = "server";
       Type;
@@ -217679,6 +217847,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidSubnetIDException = class _InvalidSubnetIDException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidSubnetIDException";
       name = "InvalidSubnetIDException";
       $fault = "server";
       Type;
@@ -217695,6 +217864,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidZipFileException = class _InvalidZipFileException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidZipFileException";
       name = "InvalidZipFileException";
       $fault = "server";
       Type;
@@ -217711,6 +217881,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ModeNotSupportedException = class _ModeNotSupportedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ModeNotSupportedException";
       name = "ModeNotSupportedException";
       $fault = "client";
       Type;
@@ -217725,6 +217896,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var NoPublishedVersionException = class _NoPublishedVersionException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#NoPublishedVersionException";
       name = "NoPublishedVersionException";
       $fault = "client";
       Type;
@@ -217741,6 +217913,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var RecursiveInvocationException = class _RecursiveInvocationException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#RecursiveInvocationException";
       name = "RecursiveInvocationException";
       $fault = "client";
       Type;
@@ -217757,6 +217930,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var RequestTooLargeException = class _RequestTooLargeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#RequestTooLargeException";
       name = "RequestTooLargeException";
       $fault = "client";
       Type;
@@ -217771,6 +217945,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ResourceNotReadyException = class _ResourceNotReadyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceNotReadyException";
       name = "ResourceNotReadyException";
       $fault = "server";
       Type;
@@ -217785,6 +217960,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var S3FilesMountConnectivityException = class _S3FilesMountConnectivityException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#S3FilesMountConnectivityException";
       name = "S3FilesMountConnectivityException";
       $fault = "client";
       Type;
@@ -217801,6 +217977,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var S3FilesMountFailureException = class _S3FilesMountFailureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#S3FilesMountFailureException";
       name = "S3FilesMountFailureException";
       $fault = "client";
       Type;
@@ -217817,6 +217994,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var S3FilesMountTimeoutException = class _S3FilesMountTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#S3FilesMountTimeoutException";
       name = "S3FilesMountTimeoutException";
       $fault = "client";
       Type;
@@ -217833,6 +218011,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var SerializedRequestEntityTooLargeException = class _SerializedRequestEntityTooLargeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SerializedRequestEntityTooLargeException";
       name = "SerializedRequestEntityTooLargeException";
       $fault = "client";
       Type;
@@ -217847,6 +218026,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ServiceQuotaExceededException = class _ServiceQuotaExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ServiceQuotaExceededException";
       name = "ServiceQuotaExceededException";
       $fault = "client";
       Type;
@@ -217863,6 +218043,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var SnapStartException = class _SnapStartException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartException";
       name = "SnapStartException";
       $fault = "client";
       Type;
@@ -217879,6 +218060,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var SnapStartNotReadyException = class _SnapStartNotReadyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartNotReadyException";
       name = "SnapStartNotReadyException";
       $fault = "client";
       Type;
@@ -217895,6 +218077,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var SnapStartRegenerationFailureException = class _SnapStartRegenerationFailureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartRegenerationFailureException";
       name = "SnapStartRegenerationFailureException";
       $fault = "client";
       Type;
@@ -217911,6 +218094,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var SnapStartTimeoutException = class _SnapStartTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartTimeoutException";
       name = "SnapStartTimeoutException";
       $fault = "client";
       Type;
@@ -217927,6 +218111,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var SubnetIPAddressLimitReachedException = class _SubnetIPAddressLimitReachedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SubnetIPAddressLimitReachedException";
       name = "SubnetIPAddressLimitReachedException";
       $fault = "server";
       Type;
@@ -217943,6 +218128,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var UnsupportedMediaTypeException = class _UnsupportedMediaTypeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#UnsupportedMediaTypeException";
       name = "UnsupportedMediaTypeException";
       $fault = "client";
       Type;
@@ -217957,6 +218143,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ProvisionedConcurrencyConfigNotFoundException = class _ProvisionedConcurrencyConfigNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ProvisionedConcurrencyConfigNotFoundException";
       name = "ProvisionedConcurrencyConfigNotFoundException";
       $fault = "client";
       Type;
@@ -217971,6 +218158,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var CallbackTimeoutException = class _CallbackTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CallbackTimeoutException";
       name = "CallbackTimeoutException";
       $fault = "client";
       Type;
@@ -223204,6 +223392,7 @@ var require_dist_cjs18 = __commonJS({
     var KafkaSchemaRegistryAuthType = {
       BASIC_AUTH: "BASIC_AUTH",
       CLIENT_CERTIFICATE_TLS_AUTH: "CLIENT_CERTIFICATE_TLS_AUTH",
+      OAUTHBEARER_AUTH: "OAUTHBEARER_AUTH",
       SERVER_ROOT_CA_CERTIFICATE: "SERVER_ROOT_CA_CERTIFICATE"
     };
     var SchemaRegistryEventRecordFormat = {
@@ -223343,6 +223532,13 @@ var require_dist_cjs18 = __commonJS({
     var SourceAccessType = {
       BASIC_AUTH: "BASIC_AUTH",
       CLIENT_CERTIFICATE_TLS_AUTH: "CLIENT_CERTIFICATE_TLS_AUTH",
+      IAM_AUTH: "IAM_AUTH",
+      IAM_OAUTHBEARER_AUTH: "IAM_OAUTHBEARER_AUTH",
+      OAUTHBEARER_AUDIENCE: "OAUTHBEARER_AUDIENCE",
+      OAUTHBEARER_AUTH: "OAUTHBEARER_AUTH",
+      OAUTHBEARER_IDENTITY_POOL: "OAUTHBEARER_IDENTITY_POOL",
+      OAUTHBEARER_LOGICAL_CLUSTER: "OAUTHBEARER_LOGICAL_CLUSTER",
+      OAUTHBEARER_SCOPE: "OAUTHBEARER_SCOPE",
       SASL_SCRAM_256_AUTH: "SASL_SCRAM_256_AUTH",
       SASL_SCRAM_512_AUTH: "SASL_SCRAM_512_AUTH",
       SERVER_ROOT_CA_CERTIFICATE: "SERVER_ROOT_CA_CERTIFICATE",

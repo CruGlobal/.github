@@ -30898,7 +30898,7 @@ var require_package2 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.1.0",
+      version: "11.2.0",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -30967,7 +30967,7 @@ var require_package2 = __commonJS({
         "!build/src/**/*.map"
       ],
       scripts: {
-        test: "c8 mocha build/test",
+        test: "node ../../../bin/run-test.cjs --fetch-shim --gaxios-shim --assert-deep-equal-shim --crypto-verify-shim --keypair-shim build/test",
         clean: "gts clean",
         prepare: "npm run compile",
         lint: "gts check --no-inline-config",
@@ -46111,15 +46111,15 @@ var require_client_interceptors = __commonJS({
       const parent = (_b = options.parent) !== null && _b !== void 0 ? _b : null;
       const propagateFlags = options.propagate_flags;
       const credentials = options.credentials;
-      const call = channel.createCall(path, deadline, host, parent, propagateFlags);
+      const call2 = channel.createCall(path, deadline, host, parent, propagateFlags);
       if (credentials) {
-        call.setCredentials(credentials);
+        call2.setCredentials(credentials);
       }
-      return call;
+      return call2;
     }
     var BaseInterceptingCall = class {
-      constructor(call, methodDefinition) {
-        this.call = call;
+      constructor(call2, methodDefinition) {
+        this.call = call2;
         this.methodDefinition = methodDefinition;
       }
       cancelWithStatus(status, details) {
@@ -46188,8 +46188,8 @@ var require_client_interceptors = __commonJS({
     };
     var BaseUnaryInterceptingCall = class extends BaseInterceptingCall {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      constructor(call, methodDefinition) {
-        super(call, methodDefinition);
+      constructor(call2, methodDefinition) {
+        super(call2, methodDefinition);
       }
       start(metadata, listener) {
         var _a2, _b;
@@ -46218,11 +46218,11 @@ var require_client_interceptors = __commonJS({
     var BaseStreamingInterceptingCall = class extends BaseInterceptingCall {
     };
     function getBottomInterceptingCall(channel, options, methodDefinition) {
-      const call = getCall(channel, methodDefinition.path, options);
+      const call2 = getCall(channel, methodDefinition.path, options);
       if (methodDefinition.responseStream) {
-        return new BaseStreamingInterceptingCall(call, methodDefinition);
+        return new BaseStreamingInterceptingCall(call2, methodDefinition);
       } else {
-        return new BaseUnaryInterceptingCall(call, methodDefinition);
+        return new BaseUnaryInterceptingCall(call2, methodDefinition);
       }
     }
     function getInterceptingCall(interceptorArgs, methodDefinition, options, channel) {
@@ -46371,19 +46371,19 @@ var require_client2 = __commonJS({
           callInterceptors: (_a2 = callProperties.callOptions.interceptors) !== null && _a2 !== void 0 ? _a2 : [],
           callInterceptorProviders: (_b = callProperties.callOptions.interceptor_providers) !== null && _b !== void 0 ? _b : []
         };
-        const call = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
-        emitter.call = call;
+        const call2 = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
+        emitter.call = call2;
         let responseMessage = null;
         let receivedStatus = false;
         let callerStackError = new Error();
-        call.start(callProperties.metadata, {
+        call2.start(callProperties.metadata, {
           onReceiveMetadata: (metadata2) => {
             emitter.emit("metadata", metadata2);
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onReceiveMessage(message) {
             if (responseMessage !== null) {
-              call.cancelWithStatus(constants_1.Status.UNIMPLEMENTED, "Too many responses received");
+              call2.cancelWithStatus(constants_1.Status.UNIMPLEMENTED, "Too many responses received");
             }
             responseMessage = message;
           },
@@ -46411,8 +46411,8 @@ var require_client2 = __commonJS({
             emitter.emit("status", status);
           }
         });
-        call.sendMessage(argument);
-        call.halfClose();
+        call2.sendMessage(argument);
+        call2.halfClose();
         return emitter;
       }
       makeClientStreamRequest(method, serialize, deserialize, metadata, options, callback) {
@@ -46443,22 +46443,22 @@ var require_client2 = __commonJS({
           callInterceptors: (_a2 = callProperties.callOptions.interceptors) !== null && _a2 !== void 0 ? _a2 : [],
           callInterceptorProviders: (_b = callProperties.callOptions.interceptor_providers) !== null && _b !== void 0 ? _b : []
         };
-        const call = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
-        emitter.call = call;
+        const call2 = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
+        emitter.call = call2;
         let responseMessage = null;
         let receivedStatus = false;
         let callerStackError = new Error();
-        call.start(callProperties.metadata, {
+        call2.start(callProperties.metadata, {
           onReceiveMetadata: (metadata2) => {
             emitter.emit("metadata", metadata2);
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onReceiveMessage(message) {
             if (responseMessage !== null) {
-              call.cancelWithStatus(constants_1.Status.UNIMPLEMENTED, "Too many responses received");
+              call2.cancelWithStatus(constants_1.Status.UNIMPLEMENTED, "Too many responses received");
             }
             responseMessage = message;
-            call.startRead();
+            call2.startRead();
           },
           onReceiveStatus(status) {
             if (receivedStatus) {
@@ -46534,11 +46534,11 @@ var require_client2 = __commonJS({
           callInterceptors: (_a2 = callProperties.callOptions.interceptors) !== null && _a2 !== void 0 ? _a2 : [],
           callInterceptorProviders: (_b = callProperties.callOptions.interceptor_providers) !== null && _b !== void 0 ? _b : []
         };
-        const call = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
-        stream.call = call;
+        const call2 = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
+        stream.call = call2;
         let receivedStatus = false;
         let callerStackError = new Error();
-        call.start(callProperties.metadata, {
+        call2.start(callProperties.metadata, {
           onReceiveMetadata(metadata2) {
             stream.emit("metadata", metadata2);
           },
@@ -46560,8 +46560,8 @@ var require_client2 = __commonJS({
             stream.emit("status", status);
           }
         });
-        call.sendMessage(argument);
-        call.halfClose();
+        call2.sendMessage(argument);
+        call2.halfClose();
         return stream;
       }
       makeBidiStreamRequest(method, serialize, deserialize, metadata, options) {
@@ -46591,11 +46591,11 @@ var require_client2 = __commonJS({
           callInterceptors: (_a2 = callProperties.callOptions.interceptors) !== null && _a2 !== void 0 ? _a2 : [],
           callInterceptorProviders: (_b = callProperties.callOptions.interceptor_providers) !== null && _b !== void 0 ? _b : []
         };
-        const call = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
-        stream.call = call;
+        const call2 = (0, client_interceptors_1.getInterceptingCall)(interceptorArgs, callProperties.methodDefinition, callProperties.callOptions, callProperties.channel);
+        stream.call = call2;
         let receivedStatus = false;
         let callerStackError = new Error();
-        call.start(callProperties.metadata, {
+        call2.start(callProperties.metadata, {
           onReceiveMetadata(metadata2) {
             stream.emit("metadata", metadata2);
           },
@@ -56595,8 +56595,8 @@ var require_channelz = __commonJS({
         subchannel_ref: subchannelRef
       };
     }
-    function GetChannel(call, callback) {
-      const channelId = parseInt(call.request.channel_id, 10);
+    function GetChannel(call2, callback) {
+      const channelId = parseInt(call2.request.channel_id, 10);
       const channelEntry = entityMaps[
         "channel"
         /* EntityTypes.channel */
@@ -56610,10 +56610,10 @@ var require_channelz = __commonJS({
       }
       callback(null, { channel: getChannelMessage(channelEntry) });
     }
-    function GetTopChannels(call, callback) {
-      const maxResults = parseInt(call.request.max_results, 10) || DEFAULT_MAX_RESULTS;
+    function GetTopChannels(call2, callback) {
+      const maxResults = parseInt(call2.request.max_results, 10) || DEFAULT_MAX_RESULTS;
       const resultList = [];
-      const startId = parseInt(call.request.start_channel_id, 10);
+      const startId = parseInt(call2.request.start_channel_id, 10);
       const channelEntries = entityMaps[
         "channel"
         /* EntityTypes.channel */
@@ -56645,8 +56645,8 @@ var require_channelz = __commonJS({
         listen_socket: listenSocket
       };
     }
-    function GetServer(call, callback) {
-      const serverId = parseInt(call.request.server_id, 10);
+    function GetServer(call2, callback) {
+      const serverId = parseInt(call2.request.server_id, 10);
       const serverEntries = entityMaps[
         "server"
         /* EntityTypes.server */
@@ -56661,9 +56661,9 @@ var require_channelz = __commonJS({
       }
       callback(null, { server: getServerMessage(serverEntry) });
     }
-    function GetServers(call, callback) {
-      const maxResults = parseInt(call.request.max_results, 10) || DEFAULT_MAX_RESULTS;
-      const startId = parseInt(call.request.start_server_id, 10);
+    function GetServers(call2, callback) {
+      const maxResults = parseInt(call2.request.max_results, 10) || DEFAULT_MAX_RESULTS;
+      const startId = parseInt(call2.request.start_server_id, 10);
       const serverEntries = entityMaps[
         "server"
         /* EntityTypes.server */
@@ -56678,8 +56678,8 @@ var require_channelz = __commonJS({
         end: i6.equals(serverEntries.end())
       });
     }
-    function GetSubchannel(call, callback) {
-      const subchannelId = parseInt(call.request.subchannel_id, 10);
+    function GetSubchannel(call2, callback) {
+      const subchannelId = parseInt(call2.request.subchannel_id, 10);
       const subchannelEntry = entityMaps[
         "subchannel"
         /* EntityTypes.subchannel */
@@ -56730,9 +56730,9 @@ var require_channelz = __commonJS({
         };
       }
     }
-    function GetSocket(call, callback) {
+    function GetSocket(call2, callback) {
       var _a2, _b, _c5, _d, _e5;
-      const socketId = parseInt(call.request.socket_id, 10);
+      const socketId = parseInt(call2.request.socket_id, 10);
       const socketEntry = entityMaps[
         "socket"
         /* EntityTypes.socket */
@@ -56778,8 +56778,8 @@ var require_channelz = __commonJS({
       };
       callback(null, { socket: socketMessage });
     }
-    function GetServerSockets(call, callback) {
-      const serverId = parseInt(call.request.server_id, 10);
+    function GetServerSockets(call2, callback) {
+      const serverId = parseInt(call2.request.server_id, 10);
       const serverEntry = entityMaps[
         "server"
         /* EntityTypes.server */
@@ -56791,8 +56791,8 @@ var require_channelz = __commonJS({
         });
         return;
       }
-      const startId = parseInt(call.request.start_socket_id, 10);
-      const maxResults = parseInt(call.request.max_results, 10) || DEFAULT_MAX_RESULTS;
+      const startId = parseInt(call2.request.start_socket_id, 10);
+      const maxResults = parseInt(call2.request.max_results, 10) || DEFAULT_MAX_RESULTS;
       const resolvedInfo = serverEntry.getInfo();
       const allSockets = resolvedInfo.sessionChildren.sockets;
       const resultList = [];
@@ -59161,8 +59161,8 @@ var require_transport = __commonJS({
       handleDisconnect() {
         this.clearKeepaliveTimeout();
         this.reportDisconnectToOwner(false);
-        for (const call of this.activeCalls) {
-          call.onDisconnect();
+        for (const call2 of this.activeCalls) {
+          call2.onDisconnect();
         }
         setImmediate(() => {
           this.session.destroy();
@@ -59255,14 +59255,14 @@ var require_transport = __commonJS({
           this.keepaliveTimer = null;
         }
       }
-      removeActiveCall(call) {
-        this.activeCalls.delete(call);
+      removeActiveCall(call2) {
+        this.activeCalls.delete(call2);
         if (this.activeCalls.size === 0) {
           this.session.unref();
         }
       }
-      addActiveCall(call) {
-        this.activeCalls.add(call);
+      addActiveCall(call2) {
+        this.activeCalls.add(call2);
         if (this.activeCalls.size === 1) {
           this.session.ref();
           if (!this.keepaliveWithoutCalls) {
@@ -59292,7 +59292,7 @@ var require_transport = __commonJS({
           this.internalsTrace("session.closed=" + this.session.closed + " session.destroyed=" + this.session.destroyed + " session.socket.destroyed=" + this.session.socket.destroyed);
         }
         let eventTracker;
-        let call;
+        let call2;
         if (this.channelzEnabled) {
           this.streamTracker.addCallStarted();
           eventTracker = {
@@ -59311,7 +59311,7 @@ var require_transport = __commonJS({
             onCallEnd: (status) => {
               var _a2;
               (_a2 = subchannelCallStatsTracker.onCallEnd) === null || _a2 === void 0 ? void 0 : _a2.call(subchannelCallStatsTracker, status);
-              this.removeActiveCall(call);
+              this.removeActiveCall(call2);
             },
             onStreamEnd: (success) => {
               var _a2;
@@ -59336,7 +59336,7 @@ var require_transport = __commonJS({
             onCallEnd: (status) => {
               var _a2;
               (_a2 = subchannelCallStatsTracker.onCallEnd) === null || _a2 === void 0 ? void 0 : _a2.call(subchannelCallStatsTracker, status);
-              this.removeActiveCall(call);
+              this.removeActiveCall(call2);
             },
             onStreamEnd: (success) => {
               var _a2;
@@ -59344,9 +59344,9 @@ var require_transport = __commonJS({
             }
           };
         }
-        call = new subchannel_call_1.Http2SubchannelCall(http2Stream, eventTracker, listener, this, callId !== null && callId !== void 0 ? callId : (0, call_number_1.getNextCallNumber)());
-        this.addActiveCall(call);
-        return call;
+        call2 = new subchannel_call_1.Http2SubchannelCall(http2Stream, eventTracker, listener, this, callId !== null && callId !== void 0 ? callId : (0, call_number_1.getNextCallNumber)());
+        this.addActiveCall(call2);
+        return call2;
       }
       getChannelzRef() {
         return this.channelzRef;
@@ -60363,8 +60363,8 @@ var require_retrying_call = __commonJS({
           this.trace("cancelWithStatus code: " + status + ' details: "' + details + '"');
         }
         this.reportStatus({ code: status, details, metadata: new metadata_1.Metadata() });
-        for (const { call } of this.underlyingCalls) {
-          call.cancelWithStatus(status, details);
+        for (const { call: call2 } of this.underlyingCalls) {
+          call2.cancelWithStatus(status, details);
         }
       }
       getPeer() {
@@ -60503,8 +60503,8 @@ var require_retrying_call = __commonJS({
       }
       countActiveCalls() {
         let count2 = 0;
-        for (const call of this.underlyingCalls) {
-          if ((call === null || call === void 0 ? void 0 : call.state) === "ACTIVE") {
+        for (const call2 of this.underlyingCalls) {
+          if ((call2 === null || call2 === void 0 ? void 0 : call2.state) === "ACTIVE") {
             count2 += 1;
           }
         }
@@ -60780,9 +60780,9 @@ var require_retrying_call = __commonJS({
             var _a2;
             (_a2 = context2.callback) === null || _a2 === void 0 ? void 0 : _a2.call(context2);
           });
-          for (const [callIndex, call] of this.underlyingCalls.entries()) {
-            if (call.state === "ACTIVE" && call.nextMessageToSend === messageIndex) {
-              call.call.sendMessageWithContext({
+          for (const [callIndex, call2] of this.underlyingCalls.entries()) {
+            if (call2.state === "ACTIVE" && call2.nextMessageToSend === messageIndex) {
+              call2.call.sendMessageWithContext({
                 callback: (error3) => {
                   this.handleChildWriteCompleted(callIndex, messageIndex);
                 }
@@ -60794,10 +60794,10 @@ var require_retrying_call = __commonJS({
           if (this.committedCallIndex === null) {
             return;
           }
-          const call = this.underlyingCalls[this.committedCallIndex];
+          const call2 = this.underlyingCalls[this.committedCallIndex];
           bufferEntry.callback = context2.callback;
-          if (call.state === "ACTIVE" && call.nextMessageToSend === messageIndex) {
-            call.call.sendMessageWithContext({
+          if (call2.state === "ACTIVE" && call2.nextMessageToSend === messageIndex) {
+            call2.call.sendMessageWithContext({
               callback: (error3) => {
                 this.handleChildWriteCompleted(this.committedCallIndex, messageIndex);
               }
@@ -60821,14 +60821,14 @@ var require_retrying_call = __commonJS({
           entryType: "HALF_CLOSE",
           allocated: false
         });
-        for (const call of this.underlyingCalls) {
-          if ((call === null || call === void 0 ? void 0 : call.state) === "ACTIVE") {
-            if (call.nextMessageToSend === halfCloseIndex || call.nextMessageToSend === halfCloseIndex - 1) {
+        for (const call2 of this.underlyingCalls) {
+          if ((call2 === null || call2 === void 0 ? void 0 : call2.state) === "ACTIVE") {
+            if (call2.nextMessageToSend === halfCloseIndex || call2.nextMessageToSend === halfCloseIndex - 1) {
               if (this.traceEnabled) {
-                this.trace("Sending halfClose immediately to child [" + call.call.getCallNumber() + "] - all messages already sent");
+                this.trace("Sending halfClose immediately to child [" + call2.call.getCallNumber() + "] - all messages already sent");
               }
-              call.nextMessageToSend += 1;
-              call.call.halfClose();
+              call2.nextMessageToSend += 1;
+              call2.call.halfClose();
             }
           }
         }
@@ -61128,8 +61128,8 @@ var require_internal_channel = __commonJS({
             if (queueCopy.size > 0) {
               this.callRefTimerUnref();
             }
-            for (const call of queueCopy) {
-              call.doPick();
+            for (const call2 of queueCopy) {
+              call2.doPick();
             }
             this.updateState(connectivityState);
           },
@@ -61166,8 +61166,8 @@ var require_internal_channel = __commonJS({
             if (localQueue.length > 0) {
               this.callRefTimerUnref();
             }
-            for (const call of localQueue) {
-              call.getConfig();
+            for (const call2 of localQueue) {
+              call2.getConfig();
             }
           });
         }, (status) => {
@@ -61185,8 +61185,8 @@ var require_internal_channel = __commonJS({
           if (localQueue.length > 0) {
             this.callRefTimerUnref();
           }
-          for (const call of localQueue) {
-            call.reportResolverError(status);
+          for (const call2 of localQueue) {
+            call2.reportResolverError(status);
           }
         });
         this.filterStackFactory = new filter_stack_1.FilterStackFactory([
@@ -61278,12 +61278,12 @@ var require_internal_channel = __commonJS({
           extraPickInfo
         });
       }
-      queueCallForPick(call) {
-        this.pickQueue.add(call);
+      queueCallForPick(call2) {
+        this.pickQueue.add(call2);
         this.callRefTimerRef();
       }
-      removeCallFromPickQueue(call) {
-        this.pickQueue.delete(call);
+      removeCallFromPickQueue(call2) {
+        this.pickQueue.delete(call2);
         if (this.pickQueue.size === 0) {
           this.callRefTimerUnref();
         }
@@ -61310,8 +61310,8 @@ var require_internal_channel = __commonJS({
           }
         }
       }
-      queueCallForConfig(call) {
-        this.configSelectionQueue.push(call);
+      queueCallForConfig(call2) {
+        this.configSelectionQueue.push(call2);
         this.callRefTimerRef();
       }
       enterIdle() {
@@ -61393,24 +61393,24 @@ var require_internal_channel = __commonJS({
           host: host !== null && host !== void 0 ? host : this.defaultAuthority,
           parentCall
         };
-        const call = new resolving_call_1.ResolvingCall(this, method, finalOptions, this.filterStackFactory.clone(), callNumber);
+        const call2 = new resolving_call_1.ResolvingCall(this, method, finalOptions, this.filterStackFactory.clone(), callNumber);
         this.onCallStart();
-        call.addStatusWatcher((status) => {
+        call2.addStatusWatcher((status) => {
           this.onCallEnd(status);
         });
-        return call;
+        return call2;
       }
       close() {
         var _a2;
         this.resolvingLoadBalancer.destroy();
         this.updateState(connectivity_state_1.ConnectivityState.SHUTDOWN);
         this.currentPicker = new ShutdownPicker();
-        for (const call of this.configSelectionQueue) {
-          call.cancelWithStatus(constants_1.Status.UNAVAILABLE, "Channel closed before call started");
+        for (const call2 of this.configSelectionQueue) {
+          call2.cancelWithStatus(constants_1.Status.UNAVAILABLE, "Channel closed before call started");
         }
         this.configSelectionQueue = [];
-        for (const call of this.pickQueue) {
-          call.cancelWithStatus(constants_1.Status.UNAVAILABLE, "Channel closed before call started");
+        for (const call2 of this.pickQueue) {
+          call2.cancelWithStatus(constants_1.Status.UNAVAILABLE, "Channel closed before call started");
         }
         this.pickQueue.clear();
         if (this.callRefTimer) {
@@ -61574,10 +61574,10 @@ var require_server_call = __commonJS({
       return status;
     }
     var ServerUnaryCallImpl = class extends events_1.EventEmitter {
-      constructor(path, call, metadata, request) {
+      constructor(path, call2, metadata, request) {
         super();
         this.path = path;
-        this.call = call;
+        this.call = call2;
         this.metadata = metadata;
         this.request = request;
         this.cancelled = false;
@@ -61606,10 +61606,10 @@ var require_server_call = __commonJS({
     };
     exports2.ServerUnaryCallImpl = ServerUnaryCallImpl;
     var ServerReadableStreamImpl = class extends stream_1.Readable {
-      constructor(path, call, metadata) {
+      constructor(path, call2, metadata) {
         super({ objectMode: true });
         this.path = path;
-        this.call = call;
+        this.call = call2;
         this.metadata = metadata;
         this.cancelled = false;
       }
@@ -61640,10 +61640,10 @@ var require_server_call = __commonJS({
     };
     exports2.ServerReadableStreamImpl = ServerReadableStreamImpl;
     var ServerWritableStreamImpl = class extends stream_1.Writable {
-      constructor(path, call, metadata, request) {
+      constructor(path, call2, metadata, request) {
         super({ objectMode: true });
         this.path = path;
-        this.call = call;
+        this.call = call2;
         this.metadata = metadata;
         this.request = request;
         this.pendingStatus = {
@@ -61696,10 +61696,10 @@ var require_server_call = __commonJS({
     };
     exports2.ServerWritableStreamImpl = ServerWritableStreamImpl;
     var ServerDuplexStreamImpl = class extends stream_1.Duplex {
-      constructor(path, call, metadata) {
+      constructor(path, call2, metadata) {
         super({ objectMode: true });
         this.path = path;
-        this.call = call;
+        this.call = call2;
         this.metadata = metadata;
         this.pendingStatus = {
           code: constants_1.Status.OK,
@@ -62224,12 +62224,12 @@ var require_orca = __commonJS({
       constructor() {
         this.message = {};
         this.serviceImplementation = {
-          StreamCoreMetrics: (call) => {
-            const reportInterval = call.request.report_interval ? (0, duration_1.durationToMs)((0, duration_1.durationMessageToDuration)(call.request.report_interval)) : DEFAULT_REPORT_INTERVAL_MS;
+          StreamCoreMetrics: (call2) => {
+            const reportInterval = call2.request.report_interval ? (0, duration_1.durationToMs)((0, duration_1.durationMessageToDuration)(call2.request.report_interval)) : DEFAULT_REPORT_INTERVAL_MS;
             const reportTimer = setInterval(() => {
-              call.write(this.message);
+              call2.write(this.message);
             }, reportInterval);
-            call.on("cancelled", () => {
+            call2.on("cancelled", () => {
               clearInterval(reportTimer);
             });
           }
@@ -63149,8 +63149,8 @@ var require_server_interceptors = __commonJS({
         responseSerialize: handler.serialize
       };
       const baseCall = new BaseServerInterceptingCall(stream, headers, callEventTracker, handler, options);
-      return interceptors.reduce((call, interceptor) => {
-        return interceptor(methodDefinition, call);
+      return interceptors.reduce((call2, interceptor) => {
+        return interceptor(methodDefinition, call2);
       }, baseCall);
     }
   }
@@ -63240,20 +63240,20 @@ var require_server = __commonJS({
       const unimplementedStatusResponse = getUnimplementedStatusResponse(methodName);
       switch (handlerType) {
         case "unary":
-          return (call, callback) => {
+          return (call2, callback) => {
             callback(unimplementedStatusResponse, null);
           };
         case "clientStream":
-          return (call, callback) => {
+          return (call2, callback) => {
             callback(unimplementedStatusResponse, null);
           };
         case "serverStream":
-          return (call) => {
-            call.emit("error", unimplementedStatusResponse);
+          return (call2) => {
+            call2.emit("error", unimplementedStatusResponse);
           };
         case "bidi":
-          return (call) => {
-            call.emit("error", unimplementedStatusResponse);
+          return (call2) => {
+            call2.emit("error", unimplementedStatusResponse);
           };
         default:
           throw new Error(`Invalid handlerType ${handlerType}`);
@@ -64045,11 +64045,11 @@ var require_server = __commonJS({
               }
             }
           };
-          const call = (0, server_interceptors_1.getServerInterceptingCall)([...extraInterceptors, ...this.interceptors], stream, headers, callEventTracker, handler, this.options);
-          if (!this._runHandlerForCall(call, handler)) {
+          const call2 = (0, server_interceptors_1.getServerInterceptingCall)([...extraInterceptors, ...this.interceptors], stream, headers, callEventTracker, handler, this.options);
+          if (!this._runHandlerForCall(call2, handler)) {
             this.callTracker.addCallFailed();
             channelzSessionInfo === null || channelzSessionInfo === void 0 ? void 0 : channelzSessionInfo.streamTracker.addCallFailed();
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.INTERNAL,
               details: `Unknown handler type: ${handler.type}`
             });
@@ -64068,24 +64068,24 @@ var require_server = __commonJS({
             this._respondWithError(getUnimplementedStatusResponse(path), stream, null);
             return;
           }
-          const call = (0, server_interceptors_1.getServerInterceptingCall)([...extraInterceptors, ...this.interceptors], stream, headers, null, handler, this.options);
-          if (!this._runHandlerForCall(call, handler)) {
-            call.sendStatus({
+          const call2 = (0, server_interceptors_1.getServerInterceptingCall)([...extraInterceptors, ...this.interceptors], stream, headers, null, handler, this.options);
+          if (!this._runHandlerForCall(call2, handler)) {
+            call2.sendStatus({
               code: constants_1.Status.INTERNAL,
               details: `Unknown handler type: ${handler.type}`
             });
           }
         }
-        _runHandlerForCall(call, handler) {
+        _runHandlerForCall(call2, handler) {
           const { type } = handler;
           if (type === "unary") {
-            handleUnary(call, handler);
+            handleUnary(call2, handler);
           } else if (type === "clientStream") {
-            handleClientStreaming(call, handler);
+            handleClientStreaming(call2, handler);
           } else if (type === "serverStream") {
-            handleServerStreaming(call, handler);
+            handleServerStreaming(call2, handler);
           } else if (type === "bidi") {
-            handleBidiStreaming(call, handler);
+            handleBidiStreaming(call2, handler);
           } else {
             return false;
           }
@@ -64419,15 +64419,15 @@ var require_server = __commonJS({
       })(), _a2;
     })();
     exports2.Server = Server;
-    async function handleUnary(call, handler) {
+    async function handleUnary(call2, handler) {
       let stream;
       function respond(err, value, trailer, flags) {
         if (err) {
-          call.sendStatus((0, server_call_1.serverErrorToStatus)(err, trailer));
+          call2.sendStatus((0, server_call_1.serverErrorToStatus)(err, trailer));
           return;
         }
-        call.sendMessage(value, () => {
-          call.sendStatus({
+        call2.sendMessage(value, () => {
+          call2.sendStatus({
             code: constants_1.Status.OK,
             details: "OK",
             metadata: trailer !== null && trailer !== void 0 ? trailer : null
@@ -64436,14 +64436,14 @@ var require_server = __commonJS({
       }
       let requestMetadata;
       let requestMessage = null;
-      call.start({
+      call2.start({
         onReceiveMetadata(metadata) {
           requestMetadata = metadata;
-          call.startRead();
+          call2.startRead();
         },
         onReceiveMessage(message) {
           if (requestMessage) {
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNIMPLEMENTED,
               details: `Received a second request message for server streaming method ${handler.path}`,
               metadata: null
@@ -64451,18 +64451,18 @@ var require_server = __commonJS({
             return;
           }
           requestMessage = message;
-          call.startRead();
+          call2.startRead();
         },
         onReceiveHalfClose() {
           if (!requestMessage) {
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNIMPLEMENTED,
               details: `Received no request message for server streaming method ${handler.path}`,
               metadata: null
             });
             return;
           }
-          stream = new server_call_1.ServerWritableStreamImpl(handler.path, call, requestMetadata, requestMessage);
+          stream = new server_call_1.ServerWritableStreamImpl(handler.path, call2, requestMetadata, requestMessage);
           try {
             handler.func(stream, respond);
           } catch (err) {
@@ -64472,7 +64472,7 @@ var require_server = __commonJS({
             } else {
               details = "Unknown error";
             }
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNKNOWN,
               details,
               metadata: null
@@ -64487,24 +64487,24 @@ var require_server = __commonJS({
         }
       });
     }
-    function handleClientStreaming(call, handler) {
+    function handleClientStreaming(call2, handler) {
       let stream;
       function respond(err, value, trailer, flags) {
         if (err) {
-          call.sendStatus((0, server_call_1.serverErrorToStatus)(err, trailer));
+          call2.sendStatus((0, server_call_1.serverErrorToStatus)(err, trailer));
           return;
         }
-        call.sendMessage(value, () => {
-          call.sendStatus({
+        call2.sendMessage(value, () => {
+          call2.sendStatus({
             code: constants_1.Status.OK,
             details: "OK",
             metadata: trailer !== null && trailer !== void 0 ? trailer : null
           });
         });
       }
-      call.start({
+      call2.start({
         onReceiveMetadata(metadata) {
-          stream = new server_call_1.ServerDuplexStreamImpl(handler.path, call, metadata);
+          stream = new server_call_1.ServerDuplexStreamImpl(handler.path, call2, metadata);
           try {
             handler.func(stream, respond);
           } catch (err) {
@@ -64514,7 +64514,7 @@ var require_server = __commonJS({
             } else {
               details = "Unknown error";
             }
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNKNOWN,
               details,
               metadata: null
@@ -64536,18 +64536,18 @@ var require_server = __commonJS({
         }
       });
     }
-    function handleServerStreaming(call, handler) {
+    function handleServerStreaming(call2, handler) {
       let stream;
       let requestMetadata;
       let requestMessage = null;
-      call.start({
+      call2.start({
         onReceiveMetadata(metadata) {
           requestMetadata = metadata;
-          call.startRead();
+          call2.startRead();
         },
         onReceiveMessage(message) {
           if (requestMessage) {
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNIMPLEMENTED,
               details: `Received a second request message for server streaming method ${handler.path}`,
               metadata: null
@@ -64555,18 +64555,18 @@ var require_server = __commonJS({
             return;
           }
           requestMessage = message;
-          call.startRead();
+          call2.startRead();
         },
         onReceiveHalfClose() {
           if (!requestMessage) {
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNIMPLEMENTED,
               details: `Received no request message for server streaming method ${handler.path}`,
               metadata: null
             });
             return;
           }
-          stream = new server_call_1.ServerWritableStreamImpl(handler.path, call, requestMetadata, requestMessage);
+          stream = new server_call_1.ServerWritableStreamImpl(handler.path, call2, requestMetadata, requestMessage);
           try {
             handler.func(stream);
           } catch (err) {
@@ -64576,7 +64576,7 @@ var require_server = __commonJS({
             } else {
               details = "Unknown error";
             }
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNKNOWN,
               details,
               metadata: null
@@ -64592,11 +64592,11 @@ var require_server = __commonJS({
         }
       });
     }
-    function handleBidiStreaming(call, handler) {
+    function handleBidiStreaming(call2, handler) {
       let stream;
-      call.start({
+      call2.start({
         onReceiveMetadata(metadata) {
-          stream = new server_call_1.ServerDuplexStreamImpl(handler.path, call, metadata);
+          stream = new server_call_1.ServerDuplexStreamImpl(handler.path, call2, metadata);
           try {
             handler.func(stream);
           } catch (err) {
@@ -64606,7 +64606,7 @@ var require_server = __commonJS({
             } else {
               details = "Unknown error";
             }
-            call.sendStatus({
+            call2.sendStatus({
               code: constants_1.Status.UNKNOWN,
               details,
               metadata: null
@@ -90562,10 +90562,10 @@ var require_fallbackServiceStub = __commonJS({
       const error3 = new googleError_1.GoogleError(err.message);
       error3.cause = err;
       const fetchError = err;
-      const httpStatus = typeof fetchError.status === "number" ? fetchError.status : fetchError.response?.status;
-      if (typeof httpStatus === "number") {
-        error3.code = (0, status_1.rpcCodeFromHttpStatusCode)(httpStatus);
-        error3.httpStatusCode = httpStatus;
+      const httpStatus2 = typeof fetchError.status === "number" ? fetchError.status : fetchError.response?.status;
+      if (typeof httpStatus2 === "number") {
+        error3.code = (0, status_1.rpcCodeFromHttpStatusCode)(httpStatus2);
+        error3.httpStatusCode = httpStatus2;
         return error3;
       }
       if (outcome.timedOut) {
@@ -93363,7 +93363,7 @@ var require_pipeline = __commonJS({
         callback(err || new ERR_STREAM_DESTROYED("pipe"));
       };
     }
-    function call(fn) {
+    function call2(fn) {
       fn();
     }
     function pipe(from, to) {
@@ -93389,9 +93389,9 @@ var require_pipeline = __commonJS({
         var writing = i6 > 0;
         return destroyer(stream, reading, writing, function(err) {
           if (!error3) error3 = err;
-          if (err) destroys.forEach(call);
+          if (err) destroys.forEach(call2);
           if (reading) return;
-          destroys.forEach(call);
+          destroys.forEach(call2);
           callback(error3);
         });
       });
@@ -102975,8 +102975,8 @@ var init_propagation = __esm({
        * @param carrier Carrier to extract context from
        * @param getter Function used to extract keys from a carrier
        */
-      extract(context2, carrier, getter = defaultTextMapGetter) {
-        return this._getGlobalPropagator().extract(context2, carrier, getter);
+      extract(context2, carrier, getter2 = defaultTextMapGetter) {
+        return this._getGlobalPropagator().extract(context2, carrier, getter2);
       }
       /**
        * Return a list of all fields which may be used by the propagator.
@@ -103219,8 +103219,8 @@ var require_TracerHelper = __commonJS({
         return void 0;
       }
       if (rpcType === "http") {
-        const httpStatus = resolveHttpStatusCode(e6);
-        return httpStatus !== void 0 ? httpStatus.toString() : void 0;
+        const httpStatus2 = resolveHttpStatusCode(e6);
+        return httpStatus2 !== void 0 ? httpStatus2.toString() : void 0;
       }
       if (rpcType === "grpc") {
         return resolveRpcStatusName(e6);
@@ -179361,6 +179361,9 @@ var init_TypeRegistry = __esm({
         const $error = es;
         const ns = $error[1];
         const qualifiedName = ns + "#" + $error[2];
+        if (!ctor.hasOwnProperty?.("shapeId")) {
+          ctor.shapeId = qualifiedName;
+        }
         for (const r6 of [this, _TypeRegistry.for(ns)]) {
           if (!r6.schemas.has(qualifiedName) && !r6.exceptions.has($error)) {
             r6.schemas.set(qualifiedName, $error);
@@ -179710,6 +179713,7 @@ var ServiceException, decorateServiceException;
 var init_exceptions = __esm({
   "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js"() {
     ServiceException = class _ServiceException extends Error {
+      static shapeId = "smithy.ts.sdk.synthetic.nonamespace.client#ServiceException";
       $fault;
       $response;
       $retryable;
@@ -179738,22 +179742,39 @@ var init_exceptions = __esm({
           if (this.prototype.isPrototypeOf(instance)) {
             return true;
           }
-          const targetName = this.name;
-          if (!targetName || !candidate.name) {
+          const targetId = Object.prototype.hasOwnProperty.call(this, "shapeId") ? this.shapeId : void 0;
+          let candidateHasShapeId = false;
+          if (targetId) {
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctor = proto.constructor;
+              const candidateId = ctor !== _ServiceException && Object.prototype.hasOwnProperty.call(ctor, "shapeId") ? ctor?.shapeId : void 0;
+              if (candidateId) {
+                candidateHasShapeId = true;
+                if (candidateId === targetId) {
+                  return true;
+                }
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
+          }
+          if (targetId && candidateHasShapeId) {
             return false;
           }
-          if (candidate.name === targetName) {
-            return true;
-          }
-          let proto = Object.getPrototypeOf(candidate);
-          while (proto && proto !== Object.prototype) {
-            const ctorName = proto.constructor?.name;
-            if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+          const targetName = this.name;
+          if (targetName && targetName.length >= 6) {
+            if (candidate.name === targetName) {
               return true;
             }
-            proto = Object.getPrototypeOf(proto);
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctorName = proto.constructor?.name;
+              if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+                return true;
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
           }
-          return false;
         }
         return false;
       }
@@ -182818,7 +182839,8 @@ var init_EndpointCache = __esm({
           return false;
         }
         for (const param of parameters) {
-          const val = String(endpointParams[param] ?? "");
+          const raw = endpointParams[param];
+          const val = raw == null ? "\0" : String(raw);
           if (val.includes("|;")) {
             return false;
           }
@@ -193702,7 +193724,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.46",
+      version: "3.997.47",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -193802,10 +193824,10 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.978.1",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.47",
+        "@aws-sdk/core": "^3.978.2",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.48",
         "@aws-sdk/types": "^3.974.6",
-        "@smithy/core": "^3.35.0",
+        "@smithy/core": "^3.35.2",
         "@smithy/fetch-http-handler": "^5.8.0",
         "@smithy/node-http-handler": "^4.12.1",
         "@smithy/types": "^4.19.0",
@@ -198080,8 +198102,8 @@ var init_AwsQueryProtocol = __esm({
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
         }
-        const shortName5 = operationSchema.name.split("#")[1] ?? operationSchema.name;
-        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName5 + "Result" : void 0;
+        const shortName6 = operationSchema.name.split("#")[1] ?? operationSchema.name;
+        const awsQueryResultKey = ns.isStructSchema() && this.useNestedResult() ? shortName6 + "Result" : void 0;
         const bytes = await collectBody(response.body, context2);
         if (bytes.byteLength > 0) {
           Object.assign(dataObject, await deserializer.read(ns, bytes, awsQueryResultKey));
@@ -198886,6 +198908,7 @@ var init_SSOOIDCServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso-oidc/models/SSOOIDCServiceException.js"() {
     init_client2();
     SSOOIDCServiceException = class _SSOOIDCServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ssooidc#SSOOIDCServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSOOIDCServiceException.prototype);
@@ -198900,6 +198923,7 @@ var init_errors = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso-oidc/models/errors.js"() {
     init_SSOOIDCServiceException();
     AccessDeniedException = class _AccessDeniedException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       error;
@@ -198918,6 +198942,7 @@ var init_errors = __esm({
       }
     };
     AuthorizationPendingException = class _AuthorizationPendingException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#AuthorizationPendingException";
       name = "AuthorizationPendingException";
       $fault = "client";
       error;
@@ -198934,6 +198959,7 @@ var init_errors = __esm({
       }
     };
     ExpiredTokenException = class _ExpiredTokenException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#ExpiredTokenException";
       name = "ExpiredTokenException";
       $fault = "client";
       error;
@@ -198950,6 +198976,7 @@ var init_errors = __esm({
       }
     };
     InternalServerException = class _InternalServerException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InternalServerException";
       name = "InternalServerException";
       $fault = "server";
       error;
@@ -198966,6 +198993,7 @@ var init_errors = __esm({
       }
     };
     InvalidClientException = class _InvalidClientException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidClientException";
       name = "InvalidClientException";
       $fault = "client";
       error;
@@ -198982,6 +199010,7 @@ var init_errors = __esm({
       }
     };
     InvalidGrantException = class _InvalidGrantException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidGrantException";
       name = "InvalidGrantException";
       $fault = "client";
       error;
@@ -198998,6 +199027,7 @@ var init_errors = __esm({
       }
     };
     InvalidRequestException = class _InvalidRequestException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidRequestException";
       name = "InvalidRequestException";
       $fault = "client";
       error;
@@ -199016,6 +199046,7 @@ var init_errors = __esm({
       }
     };
     InvalidScopeException = class _InvalidScopeException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#InvalidScopeException";
       name = "InvalidScopeException";
       $fault = "client";
       error;
@@ -199032,6 +199063,7 @@ var init_errors = __esm({
       }
     };
     SlowDownException = class _SlowDownException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#SlowDownException";
       name = "SlowDownException";
       $fault = "client";
       error;
@@ -199048,6 +199080,7 @@ var init_errors = __esm({
       }
     };
     UnauthorizedClientException = class _UnauthorizedClientException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#UnauthorizedClientException";
       name = "UnauthorizedClientException";
       $fault = "client";
       error;
@@ -199064,6 +199097,7 @@ var init_errors = __esm({
       }
     };
     UnsupportedGrantTypeException = class _UnsupportedGrantTypeException extends SSOOIDCServiceException {
+      static shapeId = "com.amazonaws.ssooidc#UnsupportedGrantTypeException";
       name = "UnsupportedGrantTypeException";
       $fault = "client";
       error;
@@ -199953,6 +199987,7 @@ var init_SSOServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso/models/SSOServiceException.js"() {
     init_client2();
     SSOServiceException = class _SSOServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.sso#SSOServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSOServiceException.prototype);
@@ -199967,6 +200002,7 @@ var init_errors2 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sso/models/errors.js"() {
     init_SSOServiceException();
     InvalidRequestException2 = class _InvalidRequestException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#InvalidRequestException";
       name = "InvalidRequestException";
       $fault = "client";
       constructor(opts) {
@@ -199979,6 +200015,7 @@ var init_errors2 = __esm({
       }
     };
     ResourceNotFoundException = class _ResourceNotFoundException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -199991,6 +200028,7 @@ var init_errors2 = __esm({
       }
     };
     TooManyRequestsException = class _TooManyRequestsException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#TooManyRequestsException";
       name = "TooManyRequestsException";
       $fault = "client";
       constructor(opts) {
@@ -200003,6 +200041,7 @@ var init_errors2 = __esm({
       }
     };
     UnauthorizedException = class _UnauthorizedException extends SSOServiceException {
+      static shapeId = "com.amazonaws.sso#UnauthorizedException";
       name = "UnauthorizedException";
       $fault = "client";
       constructor(opts) {
@@ -201116,6 +201155,7 @@ var init_STSServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/models/STSServiceException.js"() {
     init_client2();
     STSServiceException = class _STSServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.sts#STSServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _STSServiceException.prototype);
@@ -201130,6 +201170,7 @@ var init_errors3 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/models/errors.js"() {
     init_STSServiceException();
     ExpiredTokenException2 = class _ExpiredTokenException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#ExpiredTokenException";
       name = "ExpiredTokenException";
       $fault = "client";
       constructor(opts) {
@@ -201142,6 +201183,7 @@ var init_errors3 = __esm({
       }
     };
     MalformedPolicyDocumentException = class _MalformedPolicyDocumentException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#MalformedPolicyDocumentException";
       name = "MalformedPolicyDocumentException";
       $fault = "client";
       constructor(opts) {
@@ -201154,6 +201196,7 @@ var init_errors3 = __esm({
       }
     };
     PackedPolicyTooLargeException = class _PackedPolicyTooLargeException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#PackedPolicyTooLargeException";
       name = "PackedPolicyTooLargeException";
       $fault = "client";
       constructor(opts) {
@@ -201166,6 +201209,7 @@ var init_errors3 = __esm({
       }
     };
     RegionDisabledException = class _RegionDisabledException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#RegionDisabledException";
       name = "RegionDisabledException";
       $fault = "client";
       constructor(opts) {
@@ -201178,6 +201222,7 @@ var init_errors3 = __esm({
       }
     };
     IDPRejectedClaimException = class _IDPRejectedClaimException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#IDPRejectedClaimException";
       name = "IDPRejectedClaimException";
       $fault = "client";
       constructor(opts) {
@@ -201190,6 +201235,7 @@ var init_errors3 = __esm({
       }
     };
     InvalidIdentityTokenException = class _InvalidIdentityTokenException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#InvalidIdentityTokenException";
       name = "InvalidIdentityTokenException";
       $fault = "client";
       constructor(opts) {
@@ -201202,6 +201248,7 @@ var init_errors3 = __esm({
       }
     };
     IDPCommunicationErrorException = class _IDPCommunicationErrorException extends STSServiceException {
+      static shapeId = "com.amazonaws.sts#IDPCommunicationErrorException";
       name = "IDPCommunicationErrorException";
       $fault = "client";
       $retryable = {};
@@ -202285,6 +202332,7 @@ var init_SigninServiceException = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/models/SigninServiceException.js"() {
     init_client2();
     SigninServiceException = class _SigninServiceException extends ServiceException {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.signin#SigninServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SigninServiceException.prototype);
@@ -202299,6 +202347,7 @@ var init_errors4 = __esm({
   "node_modules/@aws-sdk/nested-clients/dist-es/submodules/signin/models/errors.js"() {
     init_SigninServiceException();
     AccessDeniedException2 = class _AccessDeniedException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       error;
@@ -202313,6 +202362,7 @@ var init_errors4 = __esm({
       }
     };
     InternalServerException2 = class _InternalServerException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#InternalServerException";
       name = "InternalServerException";
       $fault = "server";
       error;
@@ -202327,6 +202377,7 @@ var init_errors4 = __esm({
       }
     };
     TooManyRequestsError = class _TooManyRequestsError extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#TooManyRequestsError";
       name = "TooManyRequestsError";
       $fault = "client";
       error;
@@ -202341,6 +202392,7 @@ var init_errors4 = __esm({
       }
     };
     ValidationException = class _ValidationException extends SigninServiceException {
+      static shapeId = "com.amazonaws.signin#ValidationException";
       name = "ValidationException";
       $fault = "client";
       error;
@@ -202894,7 +202946,7 @@ var require_dist_cjs11 = __commonJS({
     var { setCredentialFeature: setCredentialFeature2 } = (init_client3(), __toCommonJS(client_exports2));
     var { CredentialsProviderError: CredentialsProviderError2, parseKnownFiles: parseKnownFiles2, getProfileName: getProfileName2 } = (init_config2(), __toCommonJS(config_exports));
     var { HttpRequest: HttpRequest2 } = (init_protocols(), __toCommonJS(protocols_exports));
-    var { createHash: createHash6, createPrivateKey, createPublicKey, sign: sign2 } = require("node:crypto");
+    var { createHash: createHash7, createPrivateKey, createPublicKey, sign: sign2 } = require("node:crypto");
     var { promises: promises3 } = require("node:fs");
     var { homedir: homedir2 } = require("node:os");
     var { dirname, join: join5 } = require("node:path");
@@ -203063,7 +203115,7 @@ var require_dist_cjs11 = __commonJS({
       getTokenFilePath() {
         const directory = process.env.AWS_LOGIN_CACHE_DIRECTORY ?? join5(homedir2(), ".aws", "login", "cache");
         const loginSessionBytes = Buffer.from(this.loginSession, "utf8");
-        const loginSessionSha256 = createHash6("sha256").update(loginSessionBytes).digest("hex");
+        const loginSessionSha256 = createHash7("sha256").update(loginSessionBytes).digest("hex");
         return join5(directory, `${loginSessionSha256}.json`);
       }
       derToRawSignature(derSignature) {
@@ -203731,7 +203783,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -203827,12 +203879,14 @@ var require_dist_cjs16 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var ECSServiceException = class _ECSServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ecs#ECSServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _ECSServiceException.prototype);
       }
     };
     var AccessDeniedException3 = class _AccessDeniedException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       constructor(opts) {
@@ -203845,6 +203899,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClientException2 = class _ClientException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClientException";
       name = "ClientException";
       $fault = "client";
       constructor(opts) {
@@ -203857,6 +203912,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterNotFoundException = class _ClusterNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterNotFoundException";
       name = "ClusterNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -203869,6 +203925,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var InvalidParameterException = class _InvalidParameterException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#InvalidParameterException";
       name = "InvalidParameterException";
       $fault = "client";
       constructor(opts) {
@@ -203881,6 +203938,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var LimitExceededException = class _LimitExceededException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#LimitExceededException";
       name = "LimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -203893,6 +203951,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServerException = class _ServerException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServerException";
       name = "ServerException";
       $fault = "server";
       constructor(opts) {
@@ -203905,6 +203964,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var UnsupportedFeatureException = class _UnsupportedFeatureException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#UnsupportedFeatureException";
       name = "UnsupportedFeatureException";
       $fault = "client";
       constructor(opts) {
@@ -203917,6 +203977,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var UpdateInProgressException = class _UpdateInProgressException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#UpdateInProgressException";
       name = "UpdateInProgressException";
       $fault = "client";
       constructor(opts) {
@@ -203929,6 +203990,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var NamespaceNotFoundException = class _NamespaceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#NamespaceNotFoundException";
       name = "NamespaceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -203941,6 +204003,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsCapacityProviderException = class _ClusterContainsCapacityProviderException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsCapacityProviderException";
       name = "ClusterContainsCapacityProviderException";
       $fault = "client";
       constructor(opts) {
@@ -203953,6 +204016,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsContainerInstancesException = class _ClusterContainsContainerInstancesException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsContainerInstancesException";
       name = "ClusterContainsContainerInstancesException";
       $fault = "client";
       constructor(opts) {
@@ -203965,6 +204029,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsServicesException = class _ClusterContainsServicesException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsServicesException";
       name = "ClusterContainsServicesException";
       $fault = "client";
       constructor(opts) {
@@ -203977,6 +204042,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ClusterContainsTasksException = class _ClusterContainsTasksException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ClusterContainsTasksException";
       name = "ClusterContainsTasksException";
       $fault = "client";
       constructor(opts) {
@@ -203989,6 +204055,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var TargetNotConnectedException = class _TargetNotConnectedException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#TargetNotConnectedException";
       name = "TargetNotConnectedException";
       $fault = "client";
       constructor(opts) {
@@ -204001,6 +204068,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ResourceInUseException = class _ResourceInUseException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ResourceInUseException";
       name = "ResourceInUseException";
       $fault = "client";
       constructor(opts) {
@@ -204013,6 +204081,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var TargetNotFoundException = class _TargetNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#TargetNotFoundException";
       name = "TargetNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204025,6 +204094,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServiceNotFoundException = class _ServiceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServiceNotFoundException";
       name = "ServiceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204037,6 +204107,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var AttributeLimitExceededException = class _AttributeLimitExceededException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#AttributeLimitExceededException";
       name = "AttributeLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -204049,6 +204120,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var MissingVersionException = class _MissingVersionException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#MissingVersionException";
       name = "MissingVersionException";
       $fault = "client";
       constructor(opts) {
@@ -204061,6 +204133,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var NoUpdateAvailableException = class _NoUpdateAvailableException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#NoUpdateAvailableException";
       name = "NoUpdateAvailableException";
       $fault = "client";
       constructor(opts) {
@@ -204073,6 +204146,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServiceDeploymentNotFoundException = class _ServiceDeploymentNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServiceDeploymentNotFoundException";
       name = "ServiceDeploymentNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204085,6 +204159,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var PlatformUnknownException = class _PlatformUnknownException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#PlatformUnknownException";
       name = "PlatformUnknownException";
       $fault = "client";
       constructor(opts) {
@@ -204097,6 +204172,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var DaemonNotActiveException = class _DaemonNotActiveException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#DaemonNotActiveException";
       name = "DaemonNotActiveException";
       $fault = "client";
       constructor(opts) {
@@ -204109,6 +204185,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var DaemonNotFoundException = class _DaemonNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#DaemonNotFoundException";
       name = "DaemonNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204121,6 +204198,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var PlatformTaskDefinitionIncompatibilityException = class _PlatformTaskDefinitionIncompatibilityException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#PlatformTaskDefinitionIncompatibilityException";
       name = "PlatformTaskDefinitionIncompatibilityException";
       $fault = "client";
       constructor(opts) {
@@ -204133,6 +204211,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ServiceNotActiveException = class _ServiceNotActiveException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ServiceNotActiveException";
       name = "ServiceNotActiveException";
       $fault = "client";
       constructor(opts) {
@@ -204145,6 +204224,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204157,6 +204237,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var ConflictException = class _ConflictException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ConflictException";
       name = "ConflictException";
       $fault = "client";
       resourceIds;
@@ -204171,6 +204252,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var TaskSetNotFoundException = class _TaskSetNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#TaskSetNotFoundException";
       name = "TaskSetNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -204183,6 +204265,7 @@ var require_dist_cjs16 = __commonJS({
       }
     };
     var BlockedException = class _BlockedException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#BlockedException";
       name = "BlockedException";
       $fault = "client";
       constructor(opts) {
@@ -212161,7 +212244,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -212262,12 +212345,14 @@ var require_dist_cjs17 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var SSMServiceException = class _SSMServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ssm#SSMServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _SSMServiceException.prototype);
       }
     };
     var AccessDeniedException3 = class _AccessDeniedException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       Message;
@@ -212282,6 +212367,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InternalServerError = class _InternalServerError extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InternalServerError";
       name = "InternalServerError";
       $fault = "server";
       Message;
@@ -212296,6 +212382,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidResourceId = class _InvalidResourceId extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidResourceId";
       name = "InvalidResourceId";
       $fault = "client";
       constructor(opts) {
@@ -212308,6 +212395,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidResourceType = class _InvalidResourceType extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidResourceType";
       name = "InvalidResourceType";
       $fault = "client";
       constructor(opts) {
@@ -212320,6 +212408,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TooManyTagsError = class _TooManyTagsError extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#TooManyTagsError";
       name = "TooManyTagsError";
       $fault = "client";
       constructor(opts) {
@@ -212332,6 +212421,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TooManyUpdates = class _TooManyUpdates extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#TooManyUpdates";
       name = "TooManyUpdates";
       $fault = "client";
       Message;
@@ -212346,6 +212436,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AlreadyExistsException = class _AlreadyExistsException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AlreadyExistsException";
       name = "AlreadyExistsException";
       $fault = "client";
       Message;
@@ -212360,6 +212451,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemConflictException = class _OpsItemConflictException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemConflictException";
       name = "OpsItemConflictException";
       $fault = "client";
       Message;
@@ -212374,6 +212466,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemInvalidParameterException = class _OpsItemInvalidParameterException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemInvalidParameterException";
       name = "OpsItemInvalidParameterException";
       $fault = "client";
       ParameterNames;
@@ -212390,6 +212483,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemLimitExceededException = class _OpsItemLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemLimitExceededException";
       name = "OpsItemLimitExceededException";
       $fault = "client";
       ResourceTypes;
@@ -212410,6 +212504,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemNotFoundException = class _OpsItemNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemNotFoundException";
       name = "OpsItemNotFoundException";
       $fault = "client";
       Message;
@@ -212424,6 +212519,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemRelatedItemAlreadyExistsException = class _OpsItemRelatedItemAlreadyExistsException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemRelatedItemAlreadyExistsException";
       name = "OpsItemRelatedItemAlreadyExistsException";
       $fault = "client";
       Message;
@@ -212442,6 +212538,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DuplicateInstanceId = class _DuplicateInstanceId extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DuplicateInstanceId";
       name = "DuplicateInstanceId";
       $fault = "client";
       constructor(opts) {
@@ -212454,6 +212551,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidCommandId = class _InvalidCommandId extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidCommandId";
       name = "InvalidCommandId";
       $fault = "client";
       constructor(opts) {
@@ -212466,6 +212564,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidInstanceId = class _InvalidInstanceId extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidInstanceId";
       name = "InvalidInstanceId";
       $fault = "client";
       Message;
@@ -212480,6 +212579,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DoesNotExistException = class _DoesNotExistException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DoesNotExistException";
       name = "DoesNotExistException";
       $fault = "client";
       Message;
@@ -212494,6 +212594,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidParameters = class _InvalidParameters extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidParameters";
       name = "InvalidParameters";
       $fault = "client";
       Message;
@@ -212508,6 +212609,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AssociationAlreadyExists = class _AssociationAlreadyExists extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AssociationAlreadyExists";
       name = "AssociationAlreadyExists";
       $fault = "client";
       constructor(opts) {
@@ -212520,6 +212622,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AssociationLimitExceeded = class _AssociationLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AssociationLimitExceeded";
       name = "AssociationLimitExceeded";
       $fault = "client";
       constructor(opts) {
@@ -212532,6 +212635,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDocument = class _InvalidDocument extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDocument";
       name = "InvalidDocument";
       $fault = "client";
       Message;
@@ -212546,6 +212650,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDocumentVersion = class _InvalidDocumentVersion extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDocumentVersion";
       name = "InvalidDocumentVersion";
       $fault = "client";
       Message;
@@ -212560,6 +212665,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidOutputLocation = class _InvalidOutputLocation extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidOutputLocation";
       name = "InvalidOutputLocation";
       $fault = "client";
       constructor(opts) {
@@ -212572,6 +212678,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidSchedule = class _InvalidSchedule extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidSchedule";
       name = "InvalidSchedule";
       $fault = "client";
       Message;
@@ -212586,6 +212693,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidTag = class _InvalidTag extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidTag";
       name = "InvalidTag";
       $fault = "client";
       Message;
@@ -212600,6 +212708,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidTarget = class _InvalidTarget extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidTarget";
       name = "InvalidTarget";
       $fault = "client";
       Message;
@@ -212614,6 +212723,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidTargetMaps = class _InvalidTargetMaps extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidTargetMaps";
       name = "InvalidTargetMaps";
       $fault = "client";
       Message;
@@ -212628,6 +212738,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedPlatformType = class _UnsupportedPlatformType extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedPlatformType";
       name = "UnsupportedPlatformType";
       $fault = "client";
       Message;
@@ -212642,6 +212753,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ConflictException = class _ConflictException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ConflictException";
       name = "ConflictException";
       $fault = "client";
       Message;
@@ -212656,6 +212768,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ServiceQuotaExceededException = class _ServiceQuotaExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ServiceQuotaExceededException";
       name = "ServiceQuotaExceededException";
       $fault = "client";
       Message;
@@ -212678,6 +212791,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DocumentAlreadyExists = class _DocumentAlreadyExists extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DocumentAlreadyExists";
       name = "DocumentAlreadyExists";
       $fault = "client";
       Message;
@@ -212692,6 +212806,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DocumentLimitExceeded = class _DocumentLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DocumentLimitExceeded";
       name = "DocumentLimitExceeded";
       $fault = "client";
       Message;
@@ -212706,6 +212821,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDocumentContent = class _InvalidDocumentContent extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDocumentContent";
       name = "InvalidDocumentContent";
       $fault = "client";
       Message;
@@ -212720,6 +212836,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDocumentSchemaVersion = class _InvalidDocumentSchemaVersion extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDocumentSchemaVersion";
       name = "InvalidDocumentSchemaVersion";
       $fault = "client";
       Message;
@@ -212734,6 +212851,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var MaxDocumentSizeExceeded = class _MaxDocumentSizeExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#MaxDocumentSizeExceeded";
       name = "MaxDocumentSizeExceeded";
       $fault = "client";
       Message;
@@ -212748,6 +212866,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var NoLongerSupportedException = class _NoLongerSupportedException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#NoLongerSupportedException";
       name = "NoLongerSupportedException";
       $fault = "client";
       Message;
@@ -212762,6 +212881,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var IdempotentParameterMismatch = class _IdempotentParameterMismatch extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#IdempotentParameterMismatch";
       name = "IdempotentParameterMismatch";
       $fault = "client";
       Message;
@@ -212776,6 +212896,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceLimitExceededException = class _ResourceLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceLimitExceededException";
       name = "ResourceLimitExceededException";
       $fault = "client";
       Message;
@@ -212790,6 +212911,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemAccessDeniedException = class _OpsItemAccessDeniedException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemAccessDeniedException";
       name = "OpsItemAccessDeniedException";
       $fault = "client";
       Message;
@@ -212804,6 +212926,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemAlreadyExistsException = class _OpsItemAlreadyExistsException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemAlreadyExistsException";
       name = "OpsItemAlreadyExistsException";
       $fault = "client";
       Message;
@@ -212820,6 +212943,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsMetadataAlreadyExistsException = class _OpsMetadataAlreadyExistsException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsMetadataAlreadyExistsException";
       name = "OpsMetadataAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -212832,6 +212956,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsMetadataInvalidArgumentException = class _OpsMetadataInvalidArgumentException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsMetadataInvalidArgumentException";
       name = "OpsMetadataInvalidArgumentException";
       $fault = "client";
       constructor(opts) {
@@ -212844,6 +212969,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsMetadataLimitExceededException = class _OpsMetadataLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsMetadataLimitExceededException";
       name = "OpsMetadataLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -212856,6 +212982,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsMetadataTooManyUpdatesException = class _OpsMetadataTooManyUpdatesException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsMetadataTooManyUpdatesException";
       name = "OpsMetadataTooManyUpdatesException";
       $fault = "client";
       constructor(opts) {
@@ -212868,6 +212995,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceDataSyncAlreadyExistsException = class _ResourceDataSyncAlreadyExistsException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceDataSyncAlreadyExistsException";
       name = "ResourceDataSyncAlreadyExistsException";
       $fault = "client";
       SyncName;
@@ -212882,6 +213010,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceDataSyncCountExceededException = class _ResourceDataSyncCountExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceDataSyncCountExceededException";
       name = "ResourceDataSyncCountExceededException";
       $fault = "client";
       Message;
@@ -212896,6 +213025,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceDataSyncInvalidConfigurationException = class _ResourceDataSyncInvalidConfigurationException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceDataSyncInvalidConfigurationException";
       name = "ResourceDataSyncInvalidConfigurationException";
       $fault = "client";
       Message;
@@ -212910,6 +213040,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidActivation = class _InvalidActivation extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidActivation";
       name = "InvalidActivation";
       $fault = "client";
       Message;
@@ -212924,6 +213055,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidActivationId = class _InvalidActivationId extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidActivationId";
       name = "InvalidActivationId";
       $fault = "client";
       Message;
@@ -212938,6 +213070,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AssociationDoesNotExist = class _AssociationDoesNotExist extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AssociationDoesNotExist";
       name = "AssociationDoesNotExist";
       $fault = "client";
       Message;
@@ -212952,6 +213085,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       Message;
@@ -212966,6 +213100,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AssociatedInstances = class _AssociatedInstances extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AssociatedInstances";
       name = "AssociatedInstances";
       $fault = "client";
       constructor(opts) {
@@ -212978,6 +213113,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDocumentOperation = class _InvalidDocumentOperation extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDocumentOperation";
       name = "InvalidDocumentOperation";
       $fault = "client";
       Message;
@@ -212992,6 +213128,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDeleteInventoryParametersException = class _InvalidDeleteInventoryParametersException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDeleteInventoryParametersException";
       name = "InvalidDeleteInventoryParametersException";
       $fault = "client";
       Message;
@@ -213006,6 +213143,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidInventoryRequestException = class _InvalidInventoryRequestException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidInventoryRequestException";
       name = "InvalidInventoryRequestException";
       $fault = "client";
       Message;
@@ -213020,6 +213158,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidOptionException = class _InvalidOptionException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidOptionException";
       name = "InvalidOptionException";
       $fault = "client";
       Message;
@@ -213034,6 +213173,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidTypeNameException = class _InvalidTypeNameException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidTypeNameException";
       name = "InvalidTypeNameException";
       $fault = "client";
       Message;
@@ -213048,6 +213188,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsMetadataNotFoundException = class _OpsMetadataNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsMetadataNotFoundException";
       name = "OpsMetadataNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -213060,6 +213201,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterNotFound = class _ParameterNotFound extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterNotFound";
       name = "ParameterNotFound";
       $fault = "client";
       constructor(opts) {
@@ -213072,6 +213214,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceInUseException = class _ResourceInUseException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceInUseException";
       name = "ResourceInUseException";
       $fault = "client";
       Message;
@@ -213086,6 +213229,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceDataSyncNotFoundException = class _ResourceDataSyncNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceDataSyncNotFoundException";
       name = "ResourceDataSyncNotFoundException";
       $fault = "client";
       SyncName;
@@ -213104,6 +213248,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var MalformedResourcePolicyDocumentException = class _MalformedResourcePolicyDocumentException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#MalformedResourcePolicyDocumentException";
       name = "MalformedResourcePolicyDocumentException";
       $fault = "client";
       Message;
@@ -213118,6 +213263,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourcePolicyConflictException = class _ResourcePolicyConflictException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourcePolicyConflictException";
       name = "ResourcePolicyConflictException";
       $fault = "client";
       Message;
@@ -213132,6 +213278,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourcePolicyInvalidParameterException = class _ResourcePolicyInvalidParameterException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourcePolicyInvalidParameterException";
       name = "ResourcePolicyInvalidParameterException";
       $fault = "client";
       ParameterNames;
@@ -213148,6 +213295,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourcePolicyNotFoundException = class _ResourcePolicyNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourcePolicyNotFoundException";
       name = "ResourcePolicyNotFoundException";
       $fault = "client";
       Message;
@@ -213162,6 +213310,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TargetInUseException = class _TargetInUseException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#TargetInUseException";
       name = "TargetInUseException";
       $fault = "client";
       Message;
@@ -213176,6 +213325,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidFilter = class _InvalidFilter extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidFilter";
       name = "InvalidFilter";
       $fault = "client";
       Message;
@@ -213190,6 +213340,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidNextToken = class _InvalidNextToken extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidNextToken";
       name = "InvalidNextToken";
       $fault = "client";
       Message;
@@ -213204,6 +213355,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAssociationVersion = class _InvalidAssociationVersion extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAssociationVersion";
       name = "InvalidAssociationVersion";
       $fault = "client";
       Message;
@@ -213218,6 +213370,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AssociationExecutionDoesNotExist = class _AssociationExecutionDoesNotExist extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AssociationExecutionDoesNotExist";
       name = "AssociationExecutionDoesNotExist";
       $fault = "client";
       Message;
@@ -213232,6 +213385,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidFilterKey = class _InvalidFilterKey extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidFilterKey";
       name = "InvalidFilterKey";
       $fault = "client";
       constructor(opts) {
@@ -213244,6 +213398,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidFilterValue = class _InvalidFilterValue extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidFilterValue";
       name = "InvalidFilterValue";
       $fault = "client";
       Message;
@@ -213258,6 +213413,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AutomationExecutionNotFoundException = class _AutomationExecutionNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AutomationExecutionNotFoundException";
       name = "AutomationExecutionNotFoundException";
       $fault = "client";
       Message;
@@ -213272,6 +213428,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidPermissionType = class _InvalidPermissionType extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidPermissionType";
       name = "InvalidPermissionType";
       $fault = "client";
       Message;
@@ -213286,6 +213443,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedOperatingSystem = class _UnsupportedOperatingSystem extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedOperatingSystem";
       name = "UnsupportedOperatingSystem";
       $fault = "client";
       Message;
@@ -213300,6 +213458,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidInstanceInformationFilterValue = class _InvalidInstanceInformationFilterValue extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidInstanceInformationFilterValue";
       name = "InvalidInstanceInformationFilterValue";
       $fault = "client";
       constructor(opts) {
@@ -213312,6 +213471,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidInstancePropertyFilterValue = class _InvalidInstancePropertyFilterValue extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidInstancePropertyFilterValue";
       name = "InvalidInstancePropertyFilterValue";
       $fault = "client";
       constructor(opts) {
@@ -213324,6 +213484,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDeletionIdException = class _InvalidDeletionIdException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDeletionIdException";
       name = "InvalidDeletionIdException";
       $fault = "client";
       Message;
@@ -213338,6 +213499,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidFilterOption = class _InvalidFilterOption extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidFilterOption";
       name = "InvalidFilterOption";
       $fault = "client";
       constructor(opts) {
@@ -213350,6 +213512,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsItemRelatedItemAssociationNotFoundException = class _OpsItemRelatedItemAssociationNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsItemRelatedItemAssociationNotFoundException";
       name = "OpsItemRelatedItemAssociationNotFoundException";
       $fault = "client";
       Message;
@@ -213364,6 +213527,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ThrottlingException = class _ThrottlingException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ThrottlingException";
       name = "ThrottlingException";
       $fault = "client";
       Message;
@@ -213382,6 +213546,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ValidationException2 = class _ValidationException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ValidationException";
       name = "ValidationException";
       $fault = "client";
       Message;
@@ -213398,6 +213563,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidDocumentType = class _InvalidDocumentType extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidDocumentType";
       name = "InvalidDocumentType";
       $fault = "client";
       Message;
@@ -213412,6 +213578,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedCalendarException = class _UnsupportedCalendarException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedCalendarException";
       name = "UnsupportedCalendarException";
       $fault = "client";
       Message;
@@ -213426,6 +213593,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidPluginName = class _InvalidPluginName extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidPluginName";
       name = "InvalidPluginName";
       $fault = "client";
       constructor(opts) {
@@ -213438,6 +213606,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvocationDoesNotExist = class _InvocationDoesNotExist extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvocationDoesNotExist";
       name = "InvocationDoesNotExist";
       $fault = "client";
       constructor(opts) {
@@ -213450,6 +213619,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedFeatureRequiredException = class _UnsupportedFeatureRequiredException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedFeatureRequiredException";
       name = "UnsupportedFeatureRequiredException";
       $fault = "client";
       Message;
@@ -213464,6 +213634,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAggregatorException = class _InvalidAggregatorException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAggregatorException";
       name = "InvalidAggregatorException";
       $fault = "client";
       Message;
@@ -213478,6 +213649,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidInventoryGroupException = class _InvalidInventoryGroupException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidInventoryGroupException";
       name = "InvalidInventoryGroupException";
       $fault = "client";
       Message;
@@ -213492,6 +213664,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidResultAttributeException = class _InvalidResultAttributeException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidResultAttributeException";
       name = "InvalidResultAttributeException";
       $fault = "client";
       Message;
@@ -213506,6 +213679,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidKeyId = class _InvalidKeyId extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidKeyId";
       name = "InvalidKeyId";
       $fault = "client";
       constructor(opts) {
@@ -213518,6 +213692,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterVersionNotFound = class _ParameterVersionNotFound extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterVersionNotFound";
       name = "ParameterVersionNotFound";
       $fault = "client";
       constructor(opts) {
@@ -213530,6 +213705,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ServiceSettingNotFound = class _ServiceSettingNotFound extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ServiceSettingNotFound";
       name = "ServiceSettingNotFound";
       $fault = "client";
       Message;
@@ -213544,6 +213720,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterVersionLabelLimitExceeded = class _ParameterVersionLabelLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterVersionLabelLimitExceeded";
       name = "ParameterVersionLabelLimitExceeded";
       $fault = "client";
       constructor(opts) {
@@ -213556,6 +213733,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedOperationException = class _UnsupportedOperationException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedOperationException";
       name = "UnsupportedOperationException";
       $fault = "client";
       Message;
@@ -213570,6 +213748,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DocumentPermissionLimit = class _DocumentPermissionLimit extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DocumentPermissionLimit";
       name = "DocumentPermissionLimit";
       $fault = "client";
       Message;
@@ -213584,6 +213763,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ComplianceTypeCountLimitExceededException = class _ComplianceTypeCountLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ComplianceTypeCountLimitExceededException";
       name = "ComplianceTypeCountLimitExceededException";
       $fault = "client";
       Message;
@@ -213598,6 +213778,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidItemContentException = class _InvalidItemContentException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidItemContentException";
       name = "InvalidItemContentException";
       $fault = "client";
       TypeName;
@@ -213614,6 +213795,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ItemSizeLimitExceededException = class _ItemSizeLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ItemSizeLimitExceededException";
       name = "ItemSizeLimitExceededException";
       $fault = "client";
       TypeName;
@@ -213630,6 +213812,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TotalSizeLimitExceededException = class _TotalSizeLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#TotalSizeLimitExceededException";
       name = "TotalSizeLimitExceededException";
       $fault = "client";
       Message;
@@ -213644,6 +213827,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var CustomSchemaCountLimitExceededException = class _CustomSchemaCountLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#CustomSchemaCountLimitExceededException";
       name = "CustomSchemaCountLimitExceededException";
       $fault = "client";
       Message;
@@ -213658,6 +213842,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidInventoryItemContextException = class _InvalidInventoryItemContextException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidInventoryItemContextException";
       name = "InvalidInventoryItemContextException";
       $fault = "client";
       Message;
@@ -213672,6 +213857,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ItemContentMismatchException = class _ItemContentMismatchException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ItemContentMismatchException";
       name = "ItemContentMismatchException";
       $fault = "client";
       TypeName;
@@ -213688,6 +213874,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var SubTypeCountLimitExceededException = class _SubTypeCountLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#SubTypeCountLimitExceededException";
       name = "SubTypeCountLimitExceededException";
       $fault = "client";
       Message;
@@ -213702,6 +213889,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedInventoryItemContextException = class _UnsupportedInventoryItemContextException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedInventoryItemContextException";
       name = "UnsupportedInventoryItemContextException";
       $fault = "client";
       TypeName;
@@ -213718,6 +213906,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedInventorySchemaVersionException = class _UnsupportedInventorySchemaVersionException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedInventorySchemaVersionException";
       name = "UnsupportedInventorySchemaVersionException";
       $fault = "client";
       Message;
@@ -213732,6 +213921,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var HierarchyLevelLimitExceededException = class _HierarchyLevelLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#HierarchyLevelLimitExceededException";
       name = "HierarchyLevelLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -213744,6 +213934,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var HierarchyTypeMismatchException = class _HierarchyTypeMismatchException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#HierarchyTypeMismatchException";
       name = "HierarchyTypeMismatchException";
       $fault = "client";
       constructor(opts) {
@@ -213756,6 +213947,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var IncompatiblePolicyException = class _IncompatiblePolicyException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#IncompatiblePolicyException";
       name = "IncompatiblePolicyException";
       $fault = "client";
       constructor(opts) {
@@ -213768,6 +213960,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAllowedPatternException = class _InvalidAllowedPatternException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAllowedPatternException";
       name = "InvalidAllowedPatternException";
       $fault = "client";
       constructor(opts) {
@@ -213780,6 +213973,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidPolicyAttributeException = class _InvalidPolicyAttributeException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidPolicyAttributeException";
       name = "InvalidPolicyAttributeException";
       $fault = "client";
       constructor(opts) {
@@ -213792,6 +213986,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidPolicyTypeException = class _InvalidPolicyTypeException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidPolicyTypeException";
       name = "InvalidPolicyTypeException";
       $fault = "client";
       constructor(opts) {
@@ -213804,6 +213999,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterAlreadyExists = class _ParameterAlreadyExists extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterAlreadyExists";
       name = "ParameterAlreadyExists";
       $fault = "client";
       constructor(opts) {
@@ -213816,6 +214012,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterLimitExceeded = class _ParameterLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterLimitExceeded";
       name = "ParameterLimitExceeded";
       $fault = "client";
       constructor(opts) {
@@ -213828,6 +214025,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterMaxVersionLimitExceeded = class _ParameterMaxVersionLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterMaxVersionLimitExceeded";
       name = "ParameterMaxVersionLimitExceeded";
       $fault = "client";
       constructor(opts) {
@@ -213840,6 +214038,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ParameterPatternMismatchException = class _ParameterPatternMismatchException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ParameterPatternMismatchException";
       name = "ParameterPatternMismatchException";
       $fault = "client";
       constructor(opts) {
@@ -213852,6 +214051,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var PoliciesLimitExceededException = class _PoliciesLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#PoliciesLimitExceededException";
       name = "PoliciesLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -213864,6 +214064,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var UnsupportedParameterType = class _UnsupportedParameterType extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#UnsupportedParameterType";
       name = "UnsupportedParameterType";
       $fault = "client";
       constructor(opts) {
@@ -213876,6 +214077,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourcePolicyLimitExceededException = class _ResourcePolicyLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourcePolicyLimitExceededException";
       name = "ResourcePolicyLimitExceededException";
       $fault = "client";
       Limit;
@@ -213894,6 +214096,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var FeatureNotAvailableException = class _FeatureNotAvailableException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#FeatureNotAvailableException";
       name = "FeatureNotAvailableException";
       $fault = "client";
       Message;
@@ -213908,6 +214111,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AutomationStepNotFoundException = class _AutomationStepNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AutomationStepNotFoundException";
       name = "AutomationStepNotFoundException";
       $fault = "client";
       Message;
@@ -213922,6 +214126,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAutomationSignalException = class _InvalidAutomationSignalException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAutomationSignalException";
       name = "InvalidAutomationSignalException";
       $fault = "client";
       Message;
@@ -213936,6 +214141,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidNotificationConfig = class _InvalidNotificationConfig extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidNotificationConfig";
       name = "InvalidNotificationConfig";
       $fault = "client";
       Message;
@@ -213950,6 +214156,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidOutputFolder = class _InvalidOutputFolder extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidOutputFolder";
       name = "InvalidOutputFolder";
       $fault = "client";
       constructor(opts) {
@@ -213962,6 +214169,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidRole = class _InvalidRole extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidRole";
       name = "InvalidRole";
       $fault = "client";
       Message;
@@ -213976,6 +214184,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAssociation = class _InvalidAssociation extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAssociation";
       name = "InvalidAssociation";
       $fault = "client";
       Message;
@@ -213990,6 +214199,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AutomationDefinitionNotFoundException = class _AutomationDefinitionNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AutomationDefinitionNotFoundException";
       name = "AutomationDefinitionNotFoundException";
       $fault = "client";
       Message;
@@ -214004,6 +214214,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AutomationDefinitionVersionNotFoundException = class _AutomationDefinitionVersionNotFoundException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AutomationDefinitionVersionNotFoundException";
       name = "AutomationDefinitionVersionNotFoundException";
       $fault = "client";
       Message;
@@ -214018,6 +214229,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AutomationExecutionLimitExceededException = class _AutomationExecutionLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AutomationExecutionLimitExceededException";
       name = "AutomationExecutionLimitExceededException";
       $fault = "client";
       Message;
@@ -214032,6 +214244,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAutomationExecutionParametersException = class _InvalidAutomationExecutionParametersException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAutomationExecutionParametersException";
       name = "InvalidAutomationExecutionParametersException";
       $fault = "client";
       Message;
@@ -214046,6 +214259,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AutomationDefinitionNotApprovedException = class _AutomationDefinitionNotApprovedException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AutomationDefinitionNotApprovedException";
       name = "AutomationDefinitionNotApprovedException";
       $fault = "client";
       Message;
@@ -214060,6 +214274,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var TargetNotConnected = class _TargetNotConnected extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#TargetNotConnected";
       name = "TargetNotConnected";
       $fault = "client";
       Message;
@@ -214074,6 +214289,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidAutomationStatusUpdateException = class _InvalidAutomationStatusUpdateException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidAutomationStatusUpdateException";
       name = "InvalidAutomationStatusUpdateException";
       $fault = "client";
       Message;
@@ -214088,6 +214304,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var AssociationVersionLimitExceeded = class _AssociationVersionLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#AssociationVersionLimitExceeded";
       name = "AssociationVersionLimitExceeded";
       $fault = "client";
       Message;
@@ -214102,6 +214319,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var InvalidUpdate = class _InvalidUpdate extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#InvalidUpdate";
       name = "InvalidUpdate";
       $fault = "client";
       Message;
@@ -214116,6 +214334,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var StatusUnchanged = class _StatusUnchanged extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#StatusUnchanged";
       name = "StatusUnchanged";
       $fault = "client";
       constructor(opts) {
@@ -214128,6 +214347,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DocumentVersionLimitExceeded = class _DocumentVersionLimitExceeded extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DocumentVersionLimitExceeded";
       name = "DocumentVersionLimitExceeded";
       $fault = "client";
       Message;
@@ -214142,6 +214362,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DuplicateDocumentContent = class _DuplicateDocumentContent extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DuplicateDocumentContent";
       name = "DuplicateDocumentContent";
       $fault = "client";
       Message;
@@ -214156,6 +214377,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var DuplicateDocumentVersionName = class _DuplicateDocumentVersionName extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#DuplicateDocumentVersionName";
       name = "DuplicateDocumentVersionName";
       $fault = "client";
       Message;
@@ -214170,6 +214392,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var OpsMetadataKeyLimitExceededException = class _OpsMetadataKeyLimitExceededException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#OpsMetadataKeyLimitExceededException";
       name = "OpsMetadataKeyLimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -214182,6 +214405,7 @@ var require_dist_cjs17 = __commonJS({
       }
     };
     var ResourceDataSyncConflictException = class _ResourceDataSyncConflictException extends SSMServiceException {
+      static shapeId = "com.amazonaws.ssm#ResourceDataSyncConflictException";
       name = "ResourceDataSyncConflictException";
       $fault = "client";
       Message;
@@ -226430,17 +226654,19 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
     var EventBridgeServiceException = class _EventBridgeServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.eventbridge#EventBridgeServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _EventBridgeServiceException.prototype);
       }
     };
     var AccessDeniedException3 = class _AccessDeniedException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#AccessDeniedException";
       name = "AccessDeniedException";
       $fault = "client";
       constructor(opts) {
@@ -226453,6 +226679,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ConcurrentModificationException = class _ConcurrentModificationException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#ConcurrentModificationException";
       name = "ConcurrentModificationException";
       $fault = "client";
       constructor(opts) {
@@ -226465,6 +226692,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InternalException = class _InternalException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#InternalException";
       name = "InternalException";
       $fault = "server";
       constructor(opts) {
@@ -226477,6 +226705,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidStateException = class _InvalidStateException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#InvalidStateException";
       name = "InvalidStateException";
       $fault = "client";
       constructor(opts) {
@@ -226489,6 +226718,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var OperationDisabledException = class _OperationDisabledException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#OperationDisabledException";
       name = "OperationDisabledException";
       $fault = "client";
       constructor(opts) {
@@ -226501,6 +226731,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -226513,6 +226744,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var IllegalStatusException = class _IllegalStatusException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#IllegalStatusException";
       name = "IllegalStatusException";
       $fault = "client";
       constructor(opts) {
@@ -226525,6 +226757,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var LimitExceededException = class _LimitExceededException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#LimitExceededException";
       name = "LimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -226537,6 +226770,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ResourceAlreadyExistsException = class _ResourceAlreadyExistsException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#ResourceAlreadyExistsException";
       name = "ResourceAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -226549,6 +226783,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var InvalidEventPatternException = class _InvalidEventPatternException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#InvalidEventPatternException";
       name = "InvalidEventPatternException";
       $fault = "client";
       constructor(opts) {
@@ -226561,6 +226796,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ThrottlingException = class _ThrottlingException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#ThrottlingException";
       name = "ThrottlingException";
       $fault = "client";
       constructor(opts) {
@@ -226573,6 +226809,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var ManagedRuleException = class _ManagedRuleException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#ManagedRuleException";
       name = "ManagedRuleException";
       $fault = "client";
       constructor(opts) {
@@ -226585,6 +226822,7 @@ var require_dist_cjs18 = __commonJS({
       }
     };
     var PolicyLengthExceededException = class _PolicyLengthExceededException extends EventBridgeServiceException {
+      static shapeId = "com.amazonaws.eventbridge#PolicyLengthExceededException";
       name = "PolicyLengthExceededException";
       $fault = "client";
       constructor(opts) {
@@ -230169,7 +230407,7 @@ var require_dist_cjs19 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -230310,12 +230548,14 @@ var require_dist_cjs19 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var ECRServiceException = class _ECRServiceException extends ServiceException2 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.ecr#ECRServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _ECRServiceException.prototype);
       }
     };
     var InvalidParameterException = class _InvalidParameterException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidParameterException";
       name = "InvalidParameterException";
       $fault = "client";
       constructor(opts) {
@@ -230328,6 +230568,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var RepositoryNotFoundException2 = class _RepositoryNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryNotFoundException";
       name = "RepositoryNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230340,6 +230581,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ServerException = class _ServerException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ServerException";
       name = "ServerException";
       $fault = "server";
       constructor(opts) {
@@ -230352,6 +230594,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LimitExceededException = class _LimitExceededException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LimitExceededException";
       name = "LimitExceededException";
       $fault = "client";
       constructor(opts) {
@@ -230364,6 +230607,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnableToGetUpstreamImageException = class _UnableToGetUpstreamImageException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToGetUpstreamImageException";
       name = "UnableToGetUpstreamImageException";
       $fault = "client";
       constructor(opts) {
@@ -230376,6 +230620,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ValidationException2 = class _ValidationException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ValidationException";
       name = "ValidationException";
       $fault = "client";
       constructor(opts) {
@@ -230388,6 +230633,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var EmptyUploadException = class _EmptyUploadException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#EmptyUploadException";
       name = "EmptyUploadException";
       $fault = "client";
       constructor(opts) {
@@ -230400,6 +230646,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InvalidLayerException = class _InvalidLayerException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidLayerException";
       name = "InvalidLayerException";
       $fault = "client";
       constructor(opts) {
@@ -230412,6 +230659,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var KmsException = class _KmsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#KmsException";
       name = "KmsException";
       $fault = "client";
       kmsError;
@@ -230426,6 +230674,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LayerAlreadyExistsException = class _LayerAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayerAlreadyExistsException";
       name = "LayerAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230438,6 +230687,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LayerPartTooSmallException = class _LayerPartTooSmallException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayerPartTooSmallException";
       name = "LayerPartTooSmallException";
       $fault = "client";
       constructor(opts) {
@@ -230450,6 +230700,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UploadNotFoundException = class _UploadNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UploadNotFoundException";
       name = "UploadNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230462,6 +230713,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var PullThroughCacheRuleAlreadyExistsException = class _PullThroughCacheRuleAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#PullThroughCacheRuleAlreadyExistsException";
       name = "PullThroughCacheRuleAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230474,6 +230726,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var SecretNotFoundException = class _SecretNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#SecretNotFoundException";
       name = "SecretNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230486,6 +230739,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnableToAccessSecretException = class _UnableToAccessSecretException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToAccessSecretException";
       name = "UnableToAccessSecretException";
       $fault = "client";
       constructor(opts) {
@@ -230498,6 +230752,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnableToDecryptSecretValueException = class _UnableToDecryptSecretValueException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToDecryptSecretValueException";
       name = "UnableToDecryptSecretValueException";
       $fault = "client";
       constructor(opts) {
@@ -230510,6 +230765,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnsupportedUpstreamRegistryException = class _UnsupportedUpstreamRegistryException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnsupportedUpstreamRegistryException";
       name = "UnsupportedUpstreamRegistryException";
       $fault = "client";
       constructor(opts) {
@@ -230522,6 +230778,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InvalidTagParameterException = class _InvalidTagParameterException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidTagParameterException";
       name = "InvalidTagParameterException";
       $fault = "client";
       constructor(opts) {
@@ -230534,6 +230791,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var RepositoryAlreadyExistsException = class _RepositoryAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryAlreadyExistsException";
       name = "RepositoryAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230546,6 +230804,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TooManyTagsException = class _TooManyTagsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#TooManyTagsException";
       name = "TooManyTagsException";
       $fault = "client";
       constructor(opts) {
@@ -230558,6 +230817,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TemplateAlreadyExistsException = class _TemplateAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#TemplateAlreadyExistsException";
       name = "TemplateAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230570,6 +230830,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LifecyclePolicyNotFoundException = class _LifecyclePolicyNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LifecyclePolicyNotFoundException";
       name = "LifecyclePolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230582,6 +230843,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var PullThroughCacheRuleNotFoundException = class _PullThroughCacheRuleNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#PullThroughCacheRuleNotFoundException";
       name = "PullThroughCacheRuleNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230594,6 +230856,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var RegistryPolicyNotFoundException = class _RegistryPolicyNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RegistryPolicyNotFoundException";
       name = "RegistryPolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230606,6 +230869,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var RepositoryNotEmptyException = class _RepositoryNotEmptyException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryNotEmptyException";
       name = "RepositoryNotEmptyException";
       $fault = "client";
       constructor(opts) {
@@ -230618,6 +230882,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var TemplateNotFoundException = class _TemplateNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#TemplateNotFoundException";
       name = "TemplateNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230630,6 +230895,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var RepositoryPolicyNotFoundException = class _RepositoryPolicyNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#RepositoryPolicyNotFoundException";
       name = "RepositoryPolicyNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230642,6 +230908,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var SigningConfigurationNotFoundException = class _SigningConfigurationNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#SigningConfigurationNotFoundException";
       name = "SigningConfigurationNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230654,6 +230921,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ExclusionNotFoundException = class _ExclusionNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ExclusionNotFoundException";
       name = "ExclusionNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230666,6 +230934,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImageNotFoundException2 = class _ImageNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageNotFoundException";
       name = "ImageNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230678,6 +230947,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ScanNotFoundException = class _ScanNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ScanNotFoundException";
       name = "ScanNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230690,6 +230960,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LayerInaccessibleException = class _LayerInaccessibleException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayerInaccessibleException";
       name = "LayerInaccessibleException";
       $fault = "client";
       constructor(opts) {
@@ -230702,6 +230973,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LayersNotFoundException = class _LayersNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LayersNotFoundException";
       name = "LayersNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230714,6 +230986,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnableToGetUpstreamLayerException = class _UnableToGetUpstreamLayerException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToGetUpstreamLayerException";
       name = "UnableToGetUpstreamLayerException";
       $fault = "client";
       constructor(opts) {
@@ -230726,6 +230999,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LifecyclePolicyPreviewNotFoundException = class _LifecyclePolicyPreviewNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LifecyclePolicyPreviewNotFoundException";
       name = "LifecyclePolicyPreviewNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230738,6 +231012,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnableToListUpstreamImageReferrersException = class _UnableToListUpstreamImageReferrersException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnableToListUpstreamImageReferrersException";
       name = "UnableToListUpstreamImageReferrersException";
       $fault = "client";
       constructor(opts) {
@@ -230750,6 +231025,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImageAlreadyExistsException2 = class _ImageAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageAlreadyExistsException";
       name = "ImageAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230762,6 +231038,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImageDigestDoesNotMatchException = class _ImageDigestDoesNotMatchException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageDigestDoesNotMatchException";
       name = "ImageDigestDoesNotMatchException";
       $fault = "client";
       constructor(opts) {
@@ -230774,6 +231051,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImageTagAlreadyExistsException = class _ImageTagAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageTagAlreadyExistsException";
       name = "ImageTagAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230786,6 +231064,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ReferencedImagesNotFoundException = class _ReferencedImagesNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ReferencedImagesNotFoundException";
       name = "ReferencedImagesNotFoundException";
       $fault = "client";
       constructor(opts) {
@@ -230798,6 +231077,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var BlockedByOrganizationPolicyException = class _BlockedByOrganizationPolicyException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#BlockedByOrganizationPolicyException";
       name = "BlockedByOrganizationPolicyException";
       $fault = "client";
       constructor(opts) {
@@ -230810,6 +231090,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ExclusionAlreadyExistsException = class _ExclusionAlreadyExistsException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ExclusionAlreadyExistsException";
       name = "ExclusionAlreadyExistsException";
       $fault = "client";
       constructor(opts) {
@@ -230822,6 +231103,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImageArchivedException = class _ImageArchivedException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageArchivedException";
       name = "ImageArchivedException";
       $fault = "client";
       constructor(opts) {
@@ -230834,6 +231116,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var UnsupportedImageTypeException = class _UnsupportedImageTypeException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#UnsupportedImageTypeException";
       name = "UnsupportedImageTypeException";
       $fault = "client";
       constructor(opts) {
@@ -230846,6 +231129,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var LifecyclePolicyPreviewInProgressException = class _LifecyclePolicyPreviewInProgressException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#LifecyclePolicyPreviewInProgressException";
       name = "LifecyclePolicyPreviewInProgressException";
       $fault = "client";
       constructor(opts) {
@@ -230858,6 +231142,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var ImageStorageClassUpdateNotSupportedException = class _ImageStorageClassUpdateNotSupportedException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ImageStorageClassUpdateNotSupportedException";
       name = "ImageStorageClassUpdateNotSupportedException";
       $fault = "client";
       constructor(opts) {
@@ -230870,6 +231155,7 @@ var require_dist_cjs19 = __commonJS({
       }
     };
     var InvalidLayerPartException = class _InvalidLayerPartException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#InvalidLayerPartException";
       name = "InvalidLayerPartException";
       $fault = "client";
       registryId;
@@ -235029,7 +235315,7 @@ var require_dist_cjs20 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1145.0";
+    var version = "3.1148.0";
     var packageInfo = {
       version
     };
@@ -235125,12 +235411,14 @@ var require_dist_cjs20 = __commonJS({
     };
     customEndpointFunctions2.aws = awsEndpointFunctions2;
     var LambdaServiceException = class _LambdaServiceException extends ServiceException$1 {
+      static shapeId = "smithy.ts.sdk.synthetic.com.amazonaws.lambda#LambdaServiceException";
       constructor(options) {
         super(options);
         Object.setPrototypeOf(this, _LambdaServiceException.prototype);
       }
     };
     var InvalidParameterValueException = class _InvalidParameterValueException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidParameterValueException";
       name = "InvalidParameterValueException";
       $fault = "client";
       Type;
@@ -235145,6 +235433,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var PolicyLengthExceededException = class _PolicyLengthExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#PolicyLengthExceededException";
       name = "PolicyLengthExceededException";
       $fault = "client";
       Type;
@@ -235159,6 +235448,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var PreconditionFailedException = class _PreconditionFailedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#PreconditionFailedException";
       name = "PreconditionFailedException";
       $fault = "client";
       Type;
@@ -235173,6 +235463,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ResourceConflictException = class _ResourceConflictException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceConflictException";
       name = "ResourceConflictException";
       $fault = "client";
       Type;
@@ -235187,6 +235478,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ResourceNotFoundException2 = class _ResourceNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceNotFoundException";
       name = "ResourceNotFoundException";
       $fault = "client";
       Type;
@@ -235203,6 +235495,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ServiceException2 = class _ServiceException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ServiceException";
       name = "ServiceException";
       $fault = "server";
       Type;
@@ -235219,6 +235512,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var TooManyRequestsException2 = class _TooManyRequestsException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#TooManyRequestsException";
       name = "TooManyRequestsException";
       $fault = "client";
       retryAfterSeconds;
@@ -235237,6 +235531,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var PublicPolicyException = class _PublicPolicyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#PublicPolicyException";
       name = "PublicPolicyException";
       $fault = "client";
       Type;
@@ -235253,6 +235548,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var AliasLimitExceededException = class _AliasLimitExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#AliasLimitExceededException";
       name = "AliasLimitExceededException";
       $fault = "client";
       Type;
@@ -235267,6 +235563,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CapacityProviderLimitExceededException = class _CapacityProviderLimitExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CapacityProviderLimitExceededException";
       name = "CapacityProviderLimitExceededException";
       $fault = "client";
       Type;
@@ -235281,6 +235578,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var KMSAccessDeniedException = class _KMSAccessDeniedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSAccessDeniedException";
       name = "KMSAccessDeniedException";
       $fault = "server";
       Type;
@@ -235297,6 +235595,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var KMSDisabledException = class _KMSDisabledException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSDisabledException";
       name = "KMSDisabledException";
       $fault = "server";
       Type;
@@ -235313,6 +235612,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var KMSInvalidStateException = class _KMSInvalidStateException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSInvalidStateException";
       name = "KMSInvalidStateException";
       $fault = "server";
       Type;
@@ -235329,6 +235629,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var KMSNotFoundException = class _KMSNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#KMSNotFoundException";
       name = "KMSNotFoundException";
       $fault = "server";
       Type;
@@ -235345,6 +235646,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ResourceInUseException = class _ResourceInUseException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceInUseException";
       name = "ResourceInUseException";
       $fault = "client";
       Type;
@@ -235361,6 +235663,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CodeSigningConfigNotFoundException = class _CodeSigningConfigNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeSigningConfigNotFoundException";
       name = "CodeSigningConfigNotFoundException";
       $fault = "client";
       Type;
@@ -235377,6 +235680,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CodeStorageExceededException = class _CodeStorageExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeStorageExceededException";
       name = "CodeStorageExceededException";
       $fault = "client";
       Type;
@@ -235391,6 +235695,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CodeVerificationFailedException = class _CodeVerificationFailedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeVerificationFailedException";
       name = "CodeVerificationFailedException";
       $fault = "client";
       Type;
@@ -235407,6 +235712,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var FunctionVersionsPerCapacityProviderLimitExceededException = class _FunctionVersionsPerCapacityProviderLimitExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#FunctionVersionsPerCapacityProviderLimitExceededException";
       name = "FunctionVersionsPerCapacityProviderLimitExceededException";
       $fault = "client";
       Type;
@@ -235421,6 +235727,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var InvalidCodeSignatureException = class _InvalidCodeSignatureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidCodeSignatureException";
       name = "InvalidCodeSignatureException";
       $fault = "client";
       Type;
@@ -235437,6 +235744,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CodeArtifactUserDeletedException = class _CodeArtifactUserDeletedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeArtifactUserDeletedException";
       name = "CodeArtifactUserDeletedException";
       $fault = "client";
       Type;
@@ -235451,6 +235759,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CodeArtifactUserFailedException = class _CodeArtifactUserFailedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeArtifactUserFailedException";
       name = "CodeArtifactUserFailedException";
       $fault = "client";
       Type;
@@ -235465,6 +235774,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CodeArtifactUserPendingException = class _CodeArtifactUserPendingException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CodeArtifactUserPendingException";
       name = "CodeArtifactUserPendingException";
       $fault = "client";
       Type;
@@ -235479,6 +235789,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var DurableExecutionAlreadyStartedException = class _DurableExecutionAlreadyStartedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#DurableExecutionAlreadyStartedException";
       name = "DurableExecutionAlreadyStartedException";
       $fault = "client";
       Type;
@@ -235495,6 +235806,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EC2AccessDeniedException = class _EC2AccessDeniedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EC2AccessDeniedException";
       name = "EC2AccessDeniedException";
       $fault = "server";
       Type;
@@ -235511,6 +235823,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EC2ThrottledException = class _EC2ThrottledException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EC2ThrottledException";
       name = "EC2ThrottledException";
       $fault = "server";
       Type;
@@ -235527,6 +235840,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EC2UnexpectedException = class _EC2UnexpectedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EC2UnexpectedException";
       name = "EC2UnexpectedException";
       $fault = "server";
       Type;
@@ -235545,6 +235859,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EFSIOException = class _EFSIOException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSIOException";
       name = "EFSIOException";
       $fault = "client";
       Type;
@@ -235561,6 +235876,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EFSMountConnectivityException = class _EFSMountConnectivityException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSMountConnectivityException";
       name = "EFSMountConnectivityException";
       $fault = "client";
       Type;
@@ -235577,6 +235893,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EFSMountFailureException = class _EFSMountFailureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSMountFailureException";
       name = "EFSMountFailureException";
       $fault = "client";
       Type;
@@ -235593,6 +235910,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var EFSMountTimeoutException = class _EFSMountTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#EFSMountTimeoutException";
       name = "EFSMountTimeoutException";
       $fault = "client";
       Type;
@@ -235609,6 +235927,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ENILimitReachedException = class _ENILimitReachedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ENILimitReachedException";
       name = "ENILimitReachedException";
       $fault = "server";
       Type;
@@ -235625,6 +235944,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ENINotReadyException = class _ENINotReadyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ENINotReadyException";
       name = "ENINotReadyException";
       $fault = "server";
       Type;
@@ -235641,6 +235961,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var InvalidRequestContentException = class _InvalidRequestContentException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidRequestContentException";
       name = "InvalidRequestContentException";
       $fault = "client";
       Type;
@@ -235655,6 +235976,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var InvalidRuntimeException = class _InvalidRuntimeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidRuntimeException";
       name = "InvalidRuntimeException";
       $fault = "server";
       Type;
@@ -235671,6 +235993,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var InvalidSecurityGroupIDException = class _InvalidSecurityGroupIDException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidSecurityGroupIDException";
       name = "InvalidSecurityGroupIDException";
       $fault = "server";
       Type;
@@ -235687,6 +236010,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var InvalidSubnetIDException = class _InvalidSubnetIDException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidSubnetIDException";
       name = "InvalidSubnetIDException";
       $fault = "server";
       Type;
@@ -235703,6 +236027,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var InvalidZipFileException = class _InvalidZipFileException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#InvalidZipFileException";
       name = "InvalidZipFileException";
       $fault = "server";
       Type;
@@ -235719,6 +236044,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ModeNotSupportedException = class _ModeNotSupportedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ModeNotSupportedException";
       name = "ModeNotSupportedException";
       $fault = "client";
       Type;
@@ -235733,6 +236059,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var NoPublishedVersionException = class _NoPublishedVersionException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#NoPublishedVersionException";
       name = "NoPublishedVersionException";
       $fault = "client";
       Type;
@@ -235749,6 +236076,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var RecursiveInvocationException = class _RecursiveInvocationException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#RecursiveInvocationException";
       name = "RecursiveInvocationException";
       $fault = "client";
       Type;
@@ -235765,6 +236093,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var RequestTooLargeException = class _RequestTooLargeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#RequestTooLargeException";
       name = "RequestTooLargeException";
       $fault = "client";
       Type;
@@ -235779,6 +236108,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ResourceNotReadyException = class _ResourceNotReadyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ResourceNotReadyException";
       name = "ResourceNotReadyException";
       $fault = "server";
       Type;
@@ -235793,6 +236123,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var S3FilesMountConnectivityException = class _S3FilesMountConnectivityException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#S3FilesMountConnectivityException";
       name = "S3FilesMountConnectivityException";
       $fault = "client";
       Type;
@@ -235809,6 +236140,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var S3FilesMountFailureException = class _S3FilesMountFailureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#S3FilesMountFailureException";
       name = "S3FilesMountFailureException";
       $fault = "client";
       Type;
@@ -235825,6 +236157,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var S3FilesMountTimeoutException = class _S3FilesMountTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#S3FilesMountTimeoutException";
       name = "S3FilesMountTimeoutException";
       $fault = "client";
       Type;
@@ -235841,6 +236174,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var SerializedRequestEntityTooLargeException = class _SerializedRequestEntityTooLargeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SerializedRequestEntityTooLargeException";
       name = "SerializedRequestEntityTooLargeException";
       $fault = "client";
       Type;
@@ -235855,6 +236189,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ServiceQuotaExceededException = class _ServiceQuotaExceededException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ServiceQuotaExceededException";
       name = "ServiceQuotaExceededException";
       $fault = "client";
       Type;
@@ -235871,6 +236206,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var SnapStartException = class _SnapStartException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartException";
       name = "SnapStartException";
       $fault = "client";
       Type;
@@ -235887,6 +236223,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var SnapStartNotReadyException = class _SnapStartNotReadyException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartNotReadyException";
       name = "SnapStartNotReadyException";
       $fault = "client";
       Type;
@@ -235903,6 +236240,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var SnapStartRegenerationFailureException = class _SnapStartRegenerationFailureException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartRegenerationFailureException";
       name = "SnapStartRegenerationFailureException";
       $fault = "client";
       Type;
@@ -235919,6 +236257,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var SnapStartTimeoutException = class _SnapStartTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SnapStartTimeoutException";
       name = "SnapStartTimeoutException";
       $fault = "client";
       Type;
@@ -235935,6 +236274,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var SubnetIPAddressLimitReachedException = class _SubnetIPAddressLimitReachedException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#SubnetIPAddressLimitReachedException";
       name = "SubnetIPAddressLimitReachedException";
       $fault = "server";
       Type;
@@ -235951,6 +236291,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var UnsupportedMediaTypeException = class _UnsupportedMediaTypeException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#UnsupportedMediaTypeException";
       name = "UnsupportedMediaTypeException";
       $fault = "client";
       Type;
@@ -235965,6 +236306,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var ProvisionedConcurrencyConfigNotFoundException = class _ProvisionedConcurrencyConfigNotFoundException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#ProvisionedConcurrencyConfigNotFoundException";
       name = "ProvisionedConcurrencyConfigNotFoundException";
       $fault = "client";
       Type;
@@ -235979,6 +236321,7 @@ var require_dist_cjs20 = __commonJS({
       }
     };
     var CallbackTimeoutException = class _CallbackTimeoutException extends LambdaServiceException {
+      static shapeId = "com.amazonaws.lambda#CallbackTimeoutException";
       name = "CallbackTimeoutException";
       $fault = "client";
       Type;
@@ -241212,6 +241555,7 @@ var require_dist_cjs20 = __commonJS({
     var KafkaSchemaRegistryAuthType = {
       BASIC_AUTH: "BASIC_AUTH",
       CLIENT_CERTIFICATE_TLS_AUTH: "CLIENT_CERTIFICATE_TLS_AUTH",
+      OAUTHBEARER_AUTH: "OAUTHBEARER_AUTH",
       SERVER_ROOT_CA_CERTIFICATE: "SERVER_ROOT_CA_CERTIFICATE"
     };
     var SchemaRegistryEventRecordFormat = {
@@ -241351,6 +241695,13 @@ var require_dist_cjs20 = __commonJS({
     var SourceAccessType = {
       BASIC_AUTH: "BASIC_AUTH",
       CLIENT_CERTIFICATE_TLS_AUTH: "CLIENT_CERTIFICATE_TLS_AUTH",
+      IAM_AUTH: "IAM_AUTH",
+      IAM_OAUTHBEARER_AUTH: "IAM_OAUTHBEARER_AUTH",
+      OAUTHBEARER_AUDIENCE: "OAUTHBEARER_AUDIENCE",
+      OAUTHBEARER_AUTH: "OAUTHBEARER_AUTH",
+      OAUTHBEARER_IDENTITY_POOL: "OAUTHBEARER_IDENTITY_POOL",
+      OAUTHBEARER_LOGICAL_CLUSTER: "OAUTHBEARER_LOGICAL_CLUSTER",
+      OAUTHBEARER_SCOPE: "OAUTHBEARER_SCOPE",
       SASL_SCRAM_256_AUTH: "SASL_SCRAM_256_AUTH",
       SASL_SCRAM_512_AUTH: "SASL_SCRAM_512_AUTH",
       SERVER_ROOT_CA_CERTIFICATE: "SERVER_ROOT_CA_CERTIFICATE",
@@ -243205,9 +243556,9 @@ var servicesReader = null;
 var revisionsReader = null;
 var READ_TIMEOUT_MS = 30 * 1e3;
 var QUICK_READ_TIMEOUT_MS = 15 * 1e3;
-function read(label, call, quick) {
+function read(label, call2, quick) {
   const timeout = quick ? QUICK_READ_TIMEOUT_MS : READ_TIMEOUT_MS;
-  return retryTransient(label, () => call({ timeout }), quick ? { attempts: 1 } : {});
+  return retryTransient(label, () => call2({ timeout }), quick ? { attempts: 1 } : {});
 }
 async function cloudrunGetRevision(name, { quick = false } = {}) {
   if (revisionsReader === null) revisionsReader = new RevisionsClient();
@@ -243759,6 +244110,9 @@ function updateTrafficCommand(name, revision) {
   return `gcloud run services update-traffic ${service} --to-revisions=${revision}=100 --region=${region} --project=${project}`;
 }
 
+// src/v2/apigateway.js
+var import_node_crypto6 = require("node:crypto");
+
 // src/v2/oci.js
 var import_node_zlib2 = require("node:zlib");
 var import_client_ecr2 = __toESM(require_dist_cjs19());
@@ -244151,14 +244505,301 @@ async function openImage(imageRef) {
   };
 }
 
+// src/v2/apigateway.js
+var APIG_LABEL = "org.cru.api-gateway";
+var APIG_IMAGE_DIR = "/cru/api-gateway";
+var APIG_GATEWAY_ENV = "API_GATEWAY_GATEWAY_ID";
+var APIG_BACKEND_SERVICE_ENV = "API_GATEWAY_BACKEND_SERVICE";
+var APIG_BACKEND_SA_ENV = "API_GATEWAY_BACKEND_SA";
+var BACKEND_VAR = "API_GATEWAY_BACKEND";
+var APIG_API = "https://apigateway.googleapis.com/v1";
+var POLL_INTERVAL_MS3 = 5e3;
+var CONFIG_WAIT_MS = 10 * 60 * 1e3;
+var GATEWAY_WAIT_MS = 15 * 60 * 1e3;
+var KEEP_RECENT = 5;
+var GENERATED_CONFIG_ID = /^cfg-[0-9a-f]{12}$/;
+var GAXIOS_RETRY2 = {
+  retry: true,
+  retryConfig: {
+    retry: 5,
+    retryDelay: 500,
+    httpMethodsToRetry: ["GET"],
+    statusCodesToRetry: [[429, 429], [500, 599]]
+  }
+};
+var shortName2 = (resource) => resource.split("/").pop();
+function waitBudget(ms, clock) {
+  const budget = rolloutBudget({ budgetMs: ms, ...clock });
+  budget.start();
+  return budget;
+}
+var httpStatus = (error3) => error3?.response?.status ?? error3?.status;
+function apigSpecKey(labels) {
+  const raw = labels?.[APIG_LABEL];
+  if (raw == null) return null;
+  const key = raw.trim();
+  const invalid = key === "" || key.startsWith("/") || key.includes("\\") || key.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+  if (invalid) {
+    throw new Error(
+      `Image label ${APIG_LABEL}="${raw}" is not a usable file name. Expected a relative path with no empty, "." or ".." segments (e.g. "openapi.yaml").`
+    );
+  }
+  return key;
+}
+function apigEnv(services, repo) {
+  for (const service of services) {
+    const app = findAppContainer(service.template?.containers ?? [], repo);
+    if (!app) continue;
+    const env2 = {};
+    for (const entry of app.env ?? []) {
+      if (entry.value !== void 0) env2[entry.name] = entry.value;
+    }
+    const gatewayId = env2[APIG_GATEWAY_ENV];
+    if (!gatewayId) continue;
+    const backendService = env2[APIG_BACKEND_SERVICE_ENV];
+    const backendSa = env2[APIG_BACKEND_SA_ENV];
+    const missing = [
+      backendService ? null : APIG_BACKEND_SERVICE_ENV,
+      backendSa ? null : APIG_BACKEND_SA_ENV
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      throw new Error(
+        `${APIG_GATEWAY_ENV}="${gatewayId}" is set on ${shortName2(service.name)} but ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not. Terraform must set all three together.`
+      );
+    }
+    return { gatewayId, backendService, backendSa, env: env2 };
+  }
+  return null;
+}
+var PLACEHOLDER = /\$\{([A-Z][A-Z0-9_]*)\}/g;
+function renderSpec(template, vars) {
+  const unresolved = /* @__PURE__ */ new Set();
+  const multiline = /* @__PURE__ */ new Set();
+  const rendered = template.replace(PLACEHOLDER, (match, name) => {
+    if (!Object.hasOwn(vars, name) || vars[name] == null || vars[name] === "") {
+      unresolved.add(name);
+      return match;
+    }
+    if (/[\r\n]/.test(vars[name])) multiline.add(name);
+    return String(vars[name]);
+  });
+  if (multiline.size > 0) {
+    throw new Error(`API gateway spec placeholder value(s) contain a newline: ${[...multiline].join(", ")}.`);
+  }
+  if (unresolved.size > 0) {
+    throw new Error(
+      `API gateway spec has unresolved placeholder(s): ${[...unresolved].join(", ")}. Each must be a non-empty, plain-valued env var on the app container, or ${BACKEND_VAR}. Placeholders in YAML comments are filled too.`
+    );
+  }
+  return rendered;
+}
+function configIdFor(rendered, backendSa) {
+  const hash = (0, import_node_crypto6.createHash)("sha256").update(rendered).update("\0").update(backendSa).digest("hex");
+  return `cfg-${hash.slice(0, 12)}`;
+}
+async function call(client, what, options, { backendSa } = {}) {
+  try {
+    return (await client.request(options)).data;
+  } catch (error3) {
+    const status = httpStatus(error3);
+    const detail = error3.response?.data?.error?.message ?? error3.message;
+    let message = `${what} failed${status ? ` (HTTP ${status})` : ""}: ${detail}`;
+    if (status === 403) {
+      message = message.replace(/\.?$/, ".") + " The deploy service account needs roles/apigateway.admin on the project" + (backendSa ? ` and roles/iam.serviceAccountUser on ${backendSa}.` : ".");
+    }
+    throw Object.assign(new Error(message, { cause: error3 }), { status });
+  }
+}
+var getter = (url) => ({ url: `${APIG_API}/${url}`, method: "GET", ...GAXIOS_RETRY2 });
+async function awaitOperation(client, operation2, { label, budget, pollIntervalMs }) {
+  let op2 = operation2;
+  while (!op2?.done) {
+    if (budget.remaining() <= 0) {
+      throw new Error(
+        `${label} did not finish in time (operation ${op2?.name}). It carries on at Google; re-run the deploy to pick up where it left off.`
+      );
+    }
+    await budget.sleep(pollIntervalMs);
+    info(`waiting for ${label}...`);
+    op2 = await call(client, `${label}: reading the operation`, getter(op2.name));
+  }
+  if (op2.error) {
+    throw new Error(`${label} failed: ${op2.error.message ?? JSON.stringify(op2.error)}`);
+  }
+  return op2;
+}
+async function configState(client, configName, { budget, pollIntervalMs }) {
+  const id = shortName2(configName);
+  while (true) {
+    let config;
+    try {
+      config = await call(client, `reading api config ${id}`, getter(configName));
+    } catch (error3) {
+      if (error3.status === 404) return "absent";
+      throw error3;
+    }
+    const state2 = config?.state ?? "ACTIVE";
+    if (state2 === "ACTIVE") return "active";
+    if (state2 === "FAILED") return "failed";
+    if (budget.remaining() <= 0) {
+      throw new Error(`api config ${id} was still ${state2}; another deploy may be mid-flight`);
+    }
+    info(`api config ${id} is ${state2}; waiting...`);
+    await budget.sleep(pollIntervalMs);
+  }
+}
+async function settledGateway(client, { gatewayName, gatewayId, region, backendSa, budget, pollIntervalMs }) {
+  while (true) {
+    const gateway = await call(client, `reading gateway ${gatewayId} in ${region}`, getter(gatewayName), { backendSa });
+    const state2 = gateway?.state ?? "ACTIVE";
+    if (!["CREATING", "UPDATING", "DELETING"].includes(state2)) return gateway;
+    if (budget.remaining() <= 0) {
+      throw new Error(`gateway ${gatewayId} was still ${state2}; another deploy may be mid-flight`);
+    }
+    info(`gateway ${gatewayId} is ${state2}; waiting...`);
+    await budget.sleep(pollIntervalMs);
+  }
+}
+async function ensureConfig(client, { apiName, configId, rendered, backendSa, budget, pollIntervalMs }) {
+  const configName = `${apiName}/configs/${configId}`;
+  const wait = { budget, pollIntervalMs };
+  const state2 = await configState(client, configName, wait);
+  if (state2 === "active") return "reused";
+  if (state2 === "failed") {
+    warning(`api config ${configId} is FAILED, left by an earlier run; replacing it`);
+    const op2 = await call(client, `deleting failed api config ${configId}`, { url: `${APIG_API}/${configName}`, method: "DELETE" });
+    await awaitOperation(client, op2, { label: `api config ${configId} delete`, ...wait });
+  }
+  info(`creating api config ${configId} (${rendered.length} bytes of spec)`);
+  try {
+    const op2 = await call(client, `creating api config ${configId}`, {
+      url: `${APIG_API}/${apiName}/configs`,
+      method: "POST",
+      params: { apiConfigId: configId },
+      data: {
+        // REST v1 spells the backend SA as this top-level field.
+        gatewayServiceAccount: backendSa,
+        openapiDocuments: [
+          { document: { path: "openapi.yaml", contents: Buffer.from(rendered).toString("base64") } }
+        ]
+      }
+    }, { backendSa });
+    await awaitOperation(client, op2, { label: `api config ${configId} create`, ...wait });
+  } catch (error3) {
+    if (error3.status !== 409) throw error3;
+    info(`api config ${configId} was created concurrently; waiting for it`);
+    const raced = await configState(client, configName, wait);
+    if (raced !== "active") {
+      throw new Error(`api config ${configId} was created concurrently but is ${raced === "absent" ? "gone" : "FAILED"}`, { cause: error3 });
+    }
+    return "reused";
+  }
+  return "created";
+}
+async function prepareApiConfig({ image, services, repo, runtimeProject, oci, region = DEFAULT_REGION, timing = {} }) {
+  const wiring = apigEnv(services, repo);
+  if (!wiring) return null;
+  const { gatewayId, backendService, backendSa, env: env2 } = wiring;
+  const { pollIntervalMs = POLL_INTERVAL_MS3, ...clock } = timing;
+  const handle = oci ? await oci() : await openImage(image);
+  const specKey = apigSpecKey(handle.labels);
+  if (specKey === null) {
+    throw new Error(
+      `${APIG_GATEWAY_ENV}="${gatewayId}" says this environment has an API gateway, but ${image} has no ${APIG_LABEL} label, so there is no spec to publish.`
+    );
+  }
+  const source = `${APIG_IMAGE_DIR}/${specKey}`;
+  info(`extracting ${source} from ${image}`);
+  const template = await handle.readFile(source);
+  if (!template) {
+    throw new Error(
+      `Image declares ${APIG_LABEL}="${specKey}" but has no file at ${source}. The Dockerfile must COPY the spec there.`
+    );
+  }
+  const backend = services.find((service) => shortName2(service.name) === backendService);
+  if (!backend?.uri) {
+    throw new Error(
+      `${APIG_BACKEND_SERVICE_ENV}="${backendService}" must name a Cloud Run service with a URI in ${runtimeProject} (found: ${services.map((s3) => shortName2(s3.name)).join(", ") || "none"}).`
+    );
+  }
+  const rendered = renderSpec(template.toString("utf8"), { ...env2, [BACKEND_VAR]: backend.uri });
+  const configId = configIdFor(rendered, backendSa);
+  const client = await authClient();
+  const gatewayName = `projects/${runtimeProject}/locations/${region}/gateways/${gatewayId}`;
+  const budget = waitBudget(CONFIG_WAIT_MS, clock);
+  const gateway = await settledGateway(client, { gatewayName, gatewayId, region, backendSa, budget, pollIntervalMs });
+  const current = gateway?.apiConfig;
+  const match = current?.match(/^(projects\/[^/]+\/locations\/global\/apis\/[^/]+)\/configs\/([^/]+)$/);
+  if (!match) {
+    throw new Error(`Gateway ${gatewayName} has no usable apiConfig (got ${current ?? "none"}).`);
+  }
+  const [, apiName, previousConfigId] = match;
+  const plan = { gatewayId, gatewayName, apiName, configId, previousConfigId, backendSa, pollIntervalMs, clock };
+  if (previousConfigId === configId) return { ...plan, status: "unchanged" };
+  const status = await ensureConfig(client, { apiName, configId, rendered, backendSa, budget, pollIntervalMs });
+  info(`api config ${configId} is ready (${status})`);
+  return { ...plan, status };
+}
+async function collectGarbage(client, { apiName, keep }) {
+  const deleted = [];
+  try {
+    const configs = [];
+    let pageToken;
+    do {
+      const page = await call(client, "listing api configs", {
+        ...getter(`${apiName}/configs`),
+        params: { pageSize: 100, ...pageToken ? { pageToken } : {} }
+      });
+      configs.push(...page?.apiConfigs ?? []);
+      pageToken = page?.nextPageToken;
+    } while (pageToken);
+    const generated = configs.filter((config) => GENERATED_CONFIG_ID.test(shortName2(config.name ?? ""))).sort((a5, b5) => String(b5.createTime ?? "").localeCompare(String(a5.createTime ?? "")));
+    const kept = /* @__PURE__ */ new Set([...keep, ...generated.slice(0, KEEP_RECENT).map((config) => shortName2(config.name))]);
+    for (const config of generated) {
+      const id = shortName2(config.name);
+      if (kept.has(id)) continue;
+      try {
+        await call(client, `deleting api config ${id}`, { url: `${APIG_API}/${config.name}`, method: "DELETE" });
+        deleted.push(id);
+      } catch (error3) {
+        warning(`old api config ${id} not deleted (deploy unaffected): ${error3.message}`);
+      }
+    }
+    if (deleted.length > 0) info(`deleting old api configs: ${deleted.join(", ")}`);
+  } catch (error3) {
+    warning(`old api configs not cleaned up (deploy unaffected): ${error3.message}`);
+  }
+  return deleted;
+}
+async function pointGateway(plan) {
+  const { gatewayId, gatewayName, apiName, configId, previousConfigId, backendSa, pollIntervalMs, clock, status } = plan;
+  const result = { status, gatewayId, configId, previousConfigId, deletedConfigIds: [] };
+  if (status === "unchanged") return result;
+  const client = await authClient();
+  info(`pointing gateway ${gatewayId} at ${configId} (this takes a few minutes)`);
+  const op2 = await call(client, `pointing gateway ${gatewayId} at ${configId}`, {
+    url: `${APIG_API}/${gatewayName}`,
+    method: "PATCH",
+    params: { updateMask: "apiConfig" },
+    data: { apiConfig: `${apiName}/configs/${configId}` }
+  }, { backendSa });
+  await awaitOperation(client, op2, {
+    label: `gateway ${gatewayId} update`,
+    budget: waitBudget(GATEWAY_WAIT_MS, clock),
+    pollIntervalMs
+  });
+  result.deletedConfigIds = await collectGarbage(client, { apiName, keep: [configId, previousConfigId] });
+  return result;
+}
+
 // src/v2/signin.js
-var import_node_crypto6 = require("node:crypto");
+var import_node_crypto7 = require("node:crypto");
 var SIGNIN_LABEL = "org.cru.iap-signin";
 var SIGNIN_IMAGE_DIR = "/cru/iap-signin";
 var SIGNIN_BUCKET_ENV = "IAP_SIGNIN_BUCKET";
 var CONTENT_TYPE = "text/html";
 var CACHE_CONTROL = "public, max-age=300";
-var GAXIOS_RETRY2 = {
+var GAXIOS_RETRY3 = {
   retry: true,
   retryConfig: {
     retry: 5,
@@ -244192,7 +244833,7 @@ function signinBucket(services, repo) {
   return null;
 }
 async function uploadObject({ bucket, key, body, contentType, cacheControl }) {
-  const boundary = `cru-${(0, import_node_crypto6.createHash)("sha256").update(body).digest("hex").slice(0, 32)}`;
+  const boundary = `cru-${(0, import_node_crypto7.createHash)("sha256").update(body).digest("hex").slice(0, 32)}`;
   const metadata = JSON.stringify({ name: key, contentType, cacheControl });
   const payload2 = Buffer.concat([
     Buffer.from(
@@ -244217,7 +244858,7 @@ Content-Type: ${contentType}\r
     params: { uploadType: "multipart" },
     headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
     body: payload2,
-    ...GAXIOS_RETRY2
+    ...GAXIOS_RETRY3
   });
 }
 async function publishSigninPage({ image, bucket, oci }) {
@@ -244461,7 +245102,7 @@ async function publishSourceMaps({
 
 // src/v2/deploy-cloudrun.js
 var DB_MIGRATE_JOB = "db-migrate";
-var shortName2 = (resource) => resource.split("/").pop();
+var shortName3 = (resource) => resource.split("/").pop();
 async function deployCloudRun({ image, runtimeProject, appUrl, stopRolloutOnFailure }, rollout = {}) {
   assertDigestRef(image);
   if (!runtimeProject) {
@@ -244474,7 +245115,15 @@ async function deployCloudRun({ image, runtimeProject, appUrl, stopRolloutOnFail
   const jobs = await cloudrunListJobs(runtimeProject);
   info(`jobs: ${JSON.stringify(jobs.map((j5) => j5.name))}`);
   const secrets = await listSecrets(runtimeProject, RUNTIME_PARAM_TYPES);
-  const migrateJob = jobs.find((job) => shortName2(job.name) === DB_MIGRATE_JOB);
+  let handle = null;
+  const openSharedImage = () => {
+    if (handle === null) handle = openImage(image);
+    return handle;
+  };
+  const rollback = stopRolloutOnFailure === false;
+  const gateway = { image, services, repo, runtimeProject, openSharedImage, rollback };
+  let apigPlan = rollback ? null : await prepareGateway(gateway);
+  const migrateJob = jobs.find((job) => shortName3(job.name) === DB_MIGRATE_JOB);
   if (migrateJob) {
     await updateJobImage(migrateJob, image, secrets);
     info(`executing job: ${migrateJob.name}`);
@@ -244484,11 +245133,6 @@ async function deployCloudRun({ image, runtimeProject, appUrl, stopRolloutOnFail
     if (job === migrateJob) continue;
     await updateJobImage(job, image, secrets);
   }
-  let handle = null;
-  const openSharedImage = () => {
-    if (handle === null) handle = openImage(image);
-    return handle;
-  };
   const sourcemaps = await uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage });
   const updates = services.map((service) => {
     const containers = service.template.containers;
@@ -244500,7 +245144,7 @@ async function deployCloudRun({ image, runtimeProject, appUrl, stopRolloutOnFail
     };
   });
   await rollOutServices(updates, { stopRolloutOnFailure, ...rollout });
-  const updatedServices = services.map((service) => shortName2(service.name));
+  const updatedServices = services.map((service) => shortName3(service.name));
   const signin = { published: false };
   const bucket = signinBucket(services, repo);
   if (bucket) {
@@ -244517,11 +245161,40 @@ async function deployCloudRun({ image, runtimeProject, appUrl, stopRolloutOnFail
       warning(`sign-in page not published (deploy unaffected): ${error3.message}`);
     }
   }
-  return { deployedImage: image, services: updatedServices, signin, sourcemaps };
+  if (rollback) apigPlan = await prepareGateway(gateway);
+  const apig = await finishGateway(apigPlan, { rollback });
+  return { deployedImage: image, services: updatedServices, signin, sourcemaps, apig };
+}
+async function prepareGateway({ image, services, repo, runtimeProject, openSharedImage, rollback }) {
+  try {
+    return await prepareApiConfig({ image, services, repo, runtimeProject, oci: openSharedImage });
+  } catch (error3) {
+    if (!rollback) throw error3;
+    warning(`api gateway left as it is for this rollback: ${error3.message}`);
+    return { status: "left" };
+  }
+}
+async function finishGateway(plan, { rollback }) {
+  if (plan === null) return { status: "skipped" };
+  if (plan.status === "left") return plan;
+  try {
+    const result = await pointGateway(plan);
+    info(`api gateway ${result.gatewayId}: ${result.configId} (${result.status})`);
+    return result;
+  } catch (error3) {
+    if (!rollback) {
+      throw new Error(
+        `The services run the new image, but api gateway ${plan.gatewayId} is not confirmed on ${plan.configId} (it served ${plan.previousConfigId} before): ${error3.message} Re-run the deploy to finish; a release-candidate re-run needs force, since the services already run this image.`,
+        { cause: error3 }
+      );
+    }
+    warning(`api gateway left on ${plan.previousConfigId} for this rollback: ${error3.message}`);
+    return { status: "left", gatewayId: plan.gatewayId, configId: plan.previousConfigId };
+  }
 }
 async function uploadSourceMaps({ services, secrets, repo, runtimeProject, appUrl, openSharedImage }) {
   const skipped = { status: "skipped", uploaded: 0, failed: 0 };
-  if (!secrets.some((secret) => shortName2(secret.name) === TOKEN_SECRET)) return skipped;
+  if (!secrets.some((secret) => shortName3(secret.name) === TOKEN_SECRET)) return skipped;
   try {
     const token = await accessSecret(runtimeProject, TOKEN_SECRET);
     if (!token) return skipped;
@@ -244624,14 +245297,14 @@ var EARLY_POLL_MS2 = 60 * 1e3;
 var PRIMARY = "PRIMARY";
 var COMPLETED = "COMPLETED";
 var FAILED = "FAILED";
-var shortName3 = (arn) => String(arn).split("/").pop();
+var shortName4 = (arn) => String(arn).split("/").pop();
 async function rollOutServices2(updates, options = {}) {
   const { cluster, budget = rolloutBudget(), stopRolloutOnFailure = true, repointScheduledTasks, ...timing } = options;
   const moved = [];
   const landed3 = [];
   const stop = (outcome) => stopRollout2({ moved, landed: landed3, outcome, cluster, budget, stopRolloutOnFailure, repointScheduledTasks });
   for (const update of updates) {
-    const entry = { ...update, name: shortName3(update.serviceArn) };
+    const entry = { ...update, name: shortName4(update.serviceArn) };
     budget.start();
     if (budget.remaining(SEND_BACK_RESERVE_MS) <= 0) throw await stop({ kind: "bound", name: entry.name, untouched: true });
     info(`updating ECS service ${entry.name} -> ${entry.taskDefinitionArn}`);
@@ -244727,7 +245400,7 @@ function judge2(service, mine) {
   if (primary && primary.id !== mine.id && !mine.earlier.includes(primary.id)) {
     if (primary.taskDefinition !== mine.taskDefinitionArn) return { verdict: "superseded", message: superseded2(mine, primary) };
     info(
-      `${mine.name}: another update replaced deployment ${mine.id} with ${primary.id}, which runs this deploy's task definition (${shortName3(mine.taskDefinitionArn)}), so the wait follows ${primary.id} now.`
+      `${mine.name}: another update replaced deployment ${mine.id} with ${primary.id}, which runs this deploy's task definition (${shortName4(mine.taskDefinitionArn)}), so the wait follows ${primary.id} now.`
     );
     mine.earlier.push(mine.id);
     mine.id = primary.id;
@@ -244755,14 +245428,14 @@ function failed(mine, reason, rolledBackTo) {
       verdict: "failed",
       rolledBack: true,
       rollbackFailed: true,
-      message: `${head} ECS rolled the service back to the deployment that served before this deploy (${rolledBackTo.id}, task definition ${shortName3(rolledBackTo.taskDefinition)}), but that failed too: ${sentence(rolledBackTo.rolloutStateReason)} The service may be serving neither release. Check it.`
+      message: `${head} ECS rolled the service back to the deployment that served before this deploy (${rolledBackTo.id}, task definition ${shortName4(rolledBackTo.taskDefinition)}), but that failed too: ${sentence(rolledBackTo.rolloutStateReason)} The service may be serving neither release. Check it.`
     };
   }
   if (rolledBackTo) {
     return {
       verdict: "failed",
       rolledBack: true,
-      message: `${head} ECS is rolling the service back to the deployment that served before this deploy (${rolledBackTo.id}, task definition ${shortName3(rolledBackTo.taskDefinition)}), so it should return to the release that was live before, unless that rollback fails too.`
+      message: `${head} ECS is rolling the service back to the deployment that served before this deploy (${rolledBackTo.id}, task definition ${shortName4(rolledBackTo.taskDefinition)}), so it should return to the release that was live before, unless that rollback fails too.`
     };
   }
   return {
@@ -244778,7 +245451,7 @@ function failedEventReason(service, id) {
   if (!event) return "";
   return event.message.slice(event.message.indexOf(marker) + marker.length).replace(/^:\s*/, "") || "no reason given";
 }
-var superseded2 = (mine, primary) => `${mine.name}: another deployment (${primary.id}, task definition ${shortName3(primary.taskDefinition)}) replaced this deploy's deployment${mine.id ? ` (${mine.id})` : ""} while it rolled out, so this deploy's release is no longer the one rolling out. Nothing was sent back.`;
+var superseded2 = (mine, primary) => `${mine.name}: another deployment (${primary.id}, task definition ${shortName4(primary.taskDefinition)}) replaced this deploy's deployment${mine.id ? ` (${mine.id})` : ""} while it rolled out, so this deploy's release is no longer the one rolling out. Nothing was sent back.`;
 function progress(ours, service) {
   const counts = ours ? `rolloutState ${ours.rolloutState ?? "unknown"}, ${ours.runningCount ?? 0} of ${ours.desiredCount ?? 0} tasks running, ${ours.pendingCount ?? 0} pending` : "its deployment is not in the list";
   return `${counts}; ${latestEvent(service)}`;
@@ -244843,7 +245516,7 @@ async function sendBack({ serviceArn, previous }, cluster, budget) {
     if (read2?.taskDefinition === target) return { sent: true };
     return {
       sent: false,
-      error: new Error(`ECS answered, but the service runs ${shortName3(read2?.taskDefinition ?? service?.taskDefinition ?? "an unknown task definition")}`)
+      error: new Error(`ECS answered, but the service runs ${shortName4(read2?.taskDefinition ?? service?.taskDefinition ?? "an unknown task definition")}`)
     };
   } catch (error3) {
     return { sent: false, error: error3 };
@@ -244854,7 +245527,7 @@ function sendBackReport(results) {
   const sent = results.filter((result) => result.sent);
   if (sent.length > 0) {
     lines.push(
-      "To keep the app on the release that was serving before this deploy, ECS was told to send " + sent.map(({ entry }) => `${entry.name} back to ${shortName3(entry.previous.taskDefinitionArn)}`).join(", ") + ". ECS stops the new deployment and rolls each one back on its own, keeping the tasks that serve now until the old ones are healthy again."
+      "To keep the app on the release that was serving before this deploy, ECS was told to send " + sent.map(({ entry }) => `${entry.name} back to ${shortName4(entry.previous.taskDefinitionArn)}`).join(", ") + ". ECS stops the new deployment and rolls each one back on its own, keeping the tasks that serve now until the old ones are healthy again."
     );
   }
   for (const { entry, landedHere } of results.filter((result) => result.nothingToSend)) {
@@ -244865,13 +245538,13 @@ function sendBackReport(results) {
   for (const { entry } of results.filter((result) => result.notLive)) {
     const { taskDefinitionArn, deployment, rolloutState } = entry.previous;
     lines.push(
-      `${entry.name} was not sent back: when this deploy started, its deployment${deployment ? ` ${deployment}` : ""} on ${shortName3(taskDefinitionArn)} had not completed (rolloutState ${rolloutState ?? "unknown"}), so it is not known to have been serving. Check what it serves, and send it back by hand if it should go back: ` + updateServiceCommand(entry.serviceArn, taskDefinitionArn)
+      `${entry.name} was not sent back: when this deploy started, its deployment${deployment ? ` ${deployment}` : ""} on ${shortName4(taskDefinitionArn)} had not completed (rolloutState ${rolloutState ?? "unknown"}), so it is not known to have been serving. Check what it serves, and send it back by hand if it should go back: ` + updateServiceCommand(entry.serviceArn, taskDefinitionArn)
     );
   }
   for (const { entry, error: error3 } of results.filter((result) => !result.sent && !result.nothingToSend && !result.notLive)) {
     const target = entry.previous.taskDefinitionArn;
     lines.push(
-      `Could not send ${entry.name} back to ${shortName3(target)} (${error3.message}), so it may keep the new release unrecorded. Send it back by hand: ${updateServiceCommand(entry.serviceArn, target)}`
+      `Could not send ${entry.name} back to ${shortName4(target)} (${error3.message}), so it may keep the new release unrecorded. Send it back by hand: ${updateServiceCommand(entry.serviceArn, target)}`
     );
   }
   return lines;
@@ -244930,7 +245603,7 @@ async function deployEcs({ projectName, environment, image, appUrl, stopRolloutO
   const secrets = await runtimeSecrets(projectName, nickname);
   const regexp = ecsServiceRegExp(projectName, legacyEnv, nickname);
   const serviceArns = await ecsListServices(regexp, cluster);
-  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName4))}`);
+  info(`matching services in ${cluster}: ${JSON.stringify(serviceArns.map(shortName5))}`);
   const taskDefinitions = await ecsServiceTaskDefinitions(serviceArns, cluster);
   let handle = null;
   const openSharedImage = () => {
@@ -245144,7 +245817,7 @@ async function registerServiceRevisions({ projectName, image, secrets, serviceAr
   for (const serviceArn of serviceArns) {
     const current = taskDefinitions[serviceArn];
     if (!current?.family) {
-      throw new Error(`Could not determine the task-definition family for service ${shortName4(serviceArn)}`);
+      throw new Error(`Could not determine the task-definition family for service ${shortName5(serviceArn)}`);
     }
     const taskDefinitionArn = await registerFromFamilyLatest(current.family, { projectName, image, secrets });
     const service = starting.find((candidate) => candidate.serviceArn === serviceArn);
@@ -245200,12 +245873,12 @@ function familyOf(taskDefinitionArn) {
   if (!taskDefinitionArn) return void 0;
   return taskDefinitionArn.split("/").pop().split(":")[0];
 }
-function shortName4(arn) {
+function shortName5(arn) {
   return arn.split("/").pop();
 }
 
 // src/v2/deploy-lambda.js
-var import_node_crypto7 = require("node:crypto");
+var import_node_crypto8 = require("node:crypto");
 
 // src/v2/lambda-alias.js
 var LIVE_ALIAS = "live";
@@ -245530,7 +246203,7 @@ async function goLive(entry, image, budget, timing) {
 }
 function versionDescription(image) {
   const run2 = process.env.GITHUB_RUN_ID ? `run ${process.env.GITHUB_RUN_ID}.${process.env.GITHUB_RUN_ATTEMPT ?? "1"}, ` : "";
-  return `Deployed ${parseImageRef(image).digest} (${run2}${(0, import_node_crypto7.randomUUID)().slice(0, 8)})`;
+  return `Deployed ${parseImageRef(image).digest} (${run2}${(0, import_node_crypto8.randomUUID)().slice(0, 8)})`;
 }
 async function waitForVersion(functionName, version, budget, timing) {
   const { pollIntervalMs = POLL_INTERVAL_MS2, progressIntervalMs = PROGRESS_INTERVAL_MS } = timing;
