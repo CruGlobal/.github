@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.0](https://github.com/CruGlobal/.github/compare/v2.12.0...v2.13.0) (2026-10-14)
+
+
+### Features
+
+* **v2:** deploy-cloudrun publishes the app's API Gateway config ([#450](https://github.com/CruGlobal/.github/issues/450)) ([d5f7461](https://github.com/CruGlobal/.github/commit/d5f7461a1d9fb9f833c1fd2befdb17411f730aa5))
+
 ## [2.12.0](https://github.com/CruGlobal/.github/compare/v2.11.0...v2.12.0) (2026-10-07)
 
 
