@@ -4,7 +4,7 @@ import {v2} from "@google-cloud/run"
 import {PARAM_TYPES} from "./ecs-config";
 import {isAborted, retryTransient} from "./grpc-retry";
 
-const {ServicesClient, JobsClient} = v2
+const {ServicesClient, JobsClient, ExecutionsClient} = v2
 
 export const DEFAULT_REGION = "us-central1"
 
@@ -107,22 +107,163 @@ export async function updateJob(job) {
     return mutate(`updateJob ${job.name}`, () => client.updateJob(request))
 }
 
+// How long we will wait for a task to BEGIN, and how often we ask. A healthy
+// execution starts in one to two minutes, so this is generous.
+//
+// Cloud Run has its own start deadline of TWO HOURS, and it is not tunable: the
+// job spec exposes only containers, maxRetries, serviceAccountName and
+// timeoutSeconds, and that last one caps how long a task may RUN. Waiting that
+// deadline out failed a 05:15 nightly at 07:15, so the useful deadline is ours.
+export const START_DEADLINE_MS = 15 * 60 * 1000
+export const POLL_INTERVAL_MS = 15 * 1000
+
+// Polling settings for the cancellation's own long-running operation. gax
+// leaves `totalTimeoutMillis` unset by default, which is an INFINITE deadline —
+// and an abandoned poller keeps a ref'd timer chain alive, so the step would
+// outlive the failure it is reporting.
+const CANCEL_BACKOFF = {
+    initialRetryDelayMillis: 1000,
+    retryDelayMultiplier: 1.5,
+    maxRetryDelayMillis: 10000,
+    initialRpcTimeoutMillis: 20000,
+    rpcTimeoutMultiplier: 1,
+    maxRpcTimeoutMillis: 20000,
+    totalTimeoutMillis: 120000
+}
+
+const GRPC_NOT_FOUND = 5
+const GRPC_PERMISSION_DENIED = 7
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const count = value => Number(value ?? 0)
+
+// Has any task begun? `start_time` is the direct signal, but the proto warns it
+// "is not guaranteed to be set in happens-before order across separate
+// operations", so the counters corroborate it.
+function ranAnything(execution) {
+    return Boolean(execution.startTime) ||
+        count(execution.runningCount) > 0 ||
+        count(execution.succeededCount) > 0 ||
+        count(execution.failedCount) > 0 ||
+        count(execution.cancelledCount) > 0 ||
+        count(execution.retriedCount) > 0
+}
+
+const conditionSummary = execution => (execution?.conditions ?? [])
+    .filter(condition => condition.message)
+    .map(condition => `${condition.type}: ${condition.message}`)
+    .join("; ")
+
 // Execute a job and wait for the execution to complete. The returned
 // long-running operation only resolves once the execution finishes, and
 // rejects if it fails.
 //
-// NOT retried, unlike the updates above: a replayed RunJob can start a SECOND
-// execution of a job the server already accepted, and the only job a deploy
-// executes is database migrations. Failing a rerunnable deploy beats running
-// migrations twice.
-export async function runJob(name) {
-    const client = new JobsClient()
-    const [operation] = await client.runJob({name})
+// NOT retried, and the job's own max_retries is fixed at 0 by the Terraform
+// module for the same reason: the only job a deploy executes is database
+// migrations, and a half-applied schema change must fail the deploy loudly.
+//
+// What this does add is a deadline of OUR own on the execution starting. Cloud
+// Run will sit on an execution it cannot schedule for two hours before saying
+// so, which is two hours of a deploy job holding a runner to report a failure
+// it could have reported in fifteen minutes. On the deadline the pending
+// execution is cancelled — best effort, and only so it cannot start later and
+// collide with whatever the operator runs next — and the deploy fails with the
+// execution named.
+export async function runJob(name, options = {}) {
+    const {startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS} = options
+    const jobs = new JobsClient()
+    const [operation] = await jobs.runJob({name})
+    const executionName = operation.metadata?.name
+
+    // With no execution name there is nothing to poll, so wait on the operation
+    // exactly as this function always did.
+    if (executionName) {
+        await awaitStart(executionName, startDeadlineMs, pollIntervalMs)
+    }
+
     const [execution] = await operation.promise()
     if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
         throw new Error(`Job execution did not succeed: ${execution.name}`)
     }
     return execution
+}
+
+// Returns once a task has begun, or once the execution is terminal either way —
+// the run operation is then the authoritative account of what happened, so it
+// reports the outcome rather than this. Throws only when our deadline passes
+// first, which is the stall this function exists for.
+async function awaitStart(executionName, startDeadlineMs, pollIntervalMs) {
+    const client = new ExecutionsClient()
+    const deadline = Date.now() + startDeadlineMs
+    let last = null
+    try {
+        for (;;) {
+            let execution
+            try {
+                execution = await getExecution(client, executionName)
+            } catch (error) {
+                // A permission problem will not fix itself, and quietly falling
+                // back would turn the whole deadline off. Anything else may be
+                // read-after-write lag on the first poll or a passing blip, and
+                // the deadline still bounds us either way.
+                if (error.code === GRPC_PERMISSION_DENIED) throw error
+                if (error.code !== GRPC_NOT_FOUND) {
+                    core.warning(
+                        `${executionName}: could not read the execution (${error.message}); waiting on the run ` +
+                        "operation instead, without a start deadline."
+                    )
+                    return
+                }
+                execution = null
+            }
+
+            if (execution) {
+                if (ranAnything(execution) || execution.completionTime) return
+                last = execution
+            }
+
+            const remaining = deadline - Date.now()
+            if (remaining <= 0) break
+            await sleep(Math.min(pollIntervalMs, remaining))
+        }
+
+        const outcome = await cancelStalled(client, executionName)
+        const reason = conditionSummary(last)
+        throw new Error(
+            `${executionName} had not started ${Math.round(startDeadlineMs / 60000)} minutes after it was ` +
+            `created, so Cloud Run scheduled no task${reason ? ` (${reason})` : ""}. ${outcome} Nothing ran, ` +
+            "so the deploy can simply be run again."
+        )
+    } finally {
+        try { await client.close() } catch { /* the deploy's outcome does not turn on closing a channel */ }
+    }
+}
+
+// One read, retried the way every other call in this file is.
+async function getExecution(client, executionName) {
+    const [execution] = await retryTransient(
+        `getExecution ${executionName}`,
+        () => client.getExecution({name: executionName})
+    )
+    return execution
+}
+
+// Best effort, and deliberately not load bearing: nothing re-runs the job
+// automatically, so this only stops a late start colliding with whatever the
+// operator does next. Bounded inside gax rather than raced against a timer, so
+// a cancellation that hangs cannot outlive the step reporting the failure.
+// Whether it worked goes in the message either way.
+async function cancelStalled(client, executionName) {
+    try {
+        const [cancellation] = await client.cancelExecution({name: executionName}, {longrunning: CANCEL_BACKOFF})
+        const [execution] = await cancellation.promise()
+        return ranAnything(execution)
+            ? `It STARTED while being cancelled — check ${executionName} before running the job again.`
+            : "It has been cancelled."
+    } catch (error) {
+        return `It could NOT be cancelled (${error.message}), so Cloud Run may still start it within two hours ` +
+            "of its creation — confirm it is not running before running the job again."
+    }
 }
 
 // `containers` is the full container list for the service template (the app
