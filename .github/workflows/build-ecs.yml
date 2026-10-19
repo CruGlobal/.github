@@ -6,8 +6,8 @@ on:
       workflow-ref:
         type: string
         required: false
-        default: main
-        description: Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag.
+        default: v1
+        description: Branch, tag or commit of CruGlobal/.github to load this workflow's actions from. Defaults to the v1 tag. If you call this workflow at another ref, pass that same ref here.
       microservice-app:
         type: string
         required: false
