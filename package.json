@@ -23,25 +23,25 @@
     "@actions/core": "^3.0.0",
     "@actions/exec": "^3.0.0",
     "@actions/github": "^9.1.1",
-    "@aws-sdk/client-dynamodb": "^3.1149.0",
-    "@aws-sdk/client-ecr": "^3.1149.0",
-    "@aws-sdk/client-ecs": "^3.1149.0",
-    "@aws-sdk/client-eventbridge": "^3.1149.0",
-    "@aws-sdk/client-lambda": "^3.1149.0",
-    "@aws-sdk/client-ssm": "^3.1149.0",
-    "@google-cloud/run": "^4.1.1",
-    "@google-cloud/secret-manager": "^7.1.1",
+    "@aws-sdk/client-dynamodb": "^3.1152.0",
+    "@aws-sdk/client-ecr": "^3.1152.0",
+    "@aws-sdk/client-ecs": "^3.1152.0",
+    "@aws-sdk/client-eventbridge": "^3.1152.0",
+    "@aws-sdk/client-lambda": "^3.1152.0",
+    "@aws-sdk/client-ssm": "^3.1152.0",
+    "@google-cloud/run": "^4.2.0",
+    "@google-cloud/secret-manager": "^7.2.0",
     "escape-string-regexp": "^5.0.0",
-    "google-auth-library": "^11.2.0"
+    "google-auth-library": "^11.3.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
     "@eslint/js": "^10.0.1",
     "esbuild": "^0.28.2",
     "esbuild-plugin-license": "^1.2.3",
-    "eslint": "^10.12.0",
+    "eslint": "^10.13.0",
     "globals": "^17.13.0",
-    "js-yaml": "^5.4.3",
-    "vitest": "^5.0.3"
+    "js-yaml": "^5.5.0",
+    "vitest": "^5.0.5"
   }
 }
