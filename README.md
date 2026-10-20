@@ -37,7 +37,7 @@ These permissions are usually provided by terraform.
 #### Inputs
 | Name         | Required | Description                                            |
 |--------------|----------|--------------------------------------------------------|
-| workflow-ref | [ ]      | Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag. |
+| workflow-ref | [ ]      | Branch, tag or commit of CruGlobal/.github to load the workflow's actions from. Defaults to `v1`. If you call the workflow at another ref, pass that same ref here. |
 
 #### Outputs
 | Name          | Description                                  |
@@ -53,7 +53,7 @@ should only be run in the [cru-deploy](https://github.com/CruGlobal/cru-deploy) 
 #### Inputs
 | Name         | Required | Description                                                                                                       |
 |--------------|----------|-------------------------------------------------------------------------------------------------------------------|
-| workflow-ref | [ ]      | Branch, tag or commit used when calling the workflow. Required if calling the workflow from non default 'v1' tag. |
+| workflow-ref | [ ]      | Branch, tag or commit of CruGlobal/.github to load the workflow's actions from. Defaults to `v1`. If you call the workflow at another ref, pass that same ref here. |
 | project-name | [x]      | Project Name, defaults to GitHub repo name.                                                                       |
 | environment  | [x]      | Environment (staging/production)                                                                                  |
 | build-number | [x]      | Build Number/Tag                                                                                                  |

@@ -47,14 +47,23 @@ async function run () {
       'Missing required input or environment value. Has "setup-env" action been run?'
     )
 
-    await updateServices(projectName, environment, buildNumber)
-    await updateScheduledTasks(projectName, environment, buildNumber)
+    // Secrets are the same for every service and scheduled task — memoize so
+    // the run fetches them at most once, and not at all when there is
+    // nothing to update
+    let secretsPromise
+    const getSecrets = () => {
+      if (!secretsPromise) secretsPromise = runtimeSecrets(projectName, environment)
+      return secretsPromise
+    }
+
+    await updateServices(projectName, environment, buildNumber, getSecrets)
+    await updateScheduledTasks(projectName, environment, buildNumber, getSecrets)
   } catch (error) {
     core.setFailed(error.message)
   }
 }
 
-async function updateServices (projectName, environment, buildNumber) {
+async function updateServices (projectName, environment, buildNumber, getSecrets) {
   const env = environmentNickname(environment)
   const cluster = ecsCluster(environment)
   const serviceArns = await ecsListServices(new RegExp(`/${escapeStringRegexp(projectName)}-(${environment}|${env})-`), cluster)
@@ -62,14 +71,14 @@ async function updateServices (projectName, environment, buildNumber) {
   for (const [serviceArn, currentTaskDefinition] of Object.entries(taskDefs)) {
     const serviceName = serviceArn.split('/').pop()
     core.info(`Updating ECS Service: ${serviceName}`)
-    const taskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber)
+    const taskDefinitionArn = await updateTaskDefinition(currentTaskDefinition, projectName, environment, buildNumber, getSecrets)
     await ecsUpdateService(serviceArn, cluster, taskDefinitionArn)
     // Sleep 3 sec between updates to help with API rate limiting
     await new Promise(resolve => setTimeout(resolve, 10000))
   }
 }
 
-async function updateScheduledTasks (projectName, environment, buildNumber) {
+async function updateScheduledTasks (projectName, environment, buildNumber, getSecrets) {
   const env = environmentNickname(environment)
 
   const rules = await eventBridgeListRules(`ecstask-${projectName}-${env}`)
@@ -80,7 +89,7 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
       core.info(`Updating ECS Scheduled Task: ${target.Id}`)
 
       const currentTaskDefinition = await ecsDescribeTaskDefinition(target.EcsParameters.TaskDefinitionArn)
-      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber, currentTaskDefinition.tags)
+      target.EcsParameters.TaskDefinitionArn = await updateTaskDefinition(currentTaskDefinition.taskDefinition, projectName, environment, buildNumber, getSecrets, currentTaskDefinition.tags)
       await eventBridgeUpdateTarget(rule.Name, target)
       // Sleep 10 sec between updates to help with API rate limiting
       await new Promise(resolve => setTimeout(resolve, 10000))
@@ -88,9 +97,9 @@ async function updateScheduledTasks (projectName, environment, buildNumber) {
   }
 }
 
-async function updateTaskDefinition (taskDefinition, projectName, environment, buildNumber, taskTags = []) {
+async function updateTaskDefinition (taskDefinition, projectName, environment, buildNumber, getSecrets, taskTags = []) {
   const image = ecrImageTag(projectName, environment, buildNumber)
-  const secrets = await runtimeSecrets(projectName, environment)
+  const secrets = await getSecrets()
 
   const taskDef = {}
   // Don't add `tags` key if there are no tags, AWS will yell if tags are empty.
