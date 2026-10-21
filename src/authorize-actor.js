@@ -184,14 +184,27 @@ export async function authorize ({
   return 'push-access'
 }
 
+// Fail the step with `message`. With a title, the error annotation carries it,
+// so automation that started the run can read a fixed reason word instead of
+// parsing the message. This is what core.setFailed does, plus the title.
+function refuse (message, title) {
+  if (!title) {
+    core.setFailed(message)
+    return
+  }
+  process.exitCode = core.ExitCode.Failure
+  core.error(message, { title })
+}
+
 export async function run ({ env = process.env, sleep, timeoutMs } = {}) {
+  const refusalTitle = core.getInput('refusal-title').trim()
   try {
     const operation = core.getInput('operation')
     const token = core.getInput('github-token')
     if (!token) {
       throw new Refusal(`no github-token was given, so the account that started this run attempt cannot be checked; refusing to ${operation || 'change production'}`)
     }
-    await authorize({
+    const passedAs = await authorize({
       octokit: getOctokit(token),
       repository: core.getInput('repository'),
       operation,
@@ -204,12 +217,15 @@ export async function run ({ env = process.env, sleep, timeoutMs } = {}) {
       timeoutMs
     })
     // Only a pass reaches here. Later steps in this job can now see that this
-    // attempt was checked.
+    // attempt was checked, and how: a workflow can ask more of an automation
+    // account than of a person.
     markAttemptAuthorized(env)
+    core.setOutput('passed-as', passedAs)
   } catch (error) {
     // Anything that is not a pass is a refusal, including a bug in this code.
-    core.setFailed(error instanceof Refusal || error instanceof AttemptNotAuthorized
+    refuse(error instanceof Refusal || error instanceof AttemptNotAuthorized
       ? error.message
-      : `could not check the account that started this run attempt (${describeError(error, timeoutMs ?? REQUEST_TIMEOUT_MS)}); refusing to go ahead`)
+      : `could not check the account that started this run attempt (${describeError(error, timeoutMs ?? REQUEST_TIMEOUT_MS)}); refusing to go ahead`,
+    refusalTitle)
   }
 }

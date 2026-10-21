@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -13,8 +13,10 @@ const { getByUsername, getCollaboratorPermissionLevel, core, inputs, tokens } = 
     notice: vi.fn(),
     warning: vi.fn(),
     info: vi.fn(),
+    error: vi.fn(),
     setFailed: vi.fn(),
-    exportVariable: vi.fn()
+    exportVariable: vi.fn(),
+    setOutput: vi.fn()
   },
   inputs: {},
   tokens: []
@@ -32,8 +34,11 @@ vi.mock('@actions/core', () => ({
   notice: core.notice,
   warning: core.warning,
   info: core.info,
+  error: core.error,
   setFailed: core.setFailed,
-  exportVariable: core.exportVariable
+  exportVariable: core.exportVariable,
+  setOutput: core.setOutput,
+  ExitCode: { Success: 0, Failure: 1 }
 }))
 
 import { authorize, parseActorIds, parseRepo, run, ALLOWED_PERMISSIONS, REQUEST_TIMEOUT_MS } from '../src/authorize-actor.js'
@@ -64,7 +69,9 @@ function env ({ actor, actorId = '1001', triggeringActor = actor, runAttempt = '
   }
 }
 
-const failure = () => core.setFailed.mock.calls[0]?.[0]
+// The refusal message, whether it was posted with a title or without one.
+const failure = () => core.setFailed.mock.calls[0]?.[0] ?? core.error.mock.calls[0]?.[0]
+const failed = () => core.setFailed.mock.calls.length + core.error.mock.calls.length > 0
 
 beforeEach(() => {
   getByUsername.mockReset()
@@ -73,6 +80,10 @@ beforeEach(() => {
   for (const key of Object.keys(inputs)) delete inputs[key]
   tokens.length = 0
 })
+
+// A titled refusal sets the exit code itself, as core.setFailed would. Put it
+// back so it never leaks out of the test that set it.
+afterEach(() => { process.exitCode = undefined })
 
 describe('parseActorIds', () => {
   it('keeps whole numeric entries and trims whitespace', () => {
@@ -343,6 +354,32 @@ describe('run', () => {
     await run({ env: env({ actor: 'alice' }), sleep: noSleep })
     expect(core.setFailed).toHaveBeenCalled()
     expect(core.exportVariable).not.toHaveBeenCalled()
+    expect(core.setOutput).not.toHaveBeenCalled()
+  })
+
+  // A workflow reads passed-as to ask more of an automation account than of
+  // a person.
+  it('says it passed on push access', async () => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote', 'trusted-automation-actor-ids': BOT_ID })
+    grant({ alice: 'write' })
+    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    expect(core.setOutput).toHaveBeenCalledTimes(1)
+    expect(core.setOutput).toHaveBeenCalledWith('passed-as', 'push-access')
+  })
+
+  it('says it passed as automation for an allowlisted bot', async () => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote', 'trusted-automation-actor-ids': BOT_ID })
+    getByUsername.mockResolvedValue(user(Number(BOT_ID)))
+    await run({ env: env({ actor: BOT, actorId: BOT_ID }), sleep: noSleep })
+    expect(failed()).toBe(false)
+    expect(core.setOutput).toHaveBeenCalledWith('passed-as', 'automation')
+  })
+
+  it('says push-access when a person with access re-runs a bot-started run', async () => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote', 'trusted-automation-actor-ids': BOT_ID })
+    grant({ bob: 'write' })
+    await run({ env: env({ actor: BOT, actorId: BOT_ID, triggeringActor: 'bob', runAttempt: '2' }), sleep: noSleep })
+    expect(core.setOutput).toHaveBeenCalledWith('passed-as', 'push-access')
   })
 
   it('refuses when no token is given', async () => {
@@ -358,6 +395,45 @@ describe('run', () => {
     await expect(run({ env: env({ actor: 'alice' }), sleep: noSleep })).resolves.toBeUndefined()
     expect(failure()).toMatch(/boom.*refusing/)
   })
+
+  it('posts a refusal with no title when refusal-title is not given, as before', async () => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'roll back' })
+    grant({ alice: 'read' })
+    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    expect(core.setFailed).toHaveBeenCalledTimes(1)
+    expect(core.error).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an account without push access', () => grant({ alice: 'read' }), /^alice is not authorized to promote/],
+    ['a permission lookup that fails', () => getCollaboratorPermissionLevel.mockRejectedValue(httpError(404)), /^could not read the permission of alice/],
+    ['an unexpected error', () => getCollaboratorPermissionLevel.mockImplementation(() => { throw new TypeError('boom') }), /boom.*refusing/]
+  ])('titles the refusal with refusal-title for %s, and fails the step', async (_label, arrange, message) => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote', 'refusal-title': ' actor_not_allowed ' })
+    arrange()
+    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.error).toHaveBeenCalledTimes(1)
+    expect(core.error).toHaveBeenCalledWith(expect.stringMatching(message), { title: 'actor_not_allowed' })
+    expect(process.exitCode).toBe(1)
+    expect(core.exportVariable).not.toHaveBeenCalled()
+  })
+
+  it('titles the refusal when no token is given', async () => {
+    Object.assign(inputs, { repository: 'CruGlobal/some-app', operation: 'promote', 'refusal-title': 'actor_not_allowed' })
+    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    expect(core.error).toHaveBeenCalledWith(expect.stringMatching(/no github-token was given/), { title: 'actor_not_allowed' })
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('posts nothing and leaves the exit code alone on a pass, title or not', async () => {
+    Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/some-app', operation: 'promote', 'refusal-title': 'actor_not_allowed' })
+    grant({ alice: 'write' })
+    await run({ env: env({ actor: 'alice' }), sleep: noSleep })
+    expect(failed()).toBe(false)
+    expect(process.exitCode).toBeUndefined()
+    expect(core.exportVariable).toHaveBeenCalledWith(AUTHORIZED_ATTEMPT_MARKER, '1')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -369,9 +445,11 @@ const load = (file) => yaml.load(readFileSync(path.join(root, file), 'utf8'))
 const ACTION = './cru-github-actions/actions/authorize-actor'
 const actionYml = load('actions/authorize-actor/action.yml')
 
+// refusalTitle: the title every refusal in that workflow carries, so an
+// automation that dispatched it can read why. Rollback posts none.
 const workflows = {
-  promote: { file: '.github/workflows/promote.yml', operation: 'promote', allowlist: false },
-  rollback: { file: '.github/workflows/rollback.yml', operation: 'roll back', allowlist: true }
+  promote: { file: '.github/workflows/promote.yml', operation: 'promote', allowlist: true, refusalTitle: 'actor_not_allowed' },
+  rollback: { file: '.github/workflows/rollback.yml', operation: 'roll back', allowlist: true, refusalTitle: undefined }
 }
 
 const isCheckout = (step) =>
@@ -395,7 +473,7 @@ async function runStep (step, context, runnerEnv) {
   await run({ env: runnerEnv, sleep: noSleep })
 }
 
-describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { file, operation, allowlist }) => {
+describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { file, operation, allowlist, refusalTitle }) => {
   const workflow = load(file)
   const jobs = Object.entries(workflow.jobs)
   const productionJobs = jobs.filter(([id]) => id !== 'lookup')
@@ -430,6 +508,7 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     } else {
       expect(step.with['trusted-automation-actor-ids']).toBeUndefined()
     }
+    expect(step.with['refusal-title']).toBe(refusalTitle)
   })
 
   it('never makes a check step conditional or allowed to fail', () => {
@@ -465,6 +544,7 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     } else {
       expect(check.with['trusted-automation-actor-ids']).toBeUndefined()
     }
+    expect(check.with['refusal-title']).toBe(refusalTitle)
   })
 
   it('passes only inputs the action declares, and every required one', () => {
@@ -490,6 +570,8 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     }, env({ actor: 'alice', triggeringActor: 'mallory', runAttempt: '2' }))
     expect(failure()).toMatch(new RegExp(`^mallory is not authorized to ${operation} CruGlobal/some-app`))
     expect(getCollaboratorPermissionLevel).toHaveBeenCalledWith(expect.objectContaining({ username: 'mallory' }))
+    if (refusalTitle) expect(core.error).toHaveBeenCalledWith(expect.any(String), { title: refusalTitle })
+    else expect(core.error).not.toHaveBeenCalled()
   })
 
   it.each(productionJobs.map(([id]) => id))('%s lets a failed-jobs re-run by an account with push access through', async (id) => {
@@ -500,7 +582,7 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
       'needs.lookup.outputs.repository': 'CruGlobal/some-app',
       'inputs.trusted-automation-actor-ids': ''
     }, env({ actor: 'alice', triggeringActor: 'bob', runAttempt: '2' }))
-    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(failed()).toBe(false)
     expect(core.exportVariable).toHaveBeenCalledWith(AUTHORIZED_ATTEMPT_MARKER, '2')
   })
 
@@ -516,10 +598,42 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
       grant({ mallory: 'read' })
 
       await runStep(check, context, env({ actor: BOT, actorId: BOT_ID, triggeringActor: BOT, runAttempt: '1' }))
-      expect(core.setFailed).not.toHaveBeenCalled()
+      expect(failed()).toBe(false)
+      expect(core.exportVariable).toHaveBeenCalledWith(AUTHORIZED_ATTEMPT_MARKER, '1')
 
       await runStep(check, context, env({ actor: BOT, actorId: BOT_ID, triggeringActor: 'mallory', runAttempt: '2' }))
-      expect(failure()).toMatch(/^mallory is not authorized to roll back CruGlobal\/some-app/)
+      expect(failure()).toMatch(new RegExp(`^mallory is not authorized to ${operation} CruGlobal/some-app`))
+    })
+
+    // A person with push access still passes exactly as before, through the
+    // push-access check, with the allowlist set.
+    it.each(productionJobs.map(([id]) => id))('%s still lets a person with push access through, with the allowlist set', async (id) => {
+      const check = workflow.jobs[id].steps[1]
+      const context = {
+        'secrets.authz-token': 'tok',
+        'needs.lookup.outputs.repository': 'CruGlobal/some-app',
+        'inputs.trusted-automation-actor-ids': BOT_ID
+      }
+      grant({ alice: 'write' })
+      await runStep(check, context, env({ actor: 'alice', actorId: '1001', runAttempt: '1' }))
+      expect(failed()).toBe(false)
+      expect(getByUsername).not.toHaveBeenCalled()
+      expect(getCollaboratorPermissionLevel).toHaveBeenCalledWith(expect.objectContaining({ username: 'alice' }))
+    })
+
+    // The allowlist only ever lets the listed account through: a person who
+    // is not on it and lacks push access is refused, list set or not.
+    it.each(productionJobs.map(([id]) => id))('%s refuses a person without push access, with the allowlist set', async (id) => {
+      const check = workflow.jobs[id].steps[1]
+      const context = {
+        'secrets.authz-token': 'tok',
+        'needs.lookup.outputs.repository': 'CruGlobal/some-app',
+        'inputs.trusted-automation-actor-ids': BOT_ID
+      }
+      grant({ mallory: 'read' })
+      await runStep(check, context, env({ actor: 'mallory', actorId: '1002', runAttempt: '1' }))
+      expect(failure()).toMatch(new RegExp(`^mallory is not authorized to ${operation} CruGlobal/some-app`))
+      expect(core.exportVariable).not.toHaveBeenCalled()
     })
   }
 })

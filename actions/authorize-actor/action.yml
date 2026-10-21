@@ -24,6 +24,19 @@ inputs:
       run and also started this attempt. Empty allows none.
     required: false
     default: ''
+  refusal-title:
+    description: >-
+      Title for the error a refusal posts, e.g. a fixed reason word that a
+      caller's automation reads from the run's annotations. Empty posts the
+      error with no title, as before.
+    required: false
+    default: ''
+outputs:
+  passed-as:
+    description: >-
+      How this attempt passed: "automation" (an allowlisted automation account
+      that started the run and this attempt) or "push-access". Unset on a
+      refusal, since the step fails.
 runs:
   using: 'node24'
   main: '../../dist/authorize-actor.js'
