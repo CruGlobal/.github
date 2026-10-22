@@ -20443,6 +20443,14 @@ function getInput(name, options) {
   }
   return val.trim();
 }
+function setOutput(name, value) {
+  const filePath = process.env["GITHUB_OUTPUT"] || "";
+  if (filePath) {
+    return issueFileCommand("OUTPUT", prepareKeyValueMessage(name, value));
+  }
+  process.stdout.write(os4.EOL);
+  issueCommand("set-output", { name }, toCommandValue(value));
+}
 function setFailed(message) {
   process.exitCode = ExitCode.Failure;
   error(message);
@@ -24345,14 +24353,23 @@ async function authorize({
   }
   return "push-access";
 }
+function refuse(message, title) {
+  if (!title) {
+    setFailed(message);
+    return;
+  }
+  process.exitCode = ExitCode.Failure;
+  error(message, { title });
+}
 async function run({ env = process.env, sleep, timeoutMs } = {}) {
+  const refusalTitle = getInput("refusal-title").trim();
   try {
     const operation = getInput("operation");
     const token = getInput("github-token");
     if (!token) {
       throw new Refusal(`no github-token was given, so the account that started this run attempt cannot be checked; refusing to ${operation || "change production"}`);
     }
-    await authorize({
+    const passedAs = await authorize({
       octokit: getOctokit(token),
       repository: getInput("repository"),
       operation,
@@ -24365,8 +24382,12 @@ async function run({ env = process.env, sleep, timeoutMs } = {}) {
       timeoutMs
     });
     markAttemptAuthorized(env);
+    setOutput("passed-as", passedAs);
   } catch (error2) {
-    setFailed(error2 instanceof Refusal || error2 instanceof AttemptNotAuthorized ? error2.message : `could not check the account that started this run attempt (${describeError(error2, timeoutMs ?? REQUEST_TIMEOUT_MS)}); refusing to go ahead`);
+    refuse(
+      error2 instanceof Refusal || error2 instanceof AttemptNotAuthorized ? error2.message : `could not check the account that started this run attempt (${describeError(error2, timeoutMs ?? REQUEST_TIMEOUT_MS)}); refusing to go ahead`,
+      refusalTitle
+    );
   }
 }
 
