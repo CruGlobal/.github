@@ -61,7 +61,9 @@ while [ $# -gt 0 ]; do
 done
 case "$url" in
   https://slack.com/*) printf '%s' "$data" > "$FAKE_OUT/slack.json"; echo '{"ok":true}' ;;
-  https://deploys.cru.org/deployments*) printf '%s' "$FAKE_LEDGER" ;;
+  https://deploys.cru.org/deployments*)
+    if [ -n "$FAKE_LEDGER_FAILS" ]; then echo "curl: (22) The requested URL returned error: 503" >&2; exit 22; fi
+    printf '%s' "$FAKE_LEDGER" ;;
   *) echo "fake curl: unexpected url $url" >&2; exit 22 ;;
 esac
 `
@@ -137,7 +139,7 @@ function readPutItem (out) {
   return { table: readFileSync(table, 'utf8'), item: readJson(item) }
 }
 
-// The key=value lines a step wrote to $GITHUB_OUTPUT.
+// The key=value lines a step wrote to $GITHUB_OUTPUT or $GITHUB_ENV.
 function readOutputs (file) {
   if (!existsSync(file)) return {}
   return Object.fromEntries(readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => {
@@ -148,11 +150,13 @@ function readOutputs (file) {
 
 // Run one `run:` step. `context` resolves every expression in the job env,
 // the step env and the script. `ledger` is what a deploys.cru.org read
-// answers, and `aws` what an aws call prints. Resolves to the exit status,
-// the output, the step's outputs, what was sent to Slack and to the GitHub
-// releases API, and the table and item a DynamoDB put-item wrote (each null
-// when nothing was).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, aws = {}, runnerEnv = {} }) {
+// answers (an object is sent as JSON, a string as it is), `ledgerFails` makes
+// that read fail the way curl -f does on an HTTP error, and `aws` is what an
+// aws call prints. Resolves to the exit status, the output, the step's
+// outputs, the variables it set for later steps ($GITHUB_ENV), what was sent
+// to Slack and to the GitHub releases API, and the table and item a DynamoDB
+// put-item wrote (each null when nothing was).
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, aws = {}, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -172,8 +176,10 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       ...resolveEnv(job.env),
       ...resolveEnv(step.env),
       GITHUB_OUTPUT: path.join(out, 'github-output'),
+      GITHUB_ENV: path.join(out, 'github-env'),
       FAKE_OUT: out,
-      FAKE_LEDGER: JSON.stringify(ledger),
+      FAKE_LEDGER: typeof ledger === 'string' ? ledger : JSON.stringify(ledger),
+      FAKE_LEDGER_FAILS: ledgerFails ? '1' : '',
       FAKE_AWS: JSON.stringify(aws)
     }
     const result = await spawnBash(script, env)
@@ -182,6 +188,7 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       stdout: result.stdout,
       stderr: result.stderr,
       outputs: readOutputs(path.join(out, 'github-output')),
+      env: readOutputs(path.join(out, 'github-env')),
       slack: readJson(path.join(out, 'slack.json')),
       release: readJson(path.join(out, 'release.json')),
       putItem: readPutItem(out)

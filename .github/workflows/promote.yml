@@ -17,7 +17,31 @@ name: Promote
 # it again as its first step, because "Re-run failed jobs" re-runs only the
 # failed jobs and reuses a `lookup` that passed in an earlier attempt. Without
 # the second check, that kind of re-run would change production with no check
-# of who started it.
+# of who started it. An account in trusted-automation-actor-ids passes without
+# push access on the app repo, but only when it started both the run and this
+# attempt, the same rule rollback uses.
+#
+# Automation promotes one exact candidate. A caller that decides on its own
+# when to promote (a scheduler, not a person) names what it saw and what it
+# requires, and the provider job refuses the promote unless all of it still
+# holds:
+#
+#   - expected-current-release: production's newest ledger row still names
+#     this release.
+#   - expected-candidate: the candidate this promote would ship is exactly this
+#     candidate tag.
+#   - require-rollback-safe: the rollback-safety verdict for this promote is
+#     `safe`. `unclassified` is not safe.
+#
+# The checks run inside the production lock and before anything in production
+# changes, including a migration that runs before the new release starts. Each
+# refusal is an error whose title is a fixed reason word the caller can read
+# from the run's annotations: actor_not_allowed, production_moved,
+# candidate_moved or not_rollback_safe. The word names the check that refused;
+# the message says why, including when the check could not get an answer
+# (that is a refusal too). Every input defaults to off, so a person's promote
+# runs exactly as before. An allowlisted automation account must set
+# expected-candidate and require-rollback-safe, or `lookup` refuses it.
 #
 # The check also marks the attempt as checked for the rest of its job. The
 # deploy, tag-image (release tags) and flightdeck-release-event actions refuse
@@ -54,6 +78,40 @@ on:
         type: string
         required: true
         description: Project name (shared-registry repo/image).
+      trusted-automation-actor-ids:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Comma-separated numeric GitHub user ids of automation accounts allowed
+          to promote without per-repo push access. One passes only when it
+          started the run and also started this attempt. Empty allows none.
+      expected-candidate:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          When set, the promote is refused unless the candidate it would ship
+          is exactly this candidate tag (candidate-[<yyyy-mm-dd>-]<n>, the
+          candidate- prefix is optional). Automation sets it to the candidate
+          it approved. Empty skips the check.
+      expected-current-release:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          When set, the promote is refused unless production is still running
+          this release (release-[<yyyy-mm-dd>-]<n>, the release- prefix is
+          optional), checked inside the production lock. Automation sets it to
+          the release it saw live. Empty skips the check.
+      require-rollback-safe:
+        type: boolean
+        required: false
+        default: false
+        description: >-
+          When true, the promote is refused, before anything in production
+          changes, unless its rollback-safety verdict is safe. An unclassified
+          verdict is not safe. False leaves the verdict advisory.
       # The changelog links' Flightdeck workspace is not an input. It is the
       # caller's FLIGHTDECK_WORKSPACE configuration variable (in a called
       # workflow, vars resolve in the caller's repository and organization),
@@ -254,21 +312,74 @@ jobs:
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
 
-      # Authorization, the early copy: the account that started this run
-      # attempt (github.triggering_actor, not github.actor) must have
-      # push-level access to the app repo. On a re-run github.actor stays the
-      # account that started the first attempt, and the re-runner is the one
-      # whose access matters. It follows the app-info lookups only because the
-      # repo is read from the production item (the fleet default
+      # Authorization, the early copy. It follows the app-info lookups only
+      # because the repo is read from the production item (the fleet default
       # CruGlobal/<project-name> otherwise). Each provider job runs the same
-      # check again; see the note at the top of this file.
+      # check again; see the note at the top of this file. A run is allowed in
+      # one of two ways:
+      #
+      #   1. Allowlisted automation actor. The run was dispatched by an account
+      #      whose numeric user id (github.actor_id) is in
+      #      trusted-automation-actor-ids, AND this attempt was started by that
+      #      same account: the same login, and that login still looks up to
+      #      the same user id. Automation accounts such as a GitHub App's bot
+      #      user are not collaborators on app repos, so the push-access check
+      #      below cannot vouch for them.
+      #   2. Push access. Otherwise the account that started THIS attempt
+      #      (github.triggering_actor, not github.actor) must have push-level
+      #      access to the app repo. On a re-run github.actor stays the account
+      #      that started the first attempt, and the re-runner is the one whose
+      #      access matters. That is also why a re-run of an allowlisted
+      #      actor's run by anyone else falls through to this check.
+      #
+      # A refusal's error is titled actor_not_allowed.
       # TODO: replace PAT with a dedicated GitHub App.
       - name: Authorize actor
+        id: authz
         uses: ./cru-github-actions/actions/authorize-actor
         with:
           github-token: ${{ secrets.authz-token }}
           repository: ${{ steps.app-info-prod.outputs.repository }}
           operation: promote
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refusal-title: actor_not_allowed
+
+      # An automation account may promote one exact candidate, not whatever
+      # release-candidate runs. When the check above let this run through as
+      # an allowlisted automation account, the run must name its candidate
+      # (expected-candidate) and require a safe verdict
+      # (require-rollback-safe), or it is refused as actor_not_allowed. So a
+      # scheduler that loses those inputs by mistake cannot ship more than a
+      # person could check. expected-current-release stays optional, because an
+      # app's first promote has no release in production to name. A person's
+      # promote skips this step.
+      #
+      # This job is the only place it is checked, and that is enough. The
+      # inputs are the same on every attempt, and an automation account only
+      # passes as one on a run it started itself, where this job ran for it.
+      # An empty passed-as (an action bundle older than this workflow) skips
+      # the check rather than refusing every promote.
+      - name: Refuse an automation promote that does not name its candidate
+        env:
+          PASSED_AS: ${{ steps.authz.outputs.passed-as }}
+          EXPECTED_CANDIDATE: ${{ inputs.expected-candidate }}
+          REQUIRE_ROLLBACK_SAFE: ${{ inputs.require-rollback-safe }}
+        run: |
+          if [ "$PASSED_AS" != "automation" ]; then
+            exit 0
+          fi
+          missing=""
+          if [[ ! "$EXPECTED_CANDIDATE" =~ [^[:space:]] ]]; then
+            missing="expected-candidate"
+          fi
+          if [ "$REQUIRE_ROLLBACK_SAFE" != "true" ]; then
+            missing="${missing:+$missing and }require-rollback-safe: true"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error title=actor_not_allowed::an automation account may only promote a candidate it names, with a safe rollback-safety verdict required, and this run does not set $missing; refusing to promote. Nothing in production was changed"
+            exit 1
+          fi
+          echo "an automation account started this promote, and it names its candidate and requires a safe verdict"
 
   promote-gcp:
     name: Promote release-candidate to production (Cloud Run)
@@ -299,18 +410,105 @@ jobs:
           path: cru-github-actions
 
       # --- Authz for this attempt (inside the production lock) --------------
-      # FIRST real step on purpose, before any credential is set up. The check
-      # in `lookup` does not cover every re-run: "Re-run failed jobs" re-runs
-      # only this job and reuses the earlier attempt's `lookup`, so this step is
-      # what checks the account that started the re-run. Same rule and same
-      # action as `lookup`. The checkout above only fetches this repo and holds
-      # no production credentials.
+      # FIRST real step on purpose, before the stale-promote guard and before
+      # any credential is set up. The check in `lookup` does not cover every
+      # re-run: "Re-run failed jobs" re-runs only this job and reuses the
+      # earlier attempt's `lookup`, so this step is what checks the account
+      # that started the re-run. Same rule, same allowlist and same action as
+      # `lookup`. The checkout above only fetches this repo and holds no
+      # production credentials.
       - name: Authorize the account that started this attempt
         uses: ./cru-github-actions/actions/authorize-actor
         with:
           github-token: ${{ secrets.authz-token }}
           repository: ${{ needs.lookup.outputs.repository }}
           operation: promote
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refusal-title: actor_not_allowed
+
+      # --- Stale-promote guard (inside the production lock) -----------------
+      # Runs right after the authz check and before any credential is set up,
+      # on purpose. This job's concurrency group is the production lock it
+      # shares with rollback, so every step here runs while the job holds it,
+      # and no other promote or rollback of this app can start until the job
+      # ends. A promote that waited for the lock behind another promote or a
+      # rollback sees that run's result here, before anything is resolved or
+      # deployed. That is also why the check lives in the provider jobs and
+      # not in `lookup`, which runs outside the lock. (GitHub keeps only one
+      # job waiting for the lock: a newer one cancels it, and a cancelled
+      # promote never runs this step or anything after it.)
+      #
+      # Unset => no check (a person promoting by hand). Set => the newest
+      # production row in the deployment ledger must name that release, or the
+      # promote is refused as production_moved. It fails CLOSED: a ledger that
+      # can't be read, or doesn't say what production runs, is a refusal, not
+      # a pass. An app's first promote has no production row to match, so a
+      # caller leaves this unset for one.
+      #
+      # A refusal also sets PROMOTE_REFUSED for the rest of the job, so the
+      # failure notice in Slack says the promote was refused and production
+      # did not change, rather than that it failed.
+      #
+      # Known, accepted gap, the same as rollback's guard: ledger writes are
+      # best-effort (continue-on-error), so a production change whose ledger
+      # write failed is invisible here.
+      - name: Refuse a stale promote
+        env:
+          EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
+        run: |
+          if [ -z "$EXPECTED_CURRENT_RELEASE" ]; then
+            echo "expected-current-release is not set, so this promote does not check what production is running first"
+            exit 0
+          fi
+          # One line, always: an input can hold a line break, and what follows
+          # one must not read as a workflow command of its own.
+          refuse() {
+            local message="${1//[$'\r\n']/ }"
+            echo "PROMOTE_REFUSED=production_moved" >> "$GITHUB_ENV"
+            echo "::error title=production_moved::$message"
+            exit 1
+          }
+
+          # Same rules as rollback's guard: the release- prefix is optional and
+          # surrounding whitespace is trimmed. Prints the tag without its
+          # prefix, or fails if it is not a release tag.
+          normalize() {
+            local value="$1"
+            if [[ "$value" =~ ^[[:space:]]*([^[:space:]].*[^[:space:]]|[^[:space:]])[[:space:]]*$ ]]; then
+              value="${BASH_REMATCH[1]}"
+            fi
+            value="${value#release-}"
+            [[ "$value" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]] && printf '%s' "$value"
+          }
+          if ! expected=$(normalize "$EXPECTED_CURRENT_RELEASE"); then
+            refuse "invalid expected-current-release '$EXPECTED_CURRENT_RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional). Refusing to promote"
+          fi
+
+          # Fail closed from here on: without a trustworthy answer to "what is
+          # production running", refuse rather than guess.
+          unconfirmed="cannot confirm production is still running release-$expected; refusing to promote. Nothing in production was changed"
+          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+              "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1"); then
+            refuse "could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
+          fi
+          if ! count=$(printf '%s' "$body" | jq -er '.Items | if type == "array" then length else error("no Items array") end' 2>/dev/null); then
+            refuse "the deployment ledger for $PROJECT_NAME returned an unexpected response (not JSON with an Items array), so $unconfirmed"
+          fi
+          if [ "$count" -eq 0 ]; then
+            refuse "the deployment ledger has no production rows for $PROJECT_NAME, so $unconfirmed"
+          fi
+          current=$(printf '%s' "$body" | jq -r '.Items[0].Revision | if type == "string" then . else "" end' 2>/dev/null) || current=""
+          if [ -z "$current" ]; then
+            refuse "the newest production row in the deployment ledger for $PROJECT_NAME has no Revision, so $unconfirmed"
+          fi
+
+          if [ "${current#release-}" != "$expected" ]; then
+            if [[ "$expected" =~ ^[0-9]+$ ]] && [[ "$current" == *"-$expected" ]]; then
+              refuse "expected-current-release '$EXPECTED_CURRENT_RELEASE' is a bare build number, but production's release tag is dated ($current); pass the full tag. Refusing to promote"
+            fi
+            refuse "production is now running $current, not release-$expected, so this promote was asked for against a release that is no longer live; refusing to promote. Nothing in production was changed. Start a new promote if the candidate should still ship"
+          fi
+          echo "::notice::production is still running $current, as expected; going ahead with the promote"
 
       - name: Configure GCP credentials (release-candidate SA)
         uses: google-github-actions/auth@v3
@@ -350,7 +548,67 @@ jobs:
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
           echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
 
-      # --- Rollback-safety classification (advisory; never blocks) ----------
+      # --- Moved-candidate guard (inside the production lock) ---------------
+      # Unset => no check. Set => the candidate this promote would ship (the
+      # candidate tag the step above read off the resolved digest, which is
+      # also what names the release) must be exactly that tag, or the promote
+      # is refused as candidate_moved. A newer candidate reaching
+      # release-candidate after the caller approved this one is the usual
+      # cause. It runs after the resolve, so it checks the very digest the
+      # deploy below ships, and before any production credential is set up.
+      #
+      # A digest that carries more than one candidate tag is refused too when
+      # the release would not be named after the expected one: the caller
+      # waits for a release with that name, and it would never come.
+      - name: Refuse a moved candidate
+        env:
+          EXPECTED_CANDIDATE: ${{ inputs.expected-candidate }}
+          CANDIDATE: ${{ steps.release.outputs.candidate }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+        run: |
+          if [ -z "$EXPECTED_CANDIDATE" ]; then
+            echo "expected-candidate is not set, so this promote does not check which candidate it ships"
+            exit 0
+          fi
+          # One line, always: an input can hold a line break, and what follows
+          # one must not read as a workflow command of its own.
+          refuse() {
+            local message="${1//[$'\r\n']/ }"
+            echo "PROMOTE_REFUSED=candidate_moved" >> "$GITHUB_ENV"
+            echo "::error title=candidate_moved::$message"
+            exit 1
+          }
+
+          # The candidate- prefix is optional and surrounding whitespace is
+          # trimmed, the same rules the release guards use for release-.
+          value="$EXPECTED_CANDIDATE"
+          if [[ "$value" =~ ^[[:space:]]*([^[:space:]].*[^[:space:]]|[^[:space:]])[[:space:]]*$ ]]; then
+            value="${BASH_REMATCH[1]}"
+          fi
+          value="${value#candidate-}"
+          if [[ ! "$value" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]]; then
+            refuse "invalid expected-candidate '$EXPECTED_CANDIDATE'; expected 'candidate-[<yyyy-mm-dd>-]<n>' (the candidate- prefix is optional). Refusing to promote"
+          fi
+          expected="candidate-$value"
+
+          if [ -z "$CANDIDATE" ]; then
+            refuse "could not tell which candidate this promote would ship (digest $DIGEST), so it cannot be confirmed as $expected; refusing to promote. Nothing in production was changed"
+          fi
+          if [ "$CANDIDATE" = "$expected" ]; then
+            echo "::notice::this promote ships $expected (digest $DIGEST), as expected"
+            exit 0
+          fi
+          if [[ "$value" =~ ^[0-9]+$ ]] && [[ "$CANDIDATE" == *"-$value" ]]; then
+            refuse "expected-candidate '$EXPECTED_CANDIDATE' is a bare build number, but the candidate tag is dated ($CANDIDATE); pass the full tag. Refusing to promote"
+          fi
+          if printf '%s\n' "$TAGS" | tr ',' '\n' | grep -qxF -- "$expected"; then
+            refuse "the release-candidate digest $DIGEST carries $expected but also $CANDIDATE, and this promote would name the release $RELEASE after $CANDIDATE, not $expected; refusing to promote. Nothing in production was changed"
+          fi
+          refuse "the release candidate is now $CANDIDATE (digest $DIGEST), not $expected, so it is not the candidate this promote was asked for; refusing to promote. Nothing in production was changed. Start a new promote to ship $CANDIDATE"
+
+      # --- Rollback-safety classification (advisory unless required) --------
       # The git sha currently in production, from the deployments ledger -- the
       # baseline the candidate's migrations are diffed against. Empty on ANY
       # failure (|| true), which the classifier treats as `unclassified` (e.g.
@@ -384,6 +642,49 @@ jobs:
           head-sha: ${{ steps.baseline.outputs.head-sha }}
           migrations-path: ${{ needs.lookup.outputs.migrations-path }}
           migrations: ${{ needs.lookup.outputs.migrations }}
+
+      # --- Rollback-safety requirement --------------------------------------
+      # require-rollback-safe false (the default) => the verdict stays
+      # advisory, exactly as before: it goes to the ledger, Slack and the
+      # release event, and never stops a promote. True => the promote is
+      # refused as not_rollback_safe unless the verdict is `safe`. Anything
+      # else refuses: `unsafe`, `unclassified` (a first promote with no
+      # baseline, no migrations path, no candidate sha, a compare that
+      # failed), and no verdict at all (the classifier step is allowed to
+      # fail). Placed before the production credential and the deploy, so a
+      # refusal happens before anything in production changes, including the
+      # migration the deploy runs first.
+      - name: Refuse a promote that is not rollback-safe
+        env:
+          REQUIRE_ROLLBACK_SAFE: ${{ inputs.require-rollback-safe }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+        run: |
+          # The verdict is one of three words, but it is printed below, so it
+          # is kept to one line whatever it holds.
+          VERDICT="${VERDICT//[$'\r\n']/ }"
+          if [ "$REQUIRE_ROLLBACK_SAFE" != "true" ]; then
+            echo "require-rollback-safe is not set, so the rollback-safety verdict (${VERDICT:-none}) is advisory"
+            exit 0
+          fi
+          # The first two reasons, on one line, for the messages below. A
+          # reason can quote a file name, so any line break in it becomes a
+          # space: the error must stay one line, or the rest of a reason could
+          # read as a workflow command of its own.
+          reasons=$(printf '%s' "${REASONS:-[]}" | jq -j 'if type == "array" then .[0:2] | map(tostring) | join("; ") else empty end' 2>/dev/null | tr '\r\n' '  ') || reasons=""
+          if [ "$VERDICT" = "safe" ]; then
+            echo "::notice::the rollback-safety verdict is safe${reasons:+ ($reasons)}; going ahead with the promote"
+            exit 0
+          fi
+          echo "PROMOTE_REFUSED=not_rollback_safe" >> "$GITHUB_ENV"
+          case "$VERDICT" in
+            unsafe) why="the rollback-safety verdict for this promote is unsafe${reasons:+ ($reasons)}" ;;
+            unclassified) why="the rollback-safety verdict for this promote is unclassified${reasons:+ ($reasons)}, and require-rollback-safe counts that as not safe" ;;
+            "") why="the rollback-safety check gave no verdict (see the Classify rollback safety step)" ;;
+            *) why="the rollback-safety check gave an unknown verdict '$VERDICT'" ;;
+          esac
+          echo "::error title=not_rollback_safe::$why; require-rollback-safe is set, so the promote is refused before anything in production changes. Nothing in production was changed. A person can promote it without require-rollback-safe after checking that the release now in production still works with the new schema"
+          exit 1
 
       - name: Configure GCP credentials (production SA)
         uses: google-github-actions/auth@v3
@@ -756,6 +1057,11 @@ jobs:
       # image resolution), in which case steps.release.outputs.release is empty
       # and the message names "the release-candidate image" instead: the only
       # step output referenced, and it degrades rather than breaks.
+      #
+      # A refusal by one of the guards above is not a failure of the deploy:
+      # nothing in production changed. The guard sets PROMOTE_REFUSED to its
+      # reason word, and the message then says "refused" with that word, so
+      # nobody reading the channel goes looking for a broken production.
       - name: Notify Slack (failure)
         if: failure()
         continue-on-error: true
@@ -775,10 +1081,15 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg refused "${PROMOTE_REFUSED:-}" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '{channel: $channel,
-              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
-                     + "\n\($runurl)")}')
+            '(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) as $what
+             | (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
+             | {channel: $channel,
+                text: ((if $refused != ""
+                        then ":no_entry: *\($project) promote \($what) to production refused* (`\($refused)`) by \($actor)\($rerun); production was not changed"
+                        else ":x: *\($project) promote \($what) to production FAILED* by \($actor)\($rerun)" end)
+                       + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -820,6 +1131,68 @@ jobs:
           github-token: ${{ secrets.authz-token }}
           repository: ${{ needs.lookup.outputs.repository }}
           operation: promote
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refusal-title: actor_not_allowed
+
+      # --- Stale-promote guard (inside the production lock) -----------------
+      # Same check as in promote-gcp; see the comment there.
+      - name: Refuse a stale promote
+        env:
+          EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
+        run: |
+          if [ -z "$EXPECTED_CURRENT_RELEASE" ]; then
+            echo "expected-current-release is not set, so this promote does not check what production is running first"
+            exit 0
+          fi
+          # One line, always: an input can hold a line break, and what follows
+          # one must not read as a workflow command of its own.
+          refuse() {
+            local message="${1//[$'\r\n']/ }"
+            echo "PROMOTE_REFUSED=production_moved" >> "$GITHUB_ENV"
+            echo "::error title=production_moved::$message"
+            exit 1
+          }
+
+          # Same rules as rollback's guard: the release- prefix is optional and
+          # surrounding whitespace is trimmed. Prints the tag without its
+          # prefix, or fails if it is not a release tag.
+          normalize() {
+            local value="$1"
+            if [[ "$value" =~ ^[[:space:]]*([^[:space:]].*[^[:space:]]|[^[:space:]])[[:space:]]*$ ]]; then
+              value="${BASH_REMATCH[1]}"
+            fi
+            value="${value#release-}"
+            [[ "$value" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]] && printf '%s' "$value"
+          }
+          if ! expected=$(normalize "$EXPECTED_CURRENT_RELEASE"); then
+            refuse "invalid expected-current-release '$EXPECTED_CURRENT_RELEASE'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional). Refusing to promote"
+          fi
+
+          # Fail closed from here on: without a trustworthy answer to "what is
+          # production running", refuse rather than guess.
+          unconfirmed="cannot confirm production is still running release-$expected; refusing to promote. Nothing in production was changed"
+          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+              "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1"); then
+            refuse "could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
+          fi
+          if ! count=$(printf '%s' "$body" | jq -er '.Items | if type == "array" then length else error("no Items array") end' 2>/dev/null); then
+            refuse "the deployment ledger for $PROJECT_NAME returned an unexpected response (not JSON with an Items array), so $unconfirmed"
+          fi
+          if [ "$count" -eq 0 ]; then
+            refuse "the deployment ledger has no production rows for $PROJECT_NAME, so $unconfirmed"
+          fi
+          current=$(printf '%s' "$body" | jq -r '.Items[0].Revision | if type == "string" then . else "" end' 2>/dev/null) || current=""
+          if [ -z "$current" ]; then
+            refuse "the newest production row in the deployment ledger for $PROJECT_NAME has no Revision, so $unconfirmed"
+          fi
+
+          if [ "${current#release-}" != "$expected" ]; then
+            if [[ "$expected" =~ ^[0-9]+$ ]] && [[ "$current" == *"-$expected" ]]; then
+              refuse "expected-current-release '$EXPECTED_CURRENT_RELEASE' is a bare build number, but production's release tag is dated ($current); pass the full tag. Refusing to promote"
+            fi
+            refuse "production is now running $current, not release-$expected, so this promote was asked for against a release that is no longer live; refusing to promote. Nothing in production was changed. Start a new promote if the candidate should still ship"
+          fi
+          echo "::notice::production is still running $current, as expected; going ahead with the promote"
 
       - name: Guard supported AWS type
         env:
@@ -927,8 +1300,11 @@ jobs:
           RESOLVED_DIGEST: ${{ steps.resolve.outputs.digest }}
           REVISION: ${{ steps.ledger-candidate.outputs.revision }}
         run: |
+          # A refusal before anything in production changes, so it carries the
+          # same reason word and failure notice as the moved-candidate guard.
           if [ "$LEDGER_DIGEST" != "$RESOLVED_DIGEST" ]; then
-            echo "::error title=Candidate digest moved::$PROJECT_NAME's tag $REVISION now resolves to $RESOLVED_DIGEST, but the verified candidate recorded in the ledger was $LEDGER_DIGEST. The tag has been re-pointed since verification; re-verify via deploy-candidate before promoting."
+            echo "PROMOTE_REFUSED=candidate_moved" >> "$GITHUB_ENV"
+            echo "::error title=candidate_moved::Candidate digest moved: $PROJECT_NAME's tag $REVISION now resolves to $RESOLVED_DIGEST, but the verified candidate recorded in the ledger was $LEDGER_DIGEST. The tag has been re-pointed since verification; re-verify via deploy-candidate before promoting."
             exit 1
           fi
           echo "::notice title=Candidate digest confirmed::$REVISION still resolves to the verified digest $LEDGER_DIGEST."
@@ -948,7 +1324,57 @@ jobs:
           echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
           echo "release=release-$suffix" >> "$GITHUB_OUTPUT"
 
-      # --- Rollback-safety classification (advisory; never blocks) ----------
+      # --- Moved-candidate guard (inside the production lock) ---------------
+      # Same check as in promote-gcp; see the comment there.
+      - name: Refuse a moved candidate
+        env:
+          EXPECTED_CANDIDATE: ${{ inputs.expected-candidate }}
+          CANDIDATE: ${{ steps.release.outputs.candidate }}
+          RELEASE: ${{ steps.release.outputs.release }}
+          TAGS: ${{ steps.resolve.outputs.tags }}
+          DIGEST: ${{ steps.resolve.outputs.digest }}
+        run: |
+          if [ -z "$EXPECTED_CANDIDATE" ]; then
+            echo "expected-candidate is not set, so this promote does not check which candidate it ships"
+            exit 0
+          fi
+          # One line, always: an input can hold a line break, and what follows
+          # one must not read as a workflow command of its own.
+          refuse() {
+            local message="${1//[$'\r\n']/ }"
+            echo "PROMOTE_REFUSED=candidate_moved" >> "$GITHUB_ENV"
+            echo "::error title=candidate_moved::$message"
+            exit 1
+          }
+
+          # The candidate- prefix is optional and surrounding whitespace is
+          # trimmed, the same rules the release guards use for release-.
+          value="$EXPECTED_CANDIDATE"
+          if [[ "$value" =~ ^[[:space:]]*([^[:space:]].*[^[:space:]]|[^[:space:]])[[:space:]]*$ ]]; then
+            value="${BASH_REMATCH[1]}"
+          fi
+          value="${value#candidate-}"
+          if [[ ! "$value" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$ ]]; then
+            refuse "invalid expected-candidate '$EXPECTED_CANDIDATE'; expected 'candidate-[<yyyy-mm-dd>-]<n>' (the candidate- prefix is optional). Refusing to promote"
+          fi
+          expected="candidate-$value"
+
+          if [ -z "$CANDIDATE" ]; then
+            refuse "could not tell which candidate this promote would ship (digest $DIGEST), so it cannot be confirmed as $expected; refusing to promote. Nothing in production was changed"
+          fi
+          if [ "$CANDIDATE" = "$expected" ]; then
+            echo "::notice::this promote ships $expected (digest $DIGEST), as expected"
+            exit 0
+          fi
+          if [[ "$value" =~ ^[0-9]+$ ]] && [[ "$CANDIDATE" == *"-$value" ]]; then
+            refuse "expected-candidate '$EXPECTED_CANDIDATE' is a bare build number, but the candidate tag is dated ($CANDIDATE); pass the full tag. Refusing to promote"
+          fi
+          if printf '%s\n' "$TAGS" | tr ',' '\n' | grep -qxF -- "$expected"; then
+            refuse "the release-candidate digest $DIGEST carries $expected but also $CANDIDATE, and this promote would name the release $RELEASE after $CANDIDATE, not $expected; refusing to promote. Nothing in production was changed"
+          fi
+          refuse "the release candidate is now $CANDIDATE (digest $DIGEST), not $expected, so it is not the candidate this promote was asked for; refusing to promote. Nothing in production was changed. Start a new promote to ship $CANDIDATE"
+
+      # --- Rollback-safety classification (advisory unless required) --------
       # The git sha currently in production, from the deployments ledger -- the
       # baseline the candidate's migrations are diffed against. Empty on ANY
       # failure (|| true), which the classifier treats as `unclassified` (e.g.
@@ -982,6 +1408,40 @@ jobs:
           head-sha: ${{ steps.baseline.outputs.head-sha }}
           migrations-path: ${{ needs.lookup.outputs.migrations-path }}
           migrations: ${{ needs.lookup.outputs.migrations }}
+
+      # --- Rollback-safety requirement --------------------------------------
+      # Same check as in promote-gcp; see the comment there.
+      - name: Refuse a promote that is not rollback-safe
+        env:
+          REQUIRE_ROLLBACK_SAFE: ${{ inputs.require-rollback-safe }}
+          VERDICT: ${{ steps.rollback-safety.outputs.verdict }}
+          REASONS: ${{ steps.rollback-safety.outputs.reasons }}
+        run: |
+          # The verdict is one of three words, but it is printed below, so it
+          # is kept to one line whatever it holds.
+          VERDICT="${VERDICT//[$'\r\n']/ }"
+          if [ "$REQUIRE_ROLLBACK_SAFE" != "true" ]; then
+            echo "require-rollback-safe is not set, so the rollback-safety verdict (${VERDICT:-none}) is advisory"
+            exit 0
+          fi
+          # The first two reasons, on one line, for the messages below. A
+          # reason can quote a file name, so any line break in it becomes a
+          # space: the error must stay one line, or the rest of a reason could
+          # read as a workflow command of its own.
+          reasons=$(printf '%s' "${REASONS:-[]}" | jq -j 'if type == "array" then .[0:2] | map(tostring) | join("; ") else empty end' 2>/dev/null | tr '\r\n' '  ') || reasons=""
+          if [ "$VERDICT" = "safe" ]; then
+            echo "::notice::the rollback-safety verdict is safe${reasons:+ ($reasons)}; going ahead with the promote"
+            exit 0
+          fi
+          echo "PROMOTE_REFUSED=not_rollback_safe" >> "$GITHUB_ENV"
+          case "$VERDICT" in
+            unsafe) why="the rollback-safety verdict for this promote is unsafe${reasons:+ ($reasons)}" ;;
+            unclassified) why="the rollback-safety verdict for this promote is unclassified${reasons:+ ($reasons)}, and require-rollback-safe counts that as not safe" ;;
+            "") why="the rollback-safety check gave no verdict (see the Classify rollback safety step)" ;;
+            *) why="the rollback-safety check gave an unknown verdict '$VERDICT'" ;;
+          esac
+          echo "::error title=not_rollback_safe::$why; require-rollback-safe is set, so the promote is refused before anything in production changes. Nothing in production was changed. A person can promote it without require-rollback-safe after checking that the release now in production still works with the new schema"
+          exit 1
 
       - name: Record deploy start
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
@@ -1335,6 +1795,11 @@ jobs:
       # image resolution), in which case steps.release.outputs.release is empty
       # and the message names "the release-candidate image" instead: the only
       # step output referenced, and it degrades rather than breaks.
+      #
+      # A refusal by one of the guards above is not a failure of the deploy:
+      # nothing in production changed. The guard sets PROMOTE_REFUSED to its
+      # reason word, and the message then says "refused" with that word, so
+      # nobody reading the channel goes looking for a broken production.
       - name: Notify Slack (failure)
         if: failure()
         continue-on-error: true
@@ -1354,10 +1819,15 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg refused "${PROMOTE_REFUSED:-}" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '{channel: $channel,
-              text: (":x: *\($project) promote \(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) to production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
-                     + "\n\($runurl)")}')
+            '(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) as $what
+             | (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
+             | {channel: $channel,
+                text: ((if $refused != ""
+                        then ":no_entry: *\($project) promote \($what) to production refused* (`\($refused)`) by \($actor)\($rerun); production was not changed"
+                        else ":x: *\($project) promote \($what) to production FAILED* by \($actor)\($rerun)" end)
+                       + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
