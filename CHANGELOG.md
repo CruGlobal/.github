@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.1](https://github.com/CruGlobal/.github/compare/v2.14.0...v2.14.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **build:** log in to ECR Public in the v1 build workflows ([#541](https://github.com/CruGlobal/.github/issues/541)) ([1118023](https://github.com/CruGlobal/.github/commit/11180237d68a17a63293decbb6b019369ea129c6))
+
 ## [2.14.0](https://github.com/CruGlobal/.github/compare/v2.13.0...v2.14.0) (2026-10-22)
 
 
