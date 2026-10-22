@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.0](https://github.com/CruGlobal/.github/compare/v2.13.0...v2.14.0) (2026-10-22)
+
+
+### Features
+
+* **v2:** let an allowlisted automation account promote one exact candidate ([#538](https://github.com/CruGlobal/.github/issues/538)) ([d31bb05](https://github.com/CruGlobal/.github/commit/d31bb052375f2f95560e24b278dc339c09ff35e5))
+
 ## [2.13.0](https://github.com/CruGlobal/.github/compare/v2.12.0...v2.13.0) (2026-10-14)
 
 
