@@ -2111,6 +2111,7 @@ var require_dispatcher = __commonJS({
 var require_dispatcher_base = __commonJS({
   "node_modules/undici/lib/dispatcher/dispatcher-base.js"(exports2, module2) {
     "use strict";
+    var buffer = require("node:buffer");
     var Dispatcher = require_dispatcher();
     var {
       ClientDestroyedError,
@@ -2122,6 +2123,7 @@ var require_dispatcher_base = __commonJS({
     var kOnClosed = /* @__PURE__ */ Symbol("onClosed");
     var kInterceptedDispatch = /* @__PURE__ */ Symbol("Intercepted Dispatch");
     var kWebSocketOptions = /* @__PURE__ */ Symbol("webSocketOptions");
+    var kEventSourceOptions = /* @__PURE__ */ Symbol("eventSourceOptions");
     var DispatcherBase = class extends Dispatcher {
       constructor(opts) {
         super();
@@ -2130,11 +2132,17 @@ var require_dispatcher_base = __commonJS({
         this[kClosed] = false;
         this[kOnClosed] = [];
         this[kWebSocketOptions] = opts?.webSocket ?? {};
+        this[kEventSourceOptions] = opts?.eventSource ?? {};
       }
       get webSocketOptions() {
         return {
           maxFragments: this[kWebSocketOptions].maxFragments ?? 131072,
           maxPayloadSize: this[kWebSocketOptions].maxPayloadSize ?? 128 * 1024 * 1024
+        };
+      }
+      get eventSourceOptions() {
+        return {
+          maxEventSize: this[kEventSourceOptions].maxEventSize ?? buffer.kStringMaxLength
         };
       }
       get destroyed() {
@@ -6284,7 +6292,6 @@ var require_client_h1 = __commonJS({
       socket[kSocketUsed] = false;
       socket[kParser] = new Parser(client, socket, llhttpInstance);
       addListener(socket, "error", function(err) {
-        assert(err.code !== "ERR_TLS_CERT_ALTNAME_INVALID");
         const parser = this[kParser];
         if (err.code === "ECONNRESET" && parser.statusCode && !parser.shouldKeepAlive) {
           const parserErr = parser.finish();
@@ -6968,7 +6975,6 @@ var require_client_h2 = __commonJS({
       client[kHTTP2Session] = session;
       socket[kHTTP2Session] = session;
       util.addListener(socket, "error", function(err) {
-        assert(err.code !== "ERR_TLS_CERT_ALTNAME_INVALID");
         this[kError] = err;
         this[kClient][kOnError](err);
       });
@@ -7027,7 +7033,6 @@ var require_client_h2 = __commonJS({
       }
     }
     function onHttp2SessionError(err) {
-      assert(err.code !== "ERR_TLS_CERT_ALTNAME_INVALID");
       this[kSocket][kError] = err;
       this[kClient][kOnError](err);
     }
@@ -7721,9 +7726,10 @@ var require_client = __commonJS({
         // h2
         maxConcurrentStreams,
         allowH2,
-        webSocket
+        webSocket,
+        eventSource
       } = {}) {
-        super({ webSocket });
+        super({ webSocket, eventSource });
         if (keepAlive !== void 0) {
           throw new InvalidArgumentError("unsupported keepAlive, use pipelining=0 instead");
         }
@@ -8620,7 +8626,7 @@ var require_agent = __commonJS({
       return opts && opts.connections === 1 ? new Client2(origin, opts) : new Pool(origin, opts);
     }
     var Agent = class extends DispatcherBase {
-      constructor({ factory = defaultFactory, maxRedirections = 0, connect, ...options } = {}) {
+      constructor({ factory = defaultFactory, maxRedirections = 0, connect, tls, ...options } = {}) {
         if (typeof factory !== "function") {
           throw new InvalidArgumentError("factory must be a function.");
         }
@@ -8634,8 +8640,11 @@ var require_agent = __commonJS({
         if (connect && typeof connect !== "function") {
           connect = { ...connect };
         }
+        if (tls && typeof tls !== "function") {
+          tls = { ...tls };
+        }
         this[kInterceptors] = options.interceptors?.Agent && Array.isArray(options.interceptors.Agent) ? options.interceptors.Agent : [createRedirectInterceptor({ maxRedirections })];
-        this[kOptions] = { ...util.deepClone(options), connect };
+        this[kOptions] = { ...util.deepClone(options), connect, tls };
         this[kOptions].interceptors = options.interceptors ? { ...options.interceptors } : void 0;
         this[kMaxRedirections] = maxRedirections;
         this[kFactory] = factory;
@@ -14363,8 +14372,9 @@ var require_fetch = __commonJS({
         }
       );
       response.body = { stream, source: null, length: null };
-      fetchParams.controller.onAborted = onAborted;
-      fetchParams.controller.on("terminated", onAborted);
+      if (!fetchParams.controller.resume) {
+        fetchParams.controller.on("terminated", onAborted);
+      }
       fetchParams.controller.resume = async () => {
         while (true) {
           let bytes;
@@ -14464,7 +14474,6 @@ var require_fetch = __commonJS({
                 headersList.append(bufferToLowerCasedHeaderName(rawHeaders[i6]), rawHeaders[i6 + 1].toString("latin1"), true);
               }
               location = headersList.get("location", true);
-              this.body = new Readable7({ read: resume });
               const decoders = [];
               const willFollow = location && request.redirect === "follow" && redirectStatusSet.has(status);
               if (request.method !== "HEAD" && request.method !== "CONNECT" && !nullBodyStatus.includes(status) && !willFollow) {
@@ -14472,7 +14481,7 @@ var require_fetch = __commonJS({
                 const codings = contentEncoding ? contentEncoding.toLowerCase().split(",") : [];
                 const maxContentEncodings = 5;
                 if (codings.length > maxContentEncodings) {
-                  reject(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
+                  this.abort(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
                   return true;
                 }
                 for (let i6 = codings.length - 1; i6 >= 0; --i6) {
@@ -14502,6 +14511,7 @@ var require_fetch = __commonJS({
                   }
                 }
               }
+              this.body = new Readable7({ read: resume });
               const onError = this.onError.bind(this);
               resolve({
                 status,
@@ -14526,9 +14536,6 @@ var require_fetch = __commonJS({
             onComplete() {
               if (this.abort) {
                 fetchParams.controller.off("terminated", this.abort);
-              }
-              if (fetchParams.controller.onAborted) {
-                fetchParams.controller.off("terminated", fetchParams.controller.onAborted);
               }
               fetchParams.controller.ended = true;
               this.body.push(null);
@@ -17603,6 +17610,16 @@ var require_receiver = __commonJS({
             if (isControlFrame(this.#info.opcode)) {
               this.#loop = this.parseControlFrame(body);
               this.#state = parserStates.INFO;
+              const socket = this.ws[kResponse].socket;
+              if (this.#loop && socket.writableNeedDrain) {
+                this.#loop = false;
+                socket.once("drain", () => {
+                  if (this.destroyed) return;
+                  this.#loop = true;
+                  this.run(callback);
+                });
+                return;
+              }
             } else {
               if (!this.#info.compressed) {
                 if (!this.writeFragments(body)) {
@@ -18296,6 +18313,7 @@ var require_util8 = __commonJS({
 var require_eventsource_stream = __commonJS({
   "node_modules/undici/lib/web/eventsource/eventsource-stream.js"(exports2, module2) {
     "use strict";
+    var buffer = require("node:buffer");
     var { Transform } = require("node:stream");
     var { isASCIINumber, isValidLastEventId } = require_util8();
     var BOM = [239, 187, 191];
@@ -18303,24 +18321,28 @@ var require_eventsource_stream = __commonJS({
     var CR2 = 13;
     var COLON3 = 58;
     var SPACE3 = 32;
+    var defaultMaxEventSize = buffer.kStringMaxLength;
     var DATA = Buffer.from("data");
     var EVENT = Buffer.from("event");
     var ID = Buffer.from("id");
     var RETRY2 = Buffer.from("retry");
-    function isASCIINumberBytes(buffer, start) {
-      if (start >= buffer.length) {
+    var minParserItems = 1024;
+    var maxParserItems = 131072;
+    var bytesPerParserItem = 128;
+    function isASCIINumberBytes(buffer2, start) {
+      if (start >= buffer2.length) {
         return false;
       }
-      for (let i6 = start; i6 < buffer.length; i6++) {
-        if (buffer[i6] < 48 || buffer[i6] > 57) {
+      for (let i6 = start; i6 < buffer2.length; i6++) {
+        if (buffer2[i6] < 48 || buffer2[i6] > 57) {
           return false;
         }
       }
       return true;
     }
-    function isValidLastEventIdBytes(buffer, start) {
-      for (let i6 = start; i6 < buffer.length; i6++) {
-        if (buffer[i6] === 0) {
+    function isValidLastEventIdBytes(buffer2, start) {
+      for (let i6 = start; i6 < buffer2.length; i6++) {
+        if (buffer2[i6] === 0) {
           return false;
         }
       }
@@ -18336,6 +18358,11 @@ var require_eventsource_stream = __commonJS({
         }
       }
       return true;
+    }
+    function createMaxEventSizeExceededError() {
+      const error3 = new Error("EventSource message size exceeded");
+      error3.aborted = false;
+      return error3;
     }
     var EventSourceStream = class extends Transform {
       /**
@@ -18363,6 +18390,13 @@ var require_eventsource_stream = __commonJS({
       pos = 0;
       lineChunkIndex = 0;
       linePos = 0;
+      lineLength = 0;
+      eventSize = 0;
+      eventFieldSizes = { data: 0, event: 0, id: 0, retry: 0 };
+      dataLineCount = 0;
+      maxEventSize;
+      maxDataLines;
+      maxBufferedChunks;
       event = {
         data: void 0,
         event: void 0,
@@ -18371,6 +18405,7 @@ var require_eventsource_stream = __commonJS({
       };
       /**
        * @param {object} options
+       * @param {number} [options.maxEventSize]
        * @param {eventSourceSettings} options.eventSourceSettings
        * @param {Function} [options.push]
        */
@@ -18378,6 +18413,10 @@ var require_eventsource_stream = __commonJS({
         options.readableObjectMode = true;
         super(options);
         this.state = options.eventSourceSettings || {};
+        this.maxEventSize = options.maxEventSize ?? defaultMaxEventSize;
+        const parserItemLimit = this.maxEventSize > 0 ? Math.min(maxParserItems, Math.max(minParserItems, Math.floor(this.maxEventSize / bytesPerParserItem))) : 0;
+        this.maxDataLines = parserItemLimit;
+        this.maxBufferedChunks = parserItemLimit;
         if (options.push) {
           this.push = options.push;
         }
@@ -18391,6 +18430,10 @@ var require_eventsource_stream = __commonJS({
       _transform(chunk2, _encoding, callback) {
         if (chunk2.length === 0) {
           callback();
+          return;
+        }
+        if (this.maxEventSize > 0 && this.chunks.length >= this.maxBufferedChunks && chunk2[0] !== LF2 && chunk2[0] !== CR2) {
+          callback(createMaxEventSizeExceededError());
           return;
         }
         this.chunks.push(chunk2);
@@ -18429,18 +18472,32 @@ var require_eventsource_stream = __commonJS({
             if (byte === CR2) {
               this.crlfCheck = true;
             }
-            this.parseLine(this.readLine(), this.event);
+            try {
+              this.parseLine(this.readLine(), this.event);
+            } catch (error3) {
+              callback(error3);
+              return;
+            }
             this.consumeCurrentByte();
             this.eventEndCheck = true;
             continue;
+          }
+          if (this.maxEventSize > 0 && ++this.lineLength > this.maxEventSize + 7) {
+            callback(createMaxEventSizeExceededError());
+            return;
           }
           this.advanceCursor();
         }
         callback();
       }
+      _destroy(error3, callback) {
+        this.chunks.length = 0;
+        this.clearEvent();
+        super._destroy(error3, callback);
+      }
       /**
        * @param {Buffer} line
-       * @param {EventStreamEvent} event
+       * @param {EventSourceStreamEvent} event
        */
       parseLine(line, event) {
         if (line.length === 0) {
@@ -18460,6 +18517,12 @@ var require_eventsource_stream = __commonJS({
           }
         }
         if (isFieldName(line, fieldLength, DATA)) {
+          if (this.maxEventSize > 0 && this.dataLineCount >= this.maxDataLines) {
+            throw createMaxEventSizeExceededError();
+          }
+          const valueBytes = line.length - valueStart;
+          const dataSize = this.eventFieldSizes.data + (event.data === void 0 ? 0 : 1) + valueBytes;
+          this.setEventFieldSize("data", dataSize);
           const value = line.toString("utf8", valueStart);
           if (event.data === void 0) {
             event.data = value;
@@ -18467,26 +18530,37 @@ var require_eventsource_stream = __commonJS({
             event.data += `
 ${value}`;
           }
+          this.dataLineCount++;
           return;
         }
         if (isFieldName(line, fieldLength, RETRY2)) {
           if (isASCIINumberBytes(line, valueStart)) {
+            this.setEventFieldSize("retry", line.length - valueStart);
             event.retry = line.toString("utf8", valueStart);
           }
           return;
         }
         if (isFieldName(line, fieldLength, ID)) {
           if (isValidLastEventIdBytes(line, valueStart)) {
+            this.setEventFieldSize("id", line.length - valueStart);
             event.id = line.toString("utf8", valueStart);
           }
           return;
         }
         if (isFieldName(line, fieldLength, EVENT)) {
-          const value = line.toString("utf8", valueStart);
-          if (value.length > 0) {
-            event.event = value;
+          if (valueStart < line.length) {
+            this.setEventFieldSize("event", line.length - valueStart);
+            event.event = line.toString("utf8", valueStart);
           }
         }
+      }
+      setEventFieldSize(field2, size) {
+        const eventSize = this.eventSize - this.eventFieldSizes[field2] + size;
+        if (this.maxEventSize > 0 && eventSize > this.maxEventSize) {
+          throw createMaxEventSizeExceededError();
+        }
+        this.eventSize = eventSize;
+        this.eventFieldSizes[field2] = size;
       }
       /**
        * @param {EventSourceStreamEvent} event
@@ -18514,6 +18588,12 @@ ${value}`;
         this.event.event = void 0;
         this.event.id = void 0;
         this.event.retry = void 0;
+        this.eventSize = 0;
+        this.dataLineCount = 0;
+        this.eventFieldSizes.data = 0;
+        this.eventFieldSizes.event = 0;
+        this.eventFieldSizes.id = 0;
+        this.eventFieldSizes.retry = 0;
       }
       hasPendingEvent() {
         return this.event.data !== void 0 || this.event.event !== void 0 || this.event.id !== void 0 || this.event.retry !== void 0;
@@ -18538,13 +18618,15 @@ ${value}`;
       syncLineStartToCursor() {
         this.lineChunkIndex = this.chunkIndex;
         this.linePos = this.pos;
+        this.lineLength = 0;
         this.dropConsumedChunks();
       }
       dropConsumedChunks() {
-        while (this.lineChunkIndex > 0) {
-          this.chunks.shift();
-          this.lineChunkIndex--;
-          this.chunkIndex--;
+        if (this.lineChunkIndex > 0) {
+          const consumed = this.lineChunkIndex;
+          this.chunks.splice(0, consumed);
+          this.lineChunkIndex = 0;
+          this.chunkIndex -= consumed;
         }
         if (this.chunkIndex === this.chunks.length) {
           this.chunks.length = 0;
@@ -18647,6 +18729,7 @@ var require_eventsource = __commonJS({
     var { delay } = require_util8();
     var { kEnumerableProperty } = require_util();
     var { environmentSettingsObject } = require_util2();
+    var { getGlobalDispatcher } = require_global2();
     var experimentalWarned = false;
     var defaultReconnectionTime = 3e3;
     var CONNECTING = 0;
@@ -18787,6 +18870,7 @@ var require_eventsource = __commonJS({
           this.#state.origin = response.urlList[response.urlList.length - 1].origin;
           const eventSourceStream = new EventSourceStream({
             eventSourceSettings: this.#state,
+            maxEventSize: this.#dispatcher.eventSourceOptions?.maxEventSize,
             push: (event) => {
               this.dispatchEvent(createFastMessageEvent(
                 event.type,
@@ -18919,7 +19003,8 @@ var require_eventsource = __commonJS({
       {
         key: "dispatcher",
         // undici only
-        converter: webidl.converters.any
+        converter: webidl.converters.any,
+        defaultValue: () => getGlobalDispatcher()
       }
     ]);
     module2.exports = {
@@ -180630,12 +180715,14 @@ var init_schemaLogFilter = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/client/smithy-client/command.js
-var import_types5, Command2, ClassBuilder;
+var import_types5, operationEventStreamMarker, Command2, ClassBuilder;
 var init_command = __esm({
   "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/command.js"() {
     import_types5 = __toESM(require_dist_cjs());
     init_MiddlewareStack();
     init_schemaLogFilter();
+    init_schema();
+    operationEventStreamMarker = /* @__PURE__ */ Symbol.for("@smithy/op-event-stream");
     Command2 = class {
       middlewareStack = constructStack();
       schema;
@@ -180669,9 +180756,20 @@ var init_command = __esm({
           requestOptions = { ...requestOptions };
           delete requestOptions.metricsRecorder;
         }
-        if (smithyContext.eventStream) {
+        let isEventStream;
+        const schema = this.schema;
+        const marker = schema?.[operationEventStreamMarker];
+        if (marker !== void 0) {
+          isEventStream = marker;
+        } else if (schema) {
+          if (Array.isArray(schema) && schema[0] === 9) {
+            const [, , , , input$, output$] = schema;
+            isEventStream = schema[operationEventStreamMarker] = Boolean(NormalizedSchema.of(input$).getEventStreamMember() || NormalizedSchema.of(output$).getEventStreamMember());
+          }
+        }
+        if (isEventStream) {
           requestOptions = {
-            isEventStream: true,
+            isEventStream,
             ...requestOptions
           };
         }
@@ -186652,7 +186750,7 @@ var init_Int64 = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/event-streams/eventstream-codec/HeaderMarshaller.js
-var HeaderMarshaller, HEADER_VALUE_TYPE, BOOLEAN_TAG, BYTE_TAG, SHORT_TAG, INT_TAG, LONG_TAG, BINARY_TAG, STRING_TAG, TIMESTAMP_TAG, UUID_TAG, UUID_PATTERN;
+var HeaderMarshaller, HEADER_VALUE_TYPE, BOOLEAN_TAG, BYTE_TAG, SHORT_TAG, INT_TAG, LONG_TAG, BINARY_TAG, STRING_TAG, TIMESTAMP_TAG, UUID_TAG, UUID_PATTERN, MAX_HEADER_VALUE_BYTES;
 var init_HeaderMarshaller = __esm({
   "node_modules/@smithy/core/dist-es/submodules/event-streams/eventstream-codec/HeaderMarshaller.js"() {
     init_transport();
@@ -186671,6 +186769,9 @@ var init_HeaderMarshaller = __esm({
           if (!hasOwn(headers, headerName))
             continue;
           const bytes = this.fromUtf8(headerName);
+          if (bytes.byteLength > 255) {
+            throw new Error(`@smithy/core/event-streams - header name exceeds 255 bytes: ${bytes.byteLength}`);
+          }
           chunks.push(Uint8Array.from([bytes.byteLength]), bytes, this.formatHeaderValue(headers[headerName]));
         }
         const out = new Uint8Array(chunks.reduce((carry, bytes) => carry + bytes.byteLength, 0));
@@ -186703,6 +186804,9 @@ var init_HeaderMarshaller = __esm({
             longBytes.set(header.value.bytes, 1);
             return longBytes;
           case "binary":
+            if (header.value.byteLength > MAX_HEADER_VALUE_BYTES) {
+              throw new Error(`@smithy/core/event-streams - header value (binary) exceeds ${MAX_HEADER_VALUE_BYTES} bytes: ${header.value.byteLength}`);
+            }
             const binView = new DataView(new ArrayBuffer(3 + header.value.byteLength));
             binView.setUint8(0, 6);
             binView.setUint16(1, header.value.byteLength, false);
@@ -186711,6 +186815,9 @@ var init_HeaderMarshaller = __esm({
             return binBytes;
           case "string":
             const utf8Bytes = this.fromUtf8(header.value);
+            if (utf8Bytes.byteLength > MAX_HEADER_VALUE_BYTES) {
+              throw new Error(`@smithy/core/event-streams - header value (string) exceeds ${MAX_HEADER_VALUE_BYTES} bytes: ${utf8Bytes.byteLength}`);
+            }
             const strView = new DataView(new ArrayBuffer(3 + utf8Bytes.byteLength));
             strView.setUint8(0, 7);
             strView.setUint16(1, utf8Bytes.byteLength, false);
@@ -186841,6 +186948,7 @@ var init_HeaderMarshaller = __esm({
     TIMESTAMP_TAG = "timestamp";
     UUID_TAG = "uuid";
     UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+    MAX_HEADER_VALUE_BYTES = 32767;
   }
 });
 
@@ -188751,6 +188859,1796 @@ var init_buildQueryString = __esm({
   }
 });
 
+// node_modules/@smithy/core/dist-es/submodules/protocols/ConfigurableSerdeContext.js
+var SerdeContextConfig;
+var init_ConfigurableSerdeContext = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/ConfigurableSerdeContext.js"() {
+    SerdeContextConfig = class {
+      serdeContext;
+      setSerdeContext(serdeContext) {
+        this.serdeContext = serdeContext;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/UnionSerde.js
+var UnionSerde;
+var init_UnionSerde = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/UnionSerde.js"() {
+    UnionSerde = class {
+      from;
+      to;
+      keys;
+      constructor(from, to) {
+        this.from = from;
+        this.to = to;
+        const keys = Object.keys(this.from);
+        const set = new Set(keys);
+        set.delete("__type");
+        this.keys = set;
+      }
+      mark(key) {
+        this.keys.delete(key);
+      }
+      hasUnknown() {
+        return this.keys.size === 1 && Object.keys(this.to).length === 0;
+      }
+      writeUnknown() {
+        if (this.hasUnknown()) {
+          const k5 = this.keys.values().next().value;
+          const v = this.from[k5];
+          this.to.$unknown = [k5, v];
+        }
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/detectBufferParsing.js
+function detectBufferParsing() {
+  if (canParseBuffer === void 0) {
+    try {
+      if (typeof Buffer !== "function") {
+        canParseBuffer = false;
+      } else {
+        const result = JSON.parse(Buffer.from([123, 125]));
+        canParseBuffer = result !== null && typeof result === "object";
+      }
+    } catch {
+      canParseBuffer = false;
+    }
+  }
+  return canParseBuffer;
+}
+var canParseBuffer;
+var init_detectBufferParsing = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/detectBufferParsing.js"() {
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/jsonReviver.js
+function jsonReviver(key, value, context2) {
+  if (context2?.source) {
+    const numericString = context2.source;
+    if (typeof value === "number") {
+      const inSafeRange = value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER;
+      if (inSafeRange) {
+        if (isRepresentable(numericString, value)) {
+          return value;
+        }
+        return new NumericValue(numericString, "bigDecimal");
+      } else {
+        if (isFractionalBigNumeric(numericString)) {
+          return new NumericValue(numericString, "bigDecimal");
+        }
+        if (/[eE]/.test(numericString)) {
+          return expandExponentToBigInt(numericString);
+        }
+        return BigInt(numericString);
+      }
+    }
+  }
+  return value;
+}
+function isFractionalBigNumeric(s3) {
+  const dotIndex = s3.indexOf(".");
+  if (dotIndex === -1) {
+    return false;
+  }
+  const eIndex = s3.search(/[eE]/);
+  if (eIndex === -1) {
+    return true;
+  }
+  const fracDigits = eIndex - dotIndex - 1;
+  const exp = parseInt(s3.slice(eIndex + 1), 10);
+  return exp < fracDigits;
+}
+function isRepresentable(numericString, value) {
+  if (numericString === String(value)) {
+    return true;
+  }
+  if (Object.is(value, -0)) {
+    return true;
+  }
+  if (/[eE]/.test(numericString)) {
+    return expandToDecimal(numericString) === expandToDecimal(String(value));
+  }
+  const normalized = numericString.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  const canonical = String(value);
+  if (normalized === canonical) {
+    return true;
+  }
+  if (/[eE]/.test(canonical)) {
+    return normalized === expandToDecimal(canonical);
+  }
+  return false;
+}
+function expandToDecimal(s3) {
+  const negative = s3.startsWith("-");
+  const abs = negative ? s3.slice(1) : s3;
+  const eIndex = abs.search(/[eE]/);
+  let result;
+  if (eIndex === -1) {
+    result = abs;
+  } else {
+    const exp = parseInt(abs.slice(eIndex + 1), 10);
+    const mantissa = abs.slice(0, eIndex);
+    const dotIndex = mantissa.indexOf(".");
+    let digits;
+    let intLen;
+    if (dotIndex === -1) {
+      digits = mantissa;
+      intLen = mantissa.length;
+    } else {
+      digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
+      intLen = dotIndex;
+    }
+    digits = digits.replace(/0+$/, "") || "0";
+    const newDotPos = intLen + exp;
+    if (digits === "0") {
+      result = "0";
+    } else if (newDotPos <= 0) {
+      result = "0." + "0".repeat(-newDotPos) + digits;
+    } else if (newDotPos >= digits.length) {
+      result = digits + "0".repeat(newDotPos - digits.length);
+    } else {
+      result = digits.slice(0, newDotPos) + "." + digits.slice(newDotPos);
+    }
+  }
+  if (result.includes(".")) {
+    result = result.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  }
+  return (negative ? "-" : "") + result;
+}
+function expandExponentToBigInt(s3) {
+  const eIndex = s3.search(/[eE]/);
+  const exp = parseInt(s3.slice(eIndex + 1), 10);
+  const negative = s3.startsWith("-");
+  const mantissa = s3.slice(negative ? 1 : 0, eIndex);
+  const dotIndex = mantissa.indexOf(".");
+  let digits;
+  let shift;
+  if (dotIndex === -1) {
+    digits = mantissa;
+    shift = exp;
+  } else {
+    digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
+    const fracDigits = mantissa.length - dotIndex - 1;
+    shift = exp - fracDigits;
+  }
+  digits = digits.replace(/0+$/, "") || "0";
+  const result = BigInt(digits) * 10n ** BigInt(shift + (mantissa.replace(".", "").length - digits.length));
+  return negative ? -result : result;
+}
+var init_jsonReviver = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/jsonReviver.js"() {
+    init_serde();
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/needsReviver.js
+function needsReviver(schema) {
+  const ns = NormalizedSchema.of(schema);
+  const raw = ns.getSchema();
+  if (Array.isArray(raw) && ns.isStructSchema()) {
+    if (REVIVER_SYMBOL in raw) {
+      return raw[REVIVER_SYMBOL];
+    }
+    const result = _check(ns, /* @__PURE__ */ new Set());
+    raw[REVIVER_SYMBOL] = result;
+    return result;
+  }
+  return _check(ns, /* @__PURE__ */ new Set());
+}
+function _check(ns, seen) {
+  const raw = ns.getSchema();
+  if (seen.has(raw)) {
+    return false;
+  }
+  seen.add(raw);
+  if (ns.isBigIntegerSchema() || ns.isBigDecimalSchema()) {
+    return true;
+  }
+  if (ns.isStructSchema()) {
+    for (const [, memberSchema] of ns.structIterator()) {
+      if (_check(memberSchema, seen)) {
+        return true;
+      }
+    }
+  } else if (ns.isListSchema() || ns.isMapSchema()) {
+    if (_check(ns.getValueSchema(), seen)) {
+      return true;
+    }
+  } else if (ns.isDocumentSchema()) {
+    return true;
+  }
+  return false;
+}
+var REVIVER_SYMBOL;
+var init_needsReviver = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/needsReviver.js"() {
+    init_schema();
+    REVIVER_SYMBOL = /* @__PURE__ */ Symbol.for("@aws-sdk/reviver");
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/common.js
+var collectBodyString;
+var init_common = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/common.js"() {
+    init_collect_stream_body();
+    init_serde();
+    collectBodyString = (streamBody, context2) => collectBody(streamBody, context2).then((body) => (context2?.utf8Encoder ?? toUtf8)(body));
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/parseJsonBody.js
+async function parseJsonBody(streamBody, context2, schema) {
+  let parsingInput;
+  if (detectBufferParsing() && typeof streamBody?.[Symbol.asyncIterator] === "function") {
+    const buffer = await collectBody(streamBody, context2);
+    if (typeof Buffer === "function") {
+      if (Buffer.isBuffer(buffer)) {
+        parsingInput = buffer;
+      } else {
+        parsingInput = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      }
+    }
+  }
+  if (!parsingInput) {
+    parsingInput = await collectBodyString(streamBody, context2);
+  }
+  if (parsingInput.length === 0) {
+    return {};
+  }
+  const reviver = schema && needsReviver(schema) ? jsonReviver : void 0;
+  try {
+    return JSON.parse(parsingInput, reviver);
+  } catch (e6) {
+    if (e6?.name === "SyntaxError") {
+      Object.defineProperty(e6, "$responseBodyText", {
+        value: typeof parsingInput === "string" ? parsingInput : parsingInput.toString("utf8")
+      });
+    }
+    throw e6;
+  }
+}
+var parseJsonErrorBody, findKey, sanitizeErrorCode, loadRestJsonErrorCode, loadJsonRpcErrorCode, loadSmithyRpcV2JsonErrorCode, loadErrorCode;
+var init_parseJsonBody = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/parseJsonBody.js"() {
+    init_collect_stream_body();
+    init_common();
+    init_detectBufferParsing();
+    init_jsonReviver();
+    init_needsReviver();
+    parseJsonErrorBody = async (errorBody, context2) => {
+      const value = await parseJsonBody(errorBody, context2);
+      value.message = value.message ?? value.Message;
+      return value;
+    };
+    findKey = (object, key) => Object.keys(object).find((k5) => k5.toLowerCase() === key.toLowerCase());
+    sanitizeErrorCode = (rawValue) => {
+      let cleanValue = rawValue;
+      if (typeof cleanValue === "number") {
+        cleanValue = cleanValue.toString();
+      }
+      if (cleanValue.indexOf(",") >= 0) {
+        cleanValue = cleanValue.split(",")[0];
+      }
+      if (cleanValue.indexOf(":") >= 0) {
+        cleanValue = cleanValue.split(":")[0];
+      }
+      if (cleanValue.indexOf("#") >= 0) {
+        cleanValue = cleanValue.split("#")[1];
+      }
+      return cleanValue;
+    };
+    loadRestJsonErrorCode = (output, data) => {
+      return loadErrorCode(output, data, ["header", "code", "type"]);
+    };
+    loadJsonRpcErrorCode = (output, data, queryCompat = false) => {
+      return loadErrorCode(output, data, queryCompat ? ["code", "header", "type"] : ["type", "code", "header"]);
+    };
+    loadSmithyRpcV2JsonErrorCode = (output, data) => {
+      if (data?.__type !== void 0) {
+        let cleanValue = data.__type;
+        if (typeof cleanValue === "number") {
+          cleanValue = cleanValue.toString();
+        }
+        if (cleanValue.indexOf(",") >= 0) {
+          cleanValue = cleanValue.split(",")[0];
+        }
+        if (cleanValue.indexOf(":") >= 0) {
+          cleanValue = cleanValue.split(":")[0];
+        }
+        return cleanValue;
+      }
+    };
+    loadErrorCode = ({ headers }, data, order) => {
+      while (order.length > 0) {
+        const location = order.shift();
+        switch (location) {
+          case "header":
+            const headerKey = findKey(headers ?? {}, "x-amzn-errortype");
+            if (headerKey !== void 0) {
+              return sanitizeErrorCode(headers[headerKey]);
+            }
+            break;
+          case "code":
+            const codeKey = findKey(data ?? {}, "code");
+            if (codeKey && data[codeKey] !== void 0) {
+              return sanitizeErrorCode(data[codeKey]);
+            }
+            break;
+          case "type":
+            if (data?.__type !== void 0) {
+              return sanitizeErrorCode(data.__type);
+            }
+            break;
+        }
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/writeKey.js
+function writeKey(obj) {
+  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
+}
+var init_writeKey = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/writeKey.js"() {
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeDeserializer2.js
+var JsonShapeDeserializer2;
+var init_JsonShapeDeserializer2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeDeserializer2.js"() {
+    init_determineTimestampFormat();
+    init_schema();
+    init_serde();
+    init_ConfigurableSerdeContext();
+    init_UnionSerde();
+    init_detectBufferParsing();
+    init_jsonReviver();
+    init_needsReviver();
+    init_parseJsonBody();
+    init_writeKey();
+    init_transport();
+    JsonShapeDeserializer2 = class extends SerdeContextConfig {
+      settings;
+      constructor(settings) {
+        super();
+        this.settings = settings;
+      }
+      async read(schema, data) {
+        const reviver = needsReviver(schema) ? jsonReviver : void 0;
+        let parsed;
+        if (typeof data === "string") {
+          if (data.length === 0) {
+            return {};
+          }
+          parsed = JSON.parse(data, reviver);
+        } else if (data instanceof Uint8Array && detectBufferParsing()) {
+          if (data.byteLength === 0) {
+            return {};
+          }
+          const buf2 = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+          parsed = JSON.parse(buf2, reviver);
+        } else {
+          parsed = await parseJsonBody(data, this.serdeContext, schema);
+        }
+        return this._read(schema, parsed);
+      }
+      readObject(schema, data) {
+        return this._read(schema, data);
+      }
+      _read(schema, value) {
+        const isObject = value !== null && typeof value === "object";
+        const ns = NormalizedSchema.of(schema);
+        if (isObject) {
+          if (ns.isStructSchema()) {
+            return this._readStruct(ns, value);
+          }
+          if (Array.isArray(value) && ns.isListSchema()) {
+            const listMember = ns.getValueSchema();
+            if (this.needsTransform(listMember)) {
+              for (let i6 = 0; i6 < value.length; ++i6) {
+                value[i6] = this._read(listMember, value[i6]);
+              }
+            }
+            return value;
+          }
+          if (ns.isMapSchema()) {
+            const mapMember = ns.getValueSchema();
+            const map3 = value;
+            if (this.needsTransform(mapMember)) {
+              for (const k5 in map3) {
+                if (!hasOwn(map3, k5))
+                  continue;
+                if (k5 === "__proto__") {
+                  writeKey(map3);
+                }
+                map3[k5] = this._read(mapMember, map3[k5]);
+              }
+            }
+            return map3;
+          }
+        }
+        if (ns.isBlobSchema() && typeof value === "string") {
+          return fromBase64(value);
+        }
+        const mediaType = ns.getMergedTraits().mediaType;
+        if (ns.isStringSchema() && typeof value === "string" && mediaType) {
+          const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
+          if (isJson) {
+            return LazyJsonString.from(value);
+          }
+          return value;
+        }
+        if (ns.isTimestampSchema() && value != null) {
+          const format2 = determineTimestampFormat(ns, this.settings);
+          switch (format2) {
+            case 5:
+              return parseRfc3339DateTimeWithOffset(value);
+            case 6:
+              return parseRfc7231DateTime(value);
+            case 7:
+              return parseEpochTimestamp(value);
+            default:
+              console.warn("Missing timestamp format, parsing value with Date constructor:", value);
+              return new Date(value);
+          }
+        }
+        if (ns.isBigIntegerSchema() && (typeof value === "number" || typeof value === "string")) {
+          return BigInt(value);
+        }
+        if (ns.isBigDecimalSchema() && value != void 0) {
+          if (value instanceof NumericValue) {
+            return value;
+          }
+          const untyped = value;
+          if (untyped.type === "bigDecimal" && "string" in untyped) {
+            return new NumericValue(untyped.string, untyped.type);
+          }
+          return new NumericValue(String(value), "bigDecimal");
+        }
+        if (ns.isNumericSchema() && typeof value === "string") {
+          switch (value) {
+            case "Infinity":
+              return Infinity;
+            case "-Infinity":
+              return -Infinity;
+            case "NaN":
+              return NaN;
+          }
+          return value;
+        }
+        if (ns.isDocumentSchema()) {
+          if (isObject) {
+            if (Array.isArray(value)) {
+              for (let i6 = 0; i6 < value.length; ++i6) {
+                const v = value[i6];
+                if (!(v instanceof NumericValue)) {
+                  value[i6] = this._read(ns, v);
+                }
+              }
+            } else {
+              const doc = value;
+              for (const k5 in doc) {
+                if (!hasOwn(doc, k5))
+                  continue;
+                if (k5 === "__proto__") {
+                  writeKey(doc);
+                }
+                const v = doc[k5];
+                if (!(v instanceof NumericValue)) {
+                  doc[k5] = this._read(ns, v);
+                }
+              }
+            }
+          }
+        }
+        return value;
+      }
+      _readStruct(ns, record) {
+        const union = ns.isUnionSchema();
+        const out = {};
+        let nameMap;
+        const hasType = typeof record.__type === "string";
+        const { jsonName } = this.settings;
+        if (jsonName && hasType) {
+          nameMap = {};
+        }
+        let unionSerde;
+        if (union) {
+          unionSerde = new UnionSerde(record, out);
+        }
+        for (const [memberName, memberSchema] of ns.structIterator()) {
+          let fromKey = memberName;
+          if (jsonName) {
+            fromKey = memberSchema.getMergedTraits().jsonName ?? fromKey;
+            if (hasType) {
+              nameMap[fromKey] = memberName;
+            }
+          }
+          if (union) {
+            unionSerde.mark(fromKey);
+          }
+          if (record[fromKey] != null) {
+            out[memberName] = this._read(memberSchema, record[fromKey]);
+          }
+        }
+        if (union) {
+          unionSerde.writeUnknown();
+        } else if (hasType) {
+          for (const k5 in record) {
+            if (!hasOwn(record, k5))
+              continue;
+            const v = record[k5];
+            const t2 = jsonName ? nameMap[k5] ?? k5 : k5;
+            if (!(t2 in out)) {
+              out[t2] = v;
+            }
+          }
+        }
+        return out;
+      }
+      needsTransform(ns) {
+        if (ns.isBlobSchema() || ns.isTimestampSchema() || ns.isBigIntegerSchema() || ns.isBigDecimalSchema() || ns.isNumericSchema()) {
+          return true;
+        }
+        if (ns.isDocumentSchema() || ns.isStructSchema() || ns.isListSchema() || ns.isMapSchema()) {
+          return true;
+        }
+        if (ns.isStringSchema() && ns.getMergedTraits().mediaType) {
+          return true;
+        }
+        return false;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonBytesStringAdapter.js
+var JsonBytesStringAdapter, warned;
+var init_JsonBytesStringAdapter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonBytesStringAdapter.js"() {
+    init_serde();
+    JsonBytesStringAdapter = class _JsonBytesStringAdapter extends Uint8Array {
+      string = null;
+      static allocUnsafe(bytes) {
+        if (typeof Buffer === "function") {
+          const buffer = Buffer.allocUnsafe(bytes);
+          return new _JsonBytesStringAdapter(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        }
+        return new _JsonBytesStringAdapter(bytes);
+      }
+      toString() {
+        return this.s();
+      }
+      valueOf() {
+        return this.s();
+      }
+      includes(searchString, position) {
+        if (typeof searchString === "string") {
+          return this.s().includes(searchString, position);
+        }
+        return Uint8Array.prototype.includes.call(this, searchString, position);
+      }
+      indexOf(searchString, position) {
+        if (typeof searchString === "string") {
+          return this.s().indexOf(searchString, position);
+        }
+        return Uint8Array.prototype.indexOf.call(this, searchString, position);
+      }
+      lastIndexOf(searchString, position) {
+        if (typeof searchString === "string") {
+          return this.s().lastIndexOf(searchString, position);
+        }
+        const fn = Uint8Array.prototype.lastIndexOf;
+        if (position !== void 0) {
+          return fn.call(this, searchString, position);
+        }
+        return fn.call(this, searchString);
+      }
+      startsWith(searchString, position) {
+        return this.s().startsWith(searchString, position);
+      }
+      endsWith(searchString, endPosition) {
+        return this.s().endsWith(searchString, endPosition);
+      }
+      match(regexp) {
+        return this.s().match(regexp);
+      }
+      replace(searchValue, replaceValue) {
+        return this.s().replace(searchValue, replaceValue);
+      }
+      search(regexp) {
+        return this.s().search(regexp);
+      }
+      split(separator, limit) {
+        return this.s().split(separator, limit);
+      }
+      substring(start, end2) {
+        return this.s().substring(start, end2);
+      }
+      trim() {
+        return this.s().trim();
+      }
+      trimStart() {
+        return this.s().trimStart();
+      }
+      trimEnd() {
+        return this.s().trimEnd();
+      }
+      charAt(pos2) {
+        return this.s().charAt(pos2);
+      }
+      charCodeAt(index) {
+        return this.s().charCodeAt(index);
+      }
+      padStart(maxLength, fillString) {
+        return this.s().padStart(maxLength, fillString);
+      }
+      padEnd(maxLength, fillString) {
+        return this.s().padEnd(maxLength, fillString);
+      }
+      repeat(count2) {
+        return this.s().repeat(count2);
+      }
+      toUpperCase() {
+        return this.s().toUpperCase();
+      }
+      toLowerCase() {
+        return this.s().toLowerCase();
+      }
+      s() {
+        if (this.string == null) {
+          const n3 = Date.now();
+          if (n3 > warned + 6e4) {
+            console.warn("@aws-sdk/core/protocols - WARN - JsonCodec2: you have called a string method on a Uint8Array request body. It has been automatically converted to string. In a future version this will throw an error.");
+            warned = n3;
+          }
+          this.string = toUtf8(this);
+        }
+        return this.string;
+      }
+    };
+    warned = 0;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeSerializer2.js
+function alloc(size) {
+  return JsonBytesStringAdapter.allocUnsafe(size);
+}
+var encoder, OPEN_BRACE, CLOSE_BRACE, OPEN_BRACKET, CLOSE_BRACKET, QUOTE, COLON2, COMMA, BACKSLASH, TRUE, FALSE, NULL, ESCAPE_TABLE, INITIAL_BUFFER_SIZE, JsonShapeSerializer2;
+var init_JsonShapeSerializer2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeSerializer2.js"() {
+    init_determineTimestampFormat();
+    init_schema();
+    init_serde();
+    init_ConfigurableSerdeContext();
+    init_transport();
+    init_JsonBytesStringAdapter();
+    encoder = new TextEncoder();
+    OPEN_BRACE = 123;
+    CLOSE_BRACE = 125;
+    OPEN_BRACKET = 91;
+    CLOSE_BRACKET = 93;
+    QUOTE = 34;
+    COLON2 = 58;
+    COMMA = 44;
+    BACKSLASH = 92;
+    TRUE = new Uint8Array([116, 114, 117, 101]);
+    FALSE = new Uint8Array([102, 97, 108, 115, 101]);
+    NULL = new Uint8Array([110, 117, 108, 108]);
+    ESCAPE_TABLE = new Array(128).fill(null);
+    ESCAPE_TABLE[8] = "b";
+    ESCAPE_TABLE[9] = "t";
+    ESCAPE_TABLE[10] = "n";
+    ESCAPE_TABLE[12] = "f";
+    ESCAPE_TABLE[13] = "r";
+    ESCAPE_TABLE[34] = '"';
+    ESCAPE_TABLE[92] = "\\";
+    for (let i6 = 0; i6 < 32; i6++) {
+      if (ESCAPE_TABLE[i6] === null) {
+        ESCAPE_TABLE[i6] = "u00" + i6.toString(16).padStart(2, "0");
+      }
+    }
+    INITIAL_BUFFER_SIZE = 2048;
+    JsonShapeSerializer2 = class _JsonShapeSerializer2 extends SerdeContextConfig {
+      settings;
+      json;
+      i = 0;
+      rootSchema;
+      rawValue;
+      passthrough = false;
+      constructor(settings) {
+        super();
+        this.settings = settings;
+        this.json = alloc(INITIAL_BUFFER_SIZE);
+      }
+      write(schema, value) {
+        this.i = 0;
+        this.rawValue = value;
+        this.rootSchema = NormalizedSchema.of(schema);
+        this.passthrough = this.rootSchema.isBlobSchema() || this.rootSchema.isStringSchema();
+        if (!this.passthrough) {
+          this.writeValue(this.rootSchema, value, void 0);
+        }
+      }
+      writeDiscriminatedDocument(schema, value) {
+        this.i = 0;
+        this.rootSchema = NormalizedSchema.of(schema);
+        const ns = this.rootSchema;
+        if (ns.isStructSchema() && value != null && typeof value === "object") {
+          this.writeValue(ns, value, void 0);
+          const prefix = `"__type":"${ns.getName(true) ?? "Unknown"}",`;
+          const z = prefix.length;
+          this.ensure(z);
+          this.json.copyWithin(1 + z, 1, this.i);
+          encoder.encodeInto(prefix, this.json.subarray(1));
+          this.i += z;
+        } else {
+          this.writeValue(ns, value, void 0);
+        }
+      }
+      flush() {
+        this.rootSchema = void 0;
+        const finalPosition = this.i;
+        this.i = 0;
+        const raw = this.rawValue;
+        this.rawValue = void 0;
+        if (finalPosition === 0) {
+          return raw;
+        }
+        const result = this.json.subarray(0, finalPosition);
+        this.json = alloc(INITIAL_BUFFER_SIZE);
+        return result;
+      }
+      ensure(byteCount) {
+        const { i: i6, json } = this;
+        if (i6 + byteCount > json.length) {
+          let newSize = json.length * 2;
+          while (newSize < i6 + byteCount) {
+            newSize *= 2;
+          }
+          const next = alloc(newSize);
+          next.set(this.json);
+          this.json = next;
+        }
+      }
+      writeAscii(s3) {
+        const z = s3.length;
+        this.ensure(z);
+        let { i: i6, json } = this;
+        for (let j5 = 0; j5 < z; ++j5) {
+          json[i6] = s3.charCodeAt(j5);
+          i6 += 1;
+        }
+        this.i = i6;
+      }
+      writeAsciiQuoted(s3) {
+        const z = s3.length;
+        this.ensure(z + 4);
+        let { json, i: i6 } = this;
+        json[i6++] = QUOTE;
+        for (let j5 = 0; j5 < z; ++j5) {
+          json[i6++] = s3.charCodeAt(j5);
+        }
+        json[i6++] = QUOTE;
+        this.i = i6;
+      }
+      writeJsonString(s3) {
+        const z = s3.length;
+        this.ensure(z * 3 + 2);
+        this.json[this.i++] = QUOTE;
+        for (let j5 = 0; j5 < z; ++j5) {
+          const c5 = s3.charCodeAt(j5);
+          if (c5 > 34 && c5 < 92) {
+            this.json[this.i++] = c5;
+          } else if (c5 < 128) {
+            const esc = ESCAPE_TABLE[c5];
+            if (esc !== null) {
+              this.ensure(esc.length + 1 + (z - j5 - 1) * 3 + 1);
+              this.json[this.i++] = BACKSLASH;
+              for (let k5 = 0; k5 < esc.length; k5++) {
+                this.json[this.i++] = esc.charCodeAt(k5);
+              }
+            } else {
+              this.json[this.i++] = c5;
+            }
+          } else if (c5 >= 55296 && c5 <= 56319) {
+            const next = j5 + 1 < z ? s3.charCodeAt(j5 + 1) : 0;
+            if (next >= 56320 && next <= 57343) {
+              this.ensure(4);
+              const { written } = encoder.encodeInto(s3.substring(j5, j5 + 2), this.json.subarray(this.i));
+              this.i += written;
+              ++j5;
+            } else {
+              this.ensure(6 + (z - j5 - 1) * 3 + 1);
+              this.writeUnicodeEscape(c5);
+            }
+          } else if (c5 >= 56320 && c5 <= 57343) {
+            this.ensure(6 + (z - j5 - 1) * 3 + 1);
+            this.writeUnicodeEscape(c5);
+          } else {
+            let { i: i6, json } = this;
+            if (c5 < 2048) {
+              json[i6++] = 192 | c5 >> 6;
+              json[i6++] = 128 | c5 & 63;
+            } else {
+              json[i6++] = 224 | c5 >> 12;
+              json[i6++] = 128 | c5 >> 6 & 63;
+              json[i6++] = 128 | c5 & 63;
+            }
+            this.i = i6;
+          }
+        }
+        this.json[this.i++] = QUOTE;
+      }
+      writeUnicodeEscape(code) {
+        let { json, i: i6 } = this;
+        json[i6++] = BACKSLASH;
+        json[i6++] = 117;
+        const hex = code.toString(16).padStart(4, "0");
+        for (let j5 = 0; j5 < 4; ++j5) {
+          json[i6++] = hex.charCodeAt(j5);
+        }
+        this.i = i6;
+      }
+      static B64 = (() => {
+        const chars2 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const table = new Uint8Array(64);
+        for (let i6 = 0; i6 < 64; ++i6) {
+          table[i6] = chars2.charCodeAt(i6);
+        }
+        return table;
+      })();
+      writeBase64(data) {
+        const b64Len = Math.ceil(data.length / 3) * 4;
+        this.ensure(b64Len + 2);
+        const json = this.json;
+        const B64 = _JsonShapeSerializer2.B64;
+        let i6 = this.i;
+        json[i6++] = QUOTE;
+        const len = data.length;
+        const remainder = len % 3;
+        const mainLen = len - remainder;
+        for (let j5 = 0; j5 < mainLen; j5 += 3) {
+          const a5 = data[j5];
+          const b5 = data[j5 + 1];
+          const c5 = data[j5 + 2];
+          json[i6++] = B64[a5 >> 2];
+          json[i6++] = B64[(a5 & 3) << 4 | b5 >> 4];
+          json[i6++] = B64[(b5 & 15) << 2 | c5 >> 6];
+          json[i6++] = B64[c5 & 63];
+        }
+        if (remainder === 2) {
+          const a5 = data[mainLen];
+          const b5 = data[mainLen + 1];
+          json[i6++] = B64[a5 >> 2];
+          json[i6++] = B64[(a5 & 3) << 4 | b5 >> 4];
+          json[i6++] = B64[(b5 & 15) << 2];
+          json[i6++] = 61;
+        } else if (remainder === 1) {
+          const a5 = data[mainLen];
+          json[i6++] = B64[a5 >> 2];
+          json[i6++] = B64[(a5 & 3) << 4];
+          json[i6++] = 61;
+          json[i6++] = 61;
+        }
+        json[i6++] = QUOTE;
+        this.i = i6;
+      }
+      writeValue(schema, value, container) {
+        if (value == null) {
+          if (container?.isStructSchema()) {
+            if (value === void 0) {
+              const ns2 = NormalizedSchema.of(schema);
+              if (ns2.isIdempotencyToken()) {
+                this.writeAsciiQuoted(generateIdempotencyToken());
+                return;
+              }
+            }
+            return;
+          }
+          this.ensure(4);
+          this.json.set(NULL, this.i);
+          this.i += 4;
+          return;
+        }
+        const ns = NormalizedSchema.of(schema);
+        const isObject = typeof value === "object";
+        if (ns.isStringSchema()) {
+          const mediaType = ns.getMergedTraits().mediaType;
+          if (mediaType) {
+            const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
+            if (isJson) {
+              this.writeJsonString(LazyJsonString.from(value).toString());
+              return;
+            }
+          }
+        }
+        if (this.settings.bigNumberAsString && value != null && (ns.isBigIntegerSchema() || ns.isBigDecimalSchema())) {
+          const asString = value instanceof NumericValue ? value.string : String(value);
+          this.writeAsciiQuoted(asString);
+          return;
+        }
+        if (isObject) {
+          if (ns.isStructSchema()) {
+            this.writeStruct(ns, value);
+            return;
+          }
+          if (Array.isArray(value) && (ns.isListSchema() || ns.isDocumentSchema())) {
+            this.writeList(ns, value, ns.isDocumentSchema());
+            return;
+          }
+          if (ns.isMapSchema()) {
+            this.writeMap(ns, value, false);
+            return;
+          }
+          if (value instanceof Uint8Array && (ns.isBlobSchema() || ns.isDocumentSchema())) {
+            this.writeBase64(value);
+            return;
+          }
+          if (value instanceof Date && (ns.isTimestampSchema() || ns.isDocumentSchema())) {
+            this.writeTimestamp(ns, value);
+            return;
+          }
+          if (value instanceof NumericValue) {
+            this.writeAscii(value.string);
+            return;
+          }
+          if (ns.isDocumentSchema()) {
+            if (Array.isArray(value)) {
+              this.writeList(ns, value, true);
+            } else {
+              this.writeMap(ns, value, true);
+            }
+            return;
+          }
+          const json = JSON.stringify(value);
+          this.writeAscii(json);
+          return;
+        }
+        if (typeof value === "string") {
+          if (ns.isBlobSchema()) {
+            const b64 = (this.serdeContext?.base64Encoder ?? toBase64)(value);
+            this.writeAsciiQuoted(b64);
+            return;
+          }
+          this.writeJsonString(value);
+          return;
+        }
+        if (typeof value === "number") {
+          if (Math.abs(value) === Infinity || Number.isNaN(value)) {
+            this.writeAsciiQuoted(String(value));
+            return;
+          }
+          const numStr = String(value);
+          this.writeAscii(numStr);
+          return;
+        }
+        if (typeof value === "boolean") {
+          this.ensure(5);
+          let { i: i6, json } = this;
+          if (value) {
+            json.set(TRUE, i6);
+            i6 += 4;
+          } else {
+            json.set(FALSE, i6);
+            i6 += 5;
+          }
+          this.i = i6;
+          return;
+        }
+        if (typeof value === "bigint") {
+          this.writeAscii(value.toString());
+          return;
+        }
+        this.writeAscii(String(value));
+      }
+      writeStruct(ns, value) {
+        this.ensure(2);
+        this.json[this.i++] = OPEN_BRACE;
+        let wroteAny = false;
+        const hasType = typeof value.__type === "string";
+        let writtenKeys;
+        if (hasType) {
+          writtenKeys = /* @__PURE__ */ new Set();
+        }
+        for (const [memberName, memberSchema] of ns.structIterator()) {
+          const item = value[memberName];
+          if (item == null && !memberSchema.isIdempotencyToken()) {
+            continue;
+          }
+          if (wroteAny) {
+            this.ensure(1);
+            this.json[this.i++] = COMMA;
+          }
+          wroteAny = true;
+          const targetKey = this.settings.jsonName ? memberSchema.getMergedTraits().jsonName ?? memberName : memberName;
+          if (writtenKeys) {
+            writtenKeys.add(memberName);
+            writtenKeys.add(targetKey);
+          }
+          this.writeAsciiQuoted(targetKey);
+          this.json[this.i++] = COLON2;
+          this.writeValue(memberSchema, item, ns);
+        }
+        if (!wroteAny && ns.isUnionSchema()) {
+          const { $unknown } = value;
+          if (Array.isArray($unknown)) {
+            const [k5, v] = $unknown;
+            this.writeAsciiQuoted(k5);
+            this.ensure(1);
+            this.json[this.i++] = COLON2;
+            this.writeValue(15, v, ns);
+          }
+        } else if (hasType) {
+          for (const k5 in value) {
+            if (writtenKeys.has(k5)) {
+              continue;
+            }
+            writtenKeys.add(k5);
+            const v = value[k5];
+            if (wroteAny) {
+              this.ensure(1);
+              this.json[this.i++] = COMMA;
+            }
+            wroteAny = true;
+            this.writeAsciiQuoted(k5);
+            this.ensure(1);
+            this.json[this.i++] = COLON2;
+            this.writeValue(15, v, void 0);
+          }
+        }
+        this.ensure(1);
+        this.json[this.i++] = CLOSE_BRACE;
+      }
+      writeList(ns, value, isDocument) {
+        const sparse = !!ns.getMergedTraits().sparse;
+        const valueSchema = ns.getValueSchema();
+        if (!isDocument) {
+          if (valueSchema.isStringSchema() || valueSchema.isNumericSchema() || valueSchema.isBooleanSchema()) {
+            let hasSpecials = false;
+            for (let i6 = 0; i6 < value.length; ++i6) {
+              const v = value[i6];
+              if (Number.isNaN(v) || v === Infinity || v === -Infinity || v == null && !sparse) {
+                hasSpecials = true;
+                break;
+              }
+            }
+            let json;
+            if (!hasSpecials) {
+              json = JSON.stringify(value);
+            } else {
+              const out = [];
+              for (let i6 = 0; i6 < value.length; ++i6) {
+                const v = value[i6];
+                if (v == null && !sparse)
+                  continue;
+                if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
+                  out.push(String(v));
+                } else {
+                  out.push(v);
+                }
+              }
+              json = JSON.stringify(out);
+            }
+            this.ensure(json.length * 3);
+            this.i += encoder.encodeInto(json, this.json.subarray(this.i)).written;
+            return;
+          }
+        }
+        this.ensure(2);
+        this.json[this.i++] = OPEN_BRACKET;
+        let wroteFirstItem = false;
+        for (let i6 = 0; i6 < value.length; ++i6) {
+          const item = value[i6];
+          if (isDocument ? item === void 0 : item == null && !sparse) {
+            continue;
+          }
+          if (wroteFirstItem) {
+            this.ensure(1);
+            this.json[this.i++] = COMMA;
+          }
+          this.writeValue(valueSchema, item, void 0);
+          wroteFirstItem = true;
+        }
+        this.ensure(1);
+        this.json[this.i++] = CLOSE_BRACKET;
+      }
+      writeMap(ns, value, isDocument) {
+        const sparse = !!ns.getMergedTraits().sparse;
+        const valueSchema = ns.getValueSchema();
+        if (!isDocument) {
+          if (valueSchema.isStringSchema() || valueSchema.isNumericSchema() || valueSchema.isBooleanSchema()) {
+            let modifications;
+            for (const k5 in value) {
+              if (!hasOwn(value, k5))
+                continue;
+              const v = value[k5];
+              if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
+                (modifications ??= {})[k5] = v;
+                value[k5] = String(v);
+              } else if (v === null && !sparse) {
+                (modifications ??= {})[k5] = null;
+                value[k5] = void 0;
+              }
+            }
+            const json = JSON.stringify(value);
+            if (modifications) {
+              Object.assign(value, modifications);
+            }
+            this.ensure(json.length * 3);
+            this.i += encoder.encodeInto(json, this.json.subarray(this.i)).written;
+            return;
+          }
+        }
+        this.ensure(2);
+        this.json[this.i++] = OPEN_BRACE;
+        let first = true;
+        for (const k5 in value) {
+          if (!hasOwn(value, k5))
+            continue;
+          const v = value[k5];
+          if (isDocument ? v === void 0 : v == null && !sparse) {
+            continue;
+          }
+          if (!first) {
+            this.ensure(1);
+            this.json[this.i++] = COMMA;
+          }
+          first = false;
+          this.writeJsonString(k5);
+          this.ensure(1);
+          this.json[this.i++] = COLON2;
+          this.writeValue(valueSchema, v, void 0);
+        }
+        this.ensure(1);
+        this.json[this.i++] = CLOSE_BRACE;
+      }
+      writeTimestamp(ns, value) {
+        const format2 = determineTimestampFormat(ns, this.settings);
+        switch (format2) {
+          case 5: {
+            const iso = value.toISOString().replace(".000Z", "Z");
+            this.writeAsciiQuoted(iso);
+            return;
+          }
+          case 6: {
+            this.writeAsciiQuoted(dateToUtcString(value));
+            return;
+          }
+          case 7: {
+            const epochSecs = String(value.getTime() / 1e3);
+            this.writeAscii(epochSecs);
+            return;
+          }
+          default: {
+            const epochSecs = String(value.getTime() / 1e3);
+            this.writeAscii(epochSecs);
+            return;
+          }
+        }
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonCodec2.js
+var JsonCodec2;
+var init_JsonCodec2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonCodec2.js"() {
+    init_ConfigurableSerdeContext();
+    init_JsonShapeDeserializer2();
+    init_JsonShapeSerializer2();
+    JsonCodec2 = class extends SerdeContextConfig {
+      settings;
+      constructor(settings) {
+        super();
+        this.settings = settings;
+      }
+      createSerializer() {
+        const serializer = new JsonShapeSerializer2(this.settings);
+        serializer.setSerdeContext(this.serdeContext);
+        return serializer;
+      }
+      createDeserializer() {
+        const deserializer = new JsonShapeDeserializer2(this.settings);
+        deserializer.setSerdeContext(this.serdeContext);
+        return deserializer;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/SmithyRpcV2JsonProtocol.js
+var SmithyRpcV2JsonProtocol;
+var init_SmithyRpcV2JsonProtocol = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/SmithyRpcV2JsonProtocol.js"() {
+    init_RpcProtocol();
+    init_schema();
+    init_transport();
+    init_JsonCodec2();
+    init_parseJsonBody();
+    SmithyRpcV2JsonProtocol = class extends RpcProtocol {
+      codec = new JsonCodec2({
+        timestampFormat: {
+          useTrait: false,
+          default: 7
+        },
+        jsonName: false,
+        bigNumberAsString: true
+      });
+      serializer = this.codec.createSerializer();
+      deserializer = this.codec.createDeserializer();
+      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
+        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
+      }
+      getShapeId() {
+        return "smithy.protocols#rpcv2Json";
+      }
+      getPayloadCodec() {
+        return this.codec;
+      }
+      async serializeRequest(operationSchema, input, context2) {
+        const request = await super.serializeRequest(operationSchema, input, context2);
+        Object.assign(request.headers, {
+          "content-type": this.getDefaultContentType(),
+          "smithy-protocol": "rpc-v2-json",
+          accept: this.getDefaultContentType()
+        });
+        if (deref(operationSchema.input) === "unit") {
+          delete request.body;
+          delete request.headers["content-type"];
+        } else if (!request.body) {
+          request.body = "{}";
+        }
+        const { service, operation: operation2 } = getSmithyContext(context2);
+        const path = `/service/${service}/operation/${operation2}`;
+        if (request.path.endsWith("/")) {
+          request.path += path.slice(1);
+        } else {
+          request.path += path;
+        }
+        return request;
+      }
+      async deserializeResponse(operationSchema, context2, response) {
+        return super.deserializeResponse(operationSchema, context2, response);
+      }
+      async handleError(operationSchema, context2, response, dataObject, metadata) {
+        const errorName = loadSmithyRpcV2JsonErrorCode(response, dataObject) ?? "Unknown";
+        const errorMetadata = {
+          $metadata: metadata,
+          $fault: response.statusCode <= 500 ? "client" : "server"
+        };
+        let namespace = this.options.defaultNamespace;
+        if (errorName.includes("#")) {
+          [namespace] = errorName.split("#");
+        }
+        const registry = this.compositeErrorRegistry;
+        const nsRegistry = TypeRegistry.for(namespace);
+        registry.copyFrom(nsRegistry);
+        let errorSchema;
+        try {
+          errorSchema = registry.getSchema(errorName);
+        } catch (ignored) {
+          if (dataObject.Message) {
+            dataObject.message = dataObject.Message;
+          }
+          const syntheticRegistry = TypeRegistry.for("smithy.ts.sdk.synthetic." + namespace);
+          registry.copyFrom(syntheticRegistry);
+          const baseExceptionSchema = registry.getBaseException();
+          if (baseExceptionSchema) {
+            const ErrorCtor2 = registry.getErrorCtor(baseExceptionSchema);
+            throw Object.assign(new ErrorCtor2({ name: errorName }), errorMetadata, dataObject);
+          }
+          throw Object.assign(new Error(errorName), errorMetadata, dataObject);
+        }
+        const ns = NormalizedSchema.of(errorSchema);
+        const ErrorCtor = registry.getErrorCtor(errorSchema);
+        const message = dataObject.message ?? dataObject.Message ?? "Unknown";
+        const exception = new ErrorCtor({});
+        const output = {};
+        const errorDeserializer = this.codec.createDeserializer();
+        for (const [name, member2] of ns.structIterator()) {
+          if (dataObject[name] != null) {
+            output[name] = errorDeserializer.readObject(member2, dataObject[name]);
+          }
+        }
+        throw Object.assign(exception, errorMetadata, {
+          $fault: ns.getMergedTraits().error,
+          message
+        }, output);
+      }
+      getDefaultContentType() {
+        return "application/json";
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeDeserializer.js
+var JsonShapeDeserializer;
+var init_JsonShapeDeserializer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeDeserializer.js"() {
+    init_determineTimestampFormat();
+    init_schema();
+    init_serde();
+    init_serde();
+    init_transport();
+    init_ConfigurableSerdeContext();
+    init_UnionSerde();
+    init_jsonReviver();
+    init_needsReviver();
+    init_parseJsonBody();
+    init_writeKey();
+    JsonShapeDeserializer = class extends SerdeContextConfig {
+      settings;
+      constructor(settings) {
+        super();
+        this.settings = settings;
+      }
+      async read(schema, data) {
+        const reviver = needsReviver(schema) ? jsonReviver : void 0;
+        return this._read(schema, typeof data === "string" ? JSON.parse(data, reviver) : await parseJsonBody(data, this.serdeContext, schema));
+      }
+      readObject(schema, data) {
+        return this._read(schema, data);
+      }
+      _read(schema, value) {
+        const isObject = value !== null && typeof value === "object";
+        const ns = NormalizedSchema.of(schema);
+        if (isObject) {
+          if (ns.isStructSchema()) {
+            const record = value;
+            const union = ns.isUnionSchema();
+            const out = {};
+            let nameMap = void 0;
+            const { jsonName } = this.settings;
+            if (jsonName) {
+              nameMap = {};
+            }
+            let unionSerde;
+            if (union) {
+              unionSerde = new UnionSerde(record, out);
+            }
+            for (const [memberName, memberSchema] of ns.structIterator()) {
+              let fromKey = memberName;
+              if (jsonName) {
+                fromKey = memberSchema.getMergedTraits().jsonName ?? fromKey;
+                nameMap[fromKey] = memberName;
+              }
+              if (union) {
+                unionSerde.mark(fromKey);
+              }
+              if (record[fromKey] != null) {
+                out[memberName] = this._read(memberSchema, record[fromKey]);
+              }
+            }
+            if (union) {
+              unionSerde.writeUnknown();
+            } else if (typeof record.__type === "string") {
+              for (const k5 in record) {
+                if (!hasOwn(record, k5))
+                  continue;
+                const v = record[k5];
+                const t2 = jsonName ? nameMap[k5] ?? k5 : k5;
+                if (!(t2 in out)) {
+                  out[t2] = v;
+                }
+              }
+            }
+            return out;
+          }
+          if (Array.isArray(value) && ns.isListSchema()) {
+            const listMember = ns.getValueSchema();
+            const out = [];
+            for (const item of value) {
+              out.push(this._read(listMember, item));
+            }
+            return out;
+          }
+          if (ns.isMapSchema()) {
+            const mapMember = ns.getValueSchema();
+            const out = {};
+            for (const _k in value) {
+              if (!hasOwn(value, _k))
+                continue;
+              if (_k === "__proto__") {
+                writeKey(out);
+              }
+              out[_k] = this._read(mapMember, value[_k]);
+            }
+            return out;
+          }
+        }
+        if (ns.isBlobSchema() && typeof value === "string") {
+          return fromBase64(value);
+        }
+        const mediaType = ns.getMergedTraits().mediaType;
+        if (ns.isStringSchema() && typeof value === "string" && mediaType) {
+          const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
+          if (isJson) {
+            return LazyJsonString.from(value);
+          }
+          return value;
+        }
+        if (ns.isTimestampSchema() && value != null) {
+          const format2 = determineTimestampFormat(ns, this.settings);
+          switch (format2) {
+            case 5:
+              return parseRfc3339DateTimeWithOffset(value);
+            case 6:
+              return parseRfc7231DateTime(value);
+            case 7:
+              return parseEpochTimestamp(value);
+            default:
+              console.warn("Missing timestamp format, parsing value with Date constructor:", value);
+              return new Date(value);
+          }
+        }
+        if (ns.isBigIntegerSchema() && (typeof value === "number" || typeof value === "string")) {
+          return BigInt(value);
+        }
+        if (ns.isBigDecimalSchema() && value != void 0) {
+          if (value instanceof NumericValue) {
+            return value;
+          }
+          const untyped = value;
+          if (untyped.type === "bigDecimal" && "string" in untyped) {
+            return new NumericValue(untyped.string, untyped.type);
+          }
+          return new NumericValue(String(value), "bigDecimal");
+        }
+        if (ns.isNumericSchema() && typeof value === "string") {
+          switch (value) {
+            case "Infinity":
+              return Infinity;
+            case "-Infinity":
+              return -Infinity;
+            case "NaN":
+              return NaN;
+          }
+          return value;
+        }
+        if (ns.isDocumentSchema()) {
+          if (isObject) {
+            const out = Array.isArray(value) ? [] : {};
+            for (const k5 in value) {
+              if (!hasOwn(value, k5))
+                continue;
+              if (k5 === "__proto__") {
+                writeKey(out);
+              }
+              const v = value[k5];
+              if (v instanceof NumericValue) {
+                out[k5] = v;
+              } else {
+                out[k5] = this._read(ns, v);
+              }
+            }
+            return out;
+          } else {
+            return structuredClone(value);
+          }
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/jsonReplacer.js
+var NUMERIC_CONTROL_CHAR, JsonReplacer;
+var init_jsonReplacer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/jsonReplacer.js"() {
+    init_serde();
+    NUMERIC_CONTROL_CHAR = String.fromCharCode(925);
+    JsonReplacer = class {
+      values = /* @__PURE__ */ new Map();
+      counter = 0;
+      stage = 0;
+      createReplacer() {
+        if (this.stage === 1) {
+          throw new Error("@aws-sdk/core/protocols - JsonReplacer already created.");
+        }
+        if (this.stage === 2) {
+          throw new Error("@aws-sdk/core/protocols - JsonReplacer exhausted.");
+        }
+        this.stage = 1;
+        return (key, value) => {
+          if (value instanceof NumericValue) {
+            const v = `${NUMERIC_CONTROL_CHAR + "nv" + this.counter++}_` + value.string;
+            this.values.set(`"${v}"`, value.string);
+            return v;
+          }
+          if (typeof value === "bigint") {
+            const s3 = value.toString();
+            const v = `${NUMERIC_CONTROL_CHAR + "b" + this.counter++}_` + s3;
+            this.values.set(`"${v}"`, s3);
+            return v;
+          }
+          return value;
+        };
+      }
+      replaceInJson(json) {
+        if (this.stage === 0) {
+          throw new Error("@aws-sdk/core/protocols - JsonReplacer not created yet.");
+        }
+        if (this.stage === 2) {
+          throw new Error("@aws-sdk/core/protocols - JsonReplacer exhausted.");
+        }
+        this.stage = 2;
+        if (this.counter === 0) {
+          return json;
+        }
+        for (const [key, value] of this.values) {
+          json = json.replace(key, value);
+        }
+        return json;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeSerializer.js
+var JsonShapeSerializer;
+var init_JsonShapeSerializer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeSerializer.js"() {
+    init_determineTimestampFormat();
+    init_schema();
+    init_serde();
+    init_ConfigurableSerdeContext();
+    init_jsonReplacer();
+    init_writeKey();
+    init_transport();
+    JsonShapeSerializer = class extends SerdeContextConfig {
+      settings;
+      buffer;
+      useReplacer = false;
+      rootSchema;
+      constructor(settings) {
+        super();
+        this.settings = settings;
+      }
+      write(schema, value) {
+        this.rootSchema = NormalizedSchema.of(schema);
+        this.buffer = this._write(this.rootSchema, value);
+      }
+      flush() {
+        const { rootSchema, useReplacer } = this;
+        this.rootSchema = void 0;
+        this.useReplacer = false;
+        if (rootSchema?.isStructSchema() || rootSchema?.isDocumentSchema()) {
+          if (!useReplacer) {
+            return JSON.stringify(this.buffer);
+          }
+          const replacer = new JsonReplacer();
+          return replacer.replaceInJson(JSON.stringify(this.buffer, replacer.createReplacer(), 0));
+        }
+        return this.buffer;
+      }
+      writeDiscriminatedDocument(schema, value) {
+        this.write(schema, value);
+        if (typeof this.buffer === "object") {
+          this.buffer.__type = NormalizedSchema.of(schema).getName(true);
+        }
+      }
+      _write(schema, value, container) {
+        const isObject = value !== null && typeof value === "object";
+        const ns = NormalizedSchema.of(schema);
+        if (isObject) {
+          if (ns.isStructSchema()) {
+            const record = value;
+            const out = {};
+            const { jsonName } = this.settings;
+            let nameMap = void 0;
+            if (jsonName) {
+              nameMap = {};
+            }
+            let outCount = 0;
+            for (const [memberName, memberSchema] of ns.structIterator()) {
+              const serializableValue = this._write(memberSchema, record[memberName], ns);
+              if (serializableValue !== void 0) {
+                let targetKey = memberName;
+                if (jsonName) {
+                  targetKey = memberSchema.getMergedTraits().jsonName ?? memberName;
+                  nameMap[memberName] = targetKey;
+                }
+                out[targetKey] = serializableValue;
+                outCount++;
+              }
+            }
+            if (ns.isUnionSchema() && outCount === 0) {
+              const { $unknown } = record;
+              if (Array.isArray($unknown)) {
+                const [k5, v] = $unknown;
+                if (k5 === "__proto__") {
+                  writeKey(out);
+                }
+                out[k5] = this._write(15, v);
+              }
+            } else if (typeof record.__type === "string") {
+              for (const k5 in record) {
+                if (!hasOwn(record, k5))
+                  continue;
+                const v = record[k5];
+                const targetKey = jsonName ? nameMap[k5] ?? k5 : k5;
+                if (!(targetKey in out)) {
+                  out[targetKey] = this._write(15, v);
+                }
+              }
+            }
+            return out;
+          }
+          if (Array.isArray(value) && ns.isListSchema()) {
+            const listMember = ns.getValueSchema();
+            const out = [];
+            const sparse = !!ns.getMergedTraits().sparse;
+            for (const item of value) {
+              if (sparse || item != null) {
+                out.push(this._write(listMember, item));
+              }
+            }
+            return out;
+          }
+          if (ns.isMapSchema()) {
+            const mapMember = ns.getValueSchema();
+            const out = {};
+            const sparse = !!ns.getMergedTraits().sparse;
+            for (const _k in value) {
+              if (!hasOwn(value, _k))
+                continue;
+              const _v = value[_k];
+              if (sparse || _v != null) {
+                if (_k === "__proto__") {
+                  writeKey(out);
+                }
+                out[_k] = this._write(mapMember, _v);
+              }
+            }
+            return out;
+          }
+          if (value instanceof Uint8Array && ns.isBlobSchema()) {
+            if (ns === this.rootSchema) {
+              return value;
+            }
+            return (this.serdeContext?.base64Encoder ?? toBase64)(value);
+          }
+          if (value instanceof Date && (ns.isTimestampSchema() || ns.isDocumentSchema())) {
+            const format2 = determineTimestampFormat(ns, this.settings);
+            switch (format2) {
+              case 5:
+                return value.toISOString().replace(".000Z", "Z");
+              case 6:
+                return dateToUtcString(value);
+              case 7:
+                return value.getTime() / 1e3;
+              default:
+                console.warn("Missing timestamp format, using epoch seconds", value);
+                return value.getTime() / 1e3;
+            }
+          }
+          if (value instanceof NumericValue) {
+            this.useReplacer = true;
+          }
+        }
+        if (value === null && container?.isStructSchema()) {
+          return void 0;
+        }
+        if (ns.isStringSchema()) {
+          if (typeof value === "undefined" && ns.isIdempotencyToken()) {
+            return generateIdempotencyToken();
+          }
+          const mediaType = ns.getMergedTraits().mediaType;
+          if (value != null && mediaType) {
+            const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
+            if (isJson) {
+              return LazyJsonString.from(value);
+            }
+          }
+          return value;
+        }
+        if (typeof value === "number") {
+          if (Math.abs(value) === Infinity || isNaN(value)) {
+            return String(value);
+          }
+          return value;
+        }
+        if (typeof value === "string" && ns.isBlobSchema()) {
+          if (ns === this.rootSchema) {
+            return value;
+          }
+          return (this.serdeContext?.base64Encoder ?? toBase64)(value);
+        }
+        if (typeof value === "bigint") {
+          this.useReplacer = true;
+        }
+        if (ns.isDocumentSchema()) {
+          if (isObject) {
+            if (value instanceof Uint8Array) {
+              return (this.serdeContext?.base64Encoder ?? toBase64)(value);
+            }
+            const out = Array.isArray(value) ? [] : {};
+            for (const k5 in value) {
+              if (!hasOwn(value, k5))
+                continue;
+              const v = value[k5];
+              if (k5 === "__proto__") {
+                writeKey(out);
+              }
+              if (v instanceof NumericValue) {
+                this.useReplacer = true;
+                out[k5] = v;
+              } else {
+                out[k5] = this._write(ns, v);
+              }
+            }
+            return out;
+          } else {
+            return structuredClone(value);
+          }
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v1/JsonCodec.js
+var JsonCodec;
+var init_JsonCodec = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v1/JsonCodec.js"() {
+    init_ConfigurableSerdeContext();
+    init_JsonShapeDeserializer();
+    init_JsonShapeSerializer();
+    JsonCodec = class extends SerdeContextConfig {
+      settings;
+      constructor(settings) {
+        super();
+        this.settings = settings;
+      }
+      createSerializer() {
+        const serializer = new JsonShapeSerializer(this.settings);
+        serializer.setSerdeContext(this.serdeContext);
+        return serializer;
+      }
+      createDeserializer() {
+        const deserializer = new JsonShapeDeserializer(this.settings);
+        deserializer.setSerdeContext(this.serdeContext);
+        return deserializer;
+      }
+    };
+  }
+});
+
 // node_modules/@smithy/core/dist-es/submodules/protocols/index.js
 var protocols_exports = {};
 __export(protocols_exports, {
@@ -188763,9 +190661,16 @@ __export(protocols_exports, {
   HttpProtocol: () => HttpProtocol,
   HttpRequest: () => HttpRequest,
   HttpResponse: () => HttpResponse,
+  JsonCodec: () => JsonCodec,
+  JsonCodec2: () => JsonCodec2,
+  JsonShapeDeserializer: () => JsonShapeDeserializer,
+  JsonShapeDeserializer2: () => JsonShapeDeserializer2,
+  JsonShapeSerializer: () => JsonShapeSerializer,
+  JsonShapeSerializer2: () => JsonShapeSerializer2,
   RequestBuilder: () => RequestBuilder,
   RpcProtocol: () => RpcProtocol,
   SerdeContext: () => SerdeContext,
+  SmithyRpcV2JsonProtocol: () => SmithyRpcV2JsonProtocol,
   ToStringShapeSerializer: () => ToStringShapeSerializer,
   buildQueryString: () => buildQueryString,
   collectBody: () => collectBody,
@@ -188778,6 +190683,11 @@ __export(protocols_exports, {
   getContentLengthPlugin: () => getContentLengthPlugin,
   getHttpHandlerExtensionConfiguration: () => getHttpHandlerExtensionConfiguration,
   isValidHostname: () => isValidHostname,
+  loadJsonRpcErrorCode: () => loadJsonRpcErrorCode,
+  loadRestJsonErrorCode: () => loadRestJsonErrorCode,
+  loadSmithyRpcV2JsonErrorCode: () => loadSmithyRpcV2JsonErrorCode,
+  parseJsonBody: () => parseJsonBody,
+  parseJsonErrorBody: () => parseJsonErrorBody,
   parseQueryString: () => parseQueryString,
   parseUrl: () => parseUrl,
   requestBuilder: () => requestBuilder,
@@ -188811,6 +190721,14 @@ var init_protocols = __esm({
     init_buildQueryString();
     init_transport();
     init_transport();
+    init_SmithyRpcV2JsonProtocol();
+    init_parseJsonBody();
+    init_JsonCodec();
+    init_JsonShapeSerializer();
+    init_JsonShapeDeserializer();
+    init_JsonCodec2();
+    init_JsonShapeSerializer2();
+    init_JsonShapeDeserializer2();
   }
 });
 
@@ -194859,7 +196777,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.48",
+      version: "3.997.50",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -194959,10 +196877,10 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.978.3",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.48",
-        "@aws-sdk/types": "^3.974.6",
-        "@smithy/core": "^3.35.2",
+        "@aws-sdk/core": "^3.978.5",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.49",
+        "@aws-sdk/types": "^3.975.0",
+        "@smithy/core": "^3.36.1",
         "@smithy/fetch-http-handler": "^5.8.0",
         "@smithy/node-http-handler": "^4.12.1",
         "@smithy/types": "^4.19.0",
@@ -195590,7 +197508,7 @@ function writeTimestamp(date2) {
     writeFloat64(epochSecs);
   }
 }
-var CborShapeSerializer2, CBOR_STRUCT_CACHE, USE_BUFFER, textEncoder, INITIAL_BUFFER_SIZE, buf, view, cursor, STRING_CACHE_MAX, stringEncodeCache, encodeCacheEpoch, encodeCacheSaturated;
+var CborShapeSerializer2, CBOR_STRUCT_CACHE, USE_BUFFER, textEncoder, INITIAL_BUFFER_SIZE2, buf, view, cursor, STRING_CACHE_MAX, stringEncodeCache, encodeCacheEpoch, encodeCacheSaturated;
 var init_CborShapeSerializer2 = __esm({
   "node_modules/@smithy/core/dist-es/submodules/cbor/codec-v2/CborShapeSerializer2.js"() {
     init_transport();
@@ -195607,7 +197525,7 @@ var init_CborShapeSerializer2 = __esm({
       flush() {
         const result = buf.subarray(0, cursor);
         cursor = 0;
-        buf = allocUnsafe(INITIAL_BUFFER_SIZE);
+        buf = allocUnsafe(INITIAL_BUFFER_SIZE2);
         view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
         return result;
       }
@@ -195615,8 +197533,8 @@ var init_CborShapeSerializer2 = __esm({
     CBOR_STRUCT_CACHE = /* @__PURE__ */ Symbol.for("@smithy/cbor-struct-cache");
     USE_BUFFER = typeof Buffer !== "undefined";
     textEncoder = new TextEncoder();
-    INITIAL_BUFFER_SIZE = 2048;
-    buf = USE_BUFFER ? Buffer.allocUnsafe(INITIAL_BUFFER_SIZE) : new Uint8Array(INITIAL_BUFFER_SIZE);
+    INITIAL_BUFFER_SIZE2 = 2048;
+    buf = USE_BUFFER ? Buffer.allocUnsafe(INITIAL_BUFFER_SIZE2) : new Uint8Array(INITIAL_BUFFER_SIZE2);
     view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
     cursor = 0;
     STRING_CACHE_MAX = 2048;
@@ -196595,1203 +198513,6 @@ var init_AwsSmithyRpcV2CborProtocol = __esm({
   }
 });
 
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/ConfigurableSerdeContext.js
-var SerdeContextConfig;
-var init_ConfigurableSerdeContext = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/ConfigurableSerdeContext.js"() {
-    SerdeContextConfig = class {
-      serdeContext;
-      setSerdeContext(serdeContext) {
-        this.serdeContext = serdeContext;
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/UnionSerde.js
-var UnionSerde;
-var init_UnionSerde = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/UnionSerde.js"() {
-    UnionSerde = class {
-      from;
-      to;
-      keys;
-      constructor(from, to) {
-        this.from = from;
-        this.to = to;
-        const keys = Object.keys(this.from);
-        const set = new Set(keys);
-        set.delete("__type");
-        this.keys = set;
-      }
-      mark(key) {
-        this.keys.delete(key);
-      }
-      hasUnknown() {
-        return this.keys.size === 1 && Object.keys(this.to).length === 0;
-      }
-      writeUnknown() {
-        if (this.hasUnknown()) {
-          const k5 = this.keys.values().next().value;
-          const v = this.from[k5];
-          this.to.$unknown = [k5, v];
-        }
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/detectBufferParsing.js
-function detectBufferParsing() {
-  if (canParseBuffer === void 0) {
-    try {
-      if (typeof Buffer !== "function") {
-        canParseBuffer = false;
-      } else {
-        const result = JSON.parse(Buffer.from([123, 125]));
-        canParseBuffer = result !== null && typeof result === "object";
-      }
-    } catch {
-      canParseBuffer = false;
-    }
-  }
-  return canParseBuffer;
-}
-var canParseBuffer;
-var init_detectBufferParsing = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/detectBufferParsing.js"() {
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReviver.js
-function jsonReviver(key, value, context2) {
-  if (context2?.source) {
-    const numericString = context2.source;
-    if (typeof value === "number") {
-      const inSafeRange = value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER;
-      if (inSafeRange) {
-        if (isRepresentable(numericString, value)) {
-          return value;
-        }
-        return new NumericValue(numericString, "bigDecimal");
-      } else {
-        if (isFractionalBigNumeric(numericString)) {
-          return new NumericValue(numericString, "bigDecimal");
-        }
-        if (/[eE]/.test(numericString)) {
-          return expandExponentToBigInt(numericString);
-        }
-        return BigInt(numericString);
-      }
-    }
-  }
-  return value;
-}
-function isFractionalBigNumeric(s3) {
-  const dotIndex = s3.indexOf(".");
-  if (dotIndex === -1) {
-    return false;
-  }
-  const eIndex = s3.search(/[eE]/);
-  if (eIndex === -1) {
-    return true;
-  }
-  const fracDigits = eIndex - dotIndex - 1;
-  const exp = parseInt(s3.slice(eIndex + 1), 10);
-  return exp < fracDigits;
-}
-function isRepresentable(numericString, value) {
-  if (numericString === String(value)) {
-    return true;
-  }
-  if (Object.is(value, -0)) {
-    return true;
-  }
-  if (/[eE]/.test(numericString)) {
-    return expandToDecimal(numericString) === expandToDecimal(String(value));
-  }
-  const normalized = numericString.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-  const canonical = String(value);
-  if (normalized === canonical) {
-    return true;
-  }
-  if (/[eE]/.test(canonical)) {
-    return normalized === expandToDecimal(canonical);
-  }
-  return false;
-}
-function expandToDecimal(s3) {
-  const negative = s3.startsWith("-");
-  const abs = negative ? s3.slice(1) : s3;
-  const eIndex = abs.search(/[eE]/);
-  let result;
-  if (eIndex === -1) {
-    result = abs;
-  } else {
-    const exp = parseInt(abs.slice(eIndex + 1), 10);
-    const mantissa = abs.slice(0, eIndex);
-    const dotIndex = mantissa.indexOf(".");
-    let digits;
-    let intLen;
-    if (dotIndex === -1) {
-      digits = mantissa;
-      intLen = mantissa.length;
-    } else {
-      digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
-      intLen = dotIndex;
-    }
-    digits = digits.replace(/0+$/, "") || "0";
-    const newDotPos = intLen + exp;
-    if (digits === "0") {
-      result = "0";
-    } else if (newDotPos <= 0) {
-      result = "0." + "0".repeat(-newDotPos) + digits;
-    } else if (newDotPos >= digits.length) {
-      result = digits + "0".repeat(newDotPos - digits.length);
-    } else {
-      result = digits.slice(0, newDotPos) + "." + digits.slice(newDotPos);
-    }
-  }
-  if (result.includes(".")) {
-    result = result.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-  }
-  return (negative ? "-" : "") + result;
-}
-function expandExponentToBigInt(s3) {
-  const eIndex = s3.search(/[eE]/);
-  const exp = parseInt(s3.slice(eIndex + 1), 10);
-  const negative = s3.startsWith("-");
-  const mantissa = s3.slice(negative ? 1 : 0, eIndex);
-  const dotIndex = mantissa.indexOf(".");
-  let digits;
-  let shift;
-  if (dotIndex === -1) {
-    digits = mantissa;
-    shift = exp;
-  } else {
-    digits = mantissa.slice(0, dotIndex) + mantissa.slice(dotIndex + 1);
-    const fracDigits = mantissa.length - dotIndex - 1;
-    shift = exp - fracDigits;
-  }
-  digits = digits.replace(/0+$/, "") || "0";
-  const result = BigInt(digits) * 10n ** BigInt(shift + (mantissa.replace(".", "").length - digits.length));
-  return negative ? -result : result;
-}
-var init_jsonReviver = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReviver.js"() {
-    init_serde();
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/needsReviver.js
-function needsReviver(schema) {
-  const ns = NormalizedSchema.of(schema);
-  const raw = ns.getSchema();
-  if (Array.isArray(raw) && ns.isStructSchema()) {
-    if (REVIVER_SYMBOL in raw) {
-      return raw[REVIVER_SYMBOL];
-    }
-    const result = _check(ns, /* @__PURE__ */ new Set());
-    raw[REVIVER_SYMBOL] = result;
-    return result;
-  }
-  return _check(ns, /* @__PURE__ */ new Set());
-}
-function _check(ns, seen) {
-  const raw = ns.getSchema();
-  if (seen.has(raw)) {
-    return false;
-  }
-  seen.add(raw);
-  if (ns.isBigIntegerSchema() || ns.isBigDecimalSchema()) {
-    return true;
-  }
-  if (ns.isStructSchema()) {
-    for (const [, memberSchema] of ns.structIterator()) {
-      if (_check(memberSchema, seen)) {
-        return true;
-      }
-    }
-  } else if (ns.isListSchema() || ns.isMapSchema()) {
-    if (_check(ns.getValueSchema(), seen)) {
-      return true;
-    }
-  } else if (ns.isDocumentSchema()) {
-    return true;
-  }
-  return false;
-}
-var REVIVER_SYMBOL;
-var init_needsReviver = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/needsReviver.js"() {
-    init_schema();
-    REVIVER_SYMBOL = /* @__PURE__ */ Symbol.for("@aws-sdk/reviver");
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/common.js
-var collectBodyString;
-var init_common = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/common.js"() {
-    init_protocols();
-    init_serde();
-    collectBodyString = (streamBody, context2) => collectBody(streamBody, context2).then((body) => (context2?.utf8Encoder ?? toUtf8)(body));
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/parseJsonBody.js
-async function parseJsonBody(streamBody, context2, schema) {
-  let parsingInput;
-  if (detectBufferParsing() && typeof streamBody?.[Symbol.asyncIterator] === "function") {
-    const buffer = await collectBody(streamBody, context2);
-    if (typeof Buffer === "function") {
-      if (Buffer.isBuffer(buffer)) {
-        parsingInput = buffer;
-      } else {
-        parsingInput = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-      }
-    }
-  }
-  if (!parsingInput) {
-    parsingInput = await collectBodyString(streamBody, context2);
-  }
-  if (parsingInput.length === 0) {
-    return {};
-  }
-  const reviver = schema && needsReviver(schema) ? jsonReviver : void 0;
-  try {
-    return JSON.parse(parsingInput, reviver);
-  } catch (e6) {
-    if (e6?.name === "SyntaxError") {
-      Object.defineProperty(e6, "$responseBodyText", {
-        value: typeof parsingInput === "string" ? parsingInput : parsingInput.toString("utf8")
-      });
-    }
-    throw e6;
-  }
-}
-var parseJsonErrorBody, findKey, sanitizeErrorCode, loadRestJsonErrorCode, loadJsonRpcErrorCode, loadErrorCode;
-var init_parseJsonBody = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/parseJsonBody.js"() {
-    init_protocols();
-    init_common();
-    init_detectBufferParsing();
-    init_jsonReviver();
-    init_needsReviver();
-    parseJsonErrorBody = async (errorBody, context2) => {
-      const value = await parseJsonBody(errorBody, context2);
-      value.message = value.message ?? value.Message;
-      return value;
-    };
-    findKey = (object, key) => Object.keys(object).find((k5) => k5.toLowerCase() === key.toLowerCase());
-    sanitizeErrorCode = (rawValue) => {
-      let cleanValue = rawValue;
-      if (typeof cleanValue === "number") {
-        cleanValue = cleanValue.toString();
-      }
-      if (cleanValue.indexOf(",") >= 0) {
-        cleanValue = cleanValue.split(",")[0];
-      }
-      if (cleanValue.indexOf(":") >= 0) {
-        cleanValue = cleanValue.split(":")[0];
-      }
-      if (cleanValue.indexOf("#") >= 0) {
-        cleanValue = cleanValue.split("#")[1];
-      }
-      return cleanValue;
-    };
-    loadRestJsonErrorCode = (output, data) => {
-      return loadErrorCode(output, data, ["header", "code", "type"]);
-    };
-    loadJsonRpcErrorCode = (output, data, queryCompat = false) => {
-      return loadErrorCode(output, data, queryCompat ? ["code", "header", "type"] : ["type", "code", "header"]);
-    };
-    loadErrorCode = ({ headers }, data, order) => {
-      while (order.length > 0) {
-        const location = order.shift();
-        switch (location) {
-          case "header":
-            const headerKey = findKey(headers ?? {}, "x-amzn-errortype");
-            if (headerKey !== void 0) {
-              return sanitizeErrorCode(headers[headerKey]);
-            }
-            break;
-          case "code":
-            const codeKey = findKey(data ?? {}, "code");
-            if (codeKey && data[codeKey] !== void 0) {
-              return sanitizeErrorCode(data[codeKey]);
-            }
-            break;
-          case "type":
-            if (data?.__type !== void 0) {
-              return sanitizeErrorCode(data.__type);
-            }
-            break;
-        }
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/writeKey.js
-function writeKey(obj) {
-  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
-}
-var init_writeKey = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/writeKey.js"() {
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeDeserializer2.js
-var JsonShapeDeserializer2;
-var init_JsonShapeDeserializer2 = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeDeserializer2.js"() {
-    init_protocols();
-    init_schema();
-    init_serde();
-    init_ConfigurableSerdeContext();
-    init_UnionSerde();
-    init_detectBufferParsing();
-    init_jsonReviver();
-    init_needsReviver();
-    init_parseJsonBody();
-    init_writeKey();
-    JsonShapeDeserializer2 = class extends SerdeContextConfig {
-      settings;
-      constructor(settings) {
-        super();
-        this.settings = settings;
-      }
-      async read(schema, data) {
-        const reviver = needsReviver(schema) ? jsonReviver : void 0;
-        let parsed;
-        if (typeof data === "string") {
-          if (data.length === 0) {
-            return {};
-          }
-          parsed = JSON.parse(data, reviver);
-        } else if (data instanceof Uint8Array && detectBufferParsing()) {
-          if (data.byteLength === 0) {
-            return {};
-          }
-          const buf2 = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-          parsed = JSON.parse(buf2, reviver);
-        } else {
-          parsed = await parseJsonBody(data, this.serdeContext, schema);
-        }
-        return this._read(schema, parsed);
-      }
-      readObject(schema, data) {
-        return this._read(schema, data);
-      }
-      _read(schema, value) {
-        const isObject = value !== null && typeof value === "object";
-        const ns = NormalizedSchema.of(schema);
-        if (isObject) {
-          if (ns.isStructSchema()) {
-            return this._readStruct(ns, value);
-          }
-          if (Array.isArray(value) && ns.isListSchema()) {
-            const listMember = ns.getValueSchema();
-            if (this.needsTransform(listMember)) {
-              for (let i6 = 0; i6 < value.length; ++i6) {
-                value[i6] = this._read(listMember, value[i6]);
-              }
-            }
-            return value;
-          }
-          if (ns.isMapSchema()) {
-            const mapMember = ns.getValueSchema();
-            const map3 = value;
-            if (this.needsTransform(mapMember)) {
-              for (const k5 in map3) {
-                if (k5 === "__proto__") {
-                  writeKey(map3);
-                }
-                map3[k5] = this._read(mapMember, map3[k5]);
-              }
-            }
-            return map3;
-          }
-        }
-        if (ns.isBlobSchema() && typeof value === "string") {
-          return fromBase64(value);
-        }
-        const mediaType = ns.getMergedTraits().mediaType;
-        if (ns.isStringSchema() && typeof value === "string" && mediaType) {
-          const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
-          if (isJson) {
-            return LazyJsonString.from(value);
-          }
-          return value;
-        }
-        if (ns.isTimestampSchema() && value != null) {
-          const format2 = determineTimestampFormat(ns, this.settings);
-          switch (format2) {
-            case 5:
-              return parseRfc3339DateTimeWithOffset(value);
-            case 6:
-              return parseRfc7231DateTime(value);
-            case 7:
-              return parseEpochTimestamp(value);
-            default:
-              console.warn("Missing timestamp format, parsing value with Date constructor:", value);
-              return new Date(value);
-          }
-        }
-        if (ns.isBigIntegerSchema() && (typeof value === "number" || typeof value === "string")) {
-          return BigInt(value);
-        }
-        if (ns.isBigDecimalSchema() && value != void 0) {
-          if (value instanceof NumericValue) {
-            return value;
-          }
-          const untyped = value;
-          if (untyped.type === "bigDecimal" && "string" in untyped) {
-            return new NumericValue(untyped.string, untyped.type);
-          }
-          return new NumericValue(String(value), "bigDecimal");
-        }
-        if (ns.isNumericSchema() && typeof value === "string") {
-          switch (value) {
-            case "Infinity":
-              return Infinity;
-            case "-Infinity":
-              return -Infinity;
-            case "NaN":
-              return NaN;
-          }
-          return value;
-        }
-        if (ns.isDocumentSchema()) {
-          if (isObject) {
-            if (Array.isArray(value)) {
-              for (let i6 = 0; i6 < value.length; ++i6) {
-                const v = value[i6];
-                if (!(v instanceof NumericValue)) {
-                  value[i6] = this._read(ns, v);
-                }
-              }
-            } else {
-              const doc = value;
-              for (const k5 in doc) {
-                if (k5 === "__proto__") {
-                  writeKey(doc);
-                }
-                const v = doc[k5];
-                if (!(v instanceof NumericValue)) {
-                  doc[k5] = this._read(ns, v);
-                }
-              }
-            }
-          }
-        }
-        return value;
-      }
-      _readStruct(ns, record) {
-        const union = ns.isUnionSchema();
-        const out = {};
-        let nameMap;
-        const hasType = typeof record.__type === "string";
-        const { jsonName } = this.settings;
-        if (jsonName && hasType) {
-          nameMap = {};
-        }
-        let unionSerde;
-        if (union) {
-          unionSerde = new UnionSerde(record, out);
-        }
-        for (const [memberName, memberSchema] of ns.structIterator()) {
-          let fromKey = memberName;
-          if (jsonName) {
-            fromKey = memberSchema.getMergedTraits().jsonName ?? fromKey;
-            if (hasType) {
-              nameMap[fromKey] = memberName;
-            }
-          }
-          if (union) {
-            unionSerde.mark(fromKey);
-          }
-          if (record[fromKey] != null) {
-            out[memberName] = this._read(memberSchema, record[fromKey]);
-          }
-        }
-        if (union) {
-          unionSerde.writeUnknown();
-        } else if (hasType) {
-          for (const k5 in record) {
-            const v = record[k5];
-            const t2 = jsonName ? nameMap[k5] ?? k5 : k5;
-            if (!(t2 in out)) {
-              out[t2] = v;
-            }
-          }
-        }
-        return out;
-      }
-      needsTransform(ns) {
-        if (ns.isBlobSchema() || ns.isTimestampSchema() || ns.isBigIntegerSchema() || ns.isBigDecimalSchema()) {
-          return true;
-        }
-        if (ns.isDocumentSchema() || ns.isStructSchema() || ns.isListSchema() || ns.isMapSchema()) {
-          return true;
-        }
-        if (ns.isStringSchema() && ns.getMergedTraits().mediaType) {
-          return true;
-        }
-        return false;
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonBytesStringAdapter.js
-var JsonBytesStringAdapter, warned;
-var init_JsonBytesStringAdapter = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonBytesStringAdapter.js"() {
-    init_serde();
-    JsonBytesStringAdapter = class _JsonBytesStringAdapter extends Uint8Array {
-      string = null;
-      static allocUnsafe(bytes) {
-        if (typeof Buffer === "function") {
-          const buffer = Buffer.allocUnsafe(bytes);
-          return new _JsonBytesStringAdapter(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-        }
-        return new _JsonBytesStringAdapter(bytes);
-      }
-      toString() {
-        return this.s();
-      }
-      valueOf() {
-        return this.s();
-      }
-      includes(searchString, position) {
-        if (typeof searchString === "string") {
-          return this.s().includes(searchString, position);
-        }
-        return Uint8Array.prototype.includes.call(this, searchString, position);
-      }
-      indexOf(searchString, position) {
-        if (typeof searchString === "string") {
-          return this.s().indexOf(searchString, position);
-        }
-        return Uint8Array.prototype.indexOf.call(this, searchString, position);
-      }
-      lastIndexOf(searchString, position) {
-        if (typeof searchString === "string") {
-          return this.s().lastIndexOf(searchString, position);
-        }
-        const fn = Uint8Array.prototype.lastIndexOf;
-        if (position !== void 0) {
-          return fn.call(this, searchString, position);
-        }
-        return fn.call(this, searchString);
-      }
-      startsWith(searchString, position) {
-        return this.s().startsWith(searchString, position);
-      }
-      endsWith(searchString, endPosition) {
-        return this.s().endsWith(searchString, endPosition);
-      }
-      match(regexp) {
-        return this.s().match(regexp);
-      }
-      replace(searchValue, replaceValue) {
-        return this.s().replace(searchValue, replaceValue);
-      }
-      search(regexp) {
-        return this.s().search(regexp);
-      }
-      split(separator, limit) {
-        return this.s().split(separator, limit);
-      }
-      substring(start, end2) {
-        return this.s().substring(start, end2);
-      }
-      trim() {
-        return this.s().trim();
-      }
-      trimStart() {
-        return this.s().trimStart();
-      }
-      trimEnd() {
-        return this.s().trimEnd();
-      }
-      charAt(pos2) {
-        return this.s().charAt(pos2);
-      }
-      charCodeAt(index) {
-        return this.s().charCodeAt(index);
-      }
-      padStart(maxLength, fillString) {
-        return this.s().padStart(maxLength, fillString);
-      }
-      padEnd(maxLength, fillString) {
-        return this.s().padEnd(maxLength, fillString);
-      }
-      repeat(count2) {
-        return this.s().repeat(count2);
-      }
-      toUpperCase() {
-        return this.s().toUpperCase();
-      }
-      toLowerCase() {
-        return this.s().toLowerCase();
-      }
-      s() {
-        if (this.string == null) {
-          const n3 = Date.now();
-          if (n3 > warned + 6e4) {
-            console.warn("@aws-sdk/core/protocols - WARN - JsonCodec2: you have called a string method on a Uint8Array request body. It has been automatically converted to string. In a future version this will throw an error.");
-            warned = n3;
-          }
-          this.string = toUtf8(this);
-        }
-        return this.string;
-      }
-    };
-    warned = 0;
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeSerializer2.js
-function alloc(size) {
-  return JsonBytesStringAdapter.allocUnsafe(size);
-}
-var encoder, OPEN_BRACE, CLOSE_BRACE, OPEN_BRACKET, CLOSE_BRACKET, QUOTE, COLON2, COMMA, BACKSLASH, TRUE, FALSE, NULL, ESCAPE_TABLE, INITIAL_BUFFER_SIZE2, JsonShapeSerializer2;
-var init_JsonShapeSerializer2 = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeSerializer2.js"() {
-    init_protocols();
-    init_schema();
-    init_serde();
-    init_ConfigurableSerdeContext();
-    init_JsonBytesStringAdapter();
-    encoder = new TextEncoder();
-    OPEN_BRACE = 123;
-    CLOSE_BRACE = 125;
-    OPEN_BRACKET = 91;
-    CLOSE_BRACKET = 93;
-    QUOTE = 34;
-    COLON2 = 58;
-    COMMA = 44;
-    BACKSLASH = 92;
-    TRUE = new Uint8Array([116, 114, 117, 101]);
-    FALSE = new Uint8Array([102, 97, 108, 115, 101]);
-    NULL = new Uint8Array([110, 117, 108, 108]);
-    ESCAPE_TABLE = new Array(128).fill(null);
-    ESCAPE_TABLE[8] = "b";
-    ESCAPE_TABLE[9] = "t";
-    ESCAPE_TABLE[10] = "n";
-    ESCAPE_TABLE[12] = "f";
-    ESCAPE_TABLE[13] = "r";
-    ESCAPE_TABLE[34] = '"';
-    ESCAPE_TABLE[92] = "\\";
-    for (let i6 = 0; i6 < 32; i6++) {
-      if (ESCAPE_TABLE[i6] === null) {
-        ESCAPE_TABLE[i6] = "u00" + i6.toString(16).padStart(2, "0");
-      }
-    }
-    INITIAL_BUFFER_SIZE2 = 2048;
-    JsonShapeSerializer2 = class _JsonShapeSerializer2 extends SerdeContextConfig {
-      settings;
-      json;
-      i = 0;
-      rootSchema;
-      rawValue;
-      passthrough = false;
-      constructor(settings) {
-        super();
-        this.settings = settings;
-        this.json = alloc(INITIAL_BUFFER_SIZE2);
-      }
-      write(schema, value) {
-        this.i = 0;
-        this.rawValue = value;
-        this.rootSchema = NormalizedSchema.of(schema);
-        this.passthrough = this.rootSchema.isBlobSchema() || this.rootSchema.isStringSchema();
-        if (!this.passthrough) {
-          this.writeValue(this.rootSchema, value, void 0);
-        }
-      }
-      writeDiscriminatedDocument(schema, value) {
-        this.i = 0;
-        this.rootSchema = NormalizedSchema.of(schema);
-        const ns = this.rootSchema;
-        if (ns.isStructSchema() && value != null && typeof value === "object") {
-          this.writeValue(ns, value, void 0);
-          const prefix = `"__type":"${ns.getName(true) ?? "Unknown"}",`;
-          const z = prefix.length;
-          this.ensure(z);
-          this.json.copyWithin(1 + z, 1, this.i);
-          encoder.encodeInto(prefix, this.json.subarray(1));
-          this.i += z;
-        } else {
-          this.writeValue(ns, value, void 0);
-        }
-      }
-      flush() {
-        this.rootSchema = void 0;
-        const finalPosition = this.i;
-        this.i = 0;
-        const raw = this.rawValue;
-        this.rawValue = void 0;
-        if (finalPosition === 0) {
-          return raw;
-        }
-        const result = this.json.subarray(0, finalPosition);
-        this.json = alloc(INITIAL_BUFFER_SIZE2);
-        return result;
-      }
-      ensure(byteCount) {
-        const { i: i6, json } = this;
-        if (i6 + byteCount > json.length) {
-          let newSize = json.length * 2;
-          while (newSize < i6 + byteCount) {
-            newSize *= 2;
-          }
-          const next = alloc(newSize);
-          next.set(this.json);
-          this.json = next;
-        }
-      }
-      writeAscii(s3) {
-        const z = s3.length;
-        this.ensure(z);
-        let { i: i6, json } = this;
-        for (let j5 = 0; j5 < z; ++j5) {
-          json[i6] = s3.charCodeAt(j5);
-          i6 += 1;
-        }
-        this.i = i6;
-      }
-      writeAsciiQuoted(s3) {
-        const z = s3.length;
-        this.ensure(z + 4);
-        let { json, i: i6 } = this;
-        json[i6++] = QUOTE;
-        for (let j5 = 0; j5 < z; ++j5) {
-          json[i6++] = s3.charCodeAt(j5);
-        }
-        json[i6++] = QUOTE;
-        this.i = i6;
-      }
-      writeJsonString(s3) {
-        this.ensure(s3.length * 3 + 2);
-        this.json[this.i++] = QUOTE;
-        const z = s3.length;
-        for (let j5 = 0; j5 < z; ++j5) {
-          const c5 = s3.charCodeAt(j5);
-          if (c5 > 34 && c5 < 92) {
-            this.json[this.i++] = c5;
-          } else if (c5 < 128) {
-            const esc = ESCAPE_TABLE[c5];
-            if (esc !== null) {
-              this.ensure(esc.length + 1);
-              this.json[this.i++] = BACKSLASH;
-              for (let k5 = 0; k5 < esc.length; k5++) {
-                this.json[this.i++] = esc.charCodeAt(k5);
-              }
-            } else {
-              this.json[this.i++] = c5;
-            }
-          } else if (c5 >= 55296 && c5 <= 56319) {
-            const next = j5 + 1 < z ? s3.charCodeAt(j5 + 1) : 0;
-            if (next >= 56320 && next <= 57343) {
-              this.ensure(4);
-              const { written } = encoder.encodeInto(s3.substring(j5, j5 + 2), this.json.subarray(this.i));
-              this.i += written;
-              ++j5;
-            } else {
-              this.ensure(6);
-              this.writeUnicodeEscape(c5);
-            }
-          } else if (c5 >= 56320 && c5 <= 57343) {
-            this.ensure(6);
-            this.writeUnicodeEscape(c5);
-          } else {
-            let { i: i6, json } = this;
-            if (c5 < 2048) {
-              json[i6++] = 192 | c5 >> 6;
-              json[i6++] = 128 | c5 & 63;
-            } else {
-              json[i6++] = 224 | c5 >> 12;
-              json[i6++] = 128 | c5 >> 6 & 63;
-              json[i6++] = 128 | c5 & 63;
-            }
-            this.i = i6;
-          }
-        }
-        this.json[this.i++] = QUOTE;
-      }
-      writeUnicodeEscape(code) {
-        let { json, i: i6 } = this;
-        json[i6++] = BACKSLASH;
-        json[i6++] = 117;
-        const hex = code.toString(16).padStart(4, "0");
-        for (let j5 = 0; j5 < 4; ++j5) {
-          json[i6++] = hex.charCodeAt(j5);
-        }
-        this.i = i6;
-      }
-      static B64 = (() => {
-        const chars2 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        const table = new Uint8Array(64);
-        for (let i6 = 0; i6 < 64; ++i6) {
-          table[i6] = chars2.charCodeAt(i6);
-        }
-        return table;
-      })();
-      writeBase64(data) {
-        const b64Len = Math.ceil(data.length / 3) * 4;
-        this.ensure(b64Len + 2);
-        const json = this.json;
-        const B64 = _JsonShapeSerializer2.B64;
-        let i6 = this.i;
-        json[i6++] = QUOTE;
-        const len = data.length;
-        const remainder = len % 3;
-        const mainLen = len - remainder;
-        for (let j5 = 0; j5 < mainLen; j5 += 3) {
-          const a5 = data[j5];
-          const b5 = data[j5 + 1];
-          const c5 = data[j5 + 2];
-          json[i6++] = B64[a5 >> 2];
-          json[i6++] = B64[(a5 & 3) << 4 | b5 >> 4];
-          json[i6++] = B64[(b5 & 15) << 2 | c5 >> 6];
-          json[i6++] = B64[c5 & 63];
-        }
-        if (remainder === 2) {
-          const a5 = data[mainLen];
-          const b5 = data[mainLen + 1];
-          json[i6++] = B64[a5 >> 2];
-          json[i6++] = B64[(a5 & 3) << 4 | b5 >> 4];
-          json[i6++] = B64[(b5 & 15) << 2];
-          json[i6++] = 61;
-        } else if (remainder === 1) {
-          const a5 = data[mainLen];
-          json[i6++] = B64[a5 >> 2];
-          json[i6++] = B64[(a5 & 3) << 4];
-          json[i6++] = 61;
-          json[i6++] = 61;
-        }
-        json[i6++] = QUOTE;
-        this.i = i6;
-      }
-      writeValue(schema, value, container) {
-        if (value == null) {
-          if (container?.isStructSchema()) {
-            if (value === void 0) {
-              const ns2 = NormalizedSchema.of(schema);
-              if (ns2.isIdempotencyToken()) {
-                this.writeAsciiQuoted(generateIdempotencyToken());
-                return;
-              }
-            }
-            return;
-          }
-          this.ensure(4);
-          this.json.set(NULL, this.i);
-          this.i += 4;
-          return;
-        }
-        const ns = NormalizedSchema.of(schema);
-        const isObject = typeof value === "object";
-        if (ns.isStringSchema()) {
-          const mediaType = ns.getMergedTraits().mediaType;
-          if (mediaType) {
-            const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
-            if (isJson) {
-              this.writeJsonString(LazyJsonString.from(value).toString());
-              return;
-            }
-          }
-        }
-        if (isObject) {
-          if (ns.isStructSchema()) {
-            this.writeStruct(ns, value);
-            return;
-          }
-          if (Array.isArray(value) && (ns.isListSchema() || ns.isDocumentSchema())) {
-            this.writeList(ns, value, ns.isDocumentSchema());
-            return;
-          }
-          if (ns.isMapSchema()) {
-            this.writeMap(ns, value, false);
-            return;
-          }
-          if (value instanceof Uint8Array && (ns.isBlobSchema() || ns.isDocumentSchema())) {
-            this.writeBase64(value);
-            return;
-          }
-          if (value instanceof Date && (ns.isTimestampSchema() || ns.isDocumentSchema())) {
-            this.writeTimestamp(ns, value);
-            return;
-          }
-          if (value instanceof NumericValue) {
-            this.writeAscii(value.string);
-            return;
-          }
-          if (ns.isDocumentSchema()) {
-            if (Array.isArray(value)) {
-              this.writeList(ns, value, true);
-            } else {
-              this.writeMap(ns, value, true);
-            }
-            return;
-          }
-          const json = JSON.stringify(value);
-          this.writeAscii(json);
-          return;
-        }
-        if (typeof value === "string") {
-          if (ns.isBlobSchema()) {
-            const b64 = (this.serdeContext?.base64Encoder ?? toBase64)(value);
-            this.writeAsciiQuoted(b64);
-            return;
-          }
-          this.writeJsonString(value);
-          return;
-        }
-        if (typeof value === "number") {
-          if (Math.abs(value) === Infinity || Number.isNaN(value)) {
-            this.writeAsciiQuoted(String(value));
-            return;
-          }
-          const numStr = String(value);
-          this.writeAscii(numStr);
-          return;
-        }
-        if (typeof value === "boolean") {
-          this.ensure(5);
-          let { i: i6, json } = this;
-          if (value) {
-            json.set(TRUE, i6);
-            i6 += 4;
-          } else {
-            json.set(FALSE, i6);
-            i6 += 5;
-          }
-          this.i = i6;
-          return;
-        }
-        if (typeof value === "bigint") {
-          this.writeAscii(value.toString());
-          return;
-        }
-        this.writeAscii(String(value));
-      }
-      writeStruct(ns, value) {
-        this.ensure(2);
-        this.json[this.i++] = OPEN_BRACE;
-        let wroteAny = false;
-        const hasType = typeof value.__type === "string";
-        let writtenKeys;
-        if (hasType) {
-          writtenKeys = /* @__PURE__ */ new Set();
-        }
-        for (const [memberName, memberSchema] of ns.structIterator()) {
-          const item = value[memberName];
-          if (item == null && !memberSchema.isIdempotencyToken()) {
-            continue;
-          }
-          if (wroteAny) {
-            this.ensure(1);
-            this.json[this.i++] = COMMA;
-          }
-          wroteAny = true;
-          const targetKey = this.settings.jsonName ? memberSchema.getMergedTraits().jsonName ?? memberName : memberName;
-          if (writtenKeys) {
-            writtenKeys.add(memberName);
-            writtenKeys.add(targetKey);
-          }
-          this.writeAsciiQuoted(targetKey);
-          this.json[this.i++] = COLON2;
-          this.writeValue(memberSchema, item, ns);
-        }
-        if (!wroteAny && ns.isUnionSchema()) {
-          const { $unknown } = value;
-          if (Array.isArray($unknown)) {
-            const [k5, v] = $unknown;
-            this.writeAsciiQuoted(k5);
-            this.ensure(1);
-            this.json[this.i++] = COLON2;
-            this.writeValue(15, v, ns);
-          }
-        } else if (hasType) {
-          for (const k5 in value) {
-            if (writtenKeys.has(k5)) {
-              continue;
-            }
-            writtenKeys.add(k5);
-            const v = value[k5];
-            if (wroteAny) {
-              this.ensure(1);
-              this.json[this.i++] = COMMA;
-            }
-            wroteAny = true;
-            this.writeAsciiQuoted(k5);
-            this.ensure(1);
-            this.json[this.i++] = COLON2;
-            this.writeValue(15, v, void 0);
-          }
-        }
-        this.ensure(1);
-        this.json[this.i++] = CLOSE_BRACE;
-      }
-      writeList(ns, value, isDocument) {
-        const sparse = !!ns.getMergedTraits().sparse;
-        const valueSchema = ns.getValueSchema();
-        if (!isDocument) {
-          if (valueSchema.isStringSchema() || valueSchema.isNumericSchema() || valueSchema.isBooleanSchema()) {
-            let hasSpecials = false;
-            for (let i6 = 0; i6 < value.length; ++i6) {
-              const v = value[i6];
-              if (Number.isNaN(v) || v === Infinity || v === -Infinity || v == null && !sparse) {
-                hasSpecials = true;
-                break;
-              }
-            }
-            let json;
-            if (!hasSpecials) {
-              json = JSON.stringify(value);
-            } else {
-              const out = [];
-              for (let i6 = 0; i6 < value.length; ++i6) {
-                const v = value[i6];
-                if (v == null && !sparse)
-                  continue;
-                if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
-                  out.push(String(v));
-                } else {
-                  out.push(v);
-                }
-              }
-              json = JSON.stringify(out);
-            }
-            this.ensure(json.length * 3);
-            this.i += encoder.encodeInto(json, this.json.subarray(this.i)).written;
-            return;
-          }
-        }
-        this.ensure(2);
-        this.json[this.i++] = OPEN_BRACKET;
-        let wroteFirstItem = false;
-        for (let i6 = 0; i6 < value.length; ++i6) {
-          const item = value[i6];
-          if (isDocument ? item === void 0 : item == null && !sparse) {
-            continue;
-          }
-          if (wroteFirstItem) {
-            this.ensure(1);
-            this.json[this.i++] = COMMA;
-          }
-          this.writeValue(valueSchema, item, void 0);
-          wroteFirstItem = true;
-        }
-        this.ensure(1);
-        this.json[this.i++] = CLOSE_BRACKET;
-      }
-      writeMap(ns, value, isDocument) {
-        const sparse = !!ns.getMergedTraits().sparse;
-        const valueSchema = ns.getValueSchema();
-        if (!isDocument) {
-          if (valueSchema.isStringSchema() || valueSchema.isNumericSchema() || valueSchema.isBooleanSchema()) {
-            let modifications;
-            for (const k5 in value) {
-              const v = value[k5];
-              if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
-                (modifications ??= {})[k5] = v;
-                value[k5] = String(v);
-              } else if (v === null && !sparse) {
-                (modifications ??= {})[k5] = null;
-                value[k5] = void 0;
-              }
-            }
-            const json = JSON.stringify(value);
-            if (modifications) {
-              Object.assign(value, modifications);
-            }
-            this.ensure(json.length * 3);
-            this.i += encoder.encodeInto(json, this.json.subarray(this.i)).written;
-            return;
-          }
-        }
-        this.ensure(2);
-        this.json[this.i++] = OPEN_BRACE;
-        let first = true;
-        for (const k5 in value) {
-          const v = value[k5];
-          if (isDocument ? v === void 0 : v == null && !sparse) {
-            continue;
-          }
-          if (!first) {
-            this.ensure(1);
-            this.json[this.i++] = COMMA;
-          }
-          first = false;
-          this.writeJsonString(k5);
-          this.ensure(1);
-          this.json[this.i++] = COLON2;
-          this.writeValue(valueSchema, v, void 0);
-        }
-        this.ensure(1);
-        this.json[this.i++] = CLOSE_BRACE;
-      }
-      writeTimestamp(ns, value) {
-        const format2 = determineTimestampFormat(ns, this.settings);
-        switch (format2) {
-          case 5: {
-            const iso = value.toISOString().replace(".000Z", "Z");
-            this.writeAsciiQuoted(iso);
-            return;
-          }
-          case 6: {
-            this.writeAsciiQuoted(dateToUtcString(value));
-            return;
-          }
-          case 7: {
-            const epochSecs = String(value.getTime() / 1e3);
-            this.writeAscii(epochSecs);
-            return;
-          }
-          default: {
-            const epochSecs = String(value.getTime() / 1e3);
-            this.writeAscii(epochSecs);
-            return;
-          }
-        }
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonCodec2.js
-var JsonCodec2;
-var init_JsonCodec2 = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v2/JsonCodec2.js"() {
-    init_ConfigurableSerdeContext();
-    init_JsonShapeDeserializer2();
-    init_JsonShapeSerializer2();
-    JsonCodec2 = class extends SerdeContextConfig {
-      settings;
-      constructor(settings) {
-        super();
-        this.settings = settings;
-      }
-      createSerializer() {
-        const serializer = new JsonShapeSerializer2(this.settings);
-        serializer.setSerdeContext(this.serdeContext);
-        return serializer;
-      }
-      createDeserializer() {
-        const deserializer = new JsonShapeDeserializer2(this.settings);
-        deserializer.setSerdeContext(this.serdeContext);
-        return deserializer;
-      }
-    };
-  }
-});
-
 // node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/AwsJsonRpcProtocol.js
 var AwsJsonRpcProtocol;
 var init_AwsJsonRpcProtocol = __esm({
@@ -197799,8 +198520,6 @@ var init_AwsJsonRpcProtocol = __esm({
     init_protocols();
     init_schema();
     init_ProtocolLib();
-    init_JsonCodec2();
-    init_parseJsonBody();
     AwsJsonRpcProtocol = class extends RpcProtocol {
       serializer;
       deserializer;
@@ -197938,8 +198657,6 @@ var init_AwsRestJsonProtocol = __esm({
     init_protocols();
     init_schema();
     init_ProtocolLib();
-    init_JsonCodec2();
-    init_parseJsonBody();
     AwsRestJsonProtocol = class extends HttpBindingProtocol {
       serializer;
       deserializer;
@@ -198018,447 +198735,6 @@ var init_AwsRestJsonProtocol = __esm({
       }
       getDefaultContentType() {
         return "application/json";
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeDeserializer.js
-var JsonShapeDeserializer;
-var init_JsonShapeDeserializer = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeDeserializer.js"() {
-    init_protocols();
-    init_schema();
-    init_serde();
-    init_serde();
-    init_ConfigurableSerdeContext();
-    init_UnionSerde();
-    init_jsonReviver();
-    init_needsReviver();
-    init_parseJsonBody();
-    init_writeKey();
-    JsonShapeDeserializer = class extends SerdeContextConfig {
-      settings;
-      constructor(settings) {
-        super();
-        this.settings = settings;
-      }
-      async read(schema, data) {
-        const reviver = needsReviver(schema) ? jsonReviver : void 0;
-        return this._read(schema, typeof data === "string" ? JSON.parse(data, reviver) : await parseJsonBody(data, this.serdeContext, schema));
-      }
-      readObject(schema, data) {
-        return this._read(schema, data);
-      }
-      _read(schema, value) {
-        const isObject = value !== null && typeof value === "object";
-        const ns = NormalizedSchema.of(schema);
-        if (isObject) {
-          if (ns.isStructSchema()) {
-            const record = value;
-            const union = ns.isUnionSchema();
-            const out = {};
-            let nameMap = void 0;
-            const { jsonName } = this.settings;
-            if (jsonName) {
-              nameMap = {};
-            }
-            let unionSerde;
-            if (union) {
-              unionSerde = new UnionSerde(record, out);
-            }
-            for (const [memberName, memberSchema] of ns.structIterator()) {
-              let fromKey = memberName;
-              if (jsonName) {
-                fromKey = memberSchema.getMergedTraits().jsonName ?? fromKey;
-                nameMap[fromKey] = memberName;
-              }
-              if (union) {
-                unionSerde.mark(fromKey);
-              }
-              if (record[fromKey] != null) {
-                out[memberName] = this._read(memberSchema, record[fromKey]);
-              }
-            }
-            if (union) {
-              unionSerde.writeUnknown();
-            } else if (typeof record.__type === "string") {
-              for (const k5 in record) {
-                const v = record[k5];
-                const t2 = jsonName ? nameMap[k5] ?? k5 : k5;
-                if (!(t2 in out)) {
-                  out[t2] = v;
-                }
-              }
-            }
-            return out;
-          }
-          if (Array.isArray(value) && ns.isListSchema()) {
-            const listMember = ns.getValueSchema();
-            const out = [];
-            for (const item of value) {
-              out.push(this._read(listMember, item));
-            }
-            return out;
-          }
-          if (ns.isMapSchema()) {
-            const mapMember = ns.getValueSchema();
-            const out = {};
-            for (const _k in value) {
-              if (_k === "__proto__") {
-                writeKey(out);
-              }
-              out[_k] = this._read(mapMember, value[_k]);
-            }
-            return out;
-          }
-        }
-        if (ns.isBlobSchema() && typeof value === "string") {
-          return fromBase64(value);
-        }
-        const mediaType = ns.getMergedTraits().mediaType;
-        if (ns.isStringSchema() && typeof value === "string" && mediaType) {
-          const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
-          if (isJson) {
-            return LazyJsonString.from(value);
-          }
-          return value;
-        }
-        if (ns.isTimestampSchema() && value != null) {
-          const format2 = determineTimestampFormat(ns, this.settings);
-          switch (format2) {
-            case 5:
-              return parseRfc3339DateTimeWithOffset(value);
-            case 6:
-              return parseRfc7231DateTime(value);
-            case 7:
-              return parseEpochTimestamp(value);
-            default:
-              console.warn("Missing timestamp format, parsing value with Date constructor:", value);
-              return new Date(value);
-          }
-        }
-        if (ns.isBigIntegerSchema() && (typeof value === "number" || typeof value === "string")) {
-          return BigInt(value);
-        }
-        if (ns.isBigDecimalSchema() && value != void 0) {
-          if (value instanceof NumericValue) {
-            return value;
-          }
-          const untyped = value;
-          if (untyped.type === "bigDecimal" && "string" in untyped) {
-            return new NumericValue(untyped.string, untyped.type);
-          }
-          return new NumericValue(String(value), "bigDecimal");
-        }
-        if (ns.isNumericSchema() && typeof value === "string") {
-          switch (value) {
-            case "Infinity":
-              return Infinity;
-            case "-Infinity":
-              return -Infinity;
-            case "NaN":
-              return NaN;
-          }
-          return value;
-        }
-        if (ns.isDocumentSchema()) {
-          if (isObject) {
-            const out = Array.isArray(value) ? [] : {};
-            for (const k5 in value) {
-              if (k5 === "__proto__") {
-                writeKey(out);
-              }
-              const v = value[k5];
-              if (v instanceof NumericValue) {
-                out[k5] = v;
-              } else {
-                out[k5] = this._read(ns, v);
-              }
-            }
-            return out;
-          } else {
-            return structuredClone(value);
-          }
-        }
-        return value;
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReplacer.js
-var NUMERIC_CONTROL_CHAR, JsonReplacer;
-var init_jsonReplacer = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/jsonReplacer.js"() {
-    init_serde();
-    NUMERIC_CONTROL_CHAR = String.fromCharCode(925);
-    JsonReplacer = class {
-      values = /* @__PURE__ */ new Map();
-      counter = 0;
-      stage = 0;
-      createReplacer() {
-        if (this.stage === 1) {
-          throw new Error("@aws-sdk/core/protocols - JsonReplacer already created.");
-        }
-        if (this.stage === 2) {
-          throw new Error("@aws-sdk/core/protocols - JsonReplacer exhausted.");
-        }
-        this.stage = 1;
-        return (key, value) => {
-          if (value instanceof NumericValue) {
-            const v = `${NUMERIC_CONTROL_CHAR + "nv" + this.counter++}_` + value.string;
-            this.values.set(`"${v}"`, value.string);
-            return v;
-          }
-          if (typeof value === "bigint") {
-            const s3 = value.toString();
-            const v = `${NUMERIC_CONTROL_CHAR + "b" + this.counter++}_` + s3;
-            this.values.set(`"${v}"`, s3);
-            return v;
-          }
-          return value;
-        };
-      }
-      replaceInJson(json) {
-        if (this.stage === 0) {
-          throw new Error("@aws-sdk/core/protocols - JsonReplacer not created yet.");
-        }
-        if (this.stage === 2) {
-          throw new Error("@aws-sdk/core/protocols - JsonReplacer exhausted.");
-        }
-        this.stage = 2;
-        if (this.counter === 0) {
-          return json;
-        }
-        for (const [key, value] of this.values) {
-          json = json.replace(key, value);
-        }
-        return json;
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeSerializer.js
-var JsonShapeSerializer;
-var init_JsonShapeSerializer = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v1/JsonShapeSerializer.js"() {
-    init_protocols();
-    init_schema();
-    init_serde();
-    init_ConfigurableSerdeContext();
-    init_jsonReplacer();
-    init_writeKey();
-    JsonShapeSerializer = class extends SerdeContextConfig {
-      settings;
-      buffer;
-      useReplacer = false;
-      rootSchema;
-      constructor(settings) {
-        super();
-        this.settings = settings;
-      }
-      write(schema, value) {
-        this.rootSchema = NormalizedSchema.of(schema);
-        this.buffer = this._write(this.rootSchema, value);
-      }
-      flush() {
-        const { rootSchema, useReplacer } = this;
-        this.rootSchema = void 0;
-        this.useReplacer = false;
-        if (rootSchema?.isStructSchema() || rootSchema?.isDocumentSchema()) {
-          if (!useReplacer) {
-            return JSON.stringify(this.buffer);
-          }
-          const replacer = new JsonReplacer();
-          return replacer.replaceInJson(JSON.stringify(this.buffer, replacer.createReplacer(), 0));
-        }
-        return this.buffer;
-      }
-      writeDiscriminatedDocument(schema, value) {
-        this.write(schema, value);
-        if (typeof this.buffer === "object") {
-          this.buffer.__type = NormalizedSchema.of(schema).getName(true);
-        }
-      }
-      _write(schema, value, container) {
-        const isObject = value !== null && typeof value === "object";
-        const ns = NormalizedSchema.of(schema);
-        if (isObject) {
-          if (ns.isStructSchema()) {
-            const record = value;
-            const out = {};
-            const { jsonName } = this.settings;
-            let nameMap = void 0;
-            if (jsonName) {
-              nameMap = {};
-            }
-            let outCount = 0;
-            for (const [memberName, memberSchema] of ns.structIterator()) {
-              const serializableValue = this._write(memberSchema, record[memberName], ns);
-              if (serializableValue !== void 0) {
-                let targetKey = memberName;
-                if (jsonName) {
-                  targetKey = memberSchema.getMergedTraits().jsonName ?? memberName;
-                  nameMap[memberName] = targetKey;
-                }
-                out[targetKey] = serializableValue;
-                outCount++;
-              }
-            }
-            if (ns.isUnionSchema() && outCount === 0) {
-              const { $unknown } = record;
-              if (Array.isArray($unknown)) {
-                const [k5, v] = $unknown;
-                if (k5 === "__proto__") {
-                  writeKey(out);
-                }
-                out[k5] = this._write(15, v);
-              }
-            } else if (typeof record.__type === "string") {
-              for (const k5 in record) {
-                const v = record[k5];
-                const targetKey = jsonName ? nameMap[k5] ?? k5 : k5;
-                if (!(targetKey in out)) {
-                  out[targetKey] = this._write(15, v);
-                }
-              }
-            }
-            return out;
-          }
-          if (Array.isArray(value) && ns.isListSchema()) {
-            const listMember = ns.getValueSchema();
-            const out = [];
-            const sparse = !!ns.getMergedTraits().sparse;
-            for (const item of value) {
-              if (sparse || item != null) {
-                out.push(this._write(listMember, item));
-              }
-            }
-            return out;
-          }
-          if (ns.isMapSchema()) {
-            const mapMember = ns.getValueSchema();
-            const out = {};
-            const sparse = !!ns.getMergedTraits().sparse;
-            for (const _k in value) {
-              const _v = value[_k];
-              if (sparse || _v != null) {
-                if (_k === "__proto__") {
-                  writeKey(out);
-                }
-                out[_k] = this._write(mapMember, _v);
-              }
-            }
-            return out;
-          }
-          if (value instanceof Uint8Array && ns.isBlobSchema()) {
-            if (ns === this.rootSchema) {
-              return value;
-            }
-            return (this.serdeContext?.base64Encoder ?? toBase64)(value);
-          }
-          if (value instanceof Date && (ns.isTimestampSchema() || ns.isDocumentSchema())) {
-            const format2 = determineTimestampFormat(ns, this.settings);
-            switch (format2) {
-              case 5:
-                return value.toISOString().replace(".000Z", "Z");
-              case 6:
-                return dateToUtcString(value);
-              case 7:
-                return value.getTime() / 1e3;
-              default:
-                console.warn("Missing timestamp format, using epoch seconds", value);
-                return value.getTime() / 1e3;
-            }
-          }
-          if (value instanceof NumericValue) {
-            this.useReplacer = true;
-          }
-        }
-        if (value === null && container?.isStructSchema()) {
-          return void 0;
-        }
-        if (ns.isStringSchema()) {
-          if (typeof value === "undefined" && ns.isIdempotencyToken()) {
-            return generateIdempotencyToken();
-          }
-          const mediaType = ns.getMergedTraits().mediaType;
-          if (value != null && mediaType) {
-            const isJson = mediaType === "application/json" || mediaType.endsWith("+json");
-            if (isJson) {
-              return LazyJsonString.from(value);
-            }
-          }
-          return value;
-        }
-        if (typeof value === "number") {
-          if (Math.abs(value) === Infinity || isNaN(value)) {
-            return String(value);
-          }
-          return value;
-        }
-        if (typeof value === "string" && ns.isBlobSchema()) {
-          if (ns === this.rootSchema) {
-            return value;
-          }
-          return (this.serdeContext?.base64Encoder ?? toBase64)(value);
-        }
-        if (typeof value === "bigint") {
-          this.useReplacer = true;
-        }
-        if (ns.isDocumentSchema()) {
-          if (isObject) {
-            if (value instanceof Uint8Array) {
-              return (this.serdeContext?.base64Encoder ?? toBase64)(value);
-            }
-            const out = Array.isArray(value) ? [] : {};
-            for (const k5 in value) {
-              const v = value[k5];
-              if (k5 === "__proto__") {
-                writeKey(out);
-              }
-              if (v instanceof NumericValue) {
-                this.useReplacer = true;
-                out[k5] = v;
-              } else {
-                out[k5] = this._write(ns, v);
-              }
-            }
-            return out;
-          } else {
-            return structuredClone(value);
-          }
-        }
-        return value;
-      }
-    };
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v1/JsonCodec.js
-var JsonCodec;
-var init_JsonCodec = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/codec-v1/JsonCodec.js"() {
-    init_ConfigurableSerdeContext();
-    init_JsonShapeDeserializer();
-    init_JsonShapeSerializer();
-    JsonCodec = class extends SerdeContextConfig {
-      settings;
-      constructor(settings) {
-        super();
-        this.settings = settings;
-      }
-      createSerializer() {
-        const serializer = new JsonShapeSerializer(this.settings);
-        serializer.setSerdeContext(this.serdeContext);
-        return serializer;
-      }
-      createDeserializer() {
-        const deserializer = new JsonShapeDeserializer(this.settings);
-        deserializer.setSerdeContext(this.serdeContext);
-        return deserializer;
       }
     };
   }
@@ -198587,7 +198863,7 @@ var require_dist_cjs7 = __commonJS({
         return xmlText += !hasChildren ? "/>" : `>${this.children.map((c5) => c5.toString()).join("")}</${this.name}>`;
       }
     };
-    function writeKey2(obj) {
+    function writeKey3(obj) {
       Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
     }
     function parseXML3(xml) {
@@ -198688,7 +198964,7 @@ var require_dist_cjs7 = __commonJS({
           ++p3.i;
           p3.trim();
           if (name === "__proto__") {
-            writeKey2(attrs);
+            writeKey3(attrs);
           }
           attrs[name] = p3.readAttrValue();
           hasAttrs = true;
@@ -198762,7 +199038,7 @@ var require_dist_cjs7 = __commonJS({
         }
         for (const child of childTags) {
           if (child.tag === "__proto__") {
-            writeKey2(obj);
+            writeKey3(obj);
           }
           if (child.tag in obj) {
             if (Array.isArray(obj[child.tag])) {
@@ -198776,7 +199052,7 @@ var require_dist_cjs7 = __commonJS({
         }
         for (const [k5, v] of Object.entries(attrs)) {
           if (k5 === "__proto__") {
-            writeKey2(obj);
+            writeKey3(obj);
           }
           obj[k5] = v;
         }
@@ -198825,6 +199101,61 @@ var require_dist_cjs7 = __commonJS({
   }
 });
 
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/ConfigurableSerdeContext.js
+var SerdeContextConfig2;
+var init_ConfigurableSerdeContext2 = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/ConfigurableSerdeContext.js"() {
+    SerdeContextConfig2 = class {
+      serdeContext;
+      setSerdeContext(serdeContext) {
+        this.serdeContext = serdeContext;
+      }
+    };
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/UnionSerde.js
+var UnionSerde2;
+var init_UnionSerde2 = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/UnionSerde.js"() {
+    UnionSerde2 = class {
+      from;
+      to;
+      keys;
+      constructor(from, to) {
+        this.from = from;
+        this.to = to;
+        const keys = Object.keys(this.from);
+        const set = new Set(keys);
+        set.delete("__type");
+        this.keys = set;
+      }
+      mark(key) {
+        this.keys.delete(key);
+      }
+      hasUnknown() {
+        return this.keys.size === 1 && Object.keys(this.to).length === 0;
+      }
+      writeUnknown() {
+        if (this.hasUnknown()) {
+          const k5 = this.keys.values().next().value;
+          const v = this.from[k5];
+          this.to.$unknown = [k5, v];
+        }
+      }
+    };
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/writeKey.js
+function writeKey2(obj) {
+  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
+}
+var init_writeKey2 = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/writeKey.js"() {
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/protocols/xml/XmlShapeDeserializer.js
 var import_xml_builder, XmlShapeDeserializer;
 var init_XmlShapeDeserializer = __esm({
@@ -198834,10 +199165,10 @@ var init_XmlShapeDeserializer = __esm({
     init_protocols();
     init_schema();
     init_serde();
-    init_ConfigurableSerdeContext();
-    init_UnionSerde();
-    init_writeKey();
-    XmlShapeDeserializer = class extends SerdeContextConfig {
+    init_ConfigurableSerdeContext2();
+    init_UnionSerde2();
+    init_writeKey2();
+    XmlShapeDeserializer = class extends SerdeContextConfig2 {
       settings;
       stringDeserializer;
       constructor(settings) {
@@ -198914,7 +199245,7 @@ var init_XmlShapeDeserializer = __esm({
               const key = entry[keyProperty];
               const value2 = entry[valueProperty];
               if (key === "__proto__") {
-                writeKey(buffer);
+                writeKey2(buffer);
               }
               buffer[key] = this.readSchema(memberNs, value2);
             }
@@ -198924,7 +199255,7 @@ var init_XmlShapeDeserializer = __esm({
             const union = ns.isUnionSchema();
             let unionSerde;
             if (union) {
-              unionSerde = new UnionSerde(value, buffer);
+              unionSerde = new UnionSerde2(value, buffer);
             }
             for (const [memberName, memberSchema] of ns.structIterator()) {
               const memberTraits = memberSchema.getMergedTraits();
@@ -198990,8 +199321,8 @@ var init_QueryShapeSerializer = __esm({
     init_schema();
     init_serde();
     init_serde();
-    init_ConfigurableSerdeContext();
-    QueryShapeSerializer = class extends SerdeContextConfig {
+    init_ConfigurableSerdeContext2();
+    QueryShapeSerializer = class extends SerdeContextConfig2 {
       settings;
       buffer;
       constructor(settings) {
@@ -199330,14 +199661,24 @@ var init_AwsEc2QueryProtocol = __esm({
   }
 });
 
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/common.js
+var collectBodyString2;
+var init_common2 = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/common.js"() {
+    init_protocols();
+    init_serde();
+    collectBodyString2 = (streamBody, context2) => collectBody(streamBody, context2).then((body) => (context2?.utf8Encoder ?? toUtf8)(body));
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/protocols/xml/parseXmlBody.js
 var import_xml_builder2, parseXmlBody, parseXmlErrorBody, loadRestXmlErrorCode;
 var init_parseXmlBody = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/protocols/xml/parseXmlBody.js"() {
     import_xml_builder2 = __toESM(require_dist_cjs7());
     init_client2();
-    init_common();
-    parseXmlBody = (streamBody, context2) => collectBodyString(streamBody, context2).then((encoded) => {
+    init_common2();
+    parseXmlBody = (streamBody, context2) => collectBodyString2(streamBody, context2).then((encoded) => {
       if (encoded.length) {
         let parsedObj;
         try {
@@ -199391,8 +199732,8 @@ var init_XmlShapeSerializer = __esm({
     init_schema();
     init_serde();
     init_serde();
-    init_ConfigurableSerdeContext();
-    XmlShapeSerializer = class extends SerdeContextConfig {
+    init_ConfigurableSerdeContext2();
+    XmlShapeSerializer = class extends SerdeContextConfig2 {
       settings;
       stringBuffer;
       byteBuffer;
@@ -199664,10 +200005,10 @@ var init_XmlShapeSerializer = __esm({
 var XmlCodec;
 var init_XmlCodec = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/protocols/xml/XmlCodec.js"() {
-    init_ConfigurableSerdeContext();
+    init_ConfigurableSerdeContext2();
     init_XmlShapeDeserializer();
     init_XmlShapeSerializer();
-    XmlCodec = class extends SerdeContextConfig {
+    XmlCodec = class extends SerdeContextConfig2 {
       settings;
       constructor(settings) {
         super();
@@ -199903,13 +200244,7 @@ var init_protocols2 = __esm({
     init_AwsJson1_1Protocol();
     init_AwsJsonRpcProtocol();
     init_AwsRestJsonProtocol();
-    init_JsonCodec();
-    init_JsonShapeDeserializer();
-    init_JsonShapeSerializer();
-    init_JsonCodec2();
-    init_JsonShapeDeserializer2();
-    init_JsonShapeSerializer2();
-    init_parseJsonBody();
+    init_protocols();
     init_AwsEc2QueryProtocol();
     init_AwsQueryProtocol();
     init_QueryShapeSerializer();
@@ -200834,6 +201169,7 @@ var require_dist_cjs8 = __commonJS({
       return writeFile2(tokenFilepath, tokenString);
     };
     var lastRefreshAttemptTimes = /* @__PURE__ */ new Map();
+    var inFlightRefreshes = /* @__PURE__ */ new Map();
     var fromSso = (init = {}) => async ({ callerClientConfig } = {}) => {
       init.logger?.debug("@aws-sdk/token-providers - fromSso");
       const profiles = await parseKnownFiles2(init);
@@ -200847,6 +201183,10 @@ var require_dist_cjs8 = __commonJS({
         throw new TokenProviderError2(`Profile '${profileName}' is missing required property 'sso_session'.`);
       }
       const ssoSessionName = profile["sso_session"];
+      const inFlightRefresh = inFlightRefreshes.get(ssoSessionName);
+      if (inFlightRefresh) {
+        return await inFlightRefresh;
+      }
       const ssoSessions = await loadSsoSessionData2(init);
       const ssoSession = ssoSessions[ssoSessionName];
       if (!ssoSession) {
@@ -200875,6 +201215,10 @@ var require_dist_cjs8 = __commonJS({
       if (existingToken.expiration.getTime() - Date.now() > EXPIRE_WINDOW_MS) {
         return existingToken;
       }
+      const inFlightRefreshAfterReadingToken = inFlightRefreshes.get(ssoSessionName);
+      if (inFlightRefreshAfterReadingToken) {
+        return await inFlightRefreshAfterReadingToken;
+      }
       const lastRefreshAttemptTime = lastRefreshAttemptTimes.get(ssoSessionName) ?? 0;
       if (Date.now() - lastRefreshAttemptTime < 30 * 1e3) {
         validateTokenExpiry(existingToken);
@@ -200883,28 +201227,36 @@ var require_dist_cjs8 = __commonJS({
       validateTokenKey("clientId", ssoToken.clientId, true);
       validateTokenKey("clientSecret", ssoToken.clientSecret, true);
       validateTokenKey("refreshToken", ssoToken.refreshToken, true);
-      try {
-        lastRefreshAttemptTimes.set(ssoSessionName, Date.now());
-        const newSsoOidcToken = await getNewSsoOidcToken(ssoToken, ssoRegion, init, callerClientConfig);
-        validateTokenKey("accessToken", newSsoOidcToken.accessToken);
-        validateTokenKey("expiresIn", newSsoOidcToken.expiresIn);
-        const newTokenExpiration = new Date(Date.now() + newSsoOidcToken.expiresIn * 1e3);
+      const refresh = (async () => {
         try {
-          await writeSSOTokenToFile(ssoSessionName, {
-            ...ssoToken,
-            accessToken: newSsoOidcToken.accessToken,
-            expiresAt: newTokenExpiration.toISOString(),
-            refreshToken: newSsoOidcToken.refreshToken
-          });
+          lastRefreshAttemptTimes.set(ssoSessionName, Date.now());
+          const newSsoOidcToken = await getNewSsoOidcToken(ssoToken, ssoRegion, init, callerClientConfig);
+          validateTokenKey("accessToken", newSsoOidcToken.accessToken);
+          validateTokenKey("expiresIn", newSsoOidcToken.expiresIn);
+          const newTokenExpiration = new Date(Date.now() + newSsoOidcToken.expiresIn * 1e3);
+          try {
+            await writeSSOTokenToFile(ssoSessionName, {
+              ...ssoToken,
+              accessToken: newSsoOidcToken.accessToken,
+              expiresAt: newTokenExpiration.toISOString(),
+              refreshToken: newSsoOidcToken.refreshToken
+            });
+          } catch (error3) {
+          }
+          return {
+            token: newSsoOidcToken.accessToken,
+            expiration: newTokenExpiration
+          };
         } catch (error3) {
+          validateTokenExpiry(existingToken);
+          return existingToken;
         }
-        return {
-          token: newSsoOidcToken.accessToken,
-          expiration: newTokenExpiration
-        };
-      } catch (error3) {
-        validateTokenExpiry(existingToken);
-        return existingToken;
+      })();
+      inFlightRefreshes.set(ssoSessionName, refresh);
+      try {
+        return await refresh;
+      } finally {
+        inFlightRefreshes.delete(ssoSessionName);
       }
     };
     var fromStatic2 = ({ token, logger: logger2 }) => async () => {
@@ -204918,7 +205270,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1151.0";
+    var version = "3.1155.0";
     var packageInfo = {
       version
     };
@@ -205332,6 +205684,32 @@ var require_dist_cjs16 = __commonJS({
         Object.setPrototypeOf(this, _DaemonNotFoundException.prototype);
       }
     };
+    var GatewayNotFoundException = class _GatewayNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#GatewayNotFoundException";
+      name = "GatewayNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "GatewayNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _GatewayNotFoundException.prototype);
+      }
+    };
+    var ResourceNotFoundException2 = class _ResourceNotFoundException extends ECSServiceException {
+      static shapeId = "com.amazonaws.ecs#ResourceNotFoundException";
+      name = "ResourceNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ResourceNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ResourceNotFoundException.prototype);
+      }
+    };
     var PlatformTaskDefinitionIncompatibilityException = class _PlatformTaskDefinitionIncompatibilityException extends ECSServiceException {
       static shapeId = "com.amazonaws.ecs#PlatformTaskDefinitionIncompatibilityException";
       name = "PlatformTaskDefinitionIncompatibilityException";
@@ -205356,19 +205734,6 @@ var require_dist_cjs16 = __commonJS({
           ...opts
         });
         Object.setPrototypeOf(this, _ServiceNotActiveException.prototype);
-      }
-    };
-    var ResourceNotFoundException2 = class _ResourceNotFoundException extends ECSServiceException {
-      static shapeId = "com.amazonaws.ecs#ResourceNotFoundException";
-      name = "ResourceNotFoundException";
-      $fault = "client";
-      constructor(opts) {
-        super({
-          name: "ResourceNotFoundException",
-          $fault: "client",
-          ...opts
-        });
-        Object.setPrototypeOf(this, _ResourceNotFoundException.prototype);
       }
     };
     var ConflictException = class _ConflictException extends ECSServiceException {
@@ -205417,6 +205782,9 @@ var require_dist_cjs16 = __commonJS({
     var _ACR = "AcceleratorCountRequest";
     var _AD = "AttachmentDetails";
     var _ADE3 = "AccessDeniedException";
+    var _AGWC = "AssociateGatewayWithCluster";
+    var _AGWCR = "AssociateGatewayWithClusterRequest";
+    var _AGWCRs = "AssociateGatewayWithClusterResponse";
     var _AIT = "AllowedInstanceType";
     var _AITS = "AllowedInstanceTypeSet";
     var _ALEE = "AttributeLimitExceededException";
@@ -205464,6 +205832,9 @@ var require_dist_cjs16 = __commonJS({
     var _CEGSR = "CreateExpressGatewayServiceRequest";
     var _CEGSRr = "CreateExpressGatewayServiceResponse";
     var _CEo = "ConflictException";
+    var _CG = "CreateGateway";
+    var _CGR = "CreateGatewayRequest";
+    var _CGRr = "CreateGatewayResponse";
     var _CI = "ContainerImage";
     var _CIHS = "ContainerInstanceHealthStatus";
     var _CIo = "ContainerInstance";
@@ -205573,6 +205944,23 @@ var require_dist_cjs16 = __commonJS({
     var _DEGSe = "DescribeExpressGatewayService";
     var _DES = "DeploymentEphemeralStorage";
     var _DESC = "DeploymentEarlySuccessCriteria";
+    var _DG = "DeleteGateway";
+    var _DGAC = "DescribeGatewayAlbConfiguration";
+    var _DGC = "DescribeGatewayConfiguration";
+    var _DGFC = "DisassociateGatewayFromCluster";
+    var _DGFCR = "DisassociateGatewayFromClusterRequest";
+    var _DGFCRi = "DisassociateGatewayFromClusterResponse";
+    var _DGR = "DeleteGatewayRequest";
+    var _DGRR = "DescribeGatewayResourcesRequest";
+    var _DGRRe = "DescribeGatewayResourcesResponse";
+    var _DGRRes = "DescribeGatewayRouteRequest";
+    var _DGRResc = "DescribeGatewayRouteResponse";
+    var _DGRe = "DeleteGatewayResponse";
+    var _DGRes = "DescribeGatewayRequest";
+    var _DGResc = "DescribeGatewayResponse";
+    var _DGRescr = "DescribeGatewayResources";
+    var _DGRescri = "DescribeGatewayRoute";
+    var _DGe = "DescribeGateway";
     var _DL = "DevicesList";
     var _DLH = "DeploymentLifecycleHook";
     var _DLHD = "DeploymentLifecycleHookDetail";
@@ -205644,7 +206032,9 @@ var require_dist_cjs16 = __commonJS({
     var _EFSVC = "EFSVolumeConfiguration";
     var _EFn = "EnvironmentFiles";
     var _EGC = "ExpressGatewayContainer";
+    var _EGR = "ElbGatewayResources";
     var _EGRC = "ExpressGatewayRepositoryCredentials";
+    var _EGRL = "ElbGatewayResourcesList";
     var _EGSALC = "ExpressGatewayServiceAwsLogsConfiguration";
     var _EGSC = "ExpressGatewayServiceConfiguration";
     var _EGSCx = "ExpressGatewayServiceConfigurations";
@@ -205660,12 +206050,50 @@ var require_dist_cjs16 = __commonJS({
     var _FSWFSAC = "FSxWindowsFileServerAuthorizationConfig";
     var _FSWFSVC = "FSxWindowsFileServerVolumeConfiguration";
     var _Fa = "Failures";
+    var _G = "Gateway";
+    var _GATTR = "GatewayAlbTestTrafficRules";
+    var _GC = "GatewayConnection";
+    var _GCAR = "GatewayConnectionAlbResources";
+    var _GCARL = "GatewayConnectionAlbResourcesList";
+    var _GCAS = "GatewayClusterAssociationSummary";
+    var _GCASL = "GatewayClusterAssociationSummaryList";
+    var _GCF = "GatewayConnectorFilters";
+    var _GCHC = "GatewayConnectorHealthCheck";
+    var _GCHCM = "GatewayConnectorHealthCheckMatcher";
+    var _GCL = "GatewayConnectionList";
+    var _GCLa = "GatewayConnectorList";
+    var _GCR = "GatewayConnectionResources";
+    var _GCa = "GatewayConnector";
+    var _GCat = "GatewayConfiguration";
+    var _GEALC = "GatewayElbAccessLogConfiguration";
+    var _GEALD = "GatewayElbAccessLogDestination";
+    var _GEALSD = "GatewayElbAccessLogS3Destination";
+    var _GENC = "GatewayElbNetworkConfiguration";
+    var _GIR = "GatewayInfrastructureResources";
+    var _GNFE = "GatewayNotFoundException";
+    var _GOE = "GatewayOperationError";
+    var _GOEL = "GatewayOperationErrorList";
+    var _GR = "GatewayResources";
+    var _GRAR = "GatewayRouteAlbResources";
+    var _GRARL = "GatewayRouteAlbResourcesList";
+    var _GRF = "GatewayResourceFailure";
+    var _GRFL = "GatewayResourceFailureList";
+    var _GRLBSG = "GatewayRouteLoadBalancerSecurityGroup";
+    var _GRLBSGL = "GatewayRouteLoadBalancerSecurityGroupList";
+    var _GRR = "GatewayRouteResources";
+    var _GRS = "GatewayRouteSummary";
+    var _GRSL = "GatewayRouteSummaryList";
+    var _GRa = "GatewayRoute";
+    var _GS = "GatewaySummary";
+    var _GSL = "GatewaySummaryList";
     var _GTP = "GetTaskProtection";
     var _GTPR = "GetTaskProtectionRequest";
     var _GTPRe = "GetTaskProtectionResponse";
+    var _GTTH = "GatewayTestTrafficHeader";
     var _HC = "HealthCheck";
     var _HE = "HostEntry";
     var _HEL = "HostEntryList";
+    var _HSAC = "HostSharedAlbConfiguration";
     var _HVP = "HostVolumeProperties";
     var _IA = "InferenceAccelerator";
     var _IAO = "InferenceAcceleratorOverride";
@@ -205710,6 +206138,15 @@ var require_dist_cjs16 = __commonJS({
     var _LDTDR = "ListDaemonTaskDefinitionsRequest";
     var _LDTDRi = "ListDaemonTaskDefinitionsResponse";
     var _LEE = "LimitExceededException";
+    var _LG = "ListGateways";
+    var _LGCA = "ListGatewayClusterAssociations";
+    var _LGCAR = "ListGatewayClusterAssociationsRequest";
+    var _LGCARi = "ListGatewayClusterAssociationsResponse";
+    var _LGR = "ListGatewaysRequest";
+    var _LGRR = "ListGatewayRoutesRequest";
+    var _LGRRi = "ListGatewayRoutesResponse";
+    var _LGRi = "ListGatewaysResponse";
+    var _LGRis = "ListGatewayRoutes";
     var _LP = "LinuxParameters";
     var _LS = "ListServices";
     var _LSBN = "ListServicesByNamespace";
@@ -205838,6 +206275,8 @@ var require_dist_cjs16 = __commonJS({
     var _SCC = "ServiceConnectConfiguration";
     var _SCCA = "ServiceConnectClientAlias";
     var _SCCAL = "ServiceConnectClientAliasList";
+    var _SCCC = "ServiceConnectContainerConfigurations";
+    var _SCCCe = "ServiceConnectContainerConfiguration";
     var _SCRS = "ServiceCurrentRevisionSummary";
     var _SCRSL = "ServiceCurrentRevisionSummaryList";
     var _SCS = "ServiceConnectService";
@@ -205952,6 +206391,12 @@ var require_dist_cjs16 = __commonJS({
     var _UEGSRp = "UpdateExpressGatewayServiceResponse";
     var _UEGSp = "UpdateExpressGatewayService";
     var _UFE = "UnsupportedFeatureException";
+    var _UG = "UpdateGateway";
+    var _UGAC = "UpdateGatewayAlbConfiguration";
+    var _UGC = "UpdateGatewayConfiguration";
+    var _UGNC = "UpdateGatewayNetworkConfiguration";
+    var _UGR = "UpdateGatewayRequest";
+    var _UGRp = "UpdateGatewayResponse";
     var _UIPE = "UpdateInProgressException";
     var _UL = "UlimitList";
     var _UMIPC = "UpdateManagedInstancesProviderConfiguration";
@@ -205983,6 +206428,7 @@ var require_dist_cjs16 = __commonJS({
     var _aA = "attachmentArn";
     var _aASP = "applicationAutoScalingPolicies";
     var _aC = "agentConnected";
+    var _aCA = "acmCertificateArn";
     var _aCc = "activeConfigurations";
     var _aCcc = "acceleratorCount";
     var _aCd = "advancedConfiguration";
@@ -205991,6 +206437,7 @@ var require_dist_cjs16 = __commonJS({
     var _aH = "agentHash";
     var _aI2 = "attachmentId";
     var _aIT = "allowedInstanceTypes";
+    var _aL = "accessLogs";
     var _aLC = "awsLogsConfiguration";
     var _aLCc = "accessLogConfiguration";
     var _aM = "acceleratorManufacturers";
@@ -206014,7 +206461,8 @@ var require_dist_cjs16 = __commonJS({
     var _aT4 = "accessType";
     var _aTGA = "alternateTargetGroupArn";
     var _aTMMB = "acceleratorTotalMemoryMiB";
-    var _aTc = "acceleratorTypes";
+    var _aTc = "accessTypes";
+    var _aTcc = "acceleratorTypes";
     var _aUS = "agentUpdateStatus";
     var _aV = "attributeValue";
     var _aVg = "agentVersion";
@@ -206035,8 +206483,10 @@ var require_dist_cjs16 = __commonJS({
     var _bP = "burstablePerformance";
     var _bTIM = "bakeTimeInMinutes";
     var _be = "before";
+    var _bu = "bucket";
     var _c5 = "client";
     var _cA = "clusterArn";
+    var _cAC = "currentAlbCount";
     var _cAL = "configuredAtLaunch";
     var _cAl = "clusterArns";
     var _cAli = "clientAliases";
@@ -206048,6 +206498,7 @@ var require_dist_cjs16 = __commonJS({
     var _cBTIM = "canaryBakeTimeInMinutes";
     var _cBr = "createdBy";
     var _cC = "canaryConfiguration";
+    var _cCo = "containerConfigurations";
     var _cD = "containerDefinitions";
     var _cDC = "computedDesiredCount";
     var _cDu = "currentDeployment";
@@ -206085,6 +206536,7 @@ var require_dist_cjs16 = __commonJS({
     var _cl = "cluster";
     var _clu = "clusters";
     var _co3 = "configuration";
+    var _cod = "code";
     var _com = "command";
     var _comp = "compatibilities";
     var _con = "condition";
@@ -206118,7 +206570,8 @@ var require_dist_cjs16 = __commonJS({
     var _dO = "dependsOn";
     var _dOT = "deleteOnTermination";
     var _dOr = "driverOpts";
-    var _dP = "drainPercent";
+    var _dP = "deletionProtection";
+    var _dPr = "drainPercent";
     var _dR = "daemonRevisions";
     var _dRA = "daemonRevisionArn";
     var _dRAa = "daemonRevisionArns";
@@ -206138,6 +206591,7 @@ var require_dist_cjs16 = __commonJS({
     var _da = "daemon";
     var _de = "devices";
     var _dep = "deployments";
+    var _des = "destination";
     var _det = "detail";
     var _do = "domain";
     var _dr = "driver";
@@ -206170,6 +206624,7 @@ var require_dist_cjs16 = __commonJS({
     var _enab = "enable";
     var _enc = "encrypted";
     var _end = "endpoint";
+    var _er = "errors";
     var _es = "essential";
     var _ev = "events";
     var _ex2 = "expression";
@@ -206190,19 +206645,37 @@ var require_dist_cjs16 = __commonJS({
     var _fWFSVC = "fsxWindowsFileServerVolumeConfiguration";
     var _fa = "failures";
     var _fam = "families";
-    var _fi = "filter";
+    var _fi = "filters";
     var _fie = "field";
+    var _fil = "filter";
     var _fo = "force";
     var _for = "format";
-    var _g = "group";
+    var _g = "gateway";
+    var _gA = "gatewayArn";
+    var _gC = "gatewayConnectors";
+    var _gCA = "gatewayClusterAssociations";
+    var _gCa = "gatewayConnections";
+    var _gCr = "grpcCode";
     var _gDE = "guardDutyEnabled";
     var _gI = "gpuIds";
+    var _gR = "gatewayResources";
+    var _gRA = "gatewayRouteArn";
+    var _gRAa = "gatewayRouteArns";
+    var _gRa = "gatewayRoute";
+    var _gRat = "gatewayRoutes";
+    var _ga = "gateways";
+    var _gr = "group";
     var _h4 = "hostname";
     var _hC = "healthCheck";
     var _hCGPS = "healthCheckGracePeriodSeconds";
+    var _hCIS = "healthCheckIntervalSeconds";
     var _hCP = "healthCheckPath";
-    var _hCPe = "healthCheckPort";
+    var _hCPe = "healthCheckProtocol";
+    var _hCPea = "healthCheckPort";
+    var _hCTS = "healthCheckTimeoutSeconds";
+    var _hCt = "httpCode";
     var _hD = "hookDetails";
+    var _hDt = "httpDesync";
     var _hE5 = "httpError";
     var _hI = "hookId";
     var _hL = "hardLimit";
@@ -206211,12 +206684,15 @@ var require_dist_cjs16 = __commonJS({
     var _hPo = "hostPath";
     var _hPos = "hostPort";
     var _hS = "healthStatus";
+    var _hSA = "hostSharedAlb";
     var _hTA = "hookTargetArn";
+    var _hTC = "healthyThresholdCount";
     var _he = "header";
     var _ho = "host";
     var _i = "id";
     var _iA = "ipAddress";
     var _iAO = "inferenceAcceleratorOverrides";
+    var _iAT = "ipAddressType";
     var _iAn = "inferenceAccelerators";
     var _iAp = "ipv6Address";
     var _iCA = "issuerCertificateAuthority";
@@ -206235,6 +206711,7 @@ var require_dist_cjs16 = __commonJS({
     var _iQP = "includeQueryParameters";
     var _iR = "instanceRequirements";
     var _iRA = "infrastructureRoleArn";
+    var _iSG = "inboundSecurityGroup";
     var _iTS = "idleTimeoutSeconds";
     var _iV = "integerValue";
     var _iWP = "instanceWarmupPeriod";
@@ -206249,9 +206726,12 @@ var require_dist_cjs16 = __commonJS({
     var _kK = "kmsKey";
     var _kKI = "kmsKeyId";
     var _l = "links";
+    var _lA = "listenerArn";
     var _lB = "loadBalancers";
+    var _lBA = "loadBalancerArn";
     var _lBN = "loadBalancerName";
     var _lBSG = "loadBalancerSecurityGroups";
+    var _lBSGA = "loadBalancerSecurityGroupArns";
     var _lBo = "loadBalancer";
     var _lC = "logConfiguration";
     var _lCi = "linearConfiguration";
@@ -206261,7 +206741,9 @@ var require_dist_cjs16 = __commonJS({
     var _lGo = "logGroup";
     var _lH = "lifecycleHooks";
     var _lHD = "lifecycleHookDetails";
+    var _lL = "logLevel";
     var _lP = "linuxParameters";
+    var _lRA = "listenerRuleArn";
     var _lS = "lastStatus";
     var _lSA = "lastStartedAt";
     var _lSC = "lastStatusChange";
@@ -206279,6 +206761,7 @@ var require_dist_cjs16 = __commonJS({
     var _lo = "logging";
     var _m4 = "message";
     var _mA = "managedAgents";
+    var _mAC = "maxAlbCount";
     var _mAN = "managedAgentName";
     var _mAe = "metricAlarms";
     var _mC = "minCapacity";
@@ -206306,6 +206789,7 @@ var require_dist_cjs16 = __commonJS({
     var _mTCa = "maxTaskCount";
     var _mTP = "managedTerminationProtection";
     var _ma = "max";
+    var _mat = "matcher";
     var _me = "memory";
     var _met = "metric";
     var _mi = "min";
@@ -206320,10 +206804,12 @@ var require_dist_cjs16 = __commonJS({
     var _nM = "networkMode";
     var _nT = "nextToken";
     var _na = "namespace";
+    var _nam = "names";
     var _o = "options";
     var _oDMPPOLP = "onDemandMaxPricePercentageOverLowestPrice";
     var _oS = "overallStatus";
     var _oSF = "operatingSystemFamily";
+    var _op = "operation";
     var _ov = "overrides";
     var _p = "privileged";
     var _pA = "principalArn";
@@ -206354,6 +206840,7 @@ var require_dist_cjs16 = __commonJS({
     var _pe = "permissions";
     var _po = "port";
     var _pr = "protocol";
+    var _pre = "prefix";
     var _pro = "properties";
     var _r3 = "reason";
     var _rA = "roleArn";
@@ -206362,6 +206849,7 @@ var require_dist_cjs16 = __commonJS({
     var _rAeg = "registryArn";
     var _rAeq = "requiresAttributes";
     var _rAes = "resourceArn";
+    var _rAu = "ruleArns";
     var _rB = "registeredBy";
     var _rC2 = "repositoryCredentials";
     var _rCIC = "registeredContainerInstancesCount";
@@ -206397,6 +206885,7 @@ var require_dist_cjs16 = __commonJS({
     var _rTDRA = "rollbackTargetDaemonRevisionArn";
     var _rTTW = "requestedTestTrafficWeight";
     var _re = "revision";
+    var _res = "resources";
     var _ret = "retries";
     var _ro = "role";
     var _rol = "rollback";
@@ -206414,6 +206903,7 @@ var require_dist_cjs16 = __commonJS({
     var _sCC = "serviceConnectConfiguration";
     var _sCD = "serviceConnectDefaults";
     var _sCE = "serviceConnectEndpoint";
+    var _sCPN = "serviceContainerPortName";
     var _sCR = "serviceConnectResources";
     var _sCo = "sourceContainer";
     var _sCt = "statusCode";
@@ -206426,6 +206916,7 @@ var require_dist_cjs16 = __commonJS({
     var _sEE = "s3EncryptionEnabled";
     var _sG = "securityGroups";
     var _sGI = "securityGroupIds";
+    var _sGe = "securityGroup";
     var _sI = "subnetIds";
     var _sIA = "scaleInAfter";
     var _sIGB = "sizeInGiB";
@@ -206449,6 +206940,7 @@ var require_dist_cjs16 = __commonJS({
     var _sS = "schedulingStrategy";
     var _sSA = "stabilityStatusAt";
     var _sSG = "serviceSecurityGroups";
+    var _sSGA = "serviceSecurityGroupArn";
     var _sSGB = "storageSizeGiB";
     var _sSR = "sourceServiceRevisions";
     var _sSRC = "sourceServiceRevisionCleanup";
@@ -206459,9 +206951,11 @@ var require_dist_cjs16 = __commonJS({
     var _sTca = "scalableTarget";
     var _sTt = "stopTimeout";
     var _sTto = "stopType";
-    var _sU = "streamUrl";
+    var _sU = "serviceUrl";
+    var _sUt = "streamUrl";
     var _sV = "sourceVolume";
     var _sVC = "s3filesVolumeConfiguration";
+    var _s_ = "s3";
     var _sc2 = "scale";
     var _sch = "scheme";
     var _sco = "scope";
@@ -206505,6 +206999,8 @@ var require_dist_cjs16 = __commonJS({
     var _tIM = "timeoutInMinutes";
     var _tK = "tagKeys";
     var _tLR = "testListenerRule";
+    var _tLRA = "testListenerRuleArn";
+    var _tLRAe = "testListenerRuleArns";
     var _tLSGB = "totalLocalStorageGB";
     var _tP = "terminationPolicy";
     var _tR = "totalResources";
@@ -206536,6 +207032,7 @@ var require_dist_cjs16 = __commonJS({
     var _uLS = "useLocalStorage";
     var _uS = "updateStatus";
     var _uSR = "updateStatusReason";
+    var _uTC = "unhealthyThresholdCount";
     var _ul = "ulimits";
     var _un = "unit";
     var _v = "value";
@@ -206548,9 +207045,11 @@ var require_dist_cjs16 = __commonJS({
     var _vIR = "volumeInitializationRate";
     var _vLC = "vpcLatticeConfigurations";
     var _vT = "volumeType";
+    var _va = "values";
     var _ve = "version";
     var _vo = "volumes";
     var _w = "weight";
+    var _wACLA = "webACLArn";
     var _wD = "workingDirectory";
     var _wDC = "withoutDaemonCount";
     var _wDIC = "withoutDaemonInstanceCount";
@@ -206668,6 +207167,15 @@ var require_dist_cjs16 = __commonJS({
       [0]
     ];
     n0_registry5.registerError(DaemonNotFoundException$, DaemonNotFoundException);
+    var GatewayNotFoundException$ = [
+      -3,
+      n05,
+      _GNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(GatewayNotFoundException$, GatewayNotFoundException);
     var InvalidParameterException$ = [
       -3,
       n05,
@@ -206858,6 +207366,23 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_aTGA, _pLR, _tLR, _rA],
       [0, 0, 0, 0]
+    ];
+    var AssociateGatewayWithClusterRequest$ = [
+      3,
+      n05,
+      _AGWCR,
+      0,
+      [_g, _cl],
+      [0, 0],
+      2
+    ];
+    var AssociateGatewayWithClusterResponse$ = [
+      3,
+      n05,
+      _AGWCRs,
+      0,
+      [_gA, _cA, _st],
+      [0, 0, 0]
     ];
     var Attachment$ = [
       3,
@@ -207167,6 +207692,23 @@ var require_dist_cjs16 = __commonJS({
       [_ser],
       [[() => ECSExpressGatewayService$, 0]]
     ];
+    var CreateGatewayRequest$ = [
+      3,
+      n05,
+      _CGR,
+      0,
+      [_n, _iRA, _co3, _cT, _dP, _ta, _pTr],
+      [0, 0, () => GatewayConfiguration$, [0, 4], 2, () => Tags, 0],
+      3
+    ];
+    var CreateGatewayResponse$ = [
+      3,
+      n05,
+      _CGRr,
+      0,
+      [_gA, _n, _st],
+      [0, 0, 0]
+    ];
     var CreateManagedInstancesProviderConfiguration$ = [
       3,
       n05,
@@ -207181,8 +207723,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _CSR,
       0,
-      [_sN, _cl, _tD, _aZR, _lB, _sRe, _dCe, _cT, _lT, _cPS, _pV, _ro, _dC2, _pCl, _pS, _nC, _hCGPS, _sS, _dCep, _ta, _eECSMT, _pTr, _eEC, _sCC, _vCo, _vLC, _mo],
-      [0, 0, 0, 0, () => LoadBalancers, () => ServiceRegistries, 1, 0, 0, () => CapacityProviderStrategy, 0, 0, () => DeploymentConfiguration$, () => PlacementConstraints, () => PlacementStrategies, () => NetworkConfiguration$, 1, 0, () => DeploymentController$, () => Tags, 2, 0, 2, () => ServiceConnectConfiguration$, () => ServiceVolumeConfigurations, () => VpcLatticeConfigurations, () => MonitoringConfiguration$],
+      [_sN, _cl, _tD, _aZR, _lB, _sRe, _dCe, _cT, _lT, _cPS, _pV, _ro, _dC2, _pCl, _pS, _nC, _hCGPS, _sS, _dCep, _ta, _eECSMT, _pTr, _eEC, _sCC, _vCo, _vLC, _gC, _mo],
+      [0, 0, 0, 0, () => LoadBalancers, () => ServiceRegistries, 1, 0, 0, () => CapacityProviderStrategy, 0, 0, () => DeploymentConfiguration$, () => PlacementConstraints, () => PlacementStrategies, () => NetworkConfiguration$, 1, 0, () => DeploymentController$, () => Tags, 2, 0, 2, () => ServiceConnectConfiguration$, () => ServiceVolumeConfigurations, () => VpcLatticeConfigurations, () => GatewayConnectorList, () => MonitoringConfiguration$],
       1
     ];
     var CreateServiceResponse$ = [
@@ -207280,7 +207822,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DDC,
       0,
-      [_dP, _al, _bTIM],
+      [_dPr, _al, _bTIM],
       [1, () => DaemonAlarmConfiguration$, 1]
     ];
     var DaemonDeploymentRevisionDetail$ = [
@@ -207489,6 +208031,23 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_ser],
       [[() => ECSExpressGatewayService$, 0]]
+    ];
+    var DeleteGatewayRequest$ = [
+      3,
+      n05,
+      _DGR,
+      0,
+      [_g],
+      [0],
+      1
+    ];
+    var DeleteGatewayResponse$ = [
+      3,
+      n05,
+      _DGRe,
+      0,
+      [_gA, _n, _st],
+      [0, 0, 0]
     ];
     var DeleteServiceRequest$ = [
       3,
@@ -207793,6 +208352,65 @@ var require_dist_cjs16 = __commonJS({
       [_ser],
       [[() => ECSExpressGatewayService$, 0]]
     ];
+    var DescribeGatewayAlbConfiguration$ = [
+      3,
+      n05,
+      _DGAC,
+      0,
+      [_nC, _sch, _aL, _wACLA, _po, _pr, _mAC, _cAC, _hDt, _tTR],
+      [() => GatewayElbNetworkConfiguration$, 0, () => GatewayElbAccessLogConfiguration$, 0, 1, 0, 1, 1, 0, () => GatewayAlbTestTrafficRules$]
+    ];
+    var DescribeGatewayRequest$ = [
+      3,
+      n05,
+      _DGRes,
+      0,
+      [_g],
+      [0],
+      1
+    ];
+    var DescribeGatewayResourcesRequest$ = [
+      3,
+      n05,
+      _DGRR,
+      0,
+      [_g, _mRa, _nT],
+      [0, 1, 0],
+      1
+    ];
+    var DescribeGatewayResourcesResponse$ = [
+      3,
+      n05,
+      _DGRRe,
+      0,
+      [_gR, _nT],
+      [() => GatewayResources$, 0]
+    ];
+    var DescribeGatewayResponse$ = [
+      3,
+      n05,
+      _DGResc,
+      0,
+      [_g],
+      [() => Gateway$]
+    ];
+    var DescribeGatewayRouteRequest$ = [
+      3,
+      n05,
+      _DGRRes,
+      0,
+      [_gRA],
+      [0],
+      1
+    ];
+    var DescribeGatewayRouteResponse$ = [
+      3,
+      n05,
+      _DGRResc,
+      0,
+      [_gRa],
+      [() => GatewayRoute$]
+    ];
     var DescribeServiceDeploymentsRequest$ = [
       3,
       n05,
@@ -207904,6 +208522,23 @@ var require_dist_cjs16 = __commonJS({
       [0, 0, 64 | 0],
       1
     ];
+    var DisassociateGatewayFromClusterRequest$ = [
+      3,
+      n05,
+      _DGFCR,
+      0,
+      [_g, _cl],
+      [0, 0],
+      2
+    ];
+    var DisassociateGatewayFromClusterResponse$ = [
+      3,
+      n05,
+      _DGFCRi,
+      0,
+      [_gA, _cA, _st],
+      [0, 0, 0]
+    ];
     var DiscoverPollEndpointRequest$ = [
       3,
       n05,
@@ -207950,8 +208585,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _ECSMR,
       0,
-      [_iP, _aSu, _mAe, _sSG, _lG],
-      [() => ManagedIngressPaths, () => ManagedAutoScaling$, () => ManagedMetricAlarms, () => ManagedSecurityGroups, () => ManagedLogGroups]
+      [_iP, _aSu, _mAe, _sSG, _lG, _gCa],
+      [() => ManagedIngressPaths, () => ManagedAutoScaling$, () => ManagedMetricAlarms, () => ManagedSecurityGroups, () => ManagedLogGroups, () => GatewayConnectionList]
     ];
     var EFSAuthorizationConfig$ = [
       3,
@@ -207969,6 +208604,14 @@ var require_dist_cjs16 = __commonJS({
       [_fSI, _rD, _tEr, _tEP, _aCu],
       [0, 0, 0, 1, () => EFSAuthorizationConfig$],
       1
+    ];
+    var ElbGatewayResources$ = [
+      3,
+      n05,
+      _EGR,
+      0,
+      [_lBA, _lA, _sGe, _gRAa],
+      [0, 0, 0, 64 | 0]
     ];
     var EnvironmentFile$ = [
       3,
@@ -208114,6 +208757,177 @@ var require_dist_cjs16 = __commonJS({
       [0, 0, () => FSxWindowsFileServerAuthorizationConfig$],
       3
     ];
+    var Gateway$ = [
+      3,
+      n05,
+      _G,
+      0,
+      [_gA, _n, _st, _sR, _fa, _iRA, _dP, _co3, _aT4, _pTr, _ta, _cAr, _uA],
+      [0, 0, 0, 0, () => GatewayResourceFailureList, 0, 2, () => DescribeGatewayConfiguration$, 0, 0, () => Tags, 4, 4]
+    ];
+    var GatewayAlbTestTrafficRules$ = [
+      3,
+      n05,
+      _GATTR,
+      0,
+      [_he],
+      [() => GatewayTestTrafficHeader$]
+    ];
+    var GatewayClusterAssociationSummary$ = [
+      3,
+      n05,
+      _GCAS,
+      0,
+      [_gA, _cA, _st],
+      [0, 0, 0]
+    ];
+    var GatewayConnection$ = [
+      3,
+      n05,
+      _GC,
+      0,
+      [_gA, _gRA, _pN, _sU, _aT4, _st, _res],
+      [0, 0, 0, 0, 0, 0, () => GatewayConnectionResources$]
+    ];
+    var GatewayConnectionAlbResources$ = [
+      3,
+      n05,
+      _GCAR,
+      0,
+      [_aCA, _lBA, _lBSGA, _lA, _lRA, _tLRA, _tGA, _aTGA],
+      [0, 0, 64 | 0, 0, 0, 0, 0, 0]
+    ];
+    var GatewayConnector$ = [
+      3,
+      n05,
+      _GCa,
+      0,
+      [_pN, _hC, _fi],
+      [0, () => GatewayConnectorHealthCheck$, () => GatewayConnectorFilters$],
+      1
+    ];
+    var GatewayConnectorFilters$ = [
+      3,
+      n05,
+      _GCF,
+      0,
+      [_aTc],
+      [64 | 0]
+    ];
+    var GatewayConnectorHealthCheck$ = [
+      3,
+      n05,
+      _GCHC,
+      0,
+      [_hCPe, _hCPea, _hCP, _hCTS, _hCIS, _hTC, _uTC, _mat],
+      [0, 1, 0, 1, 1, 1, 1, () => GatewayConnectorHealthCheckMatcher$]
+    ];
+    var GatewayConnectorHealthCheckMatcher$ = [
+      3,
+      n05,
+      _GCHCM,
+      0,
+      [_hCt, _gCr],
+      [0, 0]
+    ];
+    var GatewayElbAccessLogConfiguration$ = [
+      3,
+      n05,
+      _GEALC,
+      0,
+      [_des],
+      [() => GatewayElbAccessLogDestination$]
+    ];
+    var GatewayElbAccessLogS3Destination$ = [
+      3,
+      n05,
+      _GEALSD,
+      0,
+      [_bu, _pre],
+      [0, 0],
+      1
+    ];
+    var GatewayElbNetworkConfiguration$ = [
+      3,
+      n05,
+      _GENC,
+      0,
+      [_iSG, _su, _iAT],
+      [0, 64 | 0, 0]
+    ];
+    var GatewayOperationError$ = [
+      3,
+      n05,
+      _GOE,
+      0,
+      [_op, _cod, _m4],
+      [0, 0, 0]
+    ];
+    var GatewayResourceFailure$ = [
+      3,
+      n05,
+      _GRF,
+      0,
+      [_ar, _er],
+      [0, () => GatewayOperationErrorList]
+    ];
+    var GatewayResources$ = [
+      3,
+      n05,
+      _GR,
+      0,
+      [_gA, _res],
+      [0, () => GatewayInfrastructureResources$]
+    ];
+    var GatewayRoute$ = [
+      3,
+      n05,
+      _GRa,
+      0,
+      [_gRA, _sAe, _sCPN, _st, _sU, _res],
+      [0, 0, 0, 0, 0, () => GatewayRouteResources$]
+    ];
+    var GatewayRouteAlbResources$ = [
+      3,
+      n05,
+      _GRAR,
+      0,
+      [_aCA, _lBA, _lA, _lRA, _tLRAe, _lBSG, _sSGA],
+      [0, 0, 0, 0, 64 | 0, () => GatewayRouteLoadBalancerSecurityGroupList, 0]
+    ];
+    var GatewayRouteLoadBalancerSecurityGroup$ = [
+      3,
+      n05,
+      _GRLBSG,
+      0,
+      [_ar, _rAu],
+      [0, 64 | 0]
+    ];
+    var GatewayRouteSummary$ = [
+      3,
+      n05,
+      _GRS,
+      0,
+      [_gRA, _gA, _cA, _sAe, _sCPN, _st],
+      [0, 0, 0, 0, 0, 0]
+    ];
+    var GatewaySummary$ = [
+      3,
+      n05,
+      _GS,
+      0,
+      [_gA, _n, _st, _cAr],
+      [0, 0, 0, 4]
+    ];
+    var GatewayTestTrafficHeader$ = [
+      3,
+      n05,
+      _GTTH,
+      0,
+      [_n, _va],
+      [0, 64 | 0],
+      2
+    ];
     var GetTaskProtectionRequest$ = [
       3,
       n05,
@@ -208148,6 +208962,14 @@ var require_dist_cjs16 = __commonJS({
       [_h4, _iA],
       [0, 0],
       2
+    ];
+    var HostSharedAlbConfiguration$ = [
+      3,
+      n05,
+      _HSAC,
+      0,
+      [_nC, _sch, _wACLA, _aL, _po, _pr, _mAC, _hDt, _tTR],
+      [() => GatewayElbNetworkConfiguration$, 0, 0, () => GatewayElbAccessLogConfiguration$, 1, 0, 1, 0, () => GatewayAlbTestTrafficRules$]
     ];
     var HostVolumeProperties$ = [
       3,
@@ -208221,7 +209043,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _IRR,
       0,
-      [_vCC, _mMB, _cM, _mGBPVC, _eIT, _iG, _sMPPOLP, _oDMPPOLP, _bM, _bP, _rHS, _nIC, _lSo, _lST, _tLSGB, _bEBM, _aTc, _aCcc, _aM, _aNc, _aTMMB, _nBG, _aIT, _mSPAPOOODP],
+      [_vCC, _mMB, _cM, _mGBPVC, _eIT, _iG, _sMPPOLP, _oDMPPOLP, _bM, _bP, _rHS, _nIC, _lSo, _lST, _tLSGB, _bEBM, _aTcc, _aCcc, _aM, _aNc, _aTMMB, _nBG, _aIT, _mSPAPOOODP],
       [() => VCpuCountRangeRequest$, () => MemoryMiBRequest$, [() => CpuManufacturerSet, { [_xN]: _CM }], () => MemoryGiBPerVCpuRequest$, [() => ExcludedInstanceTypeSet, { [_xN]: _EIT }], [() => InstanceGenerationSet, { [_xN]: _IG }], 1, 1, 0, 0, 2, () => NetworkInterfaceCountRequest$, 0, [() => LocalStorageTypeSet, { [_xN]: _LST }], () => TotalLocalStorageGBRequest$, () => BaselineEbsBandwidthMbpsRequest$, [() => AcceleratorTypeSet, { [_xN]: _AT3 }], () => AcceleratorCountRequest$, [() => AcceleratorManufacturerSet, { [_xN]: _AM }], [() => AcceleratorNameSet, { [_xN]: _AN }], () => AcceleratorTotalMemoryMiBRequest$, () => NetworkBandwidthGbpsRequest$, [() => AllowedInstanceTypeSet, { [_xN]: _AIT }], 1],
       2
     ];
@@ -208311,7 +209133,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _LCIR,
       0,
-      [_cl, _fi, _nT, _mRa, _st],
+      [_cl, _fil, _nT, _mRa, _st],
       [0, 0, 0, 1, 0]
     ];
     var ListContainerInstancesResponse$ = [
@@ -208370,6 +209192,54 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_dTDa, _nT],
       [() => DaemonTaskDefinitionSummaries, 0]
+    ];
+    var ListGatewayClusterAssociationsRequest$ = [
+      3,
+      n05,
+      _LGCAR,
+      0,
+      [_g, _cl, _st, _mRa, _nT],
+      [0, 0, 64 | 0, 1, 0]
+    ];
+    var ListGatewayClusterAssociationsResponse$ = [
+      3,
+      n05,
+      _LGCARi,
+      0,
+      [_gCA, _nT],
+      [() => GatewayClusterAssociationSummaryList, 0]
+    ];
+    var ListGatewayRoutesRequest$ = [
+      3,
+      n05,
+      _LGRR,
+      0,
+      [_g, _cl, _ser, _sCPN, _st, _mRa, _nT],
+      [0, 0, 0, 0, 64 | 0, 1, 0]
+    ];
+    var ListGatewayRoutesResponse$ = [
+      3,
+      n05,
+      _LGRRi,
+      0,
+      [_gRat, _nT],
+      [() => GatewayRouteSummaryList, 0]
+    ];
+    var ListGatewaysRequest$ = [
+      3,
+      n05,
+      _LGR,
+      0,
+      [_nam, _st, _mRa, _nT],
+      [64 | 0, 64 | 0, 1, 0]
+    ];
+    var ListGatewaysResponse$ = [
+      3,
+      n05,
+      _LGRi,
+      0,
+      [_ga, _nT],
+      [() => GatewaySummaryList, 0]
     ];
     var ListServiceDeploymentsRequest$ = [
       3,
@@ -208671,7 +209541,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _MTG,
       0,
-      [_st, _uA, _hCP, _hCPe, _po, _ar, _sR],
+      [_st, _uA, _hCP, _hCPea, _po, _ar, _sR],
       [0, 4, 0, 1, 1, 0, 0],
       5
     ];
@@ -208972,7 +209842,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _RTR,
       0,
-      [_tD, _cPS, _cl, _cou, _eECSMT, _eEC, _g, _lT, _nC, _ov, _pCl, _pS, _pV, _pTr, _rIe, _sB, _ta, _cT, _vCo],
+      [_tD, _cPS, _cl, _cou, _eECSMT, _eEC, _gr, _lT, _nC, _ov, _pCl, _pS, _pV, _pTr, _rIe, _sB, _ta, _cT, _vCo],
       [0, () => CapacityProviderStrategy, 0, 1, 2, 2, 0, 0, () => NetworkConfiguration$, [() => TaskOverride$, 0], () => PlacementConstraints, () => PlacementStrategies, 0, 0, 0, 0, () => Tags, [0, 4], () => TaskVolumeConfigurations],
       1
     ];
@@ -209057,8 +209927,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _SCC,
       0,
-      [_ena, _na, _serv, _lC, _aLCc],
-      [2, 0, () => ServiceConnectServiceList, () => LogConfiguration$, () => ServiceConnectAccessLogConfiguration$],
+      [_ena, _na, _serv, _lC, _aLCc, _cCo],
+      [2, 0, () => ServiceConnectServiceList, () => LogConfiguration$, () => ServiceConnectAccessLogConfiguration$, () => ServiceConnectContainerConfigurations],
       1
     ];
     var ServiceConnectService$ = [
@@ -209192,8 +210062,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _SRe,
       0,
-      [_sRAe, _sAe, _cA, _tD, _cPS, _lT, _pV, _pF, _lB, _sRe, _nC, _cI3, _gDE, _sCC, _vCo, _fES, _cAr, _vLC, _rCes, _eMR, _ov, _mo],
-      [0, 0, 0, 0, () => CapacityProviderStrategy, 0, 0, 0, () => LoadBalancers, () => ServiceRegistries, () => NetworkConfiguration$, () => ContainerImages, 2, () => ServiceConnectConfiguration$, () => ServiceVolumeConfigurations, () => DeploymentEphemeralStorage$, 4, () => VpcLatticeConfigurations, () => ResolvedConfiguration$, () => ECSManagedResources$, () => ServiceRevisionOverrides$, () => MonitoringConfiguration$]
+      [_sRAe, _sAe, _cA, _tD, _cPS, _lT, _pV, _pF, _lB, _sRe, _nC, _cI3, _gDE, _sCC, _vCo, _fES, _cAr, _vLC, _rCes, _eMR, _ov, _gC, _mo],
+      [0, 0, 0, 0, () => CapacityProviderStrategy, 0, 0, 0, () => LoadBalancers, () => ServiceRegistries, () => NetworkConfiguration$, () => ContainerImages, 2, () => ServiceConnectConfiguration$, () => ServiceVolumeConfigurations, () => DeploymentEphemeralStorage$, 4, () => VpcLatticeConfigurations, () => ResolvedConfiguration$, () => ECSManagedResources$, () => ServiceRevisionOverrides$, () => GatewayConnectorList, () => MonitoringConfiguration$]
     ];
     var ServiceRevisionLoadBalancer$ = [
       3,
@@ -209241,7 +210111,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _Ses,
       0,
-      [_sIe, _sU, _tVo],
+      [_sIe, _sUt, _tVo],
       [0, 0, [() => SensitiveString, 0]]
     ];
     var Setting$ = [
@@ -209257,7 +210127,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _STR,
       0,
-      [_cIon, _tD, _cl, _eECSMT, _eEC, _g, _nC, _ov, _pTr, _rIe, _sB, _ta, _vCo],
+      [_cIon, _tD, _cl, _eECSMT, _eEC, _gr, _nC, _ov, _pTr, _rIe, _sB, _ta, _vCo],
       [64 | 0, 0, 0, 2, 2, 0, () => NetworkConfiguration$, [() => TaskOverride$, 0], 0, 0, 0, () => Tags, () => TaskVolumeConfigurations],
       2
     ];
@@ -209390,7 +210260,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _Ta2,
       0,
-      [_a2, _at2, _aZ, _cPN, _cA, _conn, _cAon, _cIA, _conta, _cp, _cAr, _dSe, _eEC, _eSA, _g, _hS, _iAn, _lS, _lT, _me, _ov, _pV, _pF, _pSA, _pSAu, _sA, _sB, _sCtop, _sAt, _sRt, _sAto, _ta, _tA, _tDA, _ve, _eSp, _fES],
+      [_a2, _at2, _aZ, _cPN, _cA, _conn, _cAon, _cIA, _conta, _cp, _cAr, _dSe, _eEC, _eSA, _gr, _hS, _iAn, _lS, _lT, _me, _ov, _pV, _pF, _pSA, _pSAu, _sA, _sB, _sCtop, _sAt, _sRt, _sAto, _ta, _tA, _tDA, _ve, _eSp, _fES],
       [() => Attachments, () => Attributes, 0, 0, 0, 0, 4, 0, () => Containers, 0, 4, 0, 2, 4, 0, 0, () => InferenceAccelerators, 0, 0, 0, [() => TaskOverride$, 0], 0, 0, 4, 4, 4, 0, 0, 4, 0, 4, () => Tags, 0, 0, 1, () => EphemeralStorage$, () => TaskEphemeralStorage$]
     ];
     var TaskDefinition$ = [
@@ -209647,6 +210517,39 @@ var require_dist_cjs16 = __commonJS({
       [_ser],
       [[() => UpdatedExpressGatewayService$, 0]]
     ];
+    var UpdateGatewayAlbConfiguration$ = [
+      3,
+      n05,
+      _UGAC,
+      0,
+      [_nC, _mAC, _wACLA, _aL, _hDt, _tTR],
+      [() => UpdateGatewayNetworkConfiguration$, 1, 0, () => GatewayElbAccessLogConfiguration$, 0, () => GatewayAlbTestTrafficRules$]
+    ];
+    var UpdateGatewayNetworkConfiguration$ = [
+      3,
+      n05,
+      _UGNC,
+      0,
+      [_iSG],
+      [0]
+    ];
+    var UpdateGatewayRequest$ = [
+      3,
+      n05,
+      _UGR,
+      0,
+      [_g, _iRA, _dP, _co3, _pTr],
+      [0, 0, 2, () => UpdateGatewayConfiguration$, 0],
+      1
+    ];
+    var UpdateGatewayResponse$ = [
+      3,
+      n05,
+      _UGRp,
+      0,
+      [_gA, _n, _st],
+      [0, 0, 0]
+    ];
     var UpdateManagedInstancesProviderConfiguration$ = [
       3,
       n05,
@@ -209678,8 +210581,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _USR,
       0,
-      [_ser, _cl, _dCe, _tD, _cPS, _dC2, _aZR, _nC, _pCl, _pS, _pV, _fND, _hCGPS, _dCep, _eEC, _eECSMT, _lB, _pTr, _sRe, _sCC, _vCo, _vLC, _mo],
-      [0, 0, 1, 0, () => CapacityProviderStrategy, () => DeploymentConfiguration$, 0, () => NetworkConfiguration$, () => PlacementConstraints, () => PlacementStrategies, 0, 2, 1, () => DeploymentController$, 2, 2, () => LoadBalancers, 0, () => ServiceRegistries, () => ServiceConnectConfiguration$, () => ServiceVolumeConfigurations, () => VpcLatticeConfigurations, () => MonitoringConfiguration$],
+      [_ser, _cl, _dCe, _tD, _cPS, _dC2, _aZR, _nC, _pCl, _pS, _pV, _fND, _hCGPS, _dCep, _eEC, _eECSMT, _lB, _pTr, _sRe, _sCC, _vCo, _vLC, _gC, _mo],
+      [0, 0, 1, 0, () => CapacityProviderStrategy, () => DeploymentConfiguration$, 0, () => NetworkConfiguration$, () => PlacementConstraints, () => PlacementStrategies, 0, 2, 1, () => DeploymentController$, 2, 2, () => LoadBalancers, 0, () => ServiceRegistries, () => ServiceConnectConfiguration$, () => ServiceVolumeConfigurations, () => VpcLatticeConfigurations, () => GatewayConnectorList, () => MonitoringConfiguration$],
       1
     ];
     var UpdateServiceResponse$ = [
@@ -210060,6 +210963,13 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => EBSTagSpecification$
     ];
+    var ElbGatewayResourcesList = [
+      1,
+      n05,
+      _EGRL,
+      0,
+      () => ElbGatewayResources$
+    ];
     var EnvironmentFiles = [
       1,
       n05,
@@ -210100,6 +211010,76 @@ var require_dist_cjs16 = __commonJS({
       _Fa,
       0,
       () => Failure$
+    ];
+    var GatewayClusterAssociationSummaryList = [
+      1,
+      n05,
+      _GCASL,
+      0,
+      () => GatewayClusterAssociationSummary$
+    ];
+    var GatewayConnectionAlbResourcesList = [
+      1,
+      n05,
+      _GCARL,
+      0,
+      () => GatewayConnectionAlbResources$
+    ];
+    var GatewayConnectionList = [
+      1,
+      n05,
+      _GCL,
+      0,
+      () => GatewayConnection$
+    ];
+    var GatewayConnectorList = [
+      1,
+      n05,
+      _GCLa,
+      0,
+      () => GatewayConnector$
+    ];
+    var GatewayOperationErrorList = [
+      1,
+      n05,
+      _GOEL,
+      0,
+      () => GatewayOperationError$
+    ];
+    var GatewayResourceFailureList = [
+      1,
+      n05,
+      _GRFL,
+      0,
+      () => GatewayResourceFailure$
+    ];
+    var GatewayRouteAlbResourcesList = [
+      1,
+      n05,
+      _GRARL,
+      0,
+      () => GatewayRouteAlbResources$
+    ];
+    var GatewayRouteLoadBalancerSecurityGroupList = [
+      1,
+      n05,
+      _GRLBSGL,
+      0,
+      () => GatewayRouteLoadBalancerSecurityGroup$
+    ];
+    var GatewayRouteSummaryList = [
+      1,
+      n05,
+      _GRSL,
+      0,
+      () => GatewayRouteSummary$
+    ];
+    var GatewaySummaryList = [
+      1,
+      n05,
+      _GSL,
+      0,
+      () => GatewaySummary$
     ];
     var HostEntryList = [
       1,
@@ -210324,6 +211304,13 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => ServiceConnectClientAlias$
     ];
+    var ServiceConnectContainerConfigurations = [
+      1,
+      n05,
+      _SCCC,
+      0,
+      () => ServiceConnectContainerConfiguration$
+    ];
     var ServiceConnectServiceList = [
       1,
       n05,
@@ -210519,6 +211506,78 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => VpcLatticeConfiguration$
     ];
+    var DescribeGatewayConfiguration$ = [
+      4,
+      n05,
+      _DGC,
+      0,
+      [_hSA],
+      [() => DescribeGatewayAlbConfiguration$]
+    ];
+    var GatewayConfiguration$ = [
+      4,
+      n05,
+      _GCat,
+      0,
+      [_hSA],
+      [() => HostSharedAlbConfiguration$]
+    ];
+    var GatewayConnectionResources$ = [
+      4,
+      n05,
+      _GCR,
+      0,
+      [_hSA],
+      [() => GatewayConnectionAlbResourcesList]
+    ];
+    var GatewayElbAccessLogDestination$ = [
+      4,
+      n05,
+      _GEALD,
+      0,
+      [_s_],
+      [() => GatewayElbAccessLogS3Destination$]
+    ];
+    var GatewayInfrastructureResources$ = [
+      4,
+      n05,
+      _GIR,
+      0,
+      [_hSA],
+      [() => ElbGatewayResourcesList]
+    ];
+    var GatewayRouteResources$ = [
+      4,
+      n05,
+      _GRR,
+      0,
+      [_hSA],
+      [() => GatewayRouteAlbResourcesList]
+    ];
+    var ServiceConnectContainerConfiguration$ = [
+      4,
+      n05,
+      _SCCCe,
+      0,
+      [_lL],
+      [0]
+    ];
+    var UpdateGatewayConfiguration$ = [
+      4,
+      n05,
+      _UGC,
+      0,
+      [_hSA],
+      [() => UpdateGatewayAlbConfiguration$]
+    ];
+    var AssociateGatewayWithCluster$ = [
+      9,
+      n05,
+      _AGWC,
+      0,
+      () => AssociateGatewayWithClusterRequest$,
+      () => AssociateGatewayWithClusterResponse$
+    ];
     var ContinueServiceDeployment$ = [
       9,
       n05,
@@ -210558,6 +211617,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => CreateExpressGatewayServiceRequest$,
       () => CreateExpressGatewayServiceResponse$
+    ];
+    var CreateGateway$ = [
+      9,
+      n05,
+      _CG,
+      0,
+      () => CreateGatewayRequest$,
+      () => CreateGatewayResponse$
     ];
     var CreateService$ = [
       9,
@@ -210630,6 +211697,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => DeleteExpressGatewayServiceRequest$,
       () => DeleteExpressGatewayServiceResponse$
+    ];
+    var DeleteGateway$ = [
+      9,
+      n05,
+      _DG,
+      0,
+      () => DeleteGatewayRequest$,
+      () => DeleteGatewayResponse$
     ];
     var DeleteService$ = [
       9,
@@ -210735,6 +211810,30 @@ var require_dist_cjs16 = __commonJS({
       () => DescribeExpressGatewayServiceRequest$,
       () => DescribeExpressGatewayServiceResponse$
     ];
+    var DescribeGateway$ = [
+      9,
+      n05,
+      _DGe,
+      0,
+      () => DescribeGatewayRequest$,
+      () => DescribeGatewayResponse$
+    ];
+    var DescribeGatewayResources$ = [
+      9,
+      n05,
+      _DGRescr,
+      0,
+      () => DescribeGatewayResourcesRequest$,
+      () => DescribeGatewayResourcesResponse$
+    ];
+    var DescribeGatewayRoute$ = [
+      9,
+      n05,
+      _DGRescri,
+      0,
+      () => DescribeGatewayRouteRequest$,
+      () => DescribeGatewayRouteResponse$
+    ];
     var DescribeServiceDeployments$ = [
       9,
       n05,
@@ -210782,6 +211881,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => DescribeTaskSetsRequest$,
       () => DescribeTaskSetsResponse$
+    ];
+    var DisassociateGatewayFromCluster$ = [
+      9,
+      n05,
+      _DGFC,
+      0,
+      () => DisassociateGatewayFromClusterRequest$,
+      () => DisassociateGatewayFromClusterResponse$
     ];
     var DiscoverPollEndpoint$ = [
       9,
@@ -210862,6 +211969,30 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => ListDaemonTaskDefinitionsRequest$,
       () => ListDaemonTaskDefinitionsResponse$
+    ];
+    var ListGatewayClusterAssociations$ = [
+      9,
+      n05,
+      _LGCA,
+      0,
+      () => ListGatewayClusterAssociationsRequest$,
+      () => ListGatewayClusterAssociationsResponse$
+    ];
+    var ListGatewayRoutes$ = [
+      9,
+      n05,
+      _LGRis,
+      0,
+      () => ListGatewayRoutesRequest$,
+      () => ListGatewayRoutesResponse$
+    ];
+    var ListGateways$ = [
+      9,
+      n05,
+      _LG,
+      0,
+      () => ListGatewaysRequest$,
+      () => ListGatewaysResponse$
     ];
     var ListServiceDeployments$ = [
       9,
@@ -211103,6 +212234,14 @@ var require_dist_cjs16 = __commonJS({
       () => UpdateExpressGatewayServiceRequest$,
       () => UpdateExpressGatewayServiceResponse$
     ];
+    var UpdateGateway$ = [
+      9,
+      n05,
+      _UG,
+      0,
+      () => UpdateGatewayRequest$,
+      () => UpdateGatewayResponse$
+    ];
     var UpdateService$ = [
       9,
       n05,
@@ -211278,6 +212417,8 @@ var require_dist_cjs16 = __commonJS({
     var command5 = makeBuilder2(commonParams5, "AmazonEC2ContainerServiceV20141113", "ECSClient", getEndpointPlugin2);
     var _ep05 = {};
     var _mw05 = (Command3, cs, config, o3) => [];
+    var AssociateGatewayWithClusterCommand = class extends command5(_ep05, _mw05, "AssociateGatewayWithCluster", AssociateGatewayWithCluster$) {
+    };
     var ContinueServiceDeploymentCommand = class extends command5(_ep05, _mw05, "ContinueServiceDeployment", ContinueServiceDeployment$) {
     };
     var CreateCapacityProviderCommand = class extends command5(_ep05, _mw05, "CreateCapacityProvider", CreateCapacityProvider$) {
@@ -211287,6 +212428,8 @@ var require_dist_cjs16 = __commonJS({
     var CreateDaemonCommand = class extends command5(_ep05, _mw05, "CreateDaemon", CreateDaemon$) {
     };
     var CreateExpressGatewayServiceCommand = class extends command5(_ep05, _mw05, "CreateExpressGatewayService", CreateExpressGatewayService$) {
+    };
+    var CreateGatewayCommand = class extends command5(_ep05, _mw05, "CreateGateway", CreateGateway$) {
     };
     var CreateServiceCommand = class extends command5(_ep05, _mw05, "CreateService", CreateService$) {
     };
@@ -211305,6 +212448,8 @@ var require_dist_cjs16 = __commonJS({
     var DeleteDaemonTaskDefinitionCommand = class extends command5(_ep05, _mw05, "DeleteDaemonTaskDefinition", DeleteDaemonTaskDefinition$) {
     };
     var DeleteExpressGatewayServiceCommand = class extends command5(_ep05, _mw05, "DeleteExpressGatewayService", DeleteExpressGatewayService$) {
+    };
+    var DeleteGatewayCommand = class extends command5(_ep05, _mw05, "DeleteGateway", DeleteGateway$) {
     };
     var DeleteServiceCommand = class extends command5(_ep05, _mw05, "DeleteService", DeleteService$) {
     };
@@ -211332,6 +212477,12 @@ var require_dist_cjs16 = __commonJS({
     };
     var DescribeExpressGatewayServiceCommand = class extends command5(_ep05, _mw05, "DescribeExpressGatewayService", DescribeExpressGatewayService$) {
     };
+    var DescribeGatewayCommand = class extends command5(_ep05, _mw05, "DescribeGateway", DescribeGateway$) {
+    };
+    var DescribeGatewayResourcesCommand = class extends command5(_ep05, _mw05, "DescribeGatewayResources", DescribeGatewayResources$) {
+    };
+    var DescribeGatewayRouteCommand = class extends command5(_ep05, _mw05, "DescribeGatewayRoute", DescribeGatewayRoute$) {
+    };
     var DescribeServiceDeploymentsCommand = class extends command5(_ep05, _mw05, "DescribeServiceDeployments", DescribeServiceDeployments$) {
     };
     var DescribeServiceRevisionsCommand = class extends command5(_ep05, _mw05, "DescribeServiceRevisions", DescribeServiceRevisions$) {
@@ -211343,6 +212494,8 @@ var require_dist_cjs16 = __commonJS({
     var DescribeTasksCommand2 = class extends command5(_ep05, _mw05, "DescribeTasks", DescribeTasks$) {
     };
     var DescribeTaskSetsCommand = class extends command5(_ep05, _mw05, "DescribeTaskSets", DescribeTaskSets$) {
+    };
+    var DisassociateGatewayFromClusterCommand = class extends command5(_ep05, _mw05, "DisassociateGatewayFromCluster", DisassociateGatewayFromCluster$) {
     };
     var DiscoverPollEndpointCommand = class extends command5(_ep05, _mw05, "DiscoverPollEndpoint", DiscoverPollEndpoint$) {
     };
@@ -211363,6 +212516,12 @@ var require_dist_cjs16 = __commonJS({
     var ListDaemonsCommand = class extends command5(_ep05, _mw05, "ListDaemons", ListDaemons$) {
     };
     var ListDaemonTaskDefinitionsCommand = class extends command5(_ep05, _mw05, "ListDaemonTaskDefinitions", ListDaemonTaskDefinitions$) {
+    };
+    var ListGatewayClusterAssociationsCommand = class extends command5(_ep05, _mw05, "ListGatewayClusterAssociations", ListGatewayClusterAssociations$) {
+    };
+    var ListGatewayRoutesCommand = class extends command5(_ep05, _mw05, "ListGatewayRoutes", ListGatewayRoutes$) {
+    };
+    var ListGatewaysCommand = class extends command5(_ep05, _mw05, "ListGateways", ListGateways$) {
     };
     var ListServiceDeploymentsCommand = class extends command5(_ep05, _mw05, "ListServiceDeployments", ListServiceDeployments$) {
     };
@@ -211424,6 +212583,8 @@ var require_dist_cjs16 = __commonJS({
     };
     var UpdateExpressGatewayServiceCommand = class extends command5(_ep05, _mw05, "UpdateExpressGatewayService", UpdateExpressGatewayService$) {
     };
+    var UpdateGatewayCommand = class extends command5(_ep05, _mw05, "UpdateGateway", UpdateGateway$) {
+    };
     var UpdateServiceCommand2 = class extends command5(_ep05, _mw05, "UpdateService", UpdateService$) {
     };
     var UpdateServicePrimaryTaskSetCommand = class extends command5(_ep05, _mw05, "UpdateServicePrimaryTaskSet", UpdateServicePrimaryTaskSet$) {
@@ -211436,6 +212597,9 @@ var require_dist_cjs16 = __commonJS({
     var paginateListAttributes = createPaginator2(ECSClient2, ListAttributesCommand, "nextToken", "nextToken", "maxResults");
     var paginateListClusters = createPaginator2(ECSClient2, ListClustersCommand, "nextToken", "nextToken", "maxResults");
     var paginateListContainerInstances = createPaginator2(ECSClient2, ListContainerInstancesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListGatewayClusterAssociations = createPaginator2(ECSClient2, ListGatewayClusterAssociationsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListGatewayRoutes = createPaginator2(ECSClient2, ListGatewayRoutesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListGateways = createPaginator2(ECSClient2, ListGatewaysCommand, "nextToken", "nextToken", "maxResults");
     var paginateListServicesByNamespace = createPaginator2(ECSClient2, ListServicesByNamespaceCommand, "nextToken", "nextToken", "maxResults");
     var paginateListServices2 = createPaginator2(ECSClient2, ListServicesCommand, "nextToken", "nextToken", "maxResults");
     var paginateListTaskDefinitionFamilies = createPaginator2(ECSClient2, ListTaskDefinitionFamiliesCommand, "nextToken", "nextToken", "maxResults");
@@ -211927,11 +213091,13 @@ var require_dist_cjs16 = __commonJS({
       return checkExceptions2(result);
     };
     var commands5 = {
+      AssociateGatewayWithClusterCommand,
       ContinueServiceDeploymentCommand,
       CreateCapacityProviderCommand,
       CreateClusterCommand,
       CreateDaemonCommand,
       CreateExpressGatewayServiceCommand,
+      CreateGatewayCommand,
       CreateServiceCommand,
       CreateTaskSetCommand,
       DeleteAccountSettingCommand,
@@ -211941,6 +213107,7 @@ var require_dist_cjs16 = __commonJS({
       DeleteDaemonCommand,
       DeleteDaemonTaskDefinitionCommand,
       DeleteExpressGatewayServiceCommand,
+      DeleteGatewayCommand,
       DeleteServiceCommand,
       DeleteTaskDefinitionsCommand,
       DeleteTaskSetCommand,
@@ -211954,12 +213121,16 @@ var require_dist_cjs16 = __commonJS({
       DescribeDaemonRevisionsCommand,
       DescribeDaemonTaskDefinitionCommand,
       DescribeExpressGatewayServiceCommand,
+      DescribeGatewayCommand,
+      DescribeGatewayResourcesCommand,
+      DescribeGatewayRouteCommand,
       DescribeServiceDeploymentsCommand,
       DescribeServiceRevisionsCommand,
       DescribeServicesCommand: DescribeServicesCommand2,
       DescribeTaskDefinitionCommand: DescribeTaskDefinitionCommand2,
       DescribeTasksCommand: DescribeTasksCommand2,
       DescribeTaskSetsCommand,
+      DisassociateGatewayFromClusterCommand,
       DiscoverPollEndpointCommand,
       ExecuteCommandCommand,
       GetTaskProtectionCommand,
@@ -211970,6 +213141,9 @@ var require_dist_cjs16 = __commonJS({
       ListDaemonDeploymentsCommand,
       ListDaemonsCommand,
       ListDaemonTaskDefinitionsCommand,
+      ListGatewayClusterAssociationsCommand,
+      ListGatewayRoutesCommand,
+      ListGatewaysCommand,
       ListServiceDeploymentsCommand,
       ListServicesCommand,
       ListServicesByNamespaceCommand,
@@ -212000,6 +213174,7 @@ var require_dist_cjs16 = __commonJS({
       UpdateContainerInstancesStateCommand,
       UpdateDaemonCommand,
       UpdateExpressGatewayServiceCommand,
+      UpdateGatewayCommand,
       UpdateServiceCommand: UpdateServiceCommand2,
       UpdateServicePrimaryTaskSetCommand,
       UpdateTaskProtectionCommand,
@@ -212010,6 +213185,9 @@ var require_dist_cjs16 = __commonJS({
       paginateListAttributes,
       paginateListClusters,
       paginateListContainerInstances,
+      paginateListGatewayClusterAssociations,
+      paginateListGatewayRoutes,
+      paginateListGateways,
       paginateListServices: paginateListServices2,
       paginateListServicesByNamespace,
       paginateListTaskDefinitionFamilies,
@@ -212411,6 +213589,49 @@ var require_dist_cjs16 = __commonJS({
     var TaskDefinitionField2 = {
       TAGS: "TAGS"
     };
+    var GatewayClusterAssociationStatus = {
+      ACTIVE: "ACTIVE",
+      DISASSOCIATING: "DISASSOCIATING",
+      INACTIVE: "INACTIVE"
+    };
+    var GatewayAlbDesyncMitigationMode = {
+      DEFENSIVE: "defensive",
+      MONITOR: "monitor",
+      STRICTEST: "strictest"
+    };
+    var GatewayElbIpAddressType = {
+      DUALSTACK: "dualstack",
+      DUALSTACK_WITHOUT_PUBLIC_IPV4: "dualstack-without-public-ipv4",
+      IPV4: "ipv4"
+    };
+    var GatewayAlbProtocol = {
+      HTTP: "HTTP",
+      HTTPS: "HTTPS"
+    };
+    var GatewayElbScheme = {
+      INTERNAL: "internal",
+      INTERNET_FACING: "internet-facing"
+    };
+    var PropagateGatewayTags = {
+      GATEWAY: "GATEWAY",
+      NONE: "NONE"
+    };
+    var GatewayStatus = {
+      ACTIVE: "ACTIVE",
+      DELETED: "DELETED",
+      UPDATE_COMPLETE: "UPDATE_COMPLETE",
+      UPDATE_FAILED: "UPDATE_FAILED",
+      UPDATE_IN_PROGRESS: "UPDATE_IN_PROGRESS"
+    };
+    var GatewayRouteStatus = {
+      ACTIVE: "ACTIVE",
+      CREATE_FAILED: "CREATE_FAILED",
+      CREATE_IN_PROGRESS: "CREATE_IN_PROGRESS",
+      DELETE_FAILED: "DELETE_FAILED",
+      DELETE_IN_PROGRESS: "DELETE_IN_PROGRESS",
+      UPDATE_FAILED: "UPDATE_FAILED",
+      UPDATE_IN_PROGRESS: "UPDATE_IN_PROGRESS"
+    };
     var TaskDefinitionFamilyStatus = {
       ACTIVE: "ACTIVE",
       ALL: "ALL",
@@ -212504,6 +213725,10 @@ var require_dist_cjs16 = __commonJS({
       ECS: "ECS",
       EXTERNAL: "EXTERNAL"
     };
+    var GatewayConnectorHealthCheckProtocol = {
+      HTTP: "HTTP",
+      HTTPS: "HTTPS"
+    };
     var AssignPublicIp = {
       DISABLED: "DISABLED",
       ENABLED: "ENABLED"
@@ -212533,6 +213758,10 @@ var require_dist_cjs16 = __commonJS({
     var ServiceConnectIncludeQueryParameters = {
       DISABLED: "DISABLED",
       ENABLED: "ENABLED"
+    };
+    var ServiceConnectContainerLogLevel = {
+      DEBUG: "debug",
+      INFO: "info"
     };
     var TaskFilesystemType = {
       EXT3: "ext3",
@@ -212612,6 +213841,10 @@ var require_dist_cjs16 = __commonJS({
     exports2.AgentUpdateStatus = AgentUpdateStatus;
     exports2.ApplicationProtocol = ApplicationProtocol;
     exports2.AssignPublicIp = AssignPublicIp;
+    exports2.AssociateGatewayWithCluster$ = AssociateGatewayWithCluster$;
+    exports2.AssociateGatewayWithClusterCommand = AssociateGatewayWithClusterCommand;
+    exports2.AssociateGatewayWithClusterRequest$ = AssociateGatewayWithClusterRequest$;
+    exports2.AssociateGatewayWithClusterResponse$ = AssociateGatewayWithClusterResponse$;
     exports2.Attachment$ = Attachment$;
     exports2.AttachmentStateChange$ = AttachmentStateChange$;
     exports2.Attribute$ = Attribute$;
@@ -212695,6 +213928,10 @@ var require_dist_cjs16 = __commonJS({
     exports2.CreateExpressGatewayServiceCommand = CreateExpressGatewayServiceCommand;
     exports2.CreateExpressGatewayServiceRequest$ = CreateExpressGatewayServiceRequest$;
     exports2.CreateExpressGatewayServiceResponse$ = CreateExpressGatewayServiceResponse$;
+    exports2.CreateGateway$ = CreateGateway$;
+    exports2.CreateGatewayCommand = CreateGatewayCommand;
+    exports2.CreateGatewayRequest$ = CreateGatewayRequest$;
+    exports2.CreateGatewayResponse$ = CreateGatewayResponse$;
     exports2.CreateManagedInstancesProviderConfiguration$ = CreateManagedInstancesProviderConfiguration$;
     exports2.CreateService$ = CreateService$;
     exports2.CreateServiceCommand = CreateServiceCommand;
@@ -212766,6 +214003,10 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeleteExpressGatewayServiceCommand = DeleteExpressGatewayServiceCommand;
     exports2.DeleteExpressGatewayServiceRequest$ = DeleteExpressGatewayServiceRequest$;
     exports2.DeleteExpressGatewayServiceResponse$ = DeleteExpressGatewayServiceResponse$;
+    exports2.DeleteGateway$ = DeleteGateway$;
+    exports2.DeleteGatewayCommand = DeleteGatewayCommand;
+    exports2.DeleteGatewayRequest$ = DeleteGatewayRequest$;
+    exports2.DeleteGatewayResponse$ = DeleteGatewayResponse$;
     exports2.DeleteService$ = DeleteService$;
     exports2.DeleteServiceCommand = DeleteServiceCommand;
     exports2.DeleteServiceRequest$ = DeleteServiceRequest$;
@@ -212835,6 +214076,20 @@ var require_dist_cjs16 = __commonJS({
     exports2.DescribeExpressGatewayServiceCommand = DescribeExpressGatewayServiceCommand;
     exports2.DescribeExpressGatewayServiceRequest$ = DescribeExpressGatewayServiceRequest$;
     exports2.DescribeExpressGatewayServiceResponse$ = DescribeExpressGatewayServiceResponse$;
+    exports2.DescribeGateway$ = DescribeGateway$;
+    exports2.DescribeGatewayAlbConfiguration$ = DescribeGatewayAlbConfiguration$;
+    exports2.DescribeGatewayCommand = DescribeGatewayCommand;
+    exports2.DescribeGatewayConfiguration$ = DescribeGatewayConfiguration$;
+    exports2.DescribeGatewayRequest$ = DescribeGatewayRequest$;
+    exports2.DescribeGatewayResources$ = DescribeGatewayResources$;
+    exports2.DescribeGatewayResourcesCommand = DescribeGatewayResourcesCommand;
+    exports2.DescribeGatewayResourcesRequest$ = DescribeGatewayResourcesRequest$;
+    exports2.DescribeGatewayResourcesResponse$ = DescribeGatewayResourcesResponse$;
+    exports2.DescribeGatewayResponse$ = DescribeGatewayResponse$;
+    exports2.DescribeGatewayRoute$ = DescribeGatewayRoute$;
+    exports2.DescribeGatewayRouteCommand = DescribeGatewayRouteCommand;
+    exports2.DescribeGatewayRouteRequest$ = DescribeGatewayRouteRequest$;
+    exports2.DescribeGatewayRouteResponse$ = DescribeGatewayRouteResponse$;
     exports2.DescribeServiceDeployments$ = DescribeServiceDeployments$;
     exports2.DescribeServiceDeploymentsCommand = DescribeServiceDeploymentsCommand;
     exports2.DescribeServiceDeploymentsRequest$ = DescribeServiceDeploymentsRequest$;
@@ -212862,6 +214117,10 @@ var require_dist_cjs16 = __commonJS({
     exports2.DesiredStatus = DesiredStatus;
     exports2.Device$ = Device$;
     exports2.DeviceCgroupPermission = DeviceCgroupPermission;
+    exports2.DisassociateGatewayFromCluster$ = DisassociateGatewayFromCluster$;
+    exports2.DisassociateGatewayFromClusterCommand = DisassociateGatewayFromClusterCommand;
+    exports2.DisassociateGatewayFromClusterRequest$ = DisassociateGatewayFromClusterRequest$;
+    exports2.DisassociateGatewayFromClusterResponse$ = DisassociateGatewayFromClusterResponse$;
     exports2.DiscoverPollEndpoint$ = DiscoverPollEndpoint$;
     exports2.DiscoverPollEndpointCommand = DiscoverPollEndpointCommand;
     exports2.DiscoverPollEndpointRequest$ = DiscoverPollEndpointRequest$;
@@ -212879,6 +214138,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.EFSAuthorizationConfigIAM = EFSAuthorizationConfigIAM;
     exports2.EFSTransitEncryption = EFSTransitEncryption;
     exports2.EFSVolumeConfiguration$ = EFSVolumeConfiguration$;
+    exports2.ElbGatewayResources$ = ElbGatewayResources$;
     exports2.EnvironmentFile$ = EnvironmentFile$;
     exports2.EnvironmentFileType = EnvironmentFileType;
     exports2.EphemeralStorage$ = EphemeralStorage$;
@@ -212905,6 +214165,42 @@ var require_dist_cjs16 = __commonJS({
     exports2.Failure$ = Failure$;
     exports2.FirelensConfiguration$ = FirelensConfiguration$;
     exports2.FirelensConfigurationType = FirelensConfigurationType;
+    exports2.Gateway$ = Gateway$;
+    exports2.GatewayAlbDesyncMitigationMode = GatewayAlbDesyncMitigationMode;
+    exports2.GatewayAlbProtocol = GatewayAlbProtocol;
+    exports2.GatewayAlbTestTrafficRules$ = GatewayAlbTestTrafficRules$;
+    exports2.GatewayClusterAssociationStatus = GatewayClusterAssociationStatus;
+    exports2.GatewayClusterAssociationSummary$ = GatewayClusterAssociationSummary$;
+    exports2.GatewayConfiguration$ = GatewayConfiguration$;
+    exports2.GatewayConnection$ = GatewayConnection$;
+    exports2.GatewayConnectionAlbResources$ = GatewayConnectionAlbResources$;
+    exports2.GatewayConnectionResources$ = GatewayConnectionResources$;
+    exports2.GatewayConnector$ = GatewayConnector$;
+    exports2.GatewayConnectorFilters$ = GatewayConnectorFilters$;
+    exports2.GatewayConnectorHealthCheck$ = GatewayConnectorHealthCheck$;
+    exports2.GatewayConnectorHealthCheckMatcher$ = GatewayConnectorHealthCheckMatcher$;
+    exports2.GatewayConnectorHealthCheckProtocol = GatewayConnectorHealthCheckProtocol;
+    exports2.GatewayElbAccessLogConfiguration$ = GatewayElbAccessLogConfiguration$;
+    exports2.GatewayElbAccessLogDestination$ = GatewayElbAccessLogDestination$;
+    exports2.GatewayElbAccessLogS3Destination$ = GatewayElbAccessLogS3Destination$;
+    exports2.GatewayElbIpAddressType = GatewayElbIpAddressType;
+    exports2.GatewayElbNetworkConfiguration$ = GatewayElbNetworkConfiguration$;
+    exports2.GatewayElbScheme = GatewayElbScheme;
+    exports2.GatewayInfrastructureResources$ = GatewayInfrastructureResources$;
+    exports2.GatewayNotFoundException = GatewayNotFoundException;
+    exports2.GatewayNotFoundException$ = GatewayNotFoundException$;
+    exports2.GatewayOperationError$ = GatewayOperationError$;
+    exports2.GatewayResourceFailure$ = GatewayResourceFailure$;
+    exports2.GatewayResources$ = GatewayResources$;
+    exports2.GatewayRoute$ = GatewayRoute$;
+    exports2.GatewayRouteAlbResources$ = GatewayRouteAlbResources$;
+    exports2.GatewayRouteLoadBalancerSecurityGroup$ = GatewayRouteLoadBalancerSecurityGroup$;
+    exports2.GatewayRouteResources$ = GatewayRouteResources$;
+    exports2.GatewayRouteStatus = GatewayRouteStatus;
+    exports2.GatewayRouteSummary$ = GatewayRouteSummary$;
+    exports2.GatewayStatus = GatewayStatus;
+    exports2.GatewaySummary$ = GatewaySummary$;
+    exports2.GatewayTestTrafficHeader$ = GatewayTestTrafficHeader$;
     exports2.GetTaskProtection$ = GetTaskProtection$;
     exports2.GetTaskProtectionCommand = GetTaskProtectionCommand;
     exports2.GetTaskProtectionRequest$ = GetTaskProtectionRequest$;
@@ -212912,6 +214208,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.HealthCheck$ = HealthCheck$;
     exports2.HealthStatus = HealthStatus;
     exports2.HostEntry$ = HostEntry$;
+    exports2.HostSharedAlbConfiguration$ = HostSharedAlbConfiguration$;
     exports2.HostVolumeProperties$ = HostVolumeProperties$;
     exports2.InferenceAccelerator$ = InferenceAccelerator$;
     exports2.InferenceAcceleratorOverride$ = InferenceAcceleratorOverride$;
@@ -212962,6 +214259,18 @@ var require_dist_cjs16 = __commonJS({
     exports2.ListDaemonsCommand = ListDaemonsCommand;
     exports2.ListDaemonsRequest$ = ListDaemonsRequest$;
     exports2.ListDaemonsResponse$ = ListDaemonsResponse$;
+    exports2.ListGatewayClusterAssociations$ = ListGatewayClusterAssociations$;
+    exports2.ListGatewayClusterAssociationsCommand = ListGatewayClusterAssociationsCommand;
+    exports2.ListGatewayClusterAssociationsRequest$ = ListGatewayClusterAssociationsRequest$;
+    exports2.ListGatewayClusterAssociationsResponse$ = ListGatewayClusterAssociationsResponse$;
+    exports2.ListGatewayRoutes$ = ListGatewayRoutes$;
+    exports2.ListGatewayRoutesCommand = ListGatewayRoutesCommand;
+    exports2.ListGatewayRoutesRequest$ = ListGatewayRoutesRequest$;
+    exports2.ListGatewayRoutesResponse$ = ListGatewayRoutesResponse$;
+    exports2.ListGateways$ = ListGateways$;
+    exports2.ListGatewaysCommand = ListGatewaysCommand;
+    exports2.ListGatewaysRequest$ = ListGatewaysRequest$;
+    exports2.ListGatewaysResponse$ = ListGatewaysResponse$;
     exports2.ListServiceDeployments$ = ListServiceDeployments$;
     exports2.ListServiceDeploymentsCommand = ListServiceDeploymentsCommand;
     exports2.ListServiceDeploymentsRequest$ = ListServiceDeploymentsRequest$;
@@ -213051,6 +214360,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.PlatformUnknownException = PlatformUnknownException;
     exports2.PlatformUnknownException$ = PlatformUnknownException$;
     exports2.PortMapping$ = PortMapping$;
+    exports2.PropagateGatewayTags = PropagateGatewayTags;
     exports2.PropagateMITags = PropagateMITags;
     exports2.PropagateTags = PropagateTags;
     exports2.ProtectedTask$ = ProtectedTask$;
@@ -213114,6 +214424,8 @@ var require_dist_cjs16 = __commonJS({
     exports2.ServiceConnectAccessLoggingFormat = ServiceConnectAccessLoggingFormat;
     exports2.ServiceConnectClientAlias$ = ServiceConnectClientAlias$;
     exports2.ServiceConnectConfiguration$ = ServiceConnectConfiguration$;
+    exports2.ServiceConnectContainerConfiguration$ = ServiceConnectContainerConfiguration$;
+    exports2.ServiceConnectContainerLogLevel = ServiceConnectContainerLogLevel;
     exports2.ServiceConnectIncludeQueryParameters = ServiceConnectIncludeQueryParameters;
     exports2.ServiceConnectService$ = ServiceConnectService$;
     exports2.ServiceConnectServiceResource$ = ServiceConnectServiceResource$;
@@ -213250,6 +214562,13 @@ var require_dist_cjs16 = __commonJS({
     exports2.UpdateExpressGatewayServiceCommand = UpdateExpressGatewayServiceCommand;
     exports2.UpdateExpressGatewayServiceRequest$ = UpdateExpressGatewayServiceRequest$;
     exports2.UpdateExpressGatewayServiceResponse$ = UpdateExpressGatewayServiceResponse$;
+    exports2.UpdateGateway$ = UpdateGateway$;
+    exports2.UpdateGatewayAlbConfiguration$ = UpdateGatewayAlbConfiguration$;
+    exports2.UpdateGatewayCommand = UpdateGatewayCommand;
+    exports2.UpdateGatewayConfiguration$ = UpdateGatewayConfiguration$;
+    exports2.UpdateGatewayNetworkConfiguration$ = UpdateGatewayNetworkConfiguration$;
+    exports2.UpdateGatewayRequest$ = UpdateGatewayRequest$;
+    exports2.UpdateGatewayResponse$ = UpdateGatewayResponse$;
     exports2.UpdateInProgressException = UpdateInProgressException;
     exports2.UpdateInProgressException$ = UpdateInProgressException$;
     exports2.UpdateManagedInstancesProviderConfiguration$ = UpdateManagedInstancesProviderConfiguration$;
@@ -213282,6 +214601,9 @@ var require_dist_cjs16 = __commonJS({
     exports2.paginateListAttributes = paginateListAttributes;
     exports2.paginateListClusters = paginateListClusters;
     exports2.paginateListContainerInstances = paginateListContainerInstances;
+    exports2.paginateListGatewayClusterAssociations = paginateListGatewayClusterAssociations;
+    exports2.paginateListGatewayRoutes = paginateListGatewayRoutes;
+    exports2.paginateListGateways = paginateListGateways;
     exports2.paginateListServices = paginateListServices2;
     exports2.paginateListServicesByNamespace = paginateListServicesByNamespace;
     exports2.paginateListTaskDefinitionFamilies = paginateListTaskDefinitionFamilies;
@@ -213379,7 +214701,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1151.0";
+    var version = "3.1155.0";
     var packageInfo = {
       version
     };
@@ -227789,7 +229111,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1151.0";
+    var version = "3.1155.0";
     var packageInfo = {
       version
     };
@@ -231542,7 +232864,7 @@ var require_dist_cjs19 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1151.0";
+    var version = "3.1155.0";
     var packageInfo = {
       version
     };
@@ -236450,7 +237772,7 @@ var require_dist_cjs20 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1151.0";
+    var version = "3.1155.0";
     var packageInfo = {
       version
     };

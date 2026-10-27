@@ -2103,6 +2103,7 @@ var require_dispatcher = __commonJS({
 var require_dispatcher_base = __commonJS({
   "node_modules/undici/lib/dispatcher/dispatcher-base.js"(exports2, module2) {
     "use strict";
+    var buffer = require("node:buffer");
     var Dispatcher = require_dispatcher();
     var {
       ClientDestroyedError,
@@ -2114,6 +2115,7 @@ var require_dispatcher_base = __commonJS({
     var kOnClosed = /* @__PURE__ */ Symbol("onClosed");
     var kInterceptedDispatch = /* @__PURE__ */ Symbol("Intercepted Dispatch");
     var kWebSocketOptions = /* @__PURE__ */ Symbol("webSocketOptions");
+    var kEventSourceOptions = /* @__PURE__ */ Symbol("eventSourceOptions");
     var DispatcherBase = class extends Dispatcher {
       constructor(opts) {
         super();
@@ -2122,11 +2124,17 @@ var require_dispatcher_base = __commonJS({
         this[kClosed] = false;
         this[kOnClosed] = [];
         this[kWebSocketOptions] = opts?.webSocket ?? {};
+        this[kEventSourceOptions] = opts?.eventSource ?? {};
       }
       get webSocketOptions() {
         return {
           maxFragments: this[kWebSocketOptions].maxFragments ?? 131072,
           maxPayloadSize: this[kWebSocketOptions].maxPayloadSize ?? 128 * 1024 * 1024
+        };
+      }
+      get eventSourceOptions() {
+        return {
+          maxEventSize: this[kEventSourceOptions].maxEventSize ?? buffer.kStringMaxLength
         };
       }
       get destroyed() {
@@ -6276,7 +6284,6 @@ var require_client_h1 = __commonJS({
       socket[kSocketUsed] = false;
       socket[kParser] = new Parser(client, socket, llhttpInstance);
       addListener(socket, "error", function(err) {
-        assert(err.code !== "ERR_TLS_CERT_ALTNAME_INVALID");
         const parser = this[kParser];
         if (err.code === "ECONNRESET" && parser.statusCode && !parser.shouldKeepAlive) {
           const parserErr = parser.finish();
@@ -6960,7 +6967,6 @@ var require_client_h2 = __commonJS({
       client[kHTTP2Session] = session;
       socket[kHTTP2Session] = session;
       util.addListener(socket, "error", function(err) {
-        assert(err.code !== "ERR_TLS_CERT_ALTNAME_INVALID");
         this[kError] = err;
         this[kClient][kOnError](err);
       });
@@ -7019,7 +7025,6 @@ var require_client_h2 = __commonJS({
       }
     }
     function onHttp2SessionError(err) {
-      assert(err.code !== "ERR_TLS_CERT_ALTNAME_INVALID");
       this[kSocket][kError] = err;
       this[kClient][kOnError](err);
     }
@@ -7713,9 +7718,10 @@ var require_client = __commonJS({
         // h2
         maxConcurrentStreams,
         allowH2,
-        webSocket
+        webSocket,
+        eventSource
       } = {}) {
-        super({ webSocket });
+        super({ webSocket, eventSource });
         if (keepAlive !== void 0) {
           throw new InvalidArgumentError("unsupported keepAlive, use pipelining=0 instead");
         }
@@ -8612,7 +8618,7 @@ var require_agent = __commonJS({
       return opts && opts.connections === 1 ? new Client(origin, opts) : new Pool(origin, opts);
     }
     var Agent = class extends DispatcherBase {
-      constructor({ factory = defaultFactory, maxRedirections = 0, connect, ...options } = {}) {
+      constructor({ factory = defaultFactory, maxRedirections = 0, connect, tls, ...options } = {}) {
         if (typeof factory !== "function") {
           throw new InvalidArgumentError("factory must be a function.");
         }
@@ -8626,8 +8632,11 @@ var require_agent = __commonJS({
         if (connect && typeof connect !== "function") {
           connect = { ...connect };
         }
+        if (tls && typeof tls !== "function") {
+          tls = { ...tls };
+        }
         this[kInterceptors] = options.interceptors?.Agent && Array.isArray(options.interceptors.Agent) ? options.interceptors.Agent : [createRedirectInterceptor({ maxRedirections })];
-        this[kOptions] = { ...util.deepClone(options), connect };
+        this[kOptions] = { ...util.deepClone(options), connect, tls };
         this[kOptions].interceptors = options.interceptors ? { ...options.interceptors } : void 0;
         this[kMaxRedirections] = maxRedirections;
         this[kFactory] = factory;
@@ -14355,8 +14364,9 @@ var require_fetch = __commonJS({
         }
       );
       response.body = { stream, source: null, length: null };
-      fetchParams.controller.onAborted = onAborted;
-      fetchParams.controller.on("terminated", onAborted);
+      if (!fetchParams.controller.resume) {
+        fetchParams.controller.on("terminated", onAborted);
+      }
       fetchParams.controller.resume = async () => {
         while (true) {
           let bytes;
@@ -14456,7 +14466,6 @@ var require_fetch = __commonJS({
                 headersList.append(bufferToLowerCasedHeaderName(rawHeaders[i]), rawHeaders[i + 1].toString("latin1"), true);
               }
               location = headersList.get("location", true);
-              this.body = new Readable({ read: resume });
               const decoders = [];
               const willFollow = location && request.redirect === "follow" && redirectStatusSet.has(status);
               if (request.method !== "HEAD" && request.method !== "CONNECT" && !nullBodyStatus.includes(status) && !willFollow) {
@@ -14464,7 +14473,7 @@ var require_fetch = __commonJS({
                 const codings = contentEncoding ? contentEncoding.toLowerCase().split(",") : [];
                 const maxContentEncodings = 5;
                 if (codings.length > maxContentEncodings) {
-                  reject(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
+                  this.abort(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
                   return true;
                 }
                 for (let i = codings.length - 1; i >= 0; --i) {
@@ -14494,6 +14503,7 @@ var require_fetch = __commonJS({
                   }
                 }
               }
+              this.body = new Readable({ read: resume });
               const onError = this.onError.bind(this);
               resolve({
                 status,
@@ -14518,9 +14528,6 @@ var require_fetch = __commonJS({
             onComplete() {
               if (this.abort) {
                 fetchParams.controller.off("terminated", this.abort);
-              }
-              if (fetchParams.controller.onAborted) {
-                fetchParams.controller.off("terminated", fetchParams.controller.onAborted);
               }
               fetchParams.controller.ended = true;
               this.body.push(null);
@@ -17595,6 +17602,16 @@ var require_receiver = __commonJS({
             if (isControlFrame(this.#info.opcode)) {
               this.#loop = this.parseControlFrame(body);
               this.#state = parserStates.INFO;
+              const socket = this.ws[kResponse].socket;
+              if (this.#loop && socket.writableNeedDrain) {
+                this.#loop = false;
+                socket.once("drain", () => {
+                  if (this.destroyed) return;
+                  this.#loop = true;
+                  this.run(callback);
+                });
+                return;
+              }
             } else {
               if (!this.#info.compressed) {
                 if (!this.writeFragments(body)) {
@@ -18288,6 +18305,7 @@ var require_util8 = __commonJS({
 var require_eventsource_stream = __commonJS({
   "node_modules/undici/lib/web/eventsource/eventsource-stream.js"(exports2, module2) {
     "use strict";
+    var buffer = require("node:buffer");
     var { Transform } = require("node:stream");
     var { isASCIINumber, isValidLastEventId } = require_util8();
     var BOM = [239, 187, 191];
@@ -18295,24 +18313,28 @@ var require_eventsource_stream = __commonJS({
     var CR = 13;
     var COLON = 58;
     var SPACE = 32;
+    var defaultMaxEventSize = buffer.kStringMaxLength;
     var DATA = Buffer.from("data");
     var EVENT = Buffer.from("event");
     var ID = Buffer.from("id");
     var RETRY = Buffer.from("retry");
-    function isASCIINumberBytes(buffer, start) {
-      if (start >= buffer.length) {
+    var minParserItems = 1024;
+    var maxParserItems = 131072;
+    var bytesPerParserItem = 128;
+    function isASCIINumberBytes(buffer2, start) {
+      if (start >= buffer2.length) {
         return false;
       }
-      for (let i = start; i < buffer.length; i++) {
-        if (buffer[i] < 48 || buffer[i] > 57) {
+      for (let i = start; i < buffer2.length; i++) {
+        if (buffer2[i] < 48 || buffer2[i] > 57) {
           return false;
         }
       }
       return true;
     }
-    function isValidLastEventIdBytes(buffer, start) {
-      for (let i = start; i < buffer.length; i++) {
-        if (buffer[i] === 0) {
+    function isValidLastEventIdBytes(buffer2, start) {
+      for (let i = start; i < buffer2.length; i++) {
+        if (buffer2[i] === 0) {
           return false;
         }
       }
@@ -18328,6 +18350,11 @@ var require_eventsource_stream = __commonJS({
         }
       }
       return true;
+    }
+    function createMaxEventSizeExceededError() {
+      const error = new Error("EventSource message size exceeded");
+      error.aborted = false;
+      return error;
     }
     var EventSourceStream = class extends Transform {
       /**
@@ -18355,6 +18382,13 @@ var require_eventsource_stream = __commonJS({
       pos = 0;
       lineChunkIndex = 0;
       linePos = 0;
+      lineLength = 0;
+      eventSize = 0;
+      eventFieldSizes = { data: 0, event: 0, id: 0, retry: 0 };
+      dataLineCount = 0;
+      maxEventSize;
+      maxDataLines;
+      maxBufferedChunks;
       event = {
         data: void 0,
         event: void 0,
@@ -18363,6 +18397,7 @@ var require_eventsource_stream = __commonJS({
       };
       /**
        * @param {object} options
+       * @param {number} [options.maxEventSize]
        * @param {eventSourceSettings} options.eventSourceSettings
        * @param {Function} [options.push]
        */
@@ -18370,6 +18405,10 @@ var require_eventsource_stream = __commonJS({
         options.readableObjectMode = true;
         super(options);
         this.state = options.eventSourceSettings || {};
+        this.maxEventSize = options.maxEventSize ?? defaultMaxEventSize;
+        const parserItemLimit = this.maxEventSize > 0 ? Math.min(maxParserItems, Math.max(minParserItems, Math.floor(this.maxEventSize / bytesPerParserItem))) : 0;
+        this.maxDataLines = parserItemLimit;
+        this.maxBufferedChunks = parserItemLimit;
         if (options.push) {
           this.push = options.push;
         }
@@ -18383,6 +18422,10 @@ var require_eventsource_stream = __commonJS({
       _transform(chunk, _encoding, callback) {
         if (chunk.length === 0) {
           callback();
+          return;
+        }
+        if (this.maxEventSize > 0 && this.chunks.length >= this.maxBufferedChunks && chunk[0] !== LF && chunk[0] !== CR) {
+          callback(createMaxEventSizeExceededError());
           return;
         }
         this.chunks.push(chunk);
@@ -18421,18 +18464,32 @@ var require_eventsource_stream = __commonJS({
             if (byte === CR) {
               this.crlfCheck = true;
             }
-            this.parseLine(this.readLine(), this.event);
+            try {
+              this.parseLine(this.readLine(), this.event);
+            } catch (error) {
+              callback(error);
+              return;
+            }
             this.consumeCurrentByte();
             this.eventEndCheck = true;
             continue;
+          }
+          if (this.maxEventSize > 0 && ++this.lineLength > this.maxEventSize + 7) {
+            callback(createMaxEventSizeExceededError());
+            return;
           }
           this.advanceCursor();
         }
         callback();
       }
+      _destroy(error, callback) {
+        this.chunks.length = 0;
+        this.clearEvent();
+        super._destroy(error, callback);
+      }
       /**
        * @param {Buffer} line
-       * @param {EventStreamEvent} event
+       * @param {EventSourceStreamEvent} event
        */
       parseLine(line, event) {
         if (line.length === 0) {
@@ -18452,6 +18509,12 @@ var require_eventsource_stream = __commonJS({
           }
         }
         if (isFieldName(line, fieldLength, DATA)) {
+          if (this.maxEventSize > 0 && this.dataLineCount >= this.maxDataLines) {
+            throw createMaxEventSizeExceededError();
+          }
+          const valueBytes = line.length - valueStart;
+          const dataSize = this.eventFieldSizes.data + (event.data === void 0 ? 0 : 1) + valueBytes;
+          this.setEventFieldSize("data", dataSize);
           const value = line.toString("utf8", valueStart);
           if (event.data === void 0) {
             event.data = value;
@@ -18459,26 +18522,37 @@ var require_eventsource_stream = __commonJS({
             event.data += `
 ${value}`;
           }
+          this.dataLineCount++;
           return;
         }
         if (isFieldName(line, fieldLength, RETRY)) {
           if (isASCIINumberBytes(line, valueStart)) {
+            this.setEventFieldSize("retry", line.length - valueStart);
             event.retry = line.toString("utf8", valueStart);
           }
           return;
         }
         if (isFieldName(line, fieldLength, ID)) {
           if (isValidLastEventIdBytes(line, valueStart)) {
+            this.setEventFieldSize("id", line.length - valueStart);
             event.id = line.toString("utf8", valueStart);
           }
           return;
         }
         if (isFieldName(line, fieldLength, EVENT)) {
-          const value = line.toString("utf8", valueStart);
-          if (value.length > 0) {
-            event.event = value;
+          if (valueStart < line.length) {
+            this.setEventFieldSize("event", line.length - valueStart);
+            event.event = line.toString("utf8", valueStart);
           }
         }
+      }
+      setEventFieldSize(field, size) {
+        const eventSize = this.eventSize - this.eventFieldSizes[field] + size;
+        if (this.maxEventSize > 0 && eventSize > this.maxEventSize) {
+          throw createMaxEventSizeExceededError();
+        }
+        this.eventSize = eventSize;
+        this.eventFieldSizes[field] = size;
       }
       /**
        * @param {EventSourceStreamEvent} event
@@ -18506,6 +18580,12 @@ ${value}`;
         this.event.event = void 0;
         this.event.id = void 0;
         this.event.retry = void 0;
+        this.eventSize = 0;
+        this.dataLineCount = 0;
+        this.eventFieldSizes.data = 0;
+        this.eventFieldSizes.event = 0;
+        this.eventFieldSizes.id = 0;
+        this.eventFieldSizes.retry = 0;
       }
       hasPendingEvent() {
         return this.event.data !== void 0 || this.event.event !== void 0 || this.event.id !== void 0 || this.event.retry !== void 0;
@@ -18530,13 +18610,15 @@ ${value}`;
       syncLineStartToCursor() {
         this.lineChunkIndex = this.chunkIndex;
         this.linePos = this.pos;
+        this.lineLength = 0;
         this.dropConsumedChunks();
       }
       dropConsumedChunks() {
-        while (this.lineChunkIndex > 0) {
-          this.chunks.shift();
-          this.lineChunkIndex--;
-          this.chunkIndex--;
+        if (this.lineChunkIndex > 0) {
+          const consumed = this.lineChunkIndex;
+          this.chunks.splice(0, consumed);
+          this.lineChunkIndex = 0;
+          this.chunkIndex -= consumed;
         }
         if (this.chunkIndex === this.chunks.length) {
           this.chunks.length = 0;
@@ -18639,6 +18721,7 @@ var require_eventsource = __commonJS({
     var { delay } = require_util8();
     var { kEnumerableProperty } = require_util();
     var { environmentSettingsObject } = require_util2();
+    var { getGlobalDispatcher } = require_global2();
     var experimentalWarned = false;
     var defaultReconnectionTime = 3e3;
     var CONNECTING = 0;
@@ -18779,6 +18862,7 @@ var require_eventsource = __commonJS({
           this.#state.origin = response.urlList[response.urlList.length - 1].origin;
           const eventSourceStream = new EventSourceStream({
             eventSourceSettings: this.#state,
+            maxEventSize: this.#dispatcher.eventSourceOptions?.maxEventSize,
             push: (event) => {
               this.dispatchEvent(createFastMessageEvent(
                 event.type,
@@ -18911,7 +18995,8 @@ var require_eventsource = __commonJS({
       {
         key: "dispatcher",
         // undici only
-        converter: webidl.converters.any
+        converter: webidl.converters.any,
+        defaultValue: () => getGlobalDispatcher()
       }
     ]);
     module2.exports = {
@@ -19561,20 +19646,158 @@ function notice(message, properties = {}) {
 // src/v2/rollback-safety.js
 var EXPAND = "expand";
 var CONTRACT = "contract";
-function stripComments(sql) {
-  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
-}
+var SPLIT_UNTERMINATED = "could not split the SQL into statements (unterminated quote or comment)";
+var SPLIT_BACKSLASH = "could not split the SQL into statements reliably (a quote follows a backslash, so it may use backslash escapes)";
+var SPLIT_MYSQL = "could not split the SQL into statements reliably (it uses MySQL-style syntax: a backtick, a # comment or a /*! comment)";
+var DRIZZLE_BREAKPOINT = /^-->\s*statement-breakpoint/i;
+var NAME_STARTS = /[A-Za-z_\u0080-\uffff]/;
+var NAME_CONTINUES = /[A-Za-z0-9_$\u0080-\uffff]/;
+var DOLLAR_QUOTE = /\$(?:[A-Za-z_\u0080-\uffff][A-Za-z0-9_\u0080-\uffff]*)?\$/y;
 function normalizeWhitespace(sql) {
   return sql.replace(/\s+/g, " ").trim();
 }
-function splitStatements(sql) {
-  if (!sql) return [];
-  return sql.split(/-->\s*statement-breakpoint/i).flatMap((chunk) => stripComments(chunk).split(";")).map(normalizeWhitespace).filter((s) => s.length > 0);
+function quoteEnd(sql, open2, quote, escapes) {
+  for (let j = open2 + 1; j < sql.length; j++) {
+    if (escapes && sql[j] === "\\") {
+      j++;
+      continue;
+    }
+    if (sql[j] !== quote) continue;
+    if (sql[j + 1] === quote) {
+      j++;
+      continue;
+    }
+    return j + 1;
+  }
+  return -1;
 }
+function blockCommentEnd(sql, open2) {
+  let depth = 0;
+  for (let j = open2; j < sql.length - 1; j++) {
+    if (sql[j] === "/" && sql[j + 1] === "*") {
+      depth++;
+      j++;
+    } else if (sql[j] === "*" && sql[j + 1] === "/") {
+      depth--;
+      j++;
+      if (depth === 0) return j + 1;
+    }
+  }
+  return -1;
+}
+function lexSql(sql) {
+  const statements = [];
+  let problem = null;
+  let text = "";
+  let masked = "";
+  let nameStart = -1;
+  const emit = (raw, mask = raw) => {
+    text += raw;
+    masked += mask;
+    nameStart = -1;
+  };
+  const flush = () => {
+    const statement = normalizeWhitespace(text);
+    if (statement !== "") statements.push({ text: statement, masked: normalizeWhitespace(masked) });
+    text = "";
+    masked = "";
+    nameStart = -1;
+  };
+  const flag = (reason) => {
+    if (problem === null) problem = { reason, at: statements.length };
+  };
+  if (!sql) return { statements, problem };
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    const afterName = nameStart !== -1 && NAME_STARTS.test(sql[nameStart]);
+    if (ch === ";") {
+      flush();
+      i++;
+      continue;
+    }
+    if (ch === "-" && next === "-") {
+      let end = i + 2;
+      while (end < sql.length && sql[end] !== "\n" && sql[end] !== "\r") end++;
+      if (DRIZZLE_BREAKPOINT.test(sql.slice(i, end))) flush();
+      else emit(" ");
+      i = end;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      if (sql[i + 2] === "!") flag(SPLIT_MYSQL);
+      const end = blockCommentEnd(sql, i);
+      if (end === -1) {
+        flag(SPLIT_UNTERMINATED);
+        emit(sql.slice(i));
+        break;
+      }
+      emit(" ");
+      i = end;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      const end = quoteEnd(sql, i, ch, false);
+      if (end === -1) {
+        flag(SPLIT_UNTERMINATED);
+        emit(sql.slice(i));
+        break;
+      }
+      if (sql.slice(i + 1, end).includes("\\" + ch)) flag(SPLIT_BACKSLASH);
+      emit(sql.slice(i, end), ch + ch);
+      i = end;
+      continue;
+    }
+    if ((ch === "E" || ch === "e") && next === "'" && !afterName) {
+      const end = quoteEnd(sql, i + 1, "'", true);
+      if (end === -1) {
+        flag(SPLIT_UNTERMINATED);
+        emit(sql.slice(i));
+        break;
+      }
+      emit(sql.slice(i, end), ch + "''");
+      i = end;
+      continue;
+    }
+    if (ch === "$" && !afterName) {
+      DOLLAR_QUOTE.lastIndex = i;
+      const open2 = DOLLAR_QUOTE.exec(sql);
+      if (open2) {
+        const tag = open2[0];
+        const close = sql.indexOf(tag, i + tag.length);
+        if (close === -1) {
+          flag(SPLIT_UNTERMINATED);
+          emit(sql.slice(i));
+          break;
+        }
+        const end = close + tag.length;
+        emit(sql.slice(i, end), tag + tag);
+        i = end;
+        continue;
+      }
+    }
+    if (ch === "`" || ch === "#" && next !== ">" && next !== "-") flag(SPLIT_MYSQL);
+    const start = NAME_CONTINUES.test(ch) ? nameStart === -1 ? i : nameStart : -1;
+    emit(ch);
+    nameStart = start;
+    i++;
+  }
+  flush();
+  return { statements, problem };
+}
+var RENAMES = /^ALTER\b[\s\S]*\bRENAME\b/i;
+var TRANSACTION_MODE = String.raw`(?:ISOLATION\s+LEVEL\s+(?:SERIALIZABLE|REPEATABLE\s+READ|READ\s+COMMITTED|READ\s+UNCOMMITTED)|READ\s+WRITE|READ\s+ONLY|(?:NOT\s+)?DEFERRABLE)`;
+var TRANSACTION_START = new RegExp(
+  String.raw`^(?:BEGIN(?:\s+(?:WORK|TRANSACTION))?|START\s+TRANSACTION)(?:\s+${TRANSACTION_MODE}(?:(?:\s*,\s*|\s+)${TRANSACTION_MODE})*)?$`,
+  "i"
+);
+var TRANSACTION_END = /^(?:COMMIT|END)(?:\s+(?:WORK|TRANSACTION))?(?:\s+AND\s+(?:NO\s+)?CHAIN)?$/i;
+var UNRECOGNIZED = { phase: CONTRACT, reason: "unrecognized statement \u2014 classified unsafe conservatively" };
 var RULES = [
-  // Renames of ANY object are destructive — the old name is gone and a rollback
-  // does not bring it back. Checked first so it wins over other ALTER rules.
-  rule(/^ALTER\b[\s\S]*\bRENAME\b/i, CONTRACT, "renames an object; a rollback would not restore the old name"),
+  // Renames of ANY object are destructive. Checked first so it wins over other
+  // ALTER rules.
+  rule(RENAMES, CONTRACT, "renames an object; a rollback would not restore the old name"),
   // ALTER TABLE ... ADD COLUMN — additive UNLESS it is NOT NULL without a
   // DEFAULT, which makes the column required from here on.
   addColumn,
@@ -19590,8 +19813,16 @@ var RULES = [
   rule(/^ALTER\s+TABLE\b[\s\S]*\bDROP\s+CONSTRAINT\b/i, EXPAND, "drops a constraint (loosening; nothing new is rejected)"),
   // ALTER TYPE ... ADD VALUE grows an enum — additive (rename handled above).
   rule(/^ALTER\s+TYPE\b[\s\S]*\bADD\s+VALUE\b/i, EXPAND, "adds a new enum value (additive)"),
-  // CREATE of any supported object is additive.
-  rule(/^CREATE\s+(OR\s+REPLACE\s+)?(UNIQUE\s+)?(MATERIALIZED\s+)?(TABLE|TYPE|INDEX|EXTENSION|SEQUENCE|VIEW|FUNCTION|TRIGGER|POLICY|SCHEMA)\b/i, EXPAND, "creates a new database object (additive)"),
+  // A trigger is a rule the database applies to every write, written as code:
+  // one that raises when a column is NULL is a NOT NULL constraint in another
+  // form, and it keeps firing after a rollback. Checked before the OR REPLACE
+  // rule so `CREATE OR REPLACE TRIGGER` gets this reason.
+  rule(/^CREATE\s+(OR\s+REPLACE\s+)?(CONSTRAINT\s+)?TRIGGER\b/i, CONTRACT, "creates a trigger; it would still fire after a rollback"),
+  // OR REPLACE swaps out a function, view or other definition that may already
+  // exist, and a rollback does not put the old one back.
+  rule(/^CREATE\s+OR\s+REPLACE\b/i, CONTRACT, "replaces a definition (OR REPLACE); a rollback would not restore the old one"),
+  // CREATE of any other supported object is additive.
+  rule(/^CREATE\s+(UNIQUE\s+)?(MATERIALIZED\s+)?(TABLE|TYPE|INDEX|EXTENSION|SEQUENCE|VIEW|FUNCTION|POLICY|SCHEMA)\b/i, EXPAND, "creates a new database object (additive)"),
   // DROP INDEX is safe (an index is a performance structure, not a correctness
   // one); dropping any OTHER object is destructive.
   rule(/^DROP\s+INDEX\b/i, EXPAND, "drops an index (correctness does not depend on one)"),
@@ -19600,6 +19831,18 @@ var RULES = [
   rule(/^COMMENT\s+ON\b/i, EXPAND, "sets a comment (metadata only)"),
   rule(/^(GRANT|REVOKE)\b/i, EXPAND, "grant/revoke (privileges only; no schema shape change)"),
   rule(/^INSERT\s+INTO\b/i, EXPAND, "inserts data (additive)"),
+  // Session settings and transaction control change nothing in the schema.
+  // Migrations open with `SET LOCAL lock_timeout` so they give up rather than
+  // queue behind a lock and stall the running service, and raw SQL files wrap
+  // their work in BEGIN / COMMIT. `ALTER TABLE ... SET ...` starts with ALTER,
+  // so it never reaches the SET rule. ROLLBACK and SAVEPOINT are left to the
+  // conservative default: they mean a migration undoes part of its own work,
+  // which these rules cannot follow. So are SELECT and DO, on purpose: a SELECT
+  // can call a function that changes anything, and a DO block runs code the
+  // rules cannot read.
+  rule(/^(SET|RESET)\b/i, EXPAND, "changes a session setting (no schema change)"),
+  rule(TRANSACTION_START, EXPAND, "transaction control (no schema change)"),
+  rule(TRANSACTION_END, EXPAND, "transaction control (no schema change)"),
   // Data migrations & bulk deletes are conservatively unsafe.
   rule(/^TRUNCATE\b/i, CONTRACT, "truncates a table; a rollback would not restore the rows"),
   rule(/^UPDATE\b/i, CONTRACT, "runs a data migration (UPDATE) that cannot be assumed backward-compatible"),
@@ -19621,15 +19864,61 @@ function dropObject(s) {
   const obj = m[1].toLowerCase();
   return { phase: CONTRACT, reason: `drops a ${obj}; a rollback would not restore it` };
 }
-function classifyStatement(statement) {
+function matchRules(masked) {
   for (const test of RULES) {
-    const hit = test(statement);
-    if (hit) return { statement, phase: hit.phase, reason: hit.reason };
+    const hit = test(masked);
+    if (hit) return hit;
   }
-  return { statement, phase: CONTRACT, reason: "unrecognized statement \u2014 classified unsafe conservatively" };
+  return UNRECOGNIZED;
+}
+var SQL_NAME = String.raw`(?:""|[A-Za-z_\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*)`;
+var SQL_QUALIFIED_NAME = String.raw`${SQL_NAME}(?:\s*\.\s*${SQL_NAME})*`;
+var ALTER_TABLE_HEAD = new RegExp(
+  String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s*\(\s*${SQL_QUALIFIED_NAME}\s*\)|(?:ONLY\s+)?${SQL_QUALIFIED_NAME}(?:\s*\*)?)`,
+  "i"
+);
+function splitTopLevel(s) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(" || ch === "[") {
+      depth++;
+    } else if ((ch === ")" || ch === "]") && depth > 0) {
+      depth--;
+    } else if (ch === "," && depth === 0) {
+      parts.push(s.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(s.slice(start).trim());
+  return parts;
+}
+function classifyAlterTableActions(masked) {
+  const head = ALTER_TABLE_HEAD.exec(masked);
+  const actions = splitTopLevel(head ? masked.slice(head[0].length) : masked);
+  if (actions.length < 2) return null;
+  if (!head) return UNRECOGNIZED;
+  const verdicts = actions.map((action) => matchRules(`${head[0]} ${action}`));
+  return verdicts.find((v) => v.phase === CONTRACT) ?? verdicts[0];
+}
+function classifyMasked(masked) {
+  if (/^ALTER\s+TABLE\b/i.test(masked) && !RENAMES.test(masked)) {
+    const verdict = classifyAlterTableActions(masked);
+    if (verdict) return verdict;
+  }
+  return matchRules(masked);
 }
 function classifySqlStatements(sql) {
-  return splitStatements(sql).map(classifyStatement);
+  const { statements, problem } = lexSql(sql);
+  if (problem) {
+    return [{ statement: statements[problem.at]?.text ?? "", phase: CONTRACT, reason: problem.reason }];
+  }
+  return statements.map(({ text, masked }) => {
+    const { phase, reason } = classifyMasked(masked);
+    return { statement: text, phase, reason };
+  });
 }
 var RUBY_EXPAND = {
   create_table: "creates a new table (additive)",
@@ -19939,8 +20228,33 @@ function scanRubyCall(statement) {
   }
   return null;
 }
+var RUBY_STRING_ARG = /^\s*(?:\(\s*)?(['"])((?:\\[\s\S]|(?!\1)[^\\])*)\1/;
+var RUBY_DOUBLE_QUOTED_ESCAPES = /* @__PURE__ */ new Map([
+  ["\\", "\\"],
+  ['"', '"'],
+  ["'", "'"],
+  ["n", "\n"],
+  ["t", "	"],
+  ["r", "\r"],
+  ["s", " "]
+]);
+function rubyStringValue(quote, body) {
+  if (quote === "'") return body.replace(/\\([\\'])/g, "$1");
+  let value = "";
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== "\\") {
+      value += body[i];
+      continue;
+    }
+    const escaped = RUBY_DOUBLE_QUOTED_ESCAPES.get(body[i + 1]);
+    if (escaped === void 0) return null;
+    value += escaped;
+    i++;
+  }
+  return value;
+}
 function classifyRubyExecute(args) {
-  const m = /^\s*\(?\s*(['"])((?:\\.|(?!\1)[\s\S])*)\1/.exec(args);
+  const m = RUBY_STRING_ARG.exec(args);
   if (!m) return { phase: CONTRACT, reason: "`execute` runs raw SQL that cannot be classified" };
   const literal = m[2];
   if (literal.includes("#{")) {
@@ -19949,7 +20263,10 @@ function classifyRubyExecute(args) {
   if (!/^[)\s]*$/.test(args.slice(m[0].length))) {
     return { phase: CONTRACT, reason: "`execute` builds raw SQL that cannot be classified" };
   }
-  const sql = literal.replace(/\\(['"])/g, "$1");
+  const sql = rubyStringValue(m[1], literal);
+  if (sql === null) {
+    return { phase: CONTRACT, reason: "`execute` raw SQL uses a string escape that cannot be classified" };
+  }
   const classified = classifySqlStatements(sql);
   if (classified.length === 0) {
     return { phase: CONTRACT, reason: "`execute` runs raw SQL that cannot be classified" };
