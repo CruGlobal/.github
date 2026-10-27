@@ -137,8 +137,6 @@ describe('classifySqlStatements — EXPAND (safe) rules', () => {
     'CREATE VIEW active_users AS SELECT * FROM users',
     'CREATE MATERIALIZED VIEW mv AS SELECT * FROM users',
     'CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql',
-    'CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql',
-    'CREATE TRIGGER t BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()',
     'CREATE POLICY p ON users USING (true)',
     'CREATE SCHEMA billing'
   ])('CREATE ... is expand: %s', (sql) => {
@@ -221,6 +219,48 @@ describe('classifySqlStatements — CONTRACT (unsafe) rules', () => {
   it('ADD CONSTRAINT is contract (tightening)', () => {
     const r = one('ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email)')
     expect(r.phase).toBe('contract')
+  })
+
+  // A trigger can enforce a rule the old image breaks (one that raises on a
+  // NULL is a NOT NULL constraint in another form), and it outlives a rollback.
+  it.each([
+    ['CREATE TRIGGER', 'CREATE TRIGGER t BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()'],
+    ['CREATE CONSTRAINT TRIGGER', 'CREATE CONSTRAINT TRIGGER t AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()'],
+    ['CREATE OR REPLACE TRIGGER', 'CREATE OR REPLACE TRIGGER t BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()']
+  ])('%s is contract', (_label, sql) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'contract', reason: 'creates a trigger; it would still fire after a rollback' })
+  })
+
+  // OR REPLACE swaps out a definition that may already exist; the old one is gone.
+  it.each([
+    ['FUNCTION', 'CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql'],
+    ['PROCEDURE', 'CREATE OR REPLACE PROCEDURE p() LANGUAGE sql AS $$ SELECT 1 $$'],
+    ['VIEW', 'CREATE OR REPLACE VIEW active_users AS SELECT * FROM users'],
+    ['RULE', 'CREATE OR REPLACE RULE r AS ON INSERT TO users DO INSTEAD NOTHING']
+  ])('CREATE OR REPLACE %s is contract', (_label, sql) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'contract', reason: 'replaces a definition (OR REPLACE); a rollback would not restore the old one' })
+  })
+
+  it('a trigger whose function raises on a NULL is unsafe end to end', () => {
+    const path = 'migrations/0005_require_note_owner.sql'
+    const content = [
+      'CREATE FUNCTION notes_require_owner() RETURNS trigger AS $$',
+      'BEGIN',
+      '  IF NEW.owner_id IS NULL THEN',
+      '    RAISE EXCEPTION \'owner_id is required; set it before saving\';',
+      '  END IF;',
+      '  RETURN NEW;',
+      'END;',
+      '$$ LANGUAGE plpgsql;',
+      '',
+      'CREATE TRIGGER notes_require_owner BEFORE INSERT OR UPDATE ON notes',
+      '  FOR EACH ROW EXECUTE FUNCTION notes_require_owner();',
+      ''
+    ].join('\n')
+    expect(classifyMigrationFiles([{ path, status: 'added', content }])).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: creates a trigger; it would still fire after a rollback`]
+    })
   })
 
   it.each([
@@ -440,6 +480,87 @@ describe('classifySqlStatements on SQL that cannot be split reliably', () => {
     const sql = 'ALTER TABLE notes ADD COLUMN code text CHECK (code ~ \'^\\d+$\');\n' +
       'COMMENT ON COLUMN notes.code IS \'Stored under C:\\notes\\codes\';'
     expect(verdict(sql)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  // A Postgres lexer reads the apostrophe after a backtick or a MySQL `#`
+  // comment as the start of a string, and the DROP between two of them would
+  // vanish into it.
+  const MYSQL = 'could not split the SQL into statements reliably (it uses MySQL-style syntax: a backtick, a # comment or a /*! comment)'
+  it.each([
+    ['a # comment', [
+      'CREATE TABLE people (',
+      '  name text # the user\'s name',
+      ');',
+      'DROP TABLE sessions;',
+      'CREATE TABLE bios (',
+      '  bio text # the user\'s bio',
+      ');'
+    ].join('\n')],
+    ['backtick-quoted names', 'CREATE TABLE `user\'s` (id int); DROP TABLE sessions; CREATE TABLE `owner\'s` (id int);'],
+    ['a /*! comment', '/*!40101 SET NAMES utf8 */;\nCREATE TABLE a (id int);']
+  ])('SQL with %s makes the file unsafe', (_label, sql) => {
+    expect(verdict(sql)).toEqual({ verdict: 'unsafe', reasons: [`${path}: ${MYSQL}`] })
+  })
+
+  it('the jsonb operators #>, #>> and #- are not MySQL comments', () => {
+    const sql = 'CREATE INDEX events_city_idx ON example_events ((payload #>> \'{address,city}\'));\n' +
+      'CREATE INDEX events_geo_idx ON example_events ((payload #> \'{geo}\'));\n' +
+      'CREATE VIEW events_public AS SELECT payload #- \'{secret}\' AS payload FROM example_events;'
+    expect(verdict(sql)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  // After a number, `$` starts a dollar quote as it does in Postgres. Read as
+  // part of a name, it would leave the `'` inside the quote to open a "string"
+  // that swallows the DROP.
+  it('a dollar quote right after a number is still a dollar quote', () => {
+    const results = classifySqlStatements('SET x = 1$a$ \' $a$; DROP TABLE users; --\'')
+    expect(results.map((r) => r.reason)).toEqual([
+      'changes a session setting (no schema change)',
+      'drops a table; a rollback would not restore it'
+    ])
+  })
+
+  it('a $ inside a name is part of the name', () => {
+    expect(splitStatements('ALTER TABLE notes ADD COLUMN price$usd numeric; ALTER TABLE notes ADD COLUMN a$b$c int;')).toEqual([
+      'ALTER TABLE notes ADD COLUMN price$usd numeric',
+      'ALTER TABLE notes ADD COLUMN a$b$c int'
+    ])
+  })
+})
+
+describe('classifyMigrationFiles on plain CREATE versus OR REPLACE and triggers', () => {
+  const path = 'migrations/0006_x.sql'
+  const verdict = (content) => classifyMigrationFiles([{ path, status: 'added', content }])
+
+  it('a new plpgsql function is safe, semicolons and all', () => {
+    const sql = [
+      'CREATE FUNCTION touch_updated_at() RETURNS trigger AS $$',
+      'BEGIN',
+      '  NEW.updated_at := now();',
+      '  RETURN NEW;',
+      'END;',
+      '$$ LANGUAGE plpgsql;'
+    ].join('\n')
+    expect(verdict(sql)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a new view is safe', () => {
+    expect(verdict('CREATE VIEW open_orders AS SELECT * FROM orders WHERE closed_at IS NULL;'))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('replacing a view is unsafe', () => {
+    expect(verdict('CREATE OR REPLACE VIEW open_orders AS SELECT * FROM orders WHERE closed_at IS NULL;')).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: replaces a definition (OR REPLACE); a rollback would not restore the old one`]
+    })
+  })
+
+  it('a trigger on its own is unsafe', () => {
+    expect(verdict('CREATE TRIGGER orders_touch BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION touch_updated_at();')).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: creates a trigger; it would still fire after a rollback`]
+    })
   })
 })
 
@@ -1153,6 +1274,56 @@ describe('classifyRubyMigration — execute() raw SQL', () => {
     const r = rb('execute "COMMENT ON TABLE notes IS \'never closed"')
     expect(r.phase).toBe('contract')
     expect(r.reason).toBe('`execute` raw SQL — could not split the SQL into statements (unterminated quote or comment)')
+  })
+
+  // The SQL is classified as Ruby hands it to the database, not as written in
+  // the source. Read from the source, each of these hides the DROP.
+  it.each([
+    // `\\\\` is two backslashes, which close the E'...' string.
+    ['an escaped backslash', String.raw`execute "COMMENT ON COLUMN notes.body IS E'ends in \\\\'; ALTER TABLE notes DROP COLUMN legacy -- don't"`],
+    // `\n` is a line break, which ends the `--` comment.
+    ['a \\n line break', String.raw`execute "SET LOCAL lock_timeout = '5s'; -- wait\nALTER TABLE notes DROP COLUMN legacy"`]
+  ])('%s in a double-quoted literal is read as Ruby reads it', (_label, body) => {
+    expect(rb(body)).toMatchObject({ phase: 'contract', reason: '`execute` raw SQL — drops a column; a rollback would not restore it' })
+  })
+
+  it('an unescaped literal can still be safe', () => {
+    const r = rb(String.raw`execute "CREATE INDEX notes_body_idx ON notes (body);\nCOMMENT ON COLUMN notes.body IS 'x; y'"`)
+    expect(r).toMatchObject({ phase: 'expand', reason: '`execute` raw SQL — creates a new database object (additive)' })
+  })
+
+  it.each([
+    ['\\0', String.raw`execute "COMMENT ON TABLE notes IS 'a\0b'"`],
+    ['octal', String.raw`execute "COMMENT ON TABLE notes IS 'a\101b'"`],
+    ['\\x', String.raw`execute "COMMENT ON TABLE notes IS 'a\x41b'"`],
+    ['\\u', String.raw`execute "COMMENT ON TABLE notes IS 'a\u0041b'"`],
+    ['\\e', String.raw`execute "COMMENT ON TABLE notes IS 'a\eb'"`],
+    ['\\M-', String.raw`execute "COMMENT ON TABLE notes IS 'a\M-ab'"`],
+    ['\\C-', String.raw`execute "COMMENT ON TABLE notes IS 'a\C-ab'"`],
+    ['an unknown escape', String.raw`execute "CREATE INDEX notes_code_idx ON notes (code) WHERE code ~ '^\d+$'"`]
+  ])('a double-quoted literal with a %s escape is contract', (_label, body) => {
+    expect(rb(body)).toMatchObject({ phase: 'contract', reason: '`execute` raw SQL uses a string escape that cannot be classified' })
+  })
+
+  // In a single-quoted Ruby literal only `\\` and `\'` are escapes; every other
+  // backslash reaches the database as written.
+  it('a single-quoted literal keeps other backslashes as they are', () => {
+    const r = rb(String.raw`execute 'CREATE INDEX notes_code_idx ON notes (code) WHERE code ~ \'^\d+$\''`)
+    expect(r).toMatchObject({ phase: 'expand', reason: '`execute` raw SQL — creates a new database object (additive)' })
+  })
+
+  // So `\n` there is two characters, and the `--` comment runs on to the end of
+  // the string: Postgres never sees the DROP as a statement.
+  it('a \\n in a single-quoted literal is not a line break', () => {
+    const r = rb(String.raw`execute 'SET LOCAL lock_timeout = \'5s\'; -- wait\nALTER TABLE notes DROP COLUMN legacy'`)
+    expect(r).toMatchObject({ phase: 'expand', reason: '`execute` raw SQL — changes a session setting (no schema change)' })
+  })
+
+  it('a long run of backslashes with no closing quote finishes quickly', () => {
+    const start = Date.now()
+    const r = rb(`execute "${'\\\\'.repeat(40)}`)
+    expect(Date.now() - start).toBeLessThan(1000)
+    expect(r).toMatchObject({ phase: 'contract', reason: '`execute` runs raw SQL that cannot be classified' })
   })
 })
 

@@ -54,15 +54,25 @@ const SPLIT_UNTERMINATED = 'could not split the SQL into statements (unterminate
 // what it thinks is the next string. A quote right after a backslash is legal
 // Postgres but rare, so it is reported rather than trusted.
 const SPLIT_BACKSLASH = 'could not split the SQL into statements reliably (a quote follows a backslash, so it may use backslash escapes)'
+// MySQL quotes names with backticks, starts a line comment with `#`, and runs
+// the inside of a `/*! ... */` comment as code. A Postgres lexer reads none of
+// these that way: the apostrophe in `user's` behind a backtick or a `#` opens a
+// "string" that can swallow the statements after it. None of them is valid
+// Postgres outside a literal, except the jsonb operators `#>`, `#>>` and `#-`
+// and the rarely used `#` (XOR), which reads unsafe as the price of the guard.
+const SPLIT_MYSQL = 'could not split the SQL into statements reliably (it uses MySQL-style syntax: a backtick, a # comment or a /*! comment)'
 
 // drizzle-kit writes this line comment between the statements it generates,
 // and a statement before it does not always end in `;`.
 const DRIZZLE_BREAKPOINT = /^-->\s*statement-breakpoint/i
 
-// A character that continues a name. Postgres reads a `$` that follows one as
-// part of the name (`price$usd`), not as the start of a dollar quote, and the
-// `e` that ends a name like `type` is not an E'...' string prefix. This lexer
-// reads them the same way.
+// Characters that start and continue a name. Postgres reads a `$` inside a
+// name as part of it (`price$usd`), not as the start of a dollar quote, and
+// the `e` that ends a name like `type` is not an E'...' string prefix. After a
+// number it is different: `1$a$` is a number then a dollar quote. So `$` and
+// `E` only continue a name when the run of name characters before them began
+// with a letter, `_` or a non-ASCII character, never a digit.
+const NAME_STARTS = /[A-Za-z_\u0080-\uffff]/
 const NAME_CONTINUES = /[A-Za-z0-9_$\u0080-\uffff]/
 
 // `$$` or `$tag$`. A tag cannot start with a digit, so `$1` stays a parameter.
@@ -112,16 +122,21 @@ function lexSql (sql) {
   let problem = null
   let text = ''
   let masked = ''
+  // Where the run of name characters that ends just before the current
+  // position began, or -1. Anything other than a plain character ends a run.
+  let nameStart = -1
 
   const emit = (raw, mask = raw) => {
     text += raw
     masked += mask
+    nameStart = -1
   }
   const flush = () => {
     const statement = normalizeWhitespace(text)
     if (statement !== '') statements.push({ text: statement, masked: normalizeWhitespace(masked) })
     text = ''
     masked = ''
+    nameStart = -1
   }
   const flag = (reason) => {
     if (problem === null) problem = { reason, at: statements.length }
@@ -133,7 +148,7 @@ function lexSql (sql) {
   while (i < sql.length) {
     const ch = sql[i]
     const next = sql[i + 1]
-    const afterName = i > 0 && NAME_CONTINUES.test(sql[i - 1])
+    const afterName = nameStart !== -1 && NAME_STARTS.test(sql[nameStart])
 
     if (ch === ';') {
       flush()
@@ -151,6 +166,7 @@ function lexSql (sql) {
     }
 
     if (ch === '/' && next === '*') {
+      if (sql[i + 2] === '!') flag(SPLIT_MYSQL)
       const end = blockCommentEnd(sql, i)
       if (end === -1) {
         flag(SPLIT_UNTERMINATED)
@@ -207,7 +223,11 @@ function lexSql (sql) {
       }
     }
 
+    if (ch === '`' || (ch === '#' && next !== '>' && next !== '-')) flag(SPLIT_MYSQL)
+
+    const start = NAME_CONTINUES.test(ch) ? (nameStart === -1 ? i : nameStart) : -1
     emit(ch)
+    nameStart = start
     i++
   }
   flush()
@@ -266,8 +286,17 @@ const RULES = [
   // ALTER TYPE ... ADD VALUE grows an enum — additive (rename handled above).
   rule(/^ALTER\s+TYPE\b[\s\S]*\bADD\s+VALUE\b/i, EXPAND, 'adds a new enum value (additive)'),
 
-  // CREATE of any supported object is additive.
-  rule(/^CREATE\s+(OR\s+REPLACE\s+)?(UNIQUE\s+)?(MATERIALIZED\s+)?(TABLE|TYPE|INDEX|EXTENSION|SEQUENCE|VIEW|FUNCTION|TRIGGER|POLICY|SCHEMA)\b/i, EXPAND, 'creates a new database object (additive)'),
+  // A trigger is a rule the database applies to every write, written as code:
+  // one that raises when a column is NULL is a NOT NULL constraint in another
+  // form, and it keeps firing after a rollback. Checked before the OR REPLACE
+  // rule so `CREATE OR REPLACE TRIGGER` gets this reason.
+  rule(/^CREATE\s+(OR\s+REPLACE\s+)?(CONSTRAINT\s+)?TRIGGER\b/i, CONTRACT, 'creates a trigger; it would still fire after a rollback'),
+  // OR REPLACE swaps out a function, view or other definition that may already
+  // exist, and a rollback does not put the old one back.
+  rule(/^CREATE\s+OR\s+REPLACE\b/i, CONTRACT, 'replaces a definition (OR REPLACE); a rollback would not restore the old one'),
+
+  // CREATE of any other supported object is additive.
+  rule(/^CREATE\s+(UNIQUE\s+)?(MATERIALIZED\s+)?(TABLE|TYPE|INDEX|EXTENSION|SEQUENCE|VIEW|FUNCTION|POLICY|SCHEMA)\b/i, EXPAND, 'creates a new database object (additive)'),
 
   // DROP INDEX is safe (an index is a performance structure, not a correctness
   // one); dropping any OTHER object is destructive.
@@ -757,11 +786,51 @@ function scanRubyCall (statement) {
   return null
 }
 
+// A string literal at the start of `execute`'s arguments. The two branches of
+// the body must not overlap: if a backslash could be read either as an escape
+// or as a plain character, a run of backslashes with no closing quote makes the
+// regex try every way of pairing them up, which takes exponential time. The
+// optional `(` carries its own whitespace for the same reason, on a smaller
+// scale: two `\s*` in a row would split a run of spaces every possible way.
+const RUBY_STRING_ARG = /^\s*(?:\(\s*)?(['"])((?:\\[\s\S]|(?!\1)[^\\])*)\1/
+
+// The escapes a double-quoted Ruby literal can carry into SQL that this file
+// reproduces. The others (`\0`, octal, `\x`, `\u`, `\e`, `\a`, `\b`, `\f`, `\v`,
+// `\M-`, `\C-`, a backslash before a line break or any other character) are
+// rare in SQL and not worth getting exactly right, so a literal that uses one
+// is not classified at all.
+const RUBY_DOUBLE_QUOTED_ESCAPES = new Map([
+  ['\\', '\\'], ['"', '"'], ['\'', '\''], ['n', '\n'], ['t', '\t'], ['r', '\r'], ['s', ' ']
+])
+
+// The string Ruby hands to the database for a literal's body, or null when it
+// uses an escape we do not reproduce. This has to be Ruby's reading, not the
+// source text: `\n` in the source is a line break to Postgres, which ends a
+// `--` comment, and `\\\\` is two backslashes, which can close an E'...'
+// string. Read any other way, a comment or a string can hide a statement.
+function rubyStringValue (quote, body) {
+  // In a single-quoted literal only `\\` and `\'` are escapes; any other
+  // backslash is a plain character.
+  if (quote === '\'') return body.replace(/\\([\\'])/g, '$1')
+  let value = ''
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== '\\') {
+      value += body[i]
+      continue
+    }
+    const escaped = RUBY_DOUBLE_QUOTED_ESCAPES.get(body[i + 1])
+    if (escaped === undefined) return null
+    value += escaped
+    i++
+  }
+  return value
+}
+
 // `execute` / `connection.execute`: pull the raw SQL out of a SIMPLE string
 // literal and hand it to the SQL rule table. Anything less tractable —
 // interpolation, concatenation, a variable, a heredoc — is unknown → unsafe.
 function classifyRubyExecute (args) {
-  const m = /^\s*\(?\s*(['"])((?:\\.|(?!\1)[\s\S])*)\1/.exec(args)
+  const m = RUBY_STRING_ARG.exec(args)
   if (!m) return { phase: CONTRACT, reason: '`execute` runs raw SQL that cannot be classified' }
   const literal = m[2]
   if (literal.includes('#{')) {
@@ -772,7 +841,10 @@ function classifyRubyExecute (args) {
   if (!/^[)\s]*$/.test(args.slice(m[0].length))) {
     return { phase: CONTRACT, reason: '`execute` builds raw SQL that cannot be classified' }
   }
-  const sql = literal.replace(/\\(['"])/g, '$1')
+  const sql = rubyStringValue(m[1], literal)
+  if (sql === null) {
+    return { phase: CONTRACT, reason: '`execute` raw SQL uses a string escape that cannot be classified' }
+  }
   const classified = classifySqlStatements(sql)
   if (classified.length === 0) {
     return { phase: CONTRACT, reason: '`execute` runs raw SQL that cannot be classified' }
