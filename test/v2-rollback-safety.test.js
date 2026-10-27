@@ -26,7 +26,8 @@ describe('splitStatements', () => {
   })
 
   it('does not let the -- comment strip eat the breakpoint marker', () => {
-    // The marker starts with `--`; splitting must happen before comment strip.
+    // The marker is itself a `--` comment; it must end a statement, not vanish
+    // with the other comments.
     const sql = 'CREATE TABLE a (id int);\n--> statement-breakpoint\nDROP TABLE b;'
     const parts = splitStatements(sql)
     expect(parts).toHaveLength(2)
@@ -56,6 +57,72 @@ describe('splitStatements', () => {
     expect(splitStatements(null)).toEqual([])
     expect(splitStatements(undefined)).toEqual([])
   })
+
+  it('a drizzle breakpoint ends a statement that has no semicolon', () => {
+    const sql = 'CREATE TABLE a (id int)\n--> statement-breakpoint\nCREATE TABLE b (id int)'
+    expect(splitStatements(sql)).toEqual([
+      'CREATE TABLE a (id int)',
+      'CREATE TABLE b (id int)'
+    ])
+  })
+})
+
+// The splitter is a Postgres lexer, not a split on `;`: a `;`, `--` or `/*`
+// inside a string, a quoted name or a dollar-quoted body is just text.
+describe('splitStatements with quotes, dollar quotes and comments', () => {
+  it.each([
+    ['a single-quoted string', 'INSERT INTO notes (body) VALUES (\'a; b -- c /* d */\')'],
+    ['a string with a doubled quote', 'COMMENT ON TABLE notes IS \'it\'\'s; -- fine\''],
+    ['an E\'...\' string with a backslash-escaped quote', 'INSERT INTO notes (body) VALUES (E\'it\\\'s; -- still /* the string */\')'],
+    ['a double-quoted name', 'CREATE TABLE "odd; -- name /* here */" (id int)'],
+    ['a $$ body', 'CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; -- one /* two */ $$ LANGUAGE sql'],
+    ['a $fn$ body holding a $$ quote', 'CREATE FUNCTION g() RETURNS text AS $fn$ SELECT \'a;b\' || $$c; -- d$$; $fn$ LANGUAGE sql']
+  ])('`;`, `--` and `/*` inside %s neither split nor strip', (_label, sql) => {
+    expect(splitStatements(`${sql};\nCREATE TABLE b (id int);`)).toEqual([sql, 'CREATE TABLE b (id int)'])
+  })
+
+  it('a plpgsql function body is one statement', () => {
+    const sql = [
+      'CREATE FUNCTION touch_updated_at() RETURNS trigger AS $$',
+      'BEGIN',
+      '  NEW.updated_at := now();',
+      '  RETURN NEW;',
+      'END;',
+      '$$ LANGUAGE plpgsql;'
+    ].join('\n')
+    const results = classifySqlStatements(sql)
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('expand')
+  })
+
+  it('a DO block is one statement and stays unsafe', () => {
+    const results = classifySqlStatements('DO $$\nBEGIN\n  DELETE FROM notes;\nEND\n$$;')
+    expect(results).toHaveLength(1)
+    expect(results[0].phase).toBe('contract')
+    expect(results[0].reason).toBe('unrecognized statement — classified unsafe conservatively')
+  })
+
+  // A naive `$...$` match would read `$1 + $` as a dollar-quote tag and swallow
+  // everything after it.
+  it('$1 is a parameter, not a dollar quote', () => {
+    const sql = 'CREATE FUNCTION add_up(int, int) RETURNS int LANGUAGE sql RETURN $1 + $2;\nDROP TABLE notes;'
+    expect(classifySqlStatements(sql).map((r) => r.phase)).toEqual(['expand', 'contract'])
+  })
+
+  it('block comments nest', () => {
+    const sql = '/* outer /* inner */ still a comment; DROP TABLE notes; */ CREATE TABLE a (id int);'
+    expect(splitStatements(sql)).toEqual(['CREATE TABLE a (id int)'])
+  })
+
+  it('a comment between statements belongs to neither', () => {
+    const sql = 'CREATE TABLE a (id int);\n/* between */\n-- and a line\nCREATE TABLE b (id int);'
+    expect(splitStatements(sql)).toEqual(['CREATE TABLE a (id int)', 'CREATE TABLE b (id int)'])
+  })
+
+  it('a breakpoint marker inside a string is not a boundary', () => {
+    const sql = 'COMMENT ON TABLE a IS \'--> statement-breakpoint\';'
+    expect(splitStatements(sql)).toEqual(['COMMENT ON TABLE a IS \'--> statement-breakpoint\''])
+  })
 })
 
 describe('classifySqlStatements — EXPAND (safe) rules', () => {
@@ -70,8 +137,6 @@ describe('classifySqlStatements — EXPAND (safe) rules', () => {
     'CREATE VIEW active_users AS SELECT * FROM users',
     'CREATE MATERIALIZED VIEW mv AS SELECT * FROM users',
     'CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql',
-    'CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql',
-    'CREATE TRIGGER t BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()',
     'CREATE POLICY p ON users USING (true)',
     'CREATE SCHEMA billing'
   ])('CREATE ... is expand: %s', (sql) => {
@@ -156,6 +221,48 @@ describe('classifySqlStatements — CONTRACT (unsafe) rules', () => {
     expect(r.phase).toBe('contract')
   })
 
+  // A trigger can enforce a rule the old image breaks (one that raises on a
+  // NULL is a NOT NULL constraint in another form), and it outlives a rollback.
+  it.each([
+    ['CREATE TRIGGER', 'CREATE TRIGGER t BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()'],
+    ['CREATE CONSTRAINT TRIGGER', 'CREATE CONSTRAINT TRIGGER t AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()'],
+    ['CREATE OR REPLACE TRIGGER', 'CREATE OR REPLACE TRIGGER t BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()']
+  ])('%s is contract', (_label, sql) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'contract', reason: 'creates a trigger; it would still fire after a rollback' })
+  })
+
+  // OR REPLACE swaps out a definition that may already exist; the old one is gone.
+  it.each([
+    ['FUNCTION', 'CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql'],
+    ['PROCEDURE', 'CREATE OR REPLACE PROCEDURE p() LANGUAGE sql AS $$ SELECT 1 $$'],
+    ['VIEW', 'CREATE OR REPLACE VIEW active_users AS SELECT * FROM users'],
+    ['RULE', 'CREATE OR REPLACE RULE r AS ON INSERT TO users DO INSTEAD NOTHING']
+  ])('CREATE OR REPLACE %s is contract', (_label, sql) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'contract', reason: 'replaces a definition (OR REPLACE); a rollback would not restore the old one' })
+  })
+
+  it('a trigger whose function raises on a NULL is unsafe end to end', () => {
+    const path = 'migrations/0005_require_note_owner.sql'
+    const content = [
+      'CREATE FUNCTION notes_require_owner() RETURNS trigger AS $$',
+      'BEGIN',
+      '  IF NEW.owner_id IS NULL THEN',
+      '    RAISE EXCEPTION \'owner_id is required; set it before saving\';',
+      '  END IF;',
+      '  RETURN NEW;',
+      'END;',
+      '$$ LANGUAGE plpgsql;',
+      '',
+      'CREATE TRIGGER notes_require_owner BEFORE INSERT OR UPDATE ON notes',
+      '  FOR EACH ROW EXECUTE FUNCTION notes_require_owner();',
+      ''
+    ].join('\n')
+    expect(classifyMigrationFiles([{ path, status: 'added', content }])).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: creates a trigger; it would still fire after a rollback`]
+    })
+  })
+
   it.each([
     ['TRUNCATE', 'TRUNCATE users'],
     ['UPDATE', 'UPDATE users SET status = \'active\''],
@@ -190,6 +297,270 @@ describe('classifySqlStatements — precedence & case-insensitivity', () => {
     const sql = 'CREATE TABLE a (id int);\n--> statement-breakpoint\nDROP TABLE b;'
     const results = classifySqlStatements(sql)
     expect(results.map((r) => r.phase)).toEqual(['expand', 'contract'])
+  })
+})
+
+// The rules read a masked copy of each statement with every literal emptied, so
+// words inside a string or a quoted name can neither trigger nor dodge a rule.
+describe('classifySqlStatements reads the statement, not its literals', () => {
+  it('a comment that mentions a destructive change is still a comment', () => {
+    expect(one('COMMENT ON COLUMN notes.body IS \'DROP COLUMN body is planned, then TRUNCATE\'').phase).toBe('expand')
+  })
+
+  it('a string saying DEFAULT does not make a required column look defaulted', () => {
+    const r = one('ALTER TABLE notes ADD COLUMN label text NOT NULL CHECK (label <> \'DEFAULT\')')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('adds a required column; a rollback would still enforce it')
+  })
+
+  it('neither does a quoted column named "default"', () => {
+    const r = one('ALTER TABLE notes ADD COLUMN "default" int NOT NULL')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('adds a required column; a rollback would still enforce it')
+  })
+
+  it('a default value that reads like a second action is one action', () => {
+    expect(one('ALTER TABLE notes ADD COLUMN body text DEFAULT \'x, DROP COLUMN y\'').phase).toBe('expand')
+  })
+
+  it('the reported statement keeps its literals', () => {
+    expect(one('COMMENT ON TABLE notes IS \'a; b\'').statement).toBe('COMMENT ON TABLE notes IS \'a; b\'')
+  })
+})
+
+describe('classifySqlStatements on session settings and transaction control', () => {
+  it.each([
+    'SET LOCAL lock_timeout = \'5s\'',
+    'SET statement_timeout = 0',
+    'SET search_path TO app, public',
+    'SET SESSION lock_timeout TO \'1s\'',
+    'RESET lock_timeout',
+    'RESET ALL',
+    'set local lock_timeout = \'5s\''
+  ])('%s is expand', (sql) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'expand', reason: 'changes a session setting (no schema change)' })
+  })
+
+  it('ALTER TABLE ... SET is not a session setting', () => {
+    expect(one('ALTER TABLE notes ALTER COLUMN body SET NOT NULL').reason)
+      .toBe('tightens a column to NOT NULL; a rollback would still enforce it')
+    expect(one('ALTER TABLE notes SET SCHEMA archive').reason)
+      .toBe('unrecognized statement — classified unsafe conservatively')
+  })
+
+  it.each([
+    'BEGIN',
+    'BEGIN WORK',
+    'BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED',
+    'START TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+    'START TRANSACTION READ WRITE, NOT DEFERRABLE',
+    'COMMIT',
+    'COMMIT WORK',
+    'COMMIT AND NO CHAIN',
+    'END',
+    'END TRANSACTION',
+    'commit'
+  ])('%s is expand', (sql) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'expand', reason: 'transaction control (no schema change)' })
+  })
+
+  // Only a statement that is NOTHING but transaction control counts. ROLLBACK,
+  // SAVEPOINT, SELECT and DO are left to the conservative default on purpose.
+  it.each([
+    ['a BEGIN that runs on into other SQL', 'BEGIN UPDATE notes SET body = \'x\''],
+    ['END IF', 'END IF'],
+    ['ROLLBACK', 'ROLLBACK'],
+    ['SAVEPOINT', 'SAVEPOINT before_backfill'],
+    ['SELECT', 'SELECT purge_old_notes()'],
+    ['DO', 'DO $$ BEGIN PERFORM 1; END $$']
+  ])('%s is not transaction control', (_label, sql) => {
+    const r = one(sql)
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('unrecognized statement — classified unsafe conservatively')
+  })
+
+  it('a migration wrapped in BEGIN / COMMIT is judged on what it wraps', () => {
+    const path = 'migrations/0003_wrapped.sql'
+    const wrap = (body) => `BEGIN;\nSET LOCAL lock_timeout = '5s';\n${body}\nCOMMIT;\n`
+    expect(classifyMigrationFiles([{ path, status: 'added', content: wrap('ALTER TABLE notes ADD COLUMN pinned boolean;') }]))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+    expect(classifyMigrationFiles([{ path, status: 'added', content: wrap('ALTER TABLE notes DROP COLUMN body;') }]))
+      .toEqual({ verdict: 'unsafe', reasons: [`${path}: drops a column; a rollback would not restore it`] })
+  })
+})
+
+// The rules each read a whole statement, so in a multi-action ALTER TABLE the
+// first rule to match used to speak for every action. Each action is now
+// classified on its own and the unsafe one gives the reason.
+describe('classifySqlStatements on a multi-action ALTER TABLE', () => {
+  it.each([
+    ['ADD COLUMN then DROP COLUMN', 'ALTER TABLE t ADD COLUMN a int, DROP COLUMN b', 'drops a column; a rollback would not restore it'],
+    ['a defaulted then a required ADD COLUMN', 'ALTER TABLE t ADD COLUMN a int NOT NULL DEFAULT 0, ADD COLUMN b int NOT NULL', 'adds a required column; a rollback would still enforce it'],
+    ['ADD COLUMN then ADD CONSTRAINT', 'ALTER TABLE t ADD COLUMN a jsonb, ADD CONSTRAINT c CHECK (a IS NULL)', 'adds a constraint; a rollback would still enforce it'],
+    ['ADD COLUMN then SET NOT NULL', 'ALTER TABLE t ADD COLUMN a int, ALTER COLUMN b SET NOT NULL', 'tightens a column to NOT NULL; a rollback would still enforce it'],
+    ['ADD COLUMN then an action no rule knows', 'ALTER TABLE t ADD COLUMN a int, ENABLE ROW LEVEL SECURITY', 'unrecognized statement — classified unsafe conservatively'],
+    ['IF EXISTS ONLY with a quoted, qualified name', 'ALTER TABLE IF EXISTS ONLY "app"."orders" ADD COLUMN a int, DROP COLUMN b', 'drops a column; a rollback would not restore it'],
+    ['ONLY (name)', 'ALTER TABLE ONLY (orders) ADD COLUMN a int, DROP COLUMN b', 'drops a column; a rollback would not restore it'],
+    ['name *', 'ALTER TABLE orders * ADD COLUMN a int, DROP COLUMN b', 'drops a column; a rollback would not restore it']
+  ])('%s is unsafe, for the action that is', (_label, sql, reason) => {
+    expect(one(sql)).toEqual({ statement: sql, phase: 'contract', reason })
+  })
+
+  it('only additive actions stay safe', () => {
+    const r = one('ALTER TABLE t ADD COLUMN a int, ADD COLUMN b text NOT NULL DEFAULT \'\', ALTER COLUMN c SET DEFAULT 0, DROP CONSTRAINT d')
+    expect(r.phase).toBe('expand')
+    expect(r.reason).toBe('adds a column (additive; nullable or defaulted)')
+  })
+
+  it('commas inside parentheses and brackets do not split actions', () => {
+    const sql = 'ALTER TABLE orders ADD COLUMN total numeric(10, 2), ' +
+      'ADD COLUMN size text CHECK (size IN (\'s\', \'m\')), ' +
+      'ADD COLUMN tags text[] DEFAULT ARRAY[\'a\', \'b\']'
+    expect(one(sql).phase).toBe('expand')
+  })
+
+  it('a rename still wins over the per-action split', () => {
+    expect(one('ALTER TABLE t ADD COLUMN c int, RENAME COLUMN a TO b').reason)
+      .toBe('renames an object; a rollback would not restore the old name')
+  })
+
+  it('ADD CONSTRAINT on its own stays unsafe', () => {
+    expect(one('ALTER TABLE t ADD CONSTRAINT c CHECK (a IS NULL)')).toEqual({
+      statement: 'ALTER TABLE t ADD CONSTRAINT c CHECK (a IS NULL)',
+      phase: 'contract',
+      reason: 'adds a constraint; a rollback would still enforce it'
+    })
+  })
+})
+
+// A quote-aware splitter that misjudges where a string ends could swallow a
+// real statement into a "string". When it cannot be sure, the file is reported
+// once, with why, and nothing in it is classified.
+describe('classifySqlStatements on SQL that cannot be split reliably', () => {
+  const UNTERMINATED = 'could not split the SQL into statements (unterminated quote or comment)'
+  const BACKSLASH = 'could not split the SQL into statements reliably (a quote follows a backslash, so it may use backslash escapes)'
+  const path = 'migrations/0004_x.sql'
+  const verdict = (content) => classifyMigrationFiles([{ path, status: 'added', content }])
+
+  it.each([
+    ['string', 'CREATE TABLE a (id int);\nCOMMENT ON TABLE a IS \'never closed;\nDROP TABLE b;'],
+    ['E\'...\' string', 'INSERT INTO a (body) VALUES (E\'never closed\\\');'],
+    ['quoted name', 'CREATE TABLE "never closed (id int);'],
+    ['$$ body', 'CREATE FUNCTION f() RETURNS int AS $$ SELECT 1;'],
+    ['$tag$ body', 'CREATE FUNCTION f() RETURNS int AS $fn$ SELECT 1 $$;'],
+    ['block comment', 'CREATE TABLE a (id int); /* never closed /* nested */ DROP TABLE b;']
+  ])('an unterminated %s makes the file unsafe', (_label, sql) => {
+    expect(verdict(sql)).toEqual({ verdict: 'unsafe', reasons: [`${path}: ${UNTERMINATED}`] })
+  })
+
+  it('the could-not-split result is the only one for the file', () => {
+    const results = classifySqlStatements('CREATE TABLE a (id int);\nCOMMENT ON TABLE a IS \'never closed;')
+    expect(results).toEqual([{ statement: 'COMMENT ON TABLE a IS \'never closed;', phase: 'contract', reason: UNTERMINATED }])
+  })
+
+  it('a quote right after a backslash makes the file unsafe', () => {
+    expect(verdict('INSERT INTO notes (body) VALUES (\'C:\\\');')).toEqual({ verdict: 'unsafe', reasons: [`${path}: ${BACKSLASH}`] })
+  })
+
+  // In MySQL-style SQL `\'` is an escaped quote. Read as Postgres, the string
+  // ends early and the DROP below lands inside the next "string".
+  it.each([
+    ['before the closing quote', 'INSERT INTO notes (body) VALUES (\'it\\\'s\'); DROP TABLE notes; INSERT INTO notes (body) VALUES (\'ok\');'],
+    ['before a doubled quote', 'INSERT INTO notes (body) VALUES (\'a\\\'\'\'); DROP TABLE notes; INSERT INTO notes (body) VALUES (\'b\\\'\'\');'],
+    ['in a quoted name', 'INSERT INTO notes (body) VALUES ("it\\"s"); DROP TABLE notes; INSERT INTO notes (body) VALUES ("ok");']
+  ])('a backslash %s cannot hide a statement', (_label, sql) => {
+    expect(verdict(sql)).toEqual({ verdict: 'unsafe', reasons: [`${path}: ${BACKSLASH}`] })
+  })
+
+  it('an E\'...\' string may escape a quote with a backslash', () => {
+    expect(verdict('INSERT INTO notes (body) VALUES (E\'it\\\'s\');')).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a backslash anywhere else in a string is fine', () => {
+    const sql = 'ALTER TABLE notes ADD COLUMN code text CHECK (code ~ \'^\\d+$\');\n' +
+      'COMMENT ON COLUMN notes.code IS \'Stored under C:\\notes\\codes\';'
+    expect(verdict(sql)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  // A Postgres lexer reads the apostrophe after a backtick or a MySQL `#`
+  // comment as the start of a string, and the DROP between two of them would
+  // vanish into it.
+  const MYSQL = 'could not split the SQL into statements reliably (it uses MySQL-style syntax: a backtick, a # comment or a /*! comment)'
+  it.each([
+    ['a # comment', [
+      'CREATE TABLE people (',
+      '  name text # the user\'s name',
+      ');',
+      'DROP TABLE sessions;',
+      'CREATE TABLE bios (',
+      '  bio text # the user\'s bio',
+      ');'
+    ].join('\n')],
+    ['backtick-quoted names', 'CREATE TABLE `user\'s` (id int); DROP TABLE sessions; CREATE TABLE `owner\'s` (id int);'],
+    ['a /*! comment', '/*!40101 SET NAMES utf8 */;\nCREATE TABLE a (id int);']
+  ])('SQL with %s makes the file unsafe', (_label, sql) => {
+    expect(verdict(sql)).toEqual({ verdict: 'unsafe', reasons: [`${path}: ${MYSQL}`] })
+  })
+
+  it('the jsonb operators #>, #>> and #- are not MySQL comments', () => {
+    const sql = 'CREATE INDEX events_city_idx ON example_events ((payload #>> \'{address,city}\'));\n' +
+      'CREATE INDEX events_geo_idx ON example_events ((payload #> \'{geo}\'));\n' +
+      'CREATE VIEW events_public AS SELECT payload #- \'{secret}\' AS payload FROM example_events;'
+    expect(verdict(sql)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  // After a number, `$` starts a dollar quote as it does in Postgres. Read as
+  // part of a name, it would leave the `'` inside the quote to open a "string"
+  // that swallows the DROP.
+  it('a dollar quote right after a number is still a dollar quote', () => {
+    const results = classifySqlStatements('SET x = 1$a$ \' $a$; DROP TABLE users; --\'')
+    expect(results.map((r) => r.reason)).toEqual([
+      'changes a session setting (no schema change)',
+      'drops a table; a rollback would not restore it'
+    ])
+  })
+
+  it('a $ inside a name is part of the name', () => {
+    expect(splitStatements('ALTER TABLE notes ADD COLUMN price$usd numeric; ALTER TABLE notes ADD COLUMN a$b$c int;')).toEqual([
+      'ALTER TABLE notes ADD COLUMN price$usd numeric',
+      'ALTER TABLE notes ADD COLUMN a$b$c int'
+    ])
+  })
+})
+
+describe('classifyMigrationFiles on plain CREATE versus OR REPLACE and triggers', () => {
+  const path = 'migrations/0006_x.sql'
+  const verdict = (content) => classifyMigrationFiles([{ path, status: 'added', content }])
+
+  it('a new plpgsql function is safe, semicolons and all', () => {
+    const sql = [
+      'CREATE FUNCTION touch_updated_at() RETURNS trigger AS $$',
+      'BEGIN',
+      '  NEW.updated_at := now();',
+      '  RETURN NEW;',
+      'END;',
+      '$$ LANGUAGE plpgsql;'
+    ].join('\n')
+    expect(verdict(sql)).toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a new view is safe', () => {
+    expect(verdict('CREATE VIEW open_orders AS SELECT * FROM orders WHERE closed_at IS NULL;'))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('replacing a view is unsafe', () => {
+    expect(verdict('CREATE OR REPLACE VIEW open_orders AS SELECT * FROM orders WHERE closed_at IS NULL;')).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: replaces a definition (OR REPLACE); a rollback would not restore the old one`]
+    })
+  })
+
+  it('a trigger on its own is unsafe', () => {
+    expect(verdict('CREATE TRIGGER orders_touch BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION touch_updated_at();')).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: creates a trigger; it would still fire after a rollback`]
+    })
   })
 })
 
@@ -886,6 +1257,74 @@ describe('classifyRubyMigration — execute() raw SQL', () => {
     expect(r.phase).toBe('contract')
     expect(r.reason).toBe('`execute` builds raw SQL that cannot be classified')
   })
+
+  it('a `;` inside a SQL string in the literal does not split the SQL', () => {
+    const r = rb('execute "COMMENT ON TABLE notes IS \'drafts; and finals\'"')
+    expect(r.phase).toBe('expand')
+    expect(r.reason).toBe('`execute` raw SQL — sets a comment (metadata only)')
+  })
+
+  it('a destructive statement after such a string is still reported', () => {
+    const r = rb('execute "COMMENT ON TABLE notes IS \'a; b\'; DROP TABLE drafts"')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('`execute` raw SQL — drops a table; a rollback would not restore it')
+  })
+
+  it('SQL that cannot be split is contract, with why', () => {
+    const r = rb('execute "COMMENT ON TABLE notes IS \'never closed"')
+    expect(r.phase).toBe('contract')
+    expect(r.reason).toBe('`execute` raw SQL — could not split the SQL into statements (unterminated quote or comment)')
+  })
+
+  // The SQL is classified as Ruby hands it to the database, not as written in
+  // the source. Read from the source, each of these hides the DROP.
+  it.each([
+    // `\\\\` is two backslashes, which close the E'...' string.
+    ['an escaped backslash', String.raw`execute "COMMENT ON COLUMN notes.body IS E'ends in \\\\'; ALTER TABLE notes DROP COLUMN legacy -- don't"`],
+    // `\n` is a line break, which ends the `--` comment.
+    ['a \\n line break', String.raw`execute "SET LOCAL lock_timeout = '5s'; -- wait\nALTER TABLE notes DROP COLUMN legacy"`]
+  ])('%s in a double-quoted literal is read as Ruby reads it', (_label, body) => {
+    expect(rb(body)).toMatchObject({ phase: 'contract', reason: '`execute` raw SQL — drops a column; a rollback would not restore it' })
+  })
+
+  it('an unescaped literal can still be safe', () => {
+    const r = rb(String.raw`execute "CREATE INDEX notes_body_idx ON notes (body);\nCOMMENT ON COLUMN notes.body IS 'x; y'"`)
+    expect(r).toMatchObject({ phase: 'expand', reason: '`execute` raw SQL — creates a new database object (additive)' })
+  })
+
+  it.each([
+    ['\\0', String.raw`execute "COMMENT ON TABLE notes IS 'a\0b'"`],
+    ['octal', String.raw`execute "COMMENT ON TABLE notes IS 'a\101b'"`],
+    ['\\x', String.raw`execute "COMMENT ON TABLE notes IS 'a\x41b'"`],
+    ['\\u', String.raw`execute "COMMENT ON TABLE notes IS 'a\u0041b'"`],
+    ['\\e', String.raw`execute "COMMENT ON TABLE notes IS 'a\eb'"`],
+    ['\\M-', String.raw`execute "COMMENT ON TABLE notes IS 'a\M-ab'"`],
+    ['\\C-', String.raw`execute "COMMENT ON TABLE notes IS 'a\C-ab'"`],
+    ['an unknown escape', String.raw`execute "CREATE INDEX notes_code_idx ON notes (code) WHERE code ~ '^\d+$'"`]
+  ])('a double-quoted literal with a %s escape is contract', (_label, body) => {
+    expect(rb(body)).toMatchObject({ phase: 'contract', reason: '`execute` raw SQL uses a string escape that cannot be classified' })
+  })
+
+  // In a single-quoted Ruby literal only `\\` and `\'` are escapes; every other
+  // backslash reaches the database as written.
+  it('a single-quoted literal keeps other backslashes as they are', () => {
+    const r = rb(String.raw`execute 'CREATE INDEX notes_code_idx ON notes (code) WHERE code ~ \'^\d+$\''`)
+    expect(r).toMatchObject({ phase: 'expand', reason: '`execute` raw SQL — creates a new database object (additive)' })
+  })
+
+  // So `\n` there is two characters, and the `--` comment runs on to the end of
+  // the string: Postgres never sees the DROP as a statement.
+  it('a \\n in a single-quoted literal is not a line break', () => {
+    const r = rb(String.raw`execute 'SET LOCAL lock_timeout = \'5s\'; -- wait\nALTER TABLE notes DROP COLUMN legacy'`)
+    expect(r).toMatchObject({ phase: 'expand', reason: '`execute` raw SQL — changes a session setting (no schema change)' })
+  })
+
+  it('a long run of backslashes with no closing quote finishes quickly', () => {
+    const start = Date.now()
+    const r = rb(`execute "${'\\\\'.repeat(40)}`)
+    expect(Date.now() - start).toBeLessThan(1000)
+    expect(r).toMatchObject({ phase: 'contract', reason: '`execute` runs raw SQL that cannot be classified' })
+  })
 })
 
 // strong_migrations answers a DIFFERENT question (lock safety while the
@@ -971,6 +1410,81 @@ describe('classifyMigrationFiles', () => {
     expect(reasons).toHaveLength(3)
     expect(reasons.filter((r) => r.startsWith('drizzle/0002_bad.sql:'))).toHaveLength(2)
     expect(reasons.some((r) => r.startsWith('drizzle/0000_init.sql:'))).toBe(true)
+  })
+})
+
+// Two hand-written Postgres migrations in the shape that used to be misread:
+// they open with SET LOCAL lock_timeout, add columns in one multi-line ALTER
+// TABLE, and document them with COMMENT ON COLUMN text full of quotes.
+describe('classifyMigrationFiles on hand-written Postgres migrations', () => {
+  const added = (path, content) => ({ path, status: 'added', content })
+
+  const WIDGET_SYNC = [
+    '-- Track when each widget last synced, so the sync job can pick up where it',
+    '-- left off. Every new column is nullable or has a default.',
+    '',
+    'SET LOCAL lock_timeout = \'5s\';',
+    '',
+    'ALTER TABLE widgets',
+    '  ADD COLUMN last_synced_at timestamptz,',
+    '  ADD COLUMN sync_cursor bigint,',
+    '  ADD COLUMN sync_started_at timestamptz,',
+    '  ADD COLUMN sync_failures smallint NOT NULL DEFAULT 0,',
+    '  ADD COLUMN sync_paused_until timestamptz;',
+    '',
+    'COMMENT ON COLUMN widgets.last_synced_at IS \'When the widget\'\'s last sync finished.\';',
+    'COMMENT ON COLUMN widgets.sync_cursor IS \'The widget\'\'s position in the upstream feed.\';',
+    'COMMENT ON COLUMN widgets.sync_started_at IS \'When the current sync began, or null if one isn\'\'t running.\';',
+    'COMMENT ON COLUMN widgets.sync_failures IS \'Failed syncs in a row, reset after one that doesn\'\'t fail.\';',
+    'COMMENT ON COLUMN widgets.sync_paused_until IS \'Don\'\'t sync this widget again before this time.\';',
+    '',
+    'CREATE INDEX widgets_sync_due_idx',
+    '  ON widgets (sync_paused_until)',
+    '  WHERE sync_started_at IS NULL',
+    '    AND (last_synced_at IS NULL OR sync_failures > 0);',
+    '',
+    'CREATE TABLE widget_sync_runs (',
+    '  widget_id bigint NOT NULL,',
+    '  outcome text NOT NULL CHECK (outcome IN (\'finished\', \'failed\')),',
+    '  started_at timestamptz NOT NULL DEFAULT now(),',
+    '  PRIMARY KEY (widget_id, started_at)',
+    ');',
+    '',
+    'CREATE INDEX widget_sync_runs_outcome_idx ON widget_sync_runs (outcome, started_at);',
+    '',
+    'COMMENT ON COLUMN widget_sync_runs.outcome IS \'Either \'\'finished\'\' or \'\'failed\'\'.\';',
+    'COMMENT ON COLUMN widget_sync_runs.started_at IS \'When the run began, by the widget\'\'s clock.\';',
+    ''
+  ].join('\n')
+
+  const ORDER_DELIVERY_PREFS = [
+    '-- Let an order carry optional delivery preferences as a JSON object.',
+    '',
+    'SET LOCAL lock_timeout = \'5s\';',
+    '',
+    'ALTER TABLE orders ADD COLUMN delivery_prefs jsonb, ADD CONSTRAINT orders_delivery_prefs_is_object CHECK (delivery_prefs IS NULL OR jsonb_typeof(delivery_prefs) = \'object\');',
+    '',
+    'COMMENT ON COLUMN orders.delivery_prefs IS \'The customer\'\'s delivery preferences. Carrier names are stored in lowercase; or, for a carrier we don\'\'t list, exactly as typed.\';',
+    'COMMENT ON COLUMN orders.delivery_window IS \'Allowed keys: {"start", "end"} (both optional, both local times).\';',
+    'COMMENT ON COLUMN orders.placed_at IS \'When the order was placed.\';',
+    ''
+  ].join('\n')
+
+  it('an additive migration with quoted comments is safe', () => {
+    const results = classifySqlStatements(WIDGET_SYNC)
+    // SET, ALTER, 5 comments, index, table, index, 2 comments: no fragments.
+    expect(results).toHaveLength(12)
+    expect(results.every((r) => r.phase === 'expand')).toBe(true)
+    expect(classifyMigrationFiles([added('migrations/0007_widget_sync.sql', WIDGET_SYNC)]))
+      .toEqual({ verdict: 'safe', reasons: ['1 additive migration'] })
+  })
+
+  it('a column added alongside a constraint is unsafe for the constraint alone', () => {
+    const path = 'migrations/0008_order_delivery_prefs.sql'
+    expect(classifyMigrationFiles([added(path, ORDER_DELIVERY_PREFS)])).toEqual({
+      verdict: 'unsafe',
+      reasons: [`${path}: adds a constraint; a rollback would still enforce it`]
+    })
   })
 })
 
