@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.2](https://github.com/CruGlobal/.github/compare/v2.14.1...v2.14.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* **v2:** read SET, quoted semicolons and multi-action ALTER TABLE correctly in rollback-safety ([#543](https://github.com/CruGlobal/.github/issues/543)) ([184a1fc](https://github.com/CruGlobal/.github/commit/184a1fc443a6ab117e3dd9a7c5104b5283c8e9d3))
+
 ## [2.14.1](https://github.com/CruGlobal/.github/compare/v2.14.0...v2.14.1) (2026-10-22)
 
 
