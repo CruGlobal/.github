@@ -2,7 +2,7 @@ import * as core from "@actions/core";
 import {SecretManagerServiceClient} from "@google-cloud/secret-manager";
 import {v2} from "@google-cloud/run"
 import {PARAM_TYPES} from "./ecs-config";
-import {isAborted, retryTransient} from "./grpc-retry";
+import {isAborted, readFailedForGood, retryTransient} from "./grpc-retry";
 
 const {ServicesClient, JobsClient, ExecutionsClient, RevisionsClient} = v2
 
@@ -63,6 +63,144 @@ function operationOptions(waitUntil) {
     return {longrunning: {...OPERATION_BACKOFF, totalTimeoutMillis: Math.max(1, waitUntil - Date.now())}}
 }
 
+// How long the reads of an operation may keep failing, one after another,
+// before the wait gives up on them. Long enough to outlast the outages of the
+// operations endpoint that have failed deploys, which ran for minutes, and
+// short enough that a wait nothing else bounds still ends. A caller with a
+// better source to turn to passes less (src/v2/cloudrun-rollout.js).
+export const OPERATION_READ_OUTAGE_MS = 10 * 60 * 1000
+
+// After the first failed read of a run, how often the run is logged.
+const READ_FAILURE_LOG_INTERVAL_MS = 60 * 1000
+
+const describeSpan = ms => ms >= 2 * 60 * 1000 ? `${Math.round(ms / 60000)} minutes` : `${Math.round(ms / 1000)}s`
+
+// The operation was accepted and then could not be read for minutes on end,
+// so what it did is unknown. Never replayed (see mutate): a replay would only
+// start the same wait over, and for a job it could run a migration twice.
+export class OperationUnreadable extends Error {
+    constructor(label, operationName, outageMs, cause) {
+        super(
+            `${label}: could not read ${operationName} for ${describeSpan(outageMs)} ` +
+            `(${cause?.message}). It may still have finished; check it before running this again.`
+        )
+        this.name = "OperationUnreadable"
+        this.cause = cause
+    }
+}
+
+// A failed WAIT is not a failed operation. gax polls an operation with the call
+// settings of the RPC that started it, and RunJob, UpdateService and UpdateJob
+// are classified non_idempotent, so every poll (a GetOperation, which is a pure
+// read) inherits that RPC's per-call timeout and no retry at all. One
+// UNAVAILABLE from one poll fails the wait while the operation may still be
+// running: deploys have failed that way with the migration already finished
+// and the new revision already serving.
+//
+// So a wait that fails without an answer is followed by reading the SAME
+// operation again until it is done, and the operation's own answer stands.
+// Nothing is sent again: the job is not re-run and the update is not replayed.
+//
+// Not by calling operation.promise() a second time: gax keeps the failed
+// promise's listeners, so a second promise() never starts polling and waits
+// forever.
+//
+// What passes straight through, unchanged: an answer from the operation itself,
+// which gax marks by setting latestResponse.done before it reports the
+// operation's error; the readiness deadline, whatever code it carries (see
+// mutate); a failure no later read can change (readFailedForGood); and a wait
+// that has run past `waitUntil`, which mutate turns into OperationWaitExpired.
+//
+// `pollMs`, when given, is a fixed interval between reads. Left out, the reads
+// back off the way OPERATION_BACKOFF has gax poll. `readOutageMs` and
+// `lookElsewhere`: see rereadOperation.
+async function awaitOperation(label, operation, options = {}) {
+    const {waitUntil} = options
+    try {
+        return await operation.promise()
+    } catch (error) {
+        if (operation.latestResponse?.done || isReadinessDeadline(error) || readFailedForGood(error)) throw error
+        if (waitUntil !== undefined && Date.now() >= waitUntil) throw error
+        core.warning(
+            `${label}: lost the wait on ${operation.name} (${error.message}). The operation may still be ` +
+            "running, so this reads it again instead, and sends nothing again."
+        )
+        return rereadOperation(label, operation, {...options, failure: error})
+    }
+}
+
+// One read per pass, and a read that fails without an answer is a look that
+// saw nothing: the next pass is its retry, the same way the rollout's own
+// reads work (src/v2/cloudrun-rollout.js). So the wait outlasts an outage of
+// the operations endpoint, until `waitUntil` when the caller set one, or
+// `readOutageMs` of failed reads in a row, whichever comes first; the second
+// ends in OperationUnreadable. A pass that hangs runs past either bound by at
+// most its read's per-call timeout, plus that of `lookElsewhere`'s call.
+//
+// `lookElsewhere`, when given, is asked after each failed read for the answer
+// from another source, in the shape the operation would give, or null for
+// "not finished, or cannot tell". It is advice only: when it fails, the
+// operation is read again as if it had not been asked.
+async function rereadOperation(label, operation, options) {
+    const {waitUntil, pollMs, readOutageMs = OPERATION_READ_OUTAGE_MS, lookElsewhere} = options
+    let failure = options.failure
+    let delay = pollMs ?? OPERATION_BACKOFF.initialRetryDelayMillis
+    let failingSince = Date.now()
+    // awaitOperation's warning was the log line for the first failure.
+    let loggedAt = Date.now()
+    for (;;) {
+        if (waitUntil !== undefined && Date.now() >= waitUntil) {
+            throw failure ?? new Error(`${operation.name} was still running at the last read`)
+        }
+        if (failure && Date.now() - failingSince >= readOutageMs) {
+            throw new OperationUnreadable(label, operation.name, readOutageMs, failure)
+        }
+
+        try {
+            const [result, metadata, latest] = await operation.getOperation()
+            // The same shape operation.promise() resolves to, including its `{}`
+            // for an operation that finished without a response.
+            if (latest?.done) return [result ?? {}, metadata, latest]
+            if (failure) {
+                core.info(`${label}: read ${operation.name} again after ${describeSpan(Date.now() - failingSince)}; it is still running.`)
+            }
+            failure = null
+        } catch (error) {
+            if (operation.latestResponse?.done || readFailedForGood(error)) throw error
+            if (!failure) {
+                failingSince = Date.now()
+                loggedAt = -Infinity
+            }
+            failure = error
+            if (Date.now() - loggedAt >= READ_FAILURE_LOG_INTERVAL_MS) {
+                core.info(
+                    `${label}: could not read ${operation.name} for ${describeSpan(Date.now() - failingSince)} ` +
+                    `(${error.message}); still reading it.`
+                )
+                loggedAt = Date.now()
+            }
+        }
+
+        if (failure && lookElsewhere) {
+            let answer = null
+            try {
+                answer = await lookElsewhere()
+            } catch (error) {
+                core.debug(`${label}: looking elsewhere failed too (${error.message}).`)
+            }
+            if (answer) {
+                core.info(`${label}: ${operation.name} could not be read, so its answer is taken from what it waited on.`)
+                return answer
+            }
+        }
+
+        await sleep(waitUntil === undefined ? delay : Math.max(0, Math.min(delay, waitUntil - Date.now())))
+        if (pollMs === undefined) {
+            delay = Math.min(delay * OPERATION_BACKOFF.retryDelayMultiplier, OPERATION_BACKOFF.maxRetryDelayMillis)
+        }
+    }
+}
+
 // Run a Cloud Run mutation (the RPC plus the long-running operation it returns)
 // under the shared transient-gRPC retry. `request` is built ONCE by the caller
 // and closed over, so every replay sends byte-identical desired state — see
@@ -87,14 +225,23 @@ function operationOptions(waitUntil) {
 // classifies its code. The deadline's code 13 is not one it replays, so for
 // that one the hold only makes sure; but gax reports a wait that ran out as
 // DEADLINE_EXCEEDED, which it does replay.
-async function mutate(label, apply, {waitMs, onAccepted} = {}) {
+//
+// A blip in the wait itself is not replayed either: awaitOperation reads the
+// same operation again, until it answers or `waitMs` runs out. Reads that
+// keep failing for `readOutageMs` before that end in OperationUnreadable,
+// which is held the same way as the two above. So once Cloud Run has accepted the mutation,
+// what reaches the retry is the operation's own answer or a read that failed
+// for good, and the retry treats those as it always did.
+//
+// `readOutageMs` bounds a run of failed reads (see rereadOperation).
+async function mutate(label, apply, {waitMs, onAccepted, readOutageMs} = {}) {
     const waitUntil = waitMs === undefined ? undefined : Date.now() + waitMs
     let settled = null
     const response = await retryTransient(label, async attempt => {
         try {
             const [operation] = await apply(operationOptions(waitUntil))
             if (onAccepted) onAccepted(operation.metadata?.generation)
-            const [response] = await operation.promise()
+            const [response] = await awaitOperation(label, operation, {waitUntil, readOutageMs})
             return response
         } catch (error) {
             if (isReadinessDeadline(error)) {
@@ -103,6 +250,10 @@ async function mutate(label, apply, {waitMs, onAccepted} = {}) {
             }
             if (waitUntil !== undefined && Date.now() >= waitUntil) {
                 settled = new OperationWaitExpired(label, waitMs, error)
+                return null
+            }
+            if (error instanceof OperationUnreadable) {
+                settled = error
                 return null
             }
             // Cloud Run rejects an update that arrives while a previous update of
@@ -320,6 +471,15 @@ const conditionSummary = execution => (execution?.conditions ?? [])
 // NOT retried, and the job's own max_retries is fixed at 0 by the Terraform
 // module for the same reason: the only job a deploy executes is database
 // migrations, and a half-applied schema change must fail the deploy loudly.
+// A blip while WAITING on the run operation is different: awaitOperation reads
+// the operation again, which re-runs nothing, so the deploy hears how the
+// execution really ended instead of failing a migration that succeeded. While
+// those reads fail, the execution itself is looked at too: the operation's
+// answer IS the finished Execution, judged below by the same counts, so a
+// finished one (completion_time set, no longer reconciling) answers just as
+// well. Only reads that keep failing for `readOutageMs`
+// (OPERATION_READ_OUTAGE_MS) with no finished execution in sight end the wait,
+// as OperationUnreadable.
 //
 // What this does add is a deadline of OUR own on the execution starting. Cloud
 // Run will sit on an execution it cannot schedule for two hours before saying
@@ -329,7 +489,11 @@ const conditionSummary = execution => (execution?.conditions ?? [])
 // collide with whatever the operator runs next — and the deploy fails with the
 // execution named.
 export async function runJob(name, options = {}) {
-    const {startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS} = options
+    const {
+        startDeadlineMs = START_DEADLINE_MS,
+        pollIntervalMs = POLL_INTERVAL_MS,
+        readOutageMs = OPERATION_READ_OUTAGE_MS
+    } = options
     const jobs = new JobsClient()
     const [operation] = await jobs.runJob({name})
     const executionName = operation.metadata?.name
@@ -340,11 +504,28 @@ export async function runJob(name, options = {}) {
         await awaitStart(executionName, startDeadlineMs, pollIntervalMs)
     }
 
-    const [execution] = await operation.promise()
-    if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
-        throw new Error(`Job execution did not succeed: ${execution.name}`)
+    let executions = null
+    const finishedExecution = async () => {
+        if (executions === null) executions = new ExecutionsClient()
+        const [execution] = await executions.getExecution({name: executionName})
+        return execution?.completionTime && !execution.reconciling ? [execution] : null
     }
-    return execution
+    try {
+        const [execution] = await awaitOperation(`runJob ${executionName ?? name}`, operation, {
+            pollMs: pollIntervalMs,
+            readOutageMs,
+            lookElsewhere: executionName ? finishedExecution : undefined
+        })
+        if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
+            const reason = conditionSummary(execution)
+            throw new Error(`Job execution did not succeed: ${execution.name}${reason ? ` (${reason})` : ""}`)
+        }
+        return execution
+    } finally {
+        if (executions !== null) {
+            try { await executions.close() } catch { /* the deploy's outcome does not turn on closing a channel */ }
+        }
+    }
 }
 
 // Returns once a task has begun, or once the execution is terminal either way —
@@ -446,7 +627,8 @@ const ALL_TRAFFIC_TO_LATEST = [{type: "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", p
 // the same value back with a later traffic-only update (pinServiceTraffic), so
 // the template stays as it is. `waitMs` bounds the wait on the operation, and
 // `onAccepted` hears when the update was accepted and the generation it moved
-// the service to (see mutate).
+// the service to (see mutate). `readOutageMs` bounds a run of failed reads of
+// the operation (see rereadOperation); left out, OPERATION_READ_OUTAGE_MS.
 //
 // `trafficToLatest` also sends ALL traffic to the latest ready revision, with
 // "traffic" in the mask. The v2 deploy always asks for it; v1 does not, and
@@ -465,7 +647,7 @@ const ALL_TRAFFIC_TO_LATEST = [{type: "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", p
 // and gives it all the traffic. Never release a pin with LATEST alone: that
 // routes to the newest template, which after a stall is the stuck revision.
 export async function updateService(name, containers, options = {}) {
-    const {forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false} = options
+    const {forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false, readOutageMs} = options
     const client = new ServicesClient()
     const request = {
         service: {
@@ -482,7 +664,11 @@ export async function updateService(name, containers, options = {}) {
             paths: ["template.containers", "template.annotations", ...(trafficToLatest ? ["traffic"] : [])],
         }
     }
-    return mutate(`updateService ${name}`, callOptions => client.updateService(request, callOptions), {waitMs, onAccepted})
+    return mutate(
+        `updateService ${name}`,
+        callOptions => client.updateService(request, callOptions),
+        {waitMs, onAccepted, readOutageMs}
+    )
 }
 
 // Send all of a service's traffic to one revision by name, and create no

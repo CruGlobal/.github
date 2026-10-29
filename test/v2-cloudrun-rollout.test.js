@@ -135,6 +135,40 @@ describe('every update is checked against the service', () => {
     expect(infos()).toContainEqual(expect.stringMatching(/revision app-00002-abc is ready and serves all traffic, 30s after/))
   })
 
+  // The operations endpoint lost the wait while the update went on to serve.
+  // Before, the update was replayed until the attempts ran out, and pinned.
+  it('lands an update whose wait was lost on the wire, with one update sent and nothing pinned', async () => {
+    run.addService('app', containers(OLD))
+    run.plan('app', { lands: 30 * 1000, waitBlips: 1 })
+
+    await expect(deploy()).resolves.toEqual(NORMAL_RESULT)
+
+    expect(run.updates()).toHaveLength(1)
+    expect(run.pins()).toHaveLength(0)
+    expect(run.revisionCount('app')).toBe(2)
+  })
+
+  // The operations endpoint stays down while the service reads work. The
+  // rollout stops asking the operation after two minutes and asks the service,
+  // which shows the update landed. Before, it failed in seconds and pinned.
+  it('asks the service once the update\'s operation has gone unread for two minutes, and lands it', async () => {
+    // The re-read sleeps on a timer, so timers run on the faked clock too.
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setImmediate', 'clearImmediate'] })
+    vi.setSystemTime(STEP_STARTED_AT)
+    run.addService('app', containers(OLD))
+    run.plan('app', { lands: 30 * 1000, operationUnreadable: true })
+
+    let settled = null
+    deploy().then(value => { settled = { value } }, error => { settled = { error } })
+    for (let i = 0; i < 10 * 60 && !settled; i++) await vi.advanceTimersByTimeAsync(1000)
+
+    expect(settled).toEqual({ value: NORMAL_RESULT })
+    expect(run.updates()).toHaveLength(1)
+    expect(run.pins()).toHaveLength(0)
+    expect(elapsed()).toBeGreaterThanOrEqual(2 * MINUTE)
+    expect(elapsed()).toBeLessThan(4 * MINUTE)
+  })
+
   it('waits out trafficStatuses lagging the release of a pin, after an operation that succeeded', async () => {
     pinnedAfterAStall()
     run.plan('app', { lands: 10 * 1000 })

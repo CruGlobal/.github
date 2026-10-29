@@ -37,6 +37,11 @@
 //                                  failed with this message, done reconciling
 //   { lands, metadataGeneration: n } ... and the operation's metadata carries
 //                                  this generation (0: unset, as it decodes)
+//   { lands, waitBlips: n }        ... and the first n waits on the operation
+//                                  are lost on the wire (UNAVAILABLE) while it
+//                                  goes on, so the wait has to read it again
+//   { lands, operationUnreadable: true } ... and the operation can never be
+//                                  waited on or read: only the service tells
 //   { lands, supersededAfter: ms } ... and another update reaches the service
 //                                  ms after this one; the operation still
 //                                  succeeds, returning the newer service
@@ -292,8 +297,55 @@ export function fakeCloudRun ({ project = 'example-stage', statusLagMs = STATUS_
     addRevision(service, { readyAt: Date.now() + 30 * 1000, conditions: DEPLOYING })
   }
 
-  const accepted = (service, created, promise, generation = service.generation) =>
-    Promise.resolve([{ metadata: { name: service.name, generation: long(generation), latestCreatedRevision: created }, promise }])
+  // The update's long-running operation, shaped like gax's where the wait
+  // reads it: latestResponse.done is set once the operation has its own answer
+  // (gax's own bound on the wait is not one), and getOperation reads it again
+  // after a lost wait. The operation runs once, however it is read.
+  // `waitBlips` loses that many waits on the wire first, as an outage of the
+  // operations endpoint does, while the operation itself goes on. `unreadable`
+  // loses every wait and every read, while the revision still lands on its
+  // own clock.
+  function accepted (service, created, promise, generation = service.generation, { waitBlips = 0, unreadable = false } = {}) {
+    const op = {
+      name: `${service.name}/operations/${generation}`,
+      metadata: { name: service.name, generation: long(generation), latestCreatedRevision: created },
+      latestResponse: { done: false }
+    }
+    let outcome = null
+    const settle = () => {
+      if (!outcome) {
+        outcome = promise().then(
+          response => {
+            op.latestResponse = { done: true }
+            return { response }
+          },
+          error => {
+            if (!/Total timeout exceeded/.test(error.message)) op.latestResponse = { done: true }
+            return { error }
+          }
+        )
+      }
+      return outcome
+    }
+    const lost = () => Object.assign(new Error('14 UNAVAILABLE: The service is currently unavailable.'), { code: 14 })
+    op.promise = async () => {
+      if (unreadable) throw lost()
+      if (waitBlips > 0) {
+        waitBlips -= 1
+        throw lost()
+      }
+      const { response, error } = await settle()
+      if (error) throw error
+      return response
+    }
+    op.getOperation = async () => {
+      if (unreadable) throw lost()
+      const { response, error } = await settle()
+      if (error && op.latestResponse.done) throw error
+      return [error ? null : response[0], op.metadata, op.latestResponse]
+    }
+    return Promise.resolve([op])
+  }
 
   // An update without new containers: the pin.
   function trafficUpdate (service, request) {
@@ -355,7 +407,10 @@ export function fakeCloudRun ({ project = 'example-stage', statusLagMs = STATUS_
       service.replaying = true
       return Promise.reject(Object.assign(new Error('14 UNAVAILABLE: The service is currently unavailable.'), { code: 14 }))
     }
-    return accepted(service, created, () => operation(planned, service, options), planned.metadataGeneration)
+    return accepted(service, created, () => operation(planned, service, options), planned.metadataGeneration, {
+      waitBlips: planned.waitBlips,
+      unreadable: planned.operationUnreadable
+    })
   }
 
   function getService ({ name }) {

@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import {
+  OperationUnreadable,
   OperationWaitExpired,
   cloudrunGetRevision,
   cloudrunGetService,
@@ -7,7 +8,8 @@ import {
   pinServiceTraffic,
   updateService
 } from '../gcp'
-import { isTransientError } from '../grpc-retry'
+// Which read errors end a wait: see readFailedForGood there.
+import { readFailedForGood } from '../grpc-retry'
 import { TRAFFIC_REVISION, revisionPath, servingRevision, trafficShares } from './cloudrun-traffic'
 import { POLL_INTERVAL_MS, PROGRESS_INTERVAL_MS, formatDuration, progressLogger, rolloutBudget } from './rollout-budget'
 
@@ -56,6 +58,13 @@ import { POLL_INTERVAL_MS, PROGRESS_INTERVAL_MS, formatDuration, progressLogger,
 export const PIN_RESERVE_MS = 3 * 60 * 1000
 const PIN_WAIT_MS = 60 * 1000
 const MIN_PIN_WAIT_MS = 15 * 1000
+
+// How long an update's operation may go unread before the rollout stops
+// asking it and reads the service instead. The wait reads the operation again
+// through a blip (see ../gcp.js), but the service is a separate endpoint that
+// tells landed, failed for good, or still going just as well, so an outage of
+// the operations endpoint costs this much, not the rollout's whole budget.
+const OPERATION_READ_OUTAGE_MS = 2 * 60 * 1000
 
 // How often to look in the first minute after an update's operation reports.
 // A pin being released (and any other change to the traffic setting) takes up
@@ -107,29 +116,6 @@ const CONDITION_FAILED = 'CONDITION_FAILED'
 const CONDITION_SUCCEEDED = 'CONDITION_SUCCEEDED'
 
 const shortName = resource => resource.split('/').pop()
-
-// Which read errors end a wait. grpc-retry.js's isTransientError was written
-// for mutations, where only a clear blip is safe to replay, so it calls
-// INTERNAL, RESOURCE_EXHAUSTED and UNKNOWN (which grpc-js reports when a
-// credential refresh fails) permanent. A read changes nothing, and ending a
-// wait early is what lets a stuck revision go live unrecorded, so for a read it
-// is the other way round: only an answer that cannot change ends it. That is a
-// bad request, a missing service, a missing permission or bad credentials, or
-// an error with no gRPC code that is not a network errno, which is a bug of
-// ours. Anything else is a look that saw nothing.
-const READ_FAILED_FOR_GOOD_CODES = [
-  3, // INVALID_ARGUMENT
-  5, // NOT_FOUND
-  7, // PERMISSION_DENIED
-  16 // UNAUTHENTICATED
-]
-
-function readFailedForGood (error) {
-  if (typeof error?.code === 'number') return READ_FAILED_FOR_GOOD_CODES.includes(error.code)
-  // No gRPC code: a network errno may pass (isTransientError knows them);
-  // anything else is ours.
-  return !isTransientError(error)
-}
 
 // int64 fields arrive as a string, a number or a Long, depending on the path
 // they took, so they are compared as numbers. A generation stays far below the
@@ -215,6 +201,7 @@ async function rollOutService (update, containers, budget, timing) {
       forceRevision: update.forceRevision,
       waitMs: budget.remaining(PIN_RESERVE_MS),
       trafficToLatest: true,
+      readOutageMs: OPERATION_READ_OUTAGE_MS,
       onAccepted
     })
     // Resolved, so accepted, the ABORTED-replay path included.
@@ -227,9 +214,12 @@ async function rollOutService (update, containers, budget, timing) {
         'and it may still become ready and take the traffic, so this deploy waits for it for up to ' +
         `${formatDuration(budget.remaining(PIN_RESERVE_MS))}.`
       )
-    } else if (!(error instanceof OperationWaitExpired)) {
+    } else if (!(error instanceof OperationWaitExpired || error instanceof OperationUnreadable)) {
       return { kind: 'failed', name: update.name, error, accepted: mine.accepted }
     }
+    // Otherwise the update was accepted and its operation did not say how it
+    // ended (our wait ran out, or the operation could not be read), so the
+    // service is asked below.
   }
   return waitForRevision(mine, budget, timing)
 }
