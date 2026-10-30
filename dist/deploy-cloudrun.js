@@ -179393,6 +179393,20 @@ function isTransientError(error2) {
 function isAborted(error2) {
   return error2?.code === GRPC_ABORTED;
 }
+var READ_FAILED_FOR_GOOD_CODES = [
+  3,
+  // INVALID_ARGUMENT
+  5,
+  // NOT_FOUND
+  7,
+  // PERMISSION_DENIED
+  16
+  // UNAUTHENTICATED
+];
+function readFailedForGood(error2) {
+  if (typeof error2?.code === "number") return READ_FAILED_FOR_GOOD_CODES.includes(error2.code);
+  return !isTransientError(error2);
+}
 function statusName(error2) {
   return CODE_NAMES[error2?.code] ?? (typeof error2?.code === "string" ? error2.code : "a transient error");
 }
@@ -179455,14 +179469,91 @@ function operationOptions(waitUntil) {
   if (waitUntil === void 0) return void 0;
   return { longrunning: { ...OPERATION_BACKOFF, totalTimeoutMillis: Math.max(1, waitUntil - Date.now()) } };
 }
-async function mutate(label, apply, { waitMs, onAccepted } = {}) {
+var OPERATION_READ_OUTAGE_MS = 10 * 60 * 1e3;
+var READ_FAILURE_LOG_INTERVAL_MS = 60 * 1e3;
+var describeSpan = (ms) => ms >= 2 * 60 * 1e3 ? `${Math.round(ms / 6e4)} minutes` : `${Math.round(ms / 1e3)}s`;
+var OperationUnreadable = class extends Error {
+  constructor(label, operationName, outageMs, cause) {
+    super(
+      `${label}: could not read ${operationName} for ${describeSpan(outageMs)} (${cause?.message}). It may still have finished; check it before running this again.`
+    );
+    this.name = "OperationUnreadable";
+    this.cause = cause;
+  }
+};
+async function awaitOperation(label, operation, options = {}) {
+  const { waitUntil } = options;
+  try {
+    return await operation.promise();
+  } catch (error2) {
+    if (operation.latestResponse?.done || isReadinessDeadline(error2) || readFailedForGood(error2)) throw error2;
+    if (waitUntil !== void 0 && Date.now() >= waitUntil) throw error2;
+    warning(
+      `${label}: lost the wait on ${operation.name} (${error2.message}). The operation may still be running, so this reads it again instead, and sends nothing again.`
+    );
+    return rereadOperation(label, operation, { ...options, failure: error2 });
+  }
+}
+async function rereadOperation(label, operation, options) {
+  const { waitUntil, pollMs, readOutageMs = OPERATION_READ_OUTAGE_MS, lookElsewhere } = options;
+  let failure = options.failure;
+  let delay = pollMs ?? OPERATION_BACKOFF.initialRetryDelayMillis;
+  let failingSince = Date.now();
+  let loggedAt = Date.now();
+  for (; ; ) {
+    if (waitUntil !== void 0 && Date.now() >= waitUntil) {
+      throw failure ?? new Error(`${operation.name} was still running at the last read`);
+    }
+    if (failure && Date.now() - failingSince >= readOutageMs) {
+      throw new OperationUnreadable(label, operation.name, readOutageMs, failure);
+    }
+    try {
+      const [result, metadata, latest] = await operation.getOperation();
+      if (latest?.done) return [result ?? {}, metadata, latest];
+      if (failure) {
+        info(`${label}: read ${operation.name} again after ${describeSpan(Date.now() - failingSince)}; it is still running.`);
+      }
+      failure = null;
+    } catch (error2) {
+      if (operation.latestResponse?.done || readFailedForGood(error2)) throw error2;
+      if (!failure) {
+        failingSince = Date.now();
+        loggedAt = -Infinity;
+      }
+      failure = error2;
+      if (Date.now() - loggedAt >= READ_FAILURE_LOG_INTERVAL_MS) {
+        info(
+          `${label}: could not read ${operation.name} for ${describeSpan(Date.now() - failingSince)} (${error2.message}); still reading it.`
+        );
+        loggedAt = Date.now();
+      }
+    }
+    if (failure && lookElsewhere) {
+      let answer = null;
+      try {
+        answer = await lookElsewhere();
+      } catch (error2) {
+        debug(`${label}: looking elsewhere failed too (${error2.message}).`);
+      }
+      if (answer) {
+        info(`${label}: ${operation.name} could not be read, so its answer is taken from what it waited on.`);
+        return answer;
+      }
+    }
+    await sleep2(waitUntil === void 0 ? delay : Math.max(0, Math.min(delay, waitUntil - Date.now())));
+    if (pollMs === void 0) {
+      delay = Math.min(delay * OPERATION_BACKOFF.retryDelayMultiplier, OPERATION_BACKOFF.maxRetryDelayMillis);
+    }
+  }
+}
+async function mutate(label, apply, { waitMs, onAccepted, readOutageMs } = {}) {
   const waitUntil = waitMs === void 0 ? void 0 : Date.now() + waitMs;
   let settled = null;
   const response = await retryTransient(label, async (attempt) => {
     try {
       const [operation] = await apply(operationOptions(waitUntil));
       if (onAccepted) onAccepted(operation.metadata?.generation);
-      const [response2] = await operation.promise();
+      const [response2] = await awaitOperation(label, operation, { waitUntil, readOutageMs });
       return response2;
     } catch (error2) {
       if (isReadinessDeadline(error2)) {
@@ -179471,6 +179562,10 @@ async function mutate(label, apply, { waitMs, onAccepted } = {}) {
       }
       if (waitUntil !== void 0 && Date.now() >= waitUntil) {
         settled = new OperationWaitExpired(label, waitMs, error2);
+        return null;
+      }
+      if (error2 instanceof OperationUnreadable) {
+        settled = error2;
         return null;
       }
       if (attempt > 1 && isAborted(error2)) {
@@ -179539,18 +179634,42 @@ function ranAnything(execution) {
 }
 var conditionSummary = (execution) => (execution?.conditions ?? []).filter((condition) => condition.message).map((condition) => `${condition.type}: ${condition.message}`).join("; ");
 async function runJob(name, options = {}) {
-  const { startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS } = options;
+  const {
+    startDeadlineMs = START_DEADLINE_MS,
+    pollIntervalMs = POLL_INTERVAL_MS,
+    readOutageMs = OPERATION_READ_OUTAGE_MS
+  } = options;
   const jobs = new JobsClient();
   const [operation] = await jobs.runJob({ name });
   const executionName = operation.metadata?.name;
   if (executionName) {
     await awaitStart(executionName, startDeadlineMs, pollIntervalMs);
   }
-  const [execution] = await operation.promise();
-  if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
-    throw new Error(`Job execution did not succeed: ${execution.name}`);
+  let executions = null;
+  const finishedExecution = async () => {
+    if (executions === null) executions = new ExecutionsClient();
+    const [execution] = await executions.getExecution({ name: executionName });
+    return execution?.completionTime && !execution.reconciling ? [execution] : null;
+  };
+  try {
+    const [execution] = await awaitOperation(`runJob ${executionName ?? name}`, operation, {
+      pollMs: pollIntervalMs,
+      readOutageMs,
+      lookElsewhere: executionName ? finishedExecution : void 0
+    });
+    if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
+      const reason = conditionSummary(execution);
+      throw new Error(`Job execution did not succeed: ${execution.name}${reason ? ` (${reason})` : ""}`);
+    }
+    return execution;
+  } finally {
+    if (executions !== null) {
+      try {
+        await executions.close();
+      } catch {
+      }
+    }
   }
-  return execution;
 }
 async function awaitStart(executionName, startDeadlineMs, pollIntervalMs) {
   const client = new ExecutionsClient();
@@ -179610,7 +179729,7 @@ async function cancelStalled(client, executionName) {
 var FORCE_REVISION_ANNOTATION = "client.knative.dev/force-revision";
 var ALL_TRAFFIC_TO_LATEST = [{ type: "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", percent: 100 }];
 async function updateService(name, containers, options = {}) {
-  const { forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false } = options;
+  const { forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false, readOutageMs } = options;
   const client = new ServicesClient();
   const request = {
     service: {
@@ -179627,7 +179746,11 @@ async function updateService(name, containers, options = {}) {
       paths: ["template.containers", "template.annotations", ...trafficToLatest ? ["traffic"] : []]
     }
   };
-  return mutate(`updateService ${name}`, (callOptions) => client.updateService(request, callOptions), { waitMs, onAccepted });
+  return mutate(
+    `updateService ${name}`,
+    (callOptions) => client.updateService(request, callOptions),
+    { waitMs, onAccepted, readOutageMs }
+  );
 }
 
 // src/deploy-cloudrun.js

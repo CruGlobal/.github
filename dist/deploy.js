@@ -245509,6 +245509,9 @@ function setFailed(message) {
   process.exitCode = ExitCode.Failure;
   error(message);
 }
+function debug(message) {
+  issueCommand("debug", {}, message);
+}
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
@@ -245885,6 +245888,20 @@ function isTransientError2(error3) {
 function isAborted(error3) {
   return error3?.code === GRPC_ABORTED;
 }
+var READ_FAILED_FOR_GOOD_CODES = [
+  3,
+  // INVALID_ARGUMENT
+  5,
+  // NOT_FOUND
+  7,
+  // PERMISSION_DENIED
+  16
+  // UNAUTHENTICATED
+];
+function readFailedForGood(error3) {
+  if (typeof error3?.code === "number") return READ_FAILED_FOR_GOOD_CODES.includes(error3.code);
+  return !isTransientError2(error3);
+}
 function statusName(error3) {
   return CODE_NAMES[error3?.code] ?? (typeof error3?.code === "string" ? error3.code : "a transient error");
 }
@@ -245941,14 +245958,91 @@ function operationOptions(waitUntil) {
   if (waitUntil === void 0) return void 0;
   return { longrunning: { ...OPERATION_BACKOFF, totalTimeoutMillis: Math.max(1, waitUntil - Date.now()) } };
 }
-async function mutate(label, apply, { waitMs, onAccepted } = {}) {
+var OPERATION_READ_OUTAGE_MS = 10 * 60 * 1e3;
+var READ_FAILURE_LOG_INTERVAL_MS = 60 * 1e3;
+var describeSpan = (ms) => ms >= 2 * 60 * 1e3 ? `${Math.round(ms / 6e4)} minutes` : `${Math.round(ms / 1e3)}s`;
+var OperationUnreadable = class extends Error {
+  constructor(label, operationName, outageMs, cause) {
+    super(
+      `${label}: could not read ${operationName} for ${describeSpan(outageMs)} (${cause?.message}). It may still have finished; check it before running this again.`
+    );
+    this.name = "OperationUnreadable";
+    this.cause = cause;
+  }
+};
+async function awaitOperation(label, operation2, options = {}) {
+  const { waitUntil } = options;
+  try {
+    return await operation2.promise();
+  } catch (error3) {
+    if (operation2.latestResponse?.done || isReadinessDeadline(error3) || readFailedForGood(error3)) throw error3;
+    if (waitUntil !== void 0 && Date.now() >= waitUntil) throw error3;
+    warning(
+      `${label}: lost the wait on ${operation2.name} (${error3.message}). The operation may still be running, so this reads it again instead, and sends nothing again.`
+    );
+    return rereadOperation(label, operation2, { ...options, failure: error3 });
+  }
+}
+async function rereadOperation(label, operation2, options) {
+  const { waitUntil, pollMs, readOutageMs = OPERATION_READ_OUTAGE_MS, lookElsewhere } = options;
+  let failure = options.failure;
+  let delay = pollMs ?? OPERATION_BACKOFF.initialRetryDelayMillis;
+  let failingSince = Date.now();
+  let loggedAt = Date.now();
+  for (; ; ) {
+    if (waitUntil !== void 0 && Date.now() >= waitUntil) {
+      throw failure ?? new Error(`${operation2.name} was still running at the last read`);
+    }
+    if (failure && Date.now() - failingSince >= readOutageMs) {
+      throw new OperationUnreadable(label, operation2.name, readOutageMs, failure);
+    }
+    try {
+      const [result, metadata, latest] = await operation2.getOperation();
+      if (latest?.done) return [result ?? {}, metadata, latest];
+      if (failure) {
+        info(`${label}: read ${operation2.name} again after ${describeSpan(Date.now() - failingSince)}; it is still running.`);
+      }
+      failure = null;
+    } catch (error3) {
+      if (operation2.latestResponse?.done || readFailedForGood(error3)) throw error3;
+      if (!failure) {
+        failingSince = Date.now();
+        loggedAt = -Infinity;
+      }
+      failure = error3;
+      if (Date.now() - loggedAt >= READ_FAILURE_LOG_INTERVAL_MS) {
+        info(
+          `${label}: could not read ${operation2.name} for ${describeSpan(Date.now() - failingSince)} (${error3.message}); still reading it.`
+        );
+        loggedAt = Date.now();
+      }
+    }
+    if (failure && lookElsewhere) {
+      let answer = null;
+      try {
+        answer = await lookElsewhere();
+      } catch (error3) {
+        debug(`${label}: looking elsewhere failed too (${error3.message}).`);
+      }
+      if (answer) {
+        info(`${label}: ${operation2.name} could not be read, so its answer is taken from what it waited on.`);
+        return answer;
+      }
+    }
+    await sleep3(waitUntil === void 0 ? delay : Math.max(0, Math.min(delay, waitUntil - Date.now())));
+    if (pollMs === void 0) {
+      delay = Math.min(delay * OPERATION_BACKOFF.retryDelayMultiplier, OPERATION_BACKOFF.maxRetryDelayMillis);
+    }
+  }
+}
+async function mutate(label, apply, { waitMs, onAccepted, readOutageMs } = {}) {
   const waitUntil = waitMs === void 0 ? void 0 : Date.now() + waitMs;
   let settled = null;
   const response = await retryTransient(label, async (attempt) => {
     try {
       const [operation2] = await apply(operationOptions(waitUntil));
       if (onAccepted) onAccepted(operation2.metadata?.generation);
-      const [response2] = await operation2.promise();
+      const [response2] = await awaitOperation(label, operation2, { waitUntil, readOutageMs });
       return response2;
     } catch (error3) {
       if (isReadinessDeadline(error3)) {
@@ -245957,6 +246051,10 @@ async function mutate(label, apply, { waitMs, onAccepted } = {}) {
       }
       if (waitUntil !== void 0 && Date.now() >= waitUntil) {
         settled = new OperationWaitExpired(label, waitMs, error3);
+        return null;
+      }
+      if (error3 instanceof OperationUnreadable) {
+        settled = error3;
         return null;
       }
       if (attempt > 1 && isAborted(error3)) {
@@ -246054,18 +246152,42 @@ function ranAnything(execution) {
 }
 var conditionSummary = (execution) => (execution?.conditions ?? []).filter((condition) => condition.message).map((condition) => `${condition.type}: ${condition.message}`).join("; ");
 async function runJob(name, options = {}) {
-  const { startDeadlineMs = START_DEADLINE_MS, pollIntervalMs = POLL_INTERVAL_MS } = options;
+  const {
+    startDeadlineMs = START_DEADLINE_MS,
+    pollIntervalMs = POLL_INTERVAL_MS,
+    readOutageMs = OPERATION_READ_OUTAGE_MS
+  } = options;
   const jobs = new JobsClient();
   const [operation2] = await jobs.runJob({ name });
   const executionName = operation2.metadata?.name;
   if (executionName) {
     await awaitStart(executionName, startDeadlineMs, pollIntervalMs);
   }
-  const [execution] = await operation2.promise();
-  if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
-    throw new Error(`Job execution did not succeed: ${execution.name}`);
+  let executions = null;
+  const finishedExecution = async () => {
+    if (executions === null) executions = new ExecutionsClient();
+    const [execution] = await executions.getExecution({ name: executionName });
+    return execution?.completionTime && !execution.reconciling ? [execution] : null;
+  };
+  try {
+    const [execution] = await awaitOperation(`runJob ${executionName ?? name}`, operation2, {
+      pollMs: pollIntervalMs,
+      readOutageMs,
+      lookElsewhere: executionName ? finishedExecution : void 0
+    });
+    if ((execution.failedCount ?? 0) > 0 || (execution.succeededCount ?? 0) < (execution.taskCount ?? 1)) {
+      const reason = conditionSummary(execution);
+      throw new Error(`Job execution did not succeed: ${execution.name}${reason ? ` (${reason})` : ""}`);
+    }
+    return execution;
+  } finally {
+    if (executions !== null) {
+      try {
+        await executions.close();
+      } catch {
+      }
+    }
   }
-  return execution;
 }
 async function awaitStart(executionName, startDeadlineMs, pollIntervalMs) {
   const client = new ExecutionsClient();
@@ -246125,7 +246247,7 @@ async function cancelStalled(client, executionName) {
 var FORCE_REVISION_ANNOTATION = "client.knative.dev/force-revision";
 var ALL_TRAFFIC_TO_LATEST = [{ type: "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", percent: 100 }];
 async function updateService(name, containers, options = {}) {
-  const { forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false } = options;
+  const { forceRevision = Date.now().toString(), waitMs, onAccepted, trafficToLatest = false, readOutageMs } = options;
   const client = new ServicesClient();
   const request = {
     service: {
@@ -246142,9 +246264,13 @@ async function updateService(name, containers, options = {}) {
       paths: ["template.containers", "template.annotations", ...trafficToLatest ? ["traffic"] : []]
     }
   };
-  return mutate(`updateService ${name}`, (callOptions) => client.updateService(request, callOptions), { waitMs, onAccepted });
+  return mutate(
+    `updateService ${name}`,
+    (callOptions) => client.updateService(request, callOptions),
+    { waitMs, onAccepted, readOutageMs }
+  );
 }
-async function pinServiceTraffic(name, revision, forceRevision, waitMs) {
+async function pinServiceTraffic(name, revision, forceRevision, waitMs, readOutageMs) {
   const client = new ServicesClient();
   const request = {
     service: {
@@ -246160,7 +246286,11 @@ async function pinServiceTraffic(name, revision, forceRevision, waitMs) {
       paths: ["traffic", "template.annotations"]
     }
   };
-  return mutate(`pinServiceTraffic ${name}`, (callOptions) => client.updateService(request, callOptions), { waitMs });
+  return mutate(
+    `pinServiceTraffic ${name}`,
+    (callOptions) => client.updateService(request, callOptions),
+    { waitMs, readOutageMs }
+  );
 }
 
 // src/v2/image-ref.js
@@ -246282,6 +246412,8 @@ function formatDuration(ms) {
 var PIN_RESERVE_MS = 3 * 60 * 1e3;
 var PIN_WAIT_MS = 60 * 1e3;
 var MIN_PIN_WAIT_MS = 15 * 1e3;
+var UPDATE_READ_OUTAGE_MS = 2 * 60 * 1e3;
+var PIN_READ_OUTAGE_MS = 10 * 1e3;
 var EARLY_POLL_INTERVAL_MS = 5 * 1e3;
 var EARLY_POLL_MS = 60 * 1e3;
 var QUICK_READS_WITHIN_MS = 4 * 60 * 1e3;
@@ -246303,20 +246435,6 @@ var RETRY = "Retry";
 var CONDITION_FAILED = "CONDITION_FAILED";
 var CONDITION_SUCCEEDED = "CONDITION_SUCCEEDED";
 var shortName = (resource) => resource.split("/").pop();
-var READ_FAILED_FOR_GOOD_CODES = [
-  3,
-  // INVALID_ARGUMENT
-  5,
-  // NOT_FOUND
-  7,
-  // PERMISSION_DENIED
-  16
-  // UNAUTHENTICATED
-];
-function readFailedForGood(error3) {
-  if (typeof error3?.code === "number") return READ_FAILED_FOR_GOOD_CODES.includes(error3.code);
-  return !isTransientError2(error3);
-}
 function generationOf(value) {
   if (value === void 0 || value === null || value === "") return null;
   const number = Number(String(value));
@@ -246370,6 +246488,7 @@ async function rollOutService(update, containers, budget, timing) {
       forceRevision: update.forceRevision,
       waitMs: budget.remaining(PIN_RESERVE_MS),
       trafficToLatest: true,
+      readOutageMs: UPDATE_READ_OUTAGE_MS,
       onAccepted
     });
     mine.accepted = true;
@@ -246379,7 +246498,7 @@ async function rollOutService(update, containers, budget, timing) {
       warning(
         `${update.name}: ${error3.message} Cloud Run keeps retrying a revision that missed its readiness deadline, and it may still become ready and take the traffic, so this deploy waits for it for up to ${formatDuration(budget.remaining(PIN_RESERVE_MS))}.`
       );
-    } else if (!(error3 instanceof OperationWaitExpired)) {
+    } else if (!(error3 instanceof OperationWaitExpired || error3 instanceof OperationUnreadable)) {
       return { kind: "failed", name: update.name, error: error3, accepted: mine.accepted };
     }
   }
@@ -246489,7 +246608,7 @@ async function pin(name, revision, forceRevision, budget) {
   const waitMs = Math.max(MIN_PIN_WAIT_MS, Math.min(PIN_WAIT_MS, budget.remaining()));
   const until = budget.now() + waitMs;
   try {
-    await pinServiceTraffic(name, revision, forceRevision, waitMs);
+    await pinServiceTraffic(name, revision, forceRevision, waitMs, PIN_READ_OUTAGE_MS);
     return { pinned: true };
   } catch (error3) {
     let holds;
@@ -247068,7 +247187,7 @@ async function call(client, what, options, { backendSa } = {}) {
   }
 }
 var getter = (url) => ({ url: `${APIG_API}/${url}`, method: "GET", ...GAXIOS_RETRY2 });
-async function awaitOperation(client, operation2, { label, budget, pollIntervalMs }) {
+async function awaitOperation2(client, operation2, { label, budget, pollIntervalMs }) {
   let op2 = operation2;
   while (!op2?.done) {
     if (budget.remaining() <= 0) {
@@ -247125,7 +247244,7 @@ async function ensureConfig(client, { apiName, configId, rendered, backendSa, bu
   if (state2 === "failed") {
     warning(`api config ${configId} is FAILED, left by an earlier run; replacing it`);
     const op2 = await call(client, `deleting failed api config ${configId}`, { url: `${APIG_API}/${configName}`, method: "DELETE" });
-    await awaitOperation(client, op2, { label: `api config ${configId} delete`, ...wait });
+    await awaitOperation2(client, op2, { label: `api config ${configId} delete`, ...wait });
   }
   info(`creating api config ${configId} (${rendered.length} bytes of spec)`);
   try {
@@ -247141,7 +247260,7 @@ async function ensureConfig(client, { apiName, configId, rendered, backendSa, bu
         ]
       }
     }, { backendSa });
-    await awaitOperation(client, op2, { label: `api config ${configId} create`, ...wait });
+    await awaitOperation2(client, op2, { label: `api config ${configId} create`, ...wait });
   } catch (error3) {
     if (error3.status !== 409) throw error3;
     info(`api config ${configId} was created concurrently; waiting for it`);
@@ -247240,7 +247359,7 @@ async function pointGateway(plan) {
     params: { updateMask: "apiConfig" },
     data: { apiConfig: `${apiName}/configs/${configId}` }
   }, { backendSa });
-  await awaitOperation(client, op2, {
+  await awaitOperation2(client, op2, {
     label: `gateway ${gatewayId} update`,
     budget: waitBudget(GATEWAY_WAIT_MS, clock),
     pollIntervalMs

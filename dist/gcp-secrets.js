@@ -62287,13 +62287,13 @@ var require_oauth2client = __commonJS({
           },
           url: this.endpoints.tokenInfoUrl.toString()
         });
-        const info = Object.assign({
+        const info2 = Object.assign({
           expiry_date: (/* @__PURE__ */ new Date()).getTime() + data.expires_in * 1e3,
           scopes: data.scope.split(" ")
         }, data);
-        delete info.expires_in;
-        delete info.scope;
-        return info;
+        delete info2.expires_in;
+        delete info2.scope;
+        return info2;
       }
       getFederatedSignonCerts(callback) {
         if (callback) {
@@ -93562,13 +93562,13 @@ var require_from = __commonJS({
     "use strict";
     function asyncGeneratorStep(gen, resolve, reject, _next, _throw, key, arg) {
       try {
-        var info = gen[key](arg);
-        var value = info.value;
+        var info2 = gen[key](arg);
+        var value = info2.value;
       } catch (error2) {
         reject(error2);
         return;
       }
-      if (info.done) {
+      if (info2.done) {
         resolve(value);
       } else {
         Promise.resolve(value).then(_next, _throw);
@@ -179454,6 +179454,8 @@ async function retryTransient(label, fn, options = {}) {
 
 // src/gcp.js
 var { ServicesClient, JobsClient, ExecutionsClient, RevisionsClient } = import_run.v2;
+var OPERATION_READ_OUTAGE_MS = 10 * 60 * 1e3;
+var READ_FAILURE_LOG_INTERVAL_MS = 60 * 1e3;
 async function listSecrets(project, types3 = PARAM_TYPES) {
   const client = new import_secret_manager.SecretManagerServiceClient();
   const request = {
