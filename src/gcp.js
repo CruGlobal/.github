@@ -681,8 +681,9 @@ export async function updateService(name, containers, options = {}) {
 // current revision. Sending back `forceRevision`, the value the template
 // already carries (the one the deploy's update sent), changes nothing. A
 // replay is as safe as an update's: it is the same desired state. `waitMs`
-// bounds the wait on the operation.
-export async function pinServiceTraffic(name, revision, forceRevision, waitMs) {
+// bounds the wait on the operation, and `readOutageMs` a run of failed reads
+// of it (see rereadOperation); left out, OPERATION_READ_OUTAGE_MS.
+export async function pinServiceTraffic(name, revision, forceRevision, waitMs, readOutageMs) {
     const client = new ServicesClient()
     const request = {
         service: {
@@ -698,5 +699,9 @@ export async function pinServiceTraffic(name, revision, forceRevision, waitMs) {
             paths: ["traffic", "template.annotations"],
         }
     }
-    return mutate(`pinServiceTraffic ${name}`, callOptions => client.updateService(request, callOptions), {waitMs})
+    return mutate(
+        `pinServiceTraffic ${name}`,
+        callOptions => client.updateService(request, callOptions),
+        {waitMs, readOutageMs}
+    )
 }

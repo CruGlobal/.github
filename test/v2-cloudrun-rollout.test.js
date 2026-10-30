@@ -637,6 +637,29 @@ describe('a rollout that ends short, and is stopped', () => {
     expect(warnings()).toContainEqual(expect.stringMatching(/traffic is pinned to app-00001-abc/))
   })
 
+  // The operations endpoint is down when the pin is sent. The pin is checked
+  // by the traffic setting after a short run of failed reads, not after its
+  // whole wait, so a rollback of several services is not held up one by one.
+  it('checks a pin by the traffic setting soon after its operation cannot be read, and sends it once', async () => {
+    // The re-read sleeps on a timer, so timers run on the faked clock too.
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setImmediate', 'clearImmediate'] })
+    vi.setSystemTime(STEP_STARTED_AT)
+    run.addService('app', containers(OLD))
+    run.plan('app', { fails: grpcError(9, 'Container failed to become healthy.') })
+    run.unreadablePinOperations()
+
+    let settled = null
+    deploy().then(value => { settled = { value } }, error => { settled = { error } })
+    for (let i = 0; i < 10 * 60 && !settled; i++) await vi.advanceTimersByTimeAsync(1000)
+
+    expect(settled.error.message).toContain(BACK_ON_APP)
+    expect(run.pins()).toHaveLength(1)
+    expect(warnings()).toContainEqual(
+      expect.stringMatching(/traffic is pinned to app-00001-abc, though its operation did not succeed/)
+    )
+    expect(elapsed()).toBeLessThan(30 * 1000)
+  })
+
   it('names what serves as the revision to pin back to, not a later one that never served', async () => {
     pinnedAfterAStall(`${REPO}@sha256:unrecorded`)
     run.plan('app', { stalls: {} })

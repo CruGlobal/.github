@@ -65,8 +65,9 @@
 //                                  nothing changes
 // A pin (an update without new containers) succeeds, unless failPins was given
 // an error (the RPC is refused) or failPinOperations one (the pin is taken, but
-// its operation fails). `updateFromElsewhere` schedules an update from outside
-// the deploy. `failReads` makes GetService fail for a while, and
+// its operation fails). After unreadablePinOperations, the pin is taken but its
+// operation can never be waited on or read. `updateFromElsewhere` schedules an
+// update from outside the deploy. `failReads` makes GetService fail for a while, and
 // `failReadsOncePinned` from the first pin on (for the next n reads, if given). `slowRead` makes the next read
 // of a service take that long, and `failNextRead` fail with an error.
 import { vi } from 'vitest'
@@ -117,6 +118,7 @@ export function fakeCloudRun ({ project = 'example-stage', statusLagMs = STATUS_
   const reads = { getService: 0, getRevision: 0 }
   let pinFailure = null
   let pinOperationFailure = null
+  let pinOperationsUnreadable = false
   let readFailure = null
   let pinnedReadFailure = null
   const slowReads = new Map()
@@ -366,7 +368,7 @@ export function fakeCloudRun ({ project = 'example-stage', statusLagMs = STATUS_
     return accepted(service, created, async () => {
       if (failure) throw failure
       return [snapshot(service)]
-    })
+    }, service.generation, { unreadable: pinOperationsUnreadable })
   }
 
   function updateService (request, options) {
@@ -469,6 +471,7 @@ export function fakeCloudRun ({ project = 'example-stage', statusLagMs = STATUS_
     plan,
     failPins: error => { pinFailure = error },
     failPinOperations: error => { pinOperationFailure = error },
+    unreadablePinOperations: () => { pinOperationsUnreadable = true },
     failReads: (error, { after = 0, lasting = Infinity } = {}) => {
       readFailure = { error, from: Date.now() + after, until: Date.now() + after + lasting }
     },

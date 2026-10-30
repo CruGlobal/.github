@@ -64,7 +64,14 @@ const MIN_PIN_WAIT_MS = 15 * 1000
 // through a blip (see ../gcp.js), but the service is a separate endpoint that
 // tells landed, failed for good, or still going just as well, so an outage of
 // the operations endpoint costs this much, not the rollout's whole budget.
-const OPERATION_READ_OUTAGE_MS = 2 * 60 * 1000
+const UPDATE_READ_OUTAGE_MS = 2 * 60 * 1000
+
+// The same for a pin, much shorter, because the pin's own answer is the
+// service's traffic setting (see pin), which is read either way. Without it,
+// every pin in an outage of the operations endpoint would spend its whole
+// PIN_WAIT_MS reading the operation, one service after another. Under
+// MIN_PIN_WAIT_MS, so the traffic check always has time left.
+const PIN_READ_OUTAGE_MS = 10 * 1000
 
 // How often to look in the first minute after an update's operation reports.
 // A pin being released (and any other change to the traffic setting) takes up
@@ -201,7 +208,7 @@ async function rollOutService (update, containers, budget, timing) {
       forceRevision: update.forceRevision,
       waitMs: budget.remaining(PIN_RESERVE_MS),
       trafficToLatest: true,
-      readOutageMs: OPERATION_READ_OUTAGE_MS,
+      readOutageMs: UPDATE_READ_OUTAGE_MS,
       onAccepted
     })
     // Resolved, so accepted, the ABORTED-replay path included.
@@ -390,12 +397,12 @@ async function pin (name, revision, forceRevision, budget) {
   const waitMs = Math.max(MIN_PIN_WAIT_MS, Math.min(PIN_WAIT_MS, budget.remaining()))
   const until = budget.now() + waitMs
   try {
-    await pinServiceTraffic(name, revision, forceRevision, waitMs)
+    await pinServiceTraffic(name, revision, forceRevision, waitMs, PIN_READ_OUTAGE_MS)
     return { pinned: true }
   } catch (error) {
     // The operation reports on the whole service, stuck revision included, so
-    // it can fail or run out while the pin itself was taken. The pin is the
-    // service's traffic setting, so that is what decides.
+    // it can fail, run out or go unread while the pin itself was taken. The pin
+    // is the service's traffic setting, so that is what decides.
     let holds
     try {
       holds = await pinHolds(name, revision, until, budget)
