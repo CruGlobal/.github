@@ -58,6 +58,7 @@ vi.mock('@google-cloud/secret-manager', () => ({
 
 import {
   DEFAULT_REGION,
+  OperationUnreadable,
   OperationWaitExpired,
   QUICK_READ_TIMEOUT_MS,
   READ_TIMEOUT_MS,
@@ -94,6 +95,31 @@ function aborted () {
 // generated clients return.
 function operation (response = { name: SERVICE }) {
   return [{ promise: () => Promise.resolve([response]) }]
+}
+
+const OPERATION = `projects/example-app-stage-abcd/locations/${DEFAULT_REGION}/operations/0000-example`
+
+// An operation whose wait (promise) fails with `waitError`, and whose re-reads
+// (getOperation) answer from `reads` in turn, the way gax's do: not done yet,
+// done with a result, or done with the operation's own error; or a read that
+// fails on the wire. gax sets latestResponse before it reports an operation's
+// own error, and so does this. `reads` may also be a function that returns the
+// next read, for reads that never end.
+function blippedOperation (reads, { waitError = unavailable(), metadata } = {}) {
+  const op = {
+    name: OPERATION,
+    metadata,
+    latestResponse: { name: OPERATION, done: false },
+    promise: vi.fn(() => Promise.reject(waitError)),
+    getOperation: vi.fn(async () => {
+      const read = typeof reads === 'function' ? reads() : reads.shift()
+      if (read.wire) throw read.wire
+      op.latestResponse = { name: OPERATION, done: read.done }
+      if (read.error) throw read.error
+      return [read.done ? (read.result ?? null) : null, metadata, op.latestResponse]
+    })
+  }
+  return op
 }
 
 describe('gcrRegistry', () => {
@@ -345,6 +371,161 @@ describe('updateService and the readiness deadline', () => {
   })
 })
 
+// --- a blip in the wait -------------------------------------------------------
+//
+// gax polls an operation with the settings of the call that started it, so for
+// these non_idempotent calls a poll carries no retry, and one UNAVAILABLE fails
+// the wait while the work goes on. The operation is read again instead, and
+// nothing is sent twice.
+
+describe('updateService and a blip in the wait', () => {
+  beforeEach(() => {
+    updateServiceMock.mockReset()
+    updateJobMock.mockReset()
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+  })
+
+  it('reads the same operation again, and never sends the update again', async () => {
+    const op = blippedOperation([{ done: true, result: { name: SERVICE } }])
+    updateServiceMock.mockResolvedValue([op])
+
+    await expect(updateService(SERVICE, CONTAINERS, { waitMs: 60000 })).resolves.toEqual({ name: SERVICE })
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+    expect(op.getOperation).toHaveBeenCalledTimes(1)
+  })
+
+  it('does the same for an update with no bound on the wait', async () => {
+    const job = { name: `projects/p/locations/${DEFAULT_REGION}/jobs/db-migrate` }
+    const op = blippedOperation([{ done: true, result: job }])
+    updateJobMock.mockResolvedValue([op])
+
+    await expect(updateJob(job)).resolves.toEqual(job)
+    expect(updateJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The outage that failed real deploys outlasted the shared retry's half a
+  // minute by minutes, with every replayed update accepted and every wait lost.
+  it('keeps reading through an outage of minutes, while waitMs allows, and sends the update once', async () => {
+    vi.useFakeTimers()
+    try {
+      const op = blippedOperation([
+        ...Array.from({ length: 20 }, () => ({ wire: unavailable() })),
+        { done: true, result: { name: SERVICE } }
+      ])
+      updateServiceMock.mockResolvedValue([op])
+
+      const outcome = updateService(SERVICE, CONTAINERS, { waitMs: 20 * 60 * 1000 }).catch(error => error)
+      await vi.runAllTimersAsync()
+
+      expect(await outcome).toEqual({ name: SERVICE })
+      expect(op.getOperation).toHaveBeenCalledTimes(21)
+      expect(updateServiceMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends reads that run past waitMs as OperationWaitExpired, still without a replay', async () => {
+    const op = blippedOperation(() => ({ done: false }))
+    updateServiceMock.mockResolvedValue([op])
+
+    const error = await updateService(SERVICE, CONTAINERS, { waitMs: 30 }).catch(error => error)
+
+    expect(error).toBeInstanceOf(OperationWaitExpired)
+    // The reads saw it running, so the blip that started them is not the story.
+    expect(error.message).toMatch(/was still running at the last read/)
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('names the last failed read when the reads fail until waitMs runs out', async () => {
+    let last = null
+    const op = blippedOperation(() => {
+      last = unavailable()
+      return { wire: last }
+    })
+    updateServiceMock.mockResolvedValue([op])
+
+    const error = await updateService(SERVICE, CONTAINERS, { waitMs: 30 }).catch(error => error)
+
+    expect(error).toBeInstanceOf(OperationWaitExpired)
+    expect(error.cause).toBe(last)
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('with no waitMs, gives up after ten minutes of failed reads, and never replays', async () => {
+    vi.useFakeTimers()
+    try {
+      const job = { name: `projects/p/locations/${DEFAULT_REGION}/jobs/db-migrate` }
+      const op = blippedOperation(() => ({ wire: unavailable() }))
+      updateJobMock.mockResolvedValue([op])
+
+      const outcome = updateJob(job).catch(error => error)
+      await vi.runAllTimersAsync()
+      const error = await outcome
+
+      expect(error).toBeInstanceOf(OperationUnreadable)
+      expect(error.message).toMatch(/could not read .* for 10 minutes .*check it before running this again/)
+      expect(error.cause.code).toBe(14)
+      expect(updateJobMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // So a caller with another way to tell, the v2 rollout, can turn to it well
+  // before its own bound runs out.
+  it('ends a run of failed reads as OperationUnreadable when readOutageMs comes before waitMs', async () => {
+    vi.useFakeTimers()
+    try {
+      const op = blippedOperation(() => ({ wire: unavailable() }))
+      updateServiceMock.mockResolvedValue([op])
+      const start = Date.now()
+
+      const outcome = updateService(SERVICE, CONTAINERS, { waitMs: 30 * 60 * 1000, readOutageMs: 2 * 60 * 1000 })
+        .catch(error => error)
+      await vi.runAllTimersAsync()
+      const error = await outcome
+
+      expect(error).toBeInstanceOf(OperationUnreadable)
+      expect(error.message).toContain('for 2 minutes')
+      expect(Date.now() - start).toBeLessThan(3 * 60 * 1000)
+      expect(updateServiceMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends the wait at once on a read that failed for good', async () => {
+    const denied = grpcError(7, '7 PERMISSION_DENIED: not allowed')
+    const op = blippedOperation([{ wire: denied }])
+    updateServiceMock.mockResolvedValue([op])
+
+    await expect(updateService(SERVICE, CONTAINERS, { waitMs: 60000 })).rejects.toBe(denied)
+    expect(op.getOperation).toHaveBeenCalledTimes(1)
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+  })
+
+  // Not a code the mutation retry replays, but a read changes nothing, so it
+  // is read again (readFailedForGood).
+  it('reads again after a wait that failed with INTERNAL on the wire', async () => {
+    const op = blippedOperation([{ done: true, result: { name: SERVICE } }], {
+      waitError: grpcError(13, '13 INTERNAL: Received RST_STREAM with code 2')
+    })
+    updateServiceMock.mockResolvedValue([op])
+
+    await expect(updateService(SERVICE, CONTAINERS, { waitMs: 60000 })).resolves.toEqual({ name: SERVICE })
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the readiness deadline from a re-read through, unreplayed', async () => {
+    const stalled = readinessDeadline()
+    updateServiceMock.mockResolvedValue([blippedOperation([{ done: true, error: stalled }])])
+
+    await expect(updateService(SERVICE, CONTAINERS, { waitMs: 60000 })).rejects.toBe(stalled)
+    expect(updateServiceMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('isReadinessDeadline', () => {
   it('matches the message, in any case, on an error or a condition', () => {
     expect(isReadinessDeadline(readinessDeadline())).toBe(true)
@@ -593,5 +774,180 @@ describe('runJob', () => {
     await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
 
     expect(getExecutionMock).not.toHaveBeenCalled()
+  })
+
+  // The case that failed real deploys: the migration finished, and the deploy
+  // only lost the wait for it.
+  it('rides out a blip in the wait by reading the run operation again, and never re-runs the job', async () => {
+    const op = blippedOperation([
+      { done: false },
+      { done: true, result: { name: EXEC, taskCount: 1, succeededCount: 1 } }
+    ], { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+    expect(op.getOperation).toHaveBeenCalledTimes(2)
+  })
+
+  it('still fails the deploy when the re-read finds the execution failed', async () => {
+    const op = blippedOperation([
+      { done: true, result: { name: EXEC, taskCount: 1, succeededCount: 0, failedCount: 1 } }
+    ], { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toThrow('Job execution did not succeed')
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  // More failed reads in a row than the shared retry's five: the next read is
+  // the retry, for as long as the outage bound allows.
+  it('keeps reading through a run of failed reads, and never re-runs the job', async () => {
+    const op = blippedOperation([
+      ...Array.from({ length: 8 }, () => ({ wire: unavailable() })),
+      { done: true, result: { name: EXEC, taskCount: 1, succeededCount: 1 } }
+    ], { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(op.getOperation).toHaveBeenCalledTimes(9)
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  // An operation's own error is its final answer, whatever its code, and a
+  // read cannot change it.
+  it('passes the operation\'s own error through without reading it again, even with a retryable code', async () => {
+    const failed = grpcError(14, 'Task db-migrate-4vdmx-task0 failed.')
+    const op = blippedOperation([{ done: true, error: failed }], { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toBe(failed)
+
+    expect(op.getOperation).toHaveBeenCalledTimes(1)
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not read again when the wait failed with the operation\'s own answer', async () => {
+    const failed = grpcError(14, 'Task db-migrate-4vdmx-task0 failed.')
+    const op = blippedOperation([], { waitError: failed, metadata: { name: EXEC } })
+    op.latestResponse.done = true
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toBe(failed)
+
+    expect(op.getOperation).not.toHaveBeenCalled()
+  })
+
+  it('does not read again when the wait failed for a real reason', async () => {
+    const denied = grpcError(7, 'PERMISSION_DENIED')
+    const op = blippedOperation([], { waitError: denied, metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    await expect(runJob(JOB, FAST)).rejects.toBe(denied)
+
+    expect(op.getOperation).not.toHaveBeenCalled()
+  })
+
+  it('gives up once the reads have failed for the outage bound, names the execution, and never re-runs the job', async () => {
+    const op = blippedOperation(() => ({ wire: unavailable() }), { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock.mockResolvedValue(started(EXEC))
+
+    const error = await runJob(JOB, { ...FAST, readOutageMs: 40 }).catch(error => error)
+
+    expect(error).toBeInstanceOf(OperationUnreadable)
+    expect(error.message).toContain(`runJob ${EXEC}: could not read ${OPERATION}`)
+    expect(error.message).toContain('check it before running this again')
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The operation's answer is the finished Execution, so the execution's own
+  // record answers just as well while the operation cannot be read.
+  it('takes a finished execution from its own record while the run operation cannot be read', async () => {
+    const op = blippedOperation(() => ({ wire: unavailable() }), { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock
+      .mockResolvedValueOnce(started(EXEC))
+      .mockResolvedValue([{ name: EXEC, completionTime: { seconds: 2 }, taskCount: 1, succeededCount: 1 }])
+
+    await expect(runJob(JOB, { ...FAST, readOutageMs: 60000 })).resolves.toMatchObject({ name: EXEC })
+
+    expect(runJobMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('still fails the deploy on a finished execution that failed, read from its own record', async () => {
+    const op = blippedOperation(() => ({ wire: unavailable() }), { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock
+      .mockResolvedValueOnce(started(EXEC))
+      .mockResolvedValue([{
+        name: EXEC,
+        completionTime: { seconds: 2 },
+        taskCount: 1,
+        succeededCount: 0,
+        failedCount: 1,
+        conditions: [{ type: 'Completed', message: 'Task db-migrate-4vdmx-task0 failed.' }]
+      }])
+
+    // The record's reason comes along, as the operation's own error would carry it.
+    await expect(runJob(JOB, { ...FAST, readOutageMs: 60000 }))
+      .rejects.toThrow(`Job execution did not succeed: ${EXEC} (Completed: Task db-migrate-4vdmx-task0 failed.)`)
+  })
+
+  it('does not take an execution that is still reconciling', async () => {
+    const op = blippedOperation(() => ({ wire: unavailable() }), { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock
+      .mockResolvedValueOnce(started(EXEC))
+      .mockResolvedValue([{ name: EXEC, completionTime: { seconds: 2 }, reconciling: true, taskCount: 1, succeededCount: 1 }])
+
+    const error = await runJob(JOB, { ...FAST, readOutageMs: 40 }).catch(error => error)
+
+    expect(error).toBeInstanceOf(OperationUnreadable)
+  })
+
+  it('carries on reading the operation when its look at the execution fails', async () => {
+    const op = blippedOperation([
+      { wire: unavailable() },
+      { wire: unavailable() },
+      { done: true, result: { name: EXEC, taskCount: 1, succeededCount: 1 } }
+    ], { metadata: { name: EXEC } })
+    runJobMock.mockResolvedValue([op])
+    getExecutionMock
+      .mockResolvedValueOnce(started(EXEC))
+      .mockRejectedValue(grpcError(7, 'PERMISSION_DENIED'))
+
+    await expect(runJob(JOB, FAST)).resolves.toMatchObject({ name: EXEC })
+
+    expect(op.getOperation).toHaveBeenCalledTimes(3)
+  })
+
+  it('reads for ten minutes by default before it gives up', async () => {
+    vi.useFakeTimers()
+    try {
+      const op = blippedOperation(() => ({ wire: unavailable() }), { metadata: { name: EXEC } })
+      runJobMock.mockResolvedValue([op])
+      getExecutionMock.mockResolvedValue(started(EXEC))
+      const start = Date.now()
+
+      const outcome = runJob(JOB, { startDeadlineMs: 30 }).catch(error => error)
+      await vi.runAllTimersAsync()
+      const error = await outcome
+
+      expect(error).toBeInstanceOf(OperationUnreadable)
+      expect(Date.now() - start).toBeGreaterThanOrEqual(10 * 60 * 1000)
+      expect(Date.now() - start).toBeLessThan(11 * 60 * 1000)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

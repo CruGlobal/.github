@@ -7,6 +7,7 @@ import {
   GRPC_UNKNOWN,
   isAborted,
   isTransientError,
+  readFailedForGood,
   retryTransient
 } from '../src/grpc-retry.js'
 
@@ -68,6 +69,22 @@ describe('isAborted', () => {
     expect(isAborted(grpcError(GRPC_ABORTED))).toBe(true)
     expect(isAborted(unavailable())).toBe(false)
     expect(isAborted(undefined)).toBe(false)
+  })
+})
+
+describe('readFailedForGood', () => {
+  it.each([3, 5, 7, 16])('ends a read on code %i, an answer that cannot change', code => {
+    expect(readFailedForGood(grpcError(code))).toBe(true)
+  })
+
+  // Codes a mutation must not replay, but a read can simply look again on.
+  it.each([GRPC_UNAVAILABLE, GRPC_DEADLINE_EXCEEDED, GRPC_UNKNOWN, 8, 13])('reads again on code %i', code => {
+    expect(readFailedForGood(grpcError(code))).toBe(false)
+  })
+
+  it('reads again on a network errno with no gRPC code, and stops on a plain error of ours', () => {
+    expect(readFailedForGood(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))).toBe(false)
+    expect(readFailedForGood(new Error('Cannot read properties of undefined'))).toBe(true)
   })
 })
 

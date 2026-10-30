@@ -95,6 +95,30 @@ export function isAborted (error) {
   return error?.code === GRPC_ABORTED
 }
 
+// Which read errors end a wait. isTransientError above was written for
+// mutations, where only a clear blip is safe to replay, so it calls INTERNAL,
+// RESOURCE_EXHAUSTED and UNKNOWN (which grpc-js reports when a credential
+// refresh fails) permanent. A read changes nothing, and ending a wait early is
+// what lets a stuck revision go live unrecorded, or fails a deploy whose work
+// finished, so for a read it is the other way round: only an answer that cannot
+// change ends it. That is a bad request, a missing resource, a missing
+// permission or bad credentials, or an error with no gRPC code that is not a
+// network errno, which is a bug of ours. Anything else is a look that saw
+// nothing.
+const READ_FAILED_FOR_GOOD_CODES = [
+  3, // INVALID_ARGUMENT
+  5, // NOT_FOUND
+  7, // PERMISSION_DENIED
+  16 // UNAUTHENTICATED
+]
+
+export function readFailedForGood (error) {
+  if (typeof error?.code === 'number') return READ_FAILED_FOR_GOOD_CODES.includes(error.code)
+  // No gRPC code: a network errno may pass (isTransientError knows them);
+  // anything else is ours.
+  return !isTransientError(error)
+}
+
 function statusName (error) {
   return CODE_NAMES[error?.code] ?? (typeof error?.code === 'string' ? error.code : 'a transient error')
 }
