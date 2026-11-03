@@ -725,6 +725,7 @@ function stepOf (id) {
 
 // What the runner would fill in. github.actor and github.triggering_actor
 // differ, as on a re-run started by someone else.
+const PROMOTE_KIND = "steps.release-kind.outputs.kind == 'hotfix' && 'hotfix' || 'deploy'"
 const TARGET_SHA = '5ca1ab1e00000000000000000000000000000042'
 const RESOLVED_DIGEST = 'sha256:' + 'e'.repeat(64)
 const runnerContext = () => ({
@@ -744,13 +745,15 @@ const runnerContext = () => ({
   'github.server_url': 'https://github.com',
   'github.repository': 'example-org/deploy-wrappers',
   'github.run_id': '9001',
-  'github.run_attempt': '2'
+  'github.run_attempt': '2',
+  // promote's kind: hotfix only when its release-kind step said so.
+  [PROMOTE_KIND]: 'deploy'
 })
 
 // Run one workflow step's action with the inputs the workflow gives it, and
-// return the event it posted.
-async function postFrom (step) {
-  for (const [name, value] of Object.entries(step.with)) inputs[name] = resolveExpressions(value, runnerContext())
+// return the event it posted. `overrides` replaces what the runner fills in.
+async function postFrom (step, overrides = {}) {
+  for (const [name, value] of Object.entries(step.with)) inputs[name] = resolveExpressions(value, { ...runnerContext(), ...overrides })
   // The attempt the context names has passed authorize-actor, as it must
   // have for a production event.
   vi.stubEnv('GITHUB_RUN_ATTEMPT', '2')
@@ -815,6 +818,30 @@ describe('release event wiring', () => {
 
     it('stays telemetry: it can never fail the job', () => {
       expect(step['continue-on-error']).toBe(true)
+    })
+  })
+
+  // A hotfix is promoted like any candidate; only the event's kind differs.
+  // The kind is hotfix only when the release-kind step's output is exactly
+  // hotfix. An empty output (the step failed, or a workflow-ref without the
+  // action) is deploy, as every promote was before.
+  describe.each(['promote:promote-gcp', 'promote:promote-aws'])('%s kind', (id) => {
+    it('is hotfix only when the release-kind step says so', async () => {
+      const { job, step } = stepOf(id)
+      expect(step.with.kind).toBe(`\${{ ${PROMOTE_KIND} }}`)
+      const kindStep = job.steps.find((s) => s.id === 'release-kind')
+      expect(kindStep).toMatchObject({
+        uses: './cru-github-actions/actions/hotfix',
+        'continue-on-error': true,
+        with: { mode: 'release-kind', 'github-token': '${{ secrets.authz-token }}', repository: '${{ needs.lookup.outputs.repository }}', 'project-name': '${{ inputs.project-name }}', sha: '${{ steps.baseline.outputs.head-sha }}' }
+      })
+      // Before production changes, since a stale hotfix is refused on what
+      // it finds, and so before the event that reads it.
+      const names = job.steps.map((s) => s.name)
+      expect(job.steps.indexOf(kindStep)).toBeLessThan(names.indexOf('Deploy to production'))
+      expect(job.steps.indexOf(kindStep)).toBeLessThan(job.steps.indexOf(step))
+      expect((await postFrom(step, { [PROMOTE_KIND]: 'hotfix' })).kind).toBe('hotfix')
+      expect((await postFrom(step)).kind).toBe('deploy')
     })
   })
 

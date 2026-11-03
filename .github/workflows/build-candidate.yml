@@ -5,6 +5,10 @@ name: Build Candidate
 # (build date + build number; and sha-<gitsha> for traceability). Nothing is deployed here — every
 # environment later deploys this exact artifact by digest.
 #
+# The triggering commit is the tip of the default branch, or of a hotfix
+# branch (hotfix/<release tag>) that holds only cherry-picks of default-branch
+# commits on top of the release production runs now; see `setup`.
+#
 # Candidates are prod-bound, so the build runs in the app's `production` GitHub
 # environment and uses its build identity. A PRE-RELEASE app (stage-only: a
 # release candidate exists, production does not yet) has no production
@@ -66,11 +70,34 @@ jobs:
       # any push-triggered caller) on a feature ref. Compared against the
       # repository's OWN default branch rather than the literal `main`, so an
       # app still on `master` is guarded, not wedged.
+      #
+      # The one other ref a candidate builds from is a hotfix branch,
+      # refs/heads/hotfix/<release tag>, which cru-deploy's hotfix workflow
+      # cuts from the release production runs. Only a ref of exactly that
+      # shape gets past this step, and then only to the stricter check further
+      # down, which refuses with this same message unless the branch is one
+      # that workflow could have cut.
+      #
+      # Both comparisons are made in bash, exactly, and not in an `if:`:
+      # expression comparisons ignore case and git refs do not. With an `if:`,
+      # refs/heads/MAIN would pass as the default branch main, and HOTFIX/x
+      # or hotfix/fix-login would pass as hotfix branches. So the step always
+      # runs, and every ref that is neither gets the refusal below, before any
+      # checkout.
       - name: Assert the calling ref is the default branch
-        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        id: ref
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          if [ -n "$DEFAULT_BRANCH" ] && [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            exit 0
+          fi
+          hotfix_ref='^refs/heads/hotfix/release-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+$'
+          if [[ "$GITHUB_REF" =~ $hotfix_ref ]]; then
+            echo "hotfix=true" >> "$GITHUB_OUTPUT"
+            echo "$GITHUB_REF is a hotfix branch; the hotfix check below decides whether it builds"
+            exit 0
+          fi
           echo "::error title=Build Candidate::candidates build from the default branch only -- $GITHUB_REF is not refs/heads/$DEFAULT_BRANCH. Merge the change to $DEFAULT_BRANCH, then dispatch."
           exit 1
 
@@ -90,6 +117,65 @@ jobs:
           fi
           echo "project-name=$project_name" >> "$GITHUB_OUTPUT"
           echo "::notice title=Build Candidate::project=$project_name type=$TYPE"
+
+      # --- Hotfix branches ---------------------------------------------------
+      # A hotfix branch is promotable too, so the pipeline's hotfix path builds
+      # it only when it holds the release production runs now plus clean
+      # cherry-picks of reviewed default-branch commits. This is defense in
+      # depth for that path, not a boundary: anyone with write access on the
+      # app repo can already build an image from a workflow of their own on any
+      # branch, because the build identity trusts every ref of the repo and the
+      # production environment has no branch policy. What the check stops is
+      # this workflow building anything else from a hotfix ref, by mistake or
+      # from a hand-pushed branch. The rule, and why it checks content rather
+      # than the "(cherry picked from commit X)" line, is in src/v2/hotfix.js:
+      #
+      #   - the branch is named hotfix/<release tag>, and that release is the
+      #     one production runs now (the newest production row in the
+      #     deployment ledger, the public read promote's guards use, so no
+      #     credential is needed). A hotfix of an older release would take
+      #     production backwards when promoted;
+      #   - it starts at the commit the ledger records for that release (a git
+      #     tag is never trusted for this: anyone with push access can make
+      #     one), and holds at least one fix;
+      #   - every commit after it has one parent and names its source X with a
+      #     "(cherry picked from commit X)" line; X is on the default branch's
+      #     first-parent history, is not in the release already and changes
+      #     no workflow file; and applying X's change to the commit's parent
+      #     (with the parent's .gitattributes) gives exactly the commit's tree.
+      #
+      # It checks github.sha, the commit the build jobs below check out, not
+      # the branch's current tip. Anything that fails is refused with the
+      # default-branch refusal above, plus the reason. Fails closed: a ledger
+      # that cannot be read is a refusal. These steps run only on a ref the
+      # step above matched as a hotfix branch, so a default-branch build is
+      # exactly as before.
+      - name: Checkout Cru Actions & Workflows (hotfix check)
+        if: steps.ref.outputs.hotfix == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Checkout project with full history (hotfix check)
+        if: steps.ref.outputs.hotfix == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: project
+          fetch-depth: 0
+
+      - name: Assert the hotfix branch holds only cherry-picks of default-branch commits
+        if: steps.ref.outputs.hotfix == 'true'
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: verify
+          project-name: ${{ steps.info.outputs.project-name }}
+          path: project
+          ref: ${{ github.ref }}
+          sha: ${{ github.sha }}
+          default-branch: ${{ github.event.repository.default_branch }}
 
       # Which GitHub Actions environment the runtime build job below runs in --
       # i.e. whose cloud identity builds the candidate. Normally "production":

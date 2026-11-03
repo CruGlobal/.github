@@ -37,6 +37,10 @@ const ACTIONS = {
     inputs: { REPOSITORY: 'CruGlobal/some-app', 'RUN-ID': '1', SHA: 'a'.repeat(40), ENVIRONMENT: 'production' },
     error: '::warning title=Deploy not recorded::no github-token was given, so the run cannot be read',
     status: 0
+  },
+  hotfix: {
+    inputs: { MODE: 'cut', 'PROJECT-NAME': 'example-app', COMMIT: 'a'.repeat(40), 'EXPECTED-RELEASE': 'release-2026-10-20-10140' },
+    error: '::error title=actor_not_allowed::refusing to push a hotfix branch: no authorize-actor check passed earlier in this job'
   }
 }
 

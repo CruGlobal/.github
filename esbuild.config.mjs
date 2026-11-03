@@ -20,7 +20,8 @@ const handlerMap = {
     './src/classify-rollback-safety.js': 'classify-rollback-safety',
     './src/entry/flightdeck-release-event.js': 'flightdeck-release-event',
     './src/entry/authorize-actor.js': 'authorize-actor',
-    './src/entry/verify-deploy-run.js': 'verify-deploy-run'
+    './src/entry/verify-deploy-run.js': 'verify-deploy-run',
+    './src/entry/hotfix.js': 'hotfix'
 }
 
 // Build each action as a separate bundle with flat output
