@@ -8,12 +8,14 @@ import {
   HotfixRefusal,
   appWorkflowRuns,
   cherryPickSource,
+  currentProduction,
   cutHotfix,
+  deadlineRequests,
   gitIn,
   hotfixBranch,
+  hotfixPromoteCheck,
   normalizeRelease,
   readProductionLedger,
-  releaseCommitFromLedger,
   releaseFromRef,
   releaseKind,
   verifyHotfixRef
@@ -105,13 +107,15 @@ describe('release and ref helpers', () => {
     expect(cherryPickSource('fix')).toBe('')
   })
 
-  it('finds the commit the ledger records for a release, and refuses when it cannot', () => {
+  it('reads what production runs now from the newest production row, failing closed', async () => {
     const sha = 'c'.repeat(40)
-    const rows = [ledgerRow(NEWER_RELEASE, 'd'.repeat(40)), ledgerRow(RELEASE, sha), ledgerRow(RELEASE, sha, { Action: 'rollback' })]
-    expect(releaseCommitFromLedger(rows, RELEASE)).toBe(sha)
-    expect(() => releaseCommitFromLedger(rows, 'release-2026-10-01-10100')).toThrow(/production has not run release-2026-10-01-10100/)
-    expect(() => releaseCommitFromLedger([ledgerRow(RELEASE, undefined)], RELEASE)).toThrow(/name no commit/)
-    expect(() => releaseCommitFromLedger([ledgerRow(RELEASE, sha), ledgerRow(RELEASE, 'e'.repeat(40))], RELEASE)).toThrow(/more than one commit/)
+    const read = (answer) => currentProduction({ readLedger: fakeLedger(answer).readLedger, project: PROJECT, unconfirmed: 'cannot tell' })
+    expect(await read([ledgerRow(NEWER_RELEASE, sha), ledgerRow(RELEASE, 'd'.repeat(40))])).toEqual({ revision: NEWER_RELEASE, sha })
+    expect(await read([ledgerRow(RELEASE, 'not-a-sha')])).toEqual({ revision: RELEASE, sha: '' })
+    // An outage is "try again later", not "production moved".
+    await expect(read(new Error('HTTP 503'))).rejects.toMatchObject({ reason: REASONS.ledgerUnavailable, message: 'could not read the deployment ledger for example-app (HTTP 503), so cannot tell' })
+    await expect(read([])).rejects.toMatchObject({ reason: REASONS.productionMoved })
+    await expect(read([{ Sha: sha }])).rejects.toMatchObject({ reason: REASONS.productionMoved })
   })
 })
 
@@ -248,15 +252,24 @@ describe('cutHotfix', () => {
   })
 
   it.each([
-    ['an unreadable ledger', new Error('the deployment ledger answered HTTP 503'), /could not read the deployment ledger for example-app \(the deployment ledger answered HTTP 503\), so cannot confirm production is still running/],
-    ['no production rows', [], /the deployment ledger has no production rows for example-app/],
-    ['a row with no Revision', [{ Sha: 'a'.repeat(40) }], /has no Revision/]
-  ])('fails closed on %s', async (_label, answer, message) => {
+    ['an unreadable ledger', new Error('the deployment ledger answered HTTP 503'), REASONS.ledgerUnavailable, /could not read the deployment ledger for example-app \(the deployment ledger answered HTTP 503\), so cannot confirm production is still running/],
+    ['no production rows', [], REASONS.productionMoved, /the deployment ledger has no production rows for example-app/],
+    ['a row with no Revision', [{ Sha: 'a'.repeat(40) }], REASONS.productionMoved, /has no Revision/]
+  ])('fails closed on %s', async (_label, answer, reason, message) => {
     const fx = app()
     const before = fx.refs()
     const error = await refusal(cut(fx, { ledger: fakeLedger(answer) }))
-    expect(error.reason).toBe(REASONS.productionMoved)
+    expect(error.reason).toBe(reason)
     expect(error.message).toMatch(message)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('refuses as ledger_unavailable when the ledger goes away right before the push', async () => {
+    const fx = app()
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { ledger: fakeLedger([ledgerRow(RELEASE, fx.release)], new Error('no answer from the deployment ledger')) }))
+    expect(error.reason).toBe(REASONS.ledgerUnavailable)
+    expect(error.message).toMatch(/refusing to push the hotfix branch\. Nothing was pushed/)
     expect(fx.refs()).toEqual(before)
   })
 
@@ -303,7 +316,50 @@ describe('cutHotfix', () => {
     fx.push('main')
     const error = await refusal(cut(fx, { commit: merge }))
     expect(error.reason).toBe(REASONS.mergeCommit)
-    expect(error.message).toMatch(/is a merge commit\. A hotfix cherry-picks single-parent commits only/)
+    expect(error.message).toMatch(/is a merge commit\. A hotfix needs the pull request's squash commit: picking a merge, or some of the commits it brought in, would ship code nobody reviewed as a whole\. Merge the fix with squash \(the repo's squash-only merge setting does this\)/)
+    expect(error.message).not.toMatch(/one hotfix per commit/)
+  })
+
+  it('refuses a commit main reached only inside a merged pull request', async () => {
+    const fx = app()
+    // "wip" breaks line 11 and "tidy" fixes it; main was only ever at the merge.
+    fx.git(['checkout', '--quiet', '-b', 'pr', fx.fix])
+    const wip = fx.commit('wip', { 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 66', 8: 'const line8 = 8 + 1', 11: 'const line11 = BROKEN' }) })
+    fx.commit('tidy', { 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 66', 8: 'const line8 = 8 + 1', 11: 'const line11 = 0' }) })
+    fx.git(['checkout', '--quiet', 'main'])
+    fx.git(['merge', '--quiet', '--no-ff', '-m', 'Merge pull request', 'pr'])
+    fx.push('main')
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { commit: wip }))
+    expect(error.reason).toBe(REASONS.notOnDefaultBranch)
+    expect(error.message).toMatch(/is on main only inside a pull request that was merged with a merge commit, so main never had exactly the code it makes\. Hotfix the pull request's squash commit instead/)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('refuses a fix that changes a workflow file, before anything is pushed', async () => {
+    const fx = app()
+    const ci = fx.commit('fix: ci and line 11', { '.github/workflows/ci.yml': 'on: push\n', 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 66', 8: 'const line8 = 8 + 1', 11: 'const line11 = 0' }) })
+    fx.push('main')
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { commit: ci }))
+    expect(error.reason).toBe(REASONS.workflowChange)
+    expect(error.message).toMatch(/changes \.github\/workflows\/ci\.yml\. A hotfix never changes a workflow file.*a person ships it by hand/)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('checks the pick with the release\'s .gitattributes, not the checkout\'s', async () => {
+    const fx = app()
+    // This fix conflicts with the release on line 6. A union merge driver in
+    // the runner's checkout would make it merge cleanly, so the pre-check and
+    // the cherry-pick would disagree with build-candidate's check.
+    const conflicting = fx.commit('fix: line 6', { 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 666', 8: 'const line8 = 8 + 1' }) })
+    fx.push('main')
+    const runner = fx.clone()
+    writeFileSync(path.join(runner, '.gitattributes'), 'app.js merge=union\n')
+    const before = fx.refs()
+    const error = await refusal(cutHotfix({ git: gitIn(runner), project: PROJECT, commit: conflicting, expectedRelease: RELEASE, readLedger: fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger }))
+    expect(error.reason).toBe(REASONS.conflict)
+    expect(fx.refs()).toEqual(before)
   })
 
   it('refuses a commit that is already in the live release', async () => {
@@ -386,15 +442,12 @@ describe('cutHotfix', () => {
     expect(fx.refs()[BRANCH_REF]).toBe(raced)
   })
 
-  it.each([
-    ['a ruleset', 'echo "error: GH013: Repository rule violations found for refs/heads/hotfix/x." >&2', /authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix\/\* branches\. Nothing was pushed/],
-    ['a token without the workflow scope', 'echo "! [remote rejected] refusing to allow a Personal Access Token to create or update workflow \\`.github/workflows/ci.yml\\` without \\`workflow\\` scope" >&2', /authz-token may not change workflow files \(it needs the workflow scope, or workflows: write\)\. Nothing was pushed/]
-  ])('says what the token needs when the app repo refuses the push (%s)', async (_label, hook, message) => {
+  it('says what the token needs when a ruleset refuses the push', async () => {
     const fx = app()
-    writeFileSync(path.join(fx.origin, 'hooks', 'pre-receive'), `#!/bin/sh\n${hook}\nexit 1\n`)
+    writeFileSync(path.join(fx.origin, 'hooks', 'pre-receive'), '#!/bin/sh\necho "error: GH013: Repository rule violations found for refs/heads/hotfix/x." >&2\nexit 1\n')
     chmodSync(path.join(fx.origin, 'hooks', 'pre-receive'), 0o755)
     const before = fx.refs()
-    await expect(cut(fx)).rejects.toThrow(message)
+    await expect(cut(fx)).rejects.toThrow(/authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix\/\* branches\. Nothing was pushed/)
     expect(fx.refs()).toEqual(before)
   })
 
@@ -496,6 +549,101 @@ describe('releaseKind (promote)', () => {
   it('throws on an API error, for the caller to treat as deploy', async () => {
     const api = octokit()
     await expect(releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA })).rejects.toThrow(/Not Found/)
+  })
+
+  it('ignores hotfix/* branches that are not named after a release', async () => {
+    const api = octokit({ compare: { [`${MAIN_TIP}...${SHA}`]: 'diverged' }, refs: [ref('hotfix/urgent', SHA), ref('hotfix/Release-1', SHA)] })
+    expect(await releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA })).toMatchObject({ kind: 'deploy' })
+  })
+
+  it('gives up at one deadline for all its requests, so a slow GitHub cannot hold the production lock', async () => {
+    // A clock that moves 12 seconds with every look: the third request
+    // would start after the 30-second deadline.
+    let clock = 0
+    const now = () => { clock += 12000; return clock }
+    const branches = Array.from({ length: 50 }, (_, i) => ref(`hotfix/release-2026-10-${String(i + 1).padStart(2, '0')}-1${i}`, 'e'.repeat(40)))
+    const api = octokit({ compare: { [`${MAIN_TIP}...${SHA}`]: 'diverged', [`${'e'.repeat(40)}...${SHA}`]: 'diverged' }, refs: branches })
+    await expect(releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA, request: deadlineRequests({ deadlineMs: 30000, now }) })).rejects.toThrow(/gave up after 30 seconds/)
+    expect(api.rest.repos.compareCommitsWithBasehead.mock.calls.length).toBeLessThan(3)
+  })
+})
+
+describe('hotfixPromoteCheck (promote, before the deploy)', () => {
+  const SHA = 'a'.repeat(40)
+  const MAIN_TIP = 'b'.repeat(40)
+  const LIVE_SHA = 'c'.repeat(40)
+  const repository = 'example-org/example-app'
+
+  // GitHub: the promoted commit is on hotfix/<release> and not on main.
+  // `fromLive` is what comparing production's commit with it says.
+  function github ({ release = RELEASE, fromLive = 'diverged', fails = false } = {}) {
+    return {
+      rest: {
+        repos: {
+          get: vi.fn(async () => { if (fails) throw new Error('Bad gateway'); return { data: { default_branch: 'main' } } }),
+          getBranch: vi.fn(async () => ({ data: { commit: { sha: MAIN_TIP } } })),
+          compareCommitsWithBasehead: vi.fn(async ({ basehead }) => {
+            if (basehead === `${MAIN_TIP}...${SHA}`) return { data: { status: 'diverged' } }
+            if (basehead === `${LIVE_SHA}...${SHA}`) {
+              if (fromLive instanceof Error) throw fromLive
+              return { data: { status: fromLive } }
+            }
+            throw new Error(`unexpected compare ${basehead}`)
+          })
+        },
+        git: { listMatchingRefs: vi.fn(async () => ({ data: [{ ref: `refs/heads/hotfix/${release}`, object: { type: 'commit', sha: SHA } }] })) }
+      }
+    }
+  }
+  const check = (octokit, ledger) => hotfixPromoteCheck({ octokit, repository, sha: SHA, project: PROJECT, readLedger: ledger.readLedger })
+
+  it('passes a hotfix for the release production runs', async () => {
+    const result = await check(github(), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+    expect(result).toMatchObject({ kind: 'hotfix', branch: BRANCH, release: RELEASE, check: 'live' })
+  })
+
+  it('refuses a hotfix for a release production no longer runs, saying what to do', async () => {
+    const result = await check(github(), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]))
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'stale' })
+    expect(result.checkWhy).toBe(`${SHA.slice(0, 12)} is a hotfix for ${RELEASE} (from ${BRANCH}), but production now runs ${NEWER_RELEASE}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; refusing to promote it. Nothing in production was changed. Cut a new hotfix against ${NEWER_RELEASE}, the release production runs now`)
+  })
+
+  it('passes a hotfix that builds on what production runs (production moved forward along the branch)', async () => {
+    const result = await check(github({ fromLive: 'ahead' }), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]))
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'live' })
+  })
+
+  it('passes when production already runs this commit, without asking GitHub again', async () => {
+    const api = github()
+    const result = await check(api, fakeLedger([ledgerRow(NEWER_RELEASE, SHA)]))
+    expect(result).toMatchObject({ check: 'live' })
+    expect(api.rest.repos.compareCommitsWithBasehead).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops a hotfix promote when the ledger cannot say what production runs', async () => {
+    const result = await check(github(), fakeLedger(new Error('the deployment ledger answered HTTP 503')))
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'unconfirmed' })
+    expect(result.checkWhy).toMatch(/could not read the deployment ledger for example-app \(the deployment ledger answered HTTP 503\).*Try again once the deployment ledger answers/)
+  })
+
+  it('skips the check, and says deploy, when GitHub cannot answer', async () => {
+    const ledger = fakeLedger(new Error('must not be read'))
+    const result = await check(github({ fails: true }), ledger)
+    expect(result).toMatchObject({ kind: 'deploy', check: 'skipped', failed: true })
+    expect(ledger.calls).toEqual([])
+  })
+
+  it('skips the check when GitHub cannot say whether the hotfix builds on production', async () => {
+    const result = await check(github({ fromLive: new Error('timeout') }), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]))
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'skipped', failed: true })
+  })
+
+  it('does not read the ledger for an ordinary promote', async () => {
+    const api = github()
+    api.rest.repos.compareCommitsWithBasehead.mockResolvedValue({ data: { status: 'behind' } })
+    const ledger = fakeLedger(new Error('must not be read'))
+    expect(await check(api, ledger)).toMatchObject({ kind: 'deploy', check: 'skipped' })
+    expect(ledger.calls).toEqual([])
   })
 })
 

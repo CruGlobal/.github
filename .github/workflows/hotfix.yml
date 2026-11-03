@@ -17,9 +17,10 @@ name: Hotfix
 #   2. Read the release production runs from the deployment ledger, the way
 #      promote's stale-promote guard does, and refuse unless it is
 #      expected-release.
-#   3. Check the fix's commit is on the default branch, and is not a merge
-#      commit (see src/v2/hotfix.js for why a merge is refused rather than
-#      picked with -m 1).
+#   3. Check the fix's commit is on the default branch's first-parent history
+#      (a commit the default branch itself was at), is not a merge commit and
+#      changes no file under .github/workflows (see src/v2/hotfix.js for why
+#      each of these is refused).
 #   4. Cut hotfix/<release tag> from the commit the ledger records for that
 #      release, or add to the branch when it already exists (an earlier fix
 #      for the same release that has not been promoted yet). The commit comes
@@ -41,10 +42,13 @@ name: Hotfix
 #      accepted for now: the fix passed its checks on the default branch.
 #
 # Every refusal is an error titled with a fixed reason word (actor_not_allowed,
-# no_production, invalid_input, production_moved, release_commit_unknown,
-# not_on_default_branch, merge_commit, already_in_release,
-# cherry_pick_conflict, branch_not_clean, branch_moved or no_pipeline), and
-# every one of them happens before the push.
+# no_production, invalid_input, ledger_unavailable, production_moved,
+# release_commit_unknown, not_on_default_branch, merge_commit,
+# already_in_release, workflow_change, cherry_pick_conflict, branch_not_clean,
+# branch_moved or no_pipeline), and every one of them happens before the
+# push. ledger_unavailable means the deployment ledger could not be read: try
+# again later. production_moved means it answered, and production does not
+# run expected-release.
 #
 # Re-runs and repeats are safe. A run whose fix is already on the branch
 # pushes nothing and dispatches the build again; build-candidate reuses the
@@ -54,9 +58,11 @@ name: Hotfix
 # the one already waiting; a cancelled run changed nothing and can be started
 # again.
 #
-# Production can move after the push. The branch is still a correct hotfix
-# for the release it is named after; promoting it is the promote's decision,
-# and an automation promote names the release it expects to replace.
+# Production can move after the push. A hotfix only ever ships on top of the
+# release production runs: build-candidate refuses to build a hotfix branch
+# for any other release, and promote refuses (stale_hotfix) a hotfix
+# candidate that was built before production moved. Cut a new hotfix for the
+# new release instead.
 
 on:
   workflow_call:
@@ -99,9 +105,10 @@ on:
         description: >-
           GitHub token for the app repo. It reads the permission of the
           account that started this attempt, clones the repo, pushes the
-          hotfix branch (contents: write, plus workflows: write when a fix
-          changes a file under .github/workflows) and dispatches the app's
-          pipeline-v2.yml (actions: write).
+          hotfix branch (contents: write) and dispatches the app's
+          pipeline-v2.yml (actions: write). It never needs the workflow
+          scope: a fix that changes a workflow file is refused before any
+          push.
     outputs:
       branch:
         description: The hotfix branch, hotfix/<release tag>.
@@ -212,8 +219,11 @@ jobs:
       # candidate and sends it to release-candidate. It is dispatched even when
       # the branch already had the fix: an earlier run may have pushed and then
       # failed here, and a build of a commit already built reuses its candidate.
+      # The dispatch action falls back to main when it is given no ref, so an
+      # empty branch output must never reach it.
       - name: Build the hotfix branch
         id: dispatch
+        if: steps.cut.outputs.branch != ''
         uses: ./cru-github-actions/actions/dispatch
         with:
           github-token: ${{ secrets.authz-token }}

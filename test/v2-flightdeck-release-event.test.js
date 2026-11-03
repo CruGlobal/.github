@@ -833,12 +833,12 @@ describe('release event wiring', () => {
       expect(kindStep).toMatchObject({
         uses: './cru-github-actions/actions/hotfix',
         'continue-on-error': true,
-        with: { mode: 'release-kind', 'github-token': '${{ secrets.authz-token }}', repository: '${{ needs.lookup.outputs.repository }}', sha: '${{ steps.baseline.outputs.head-sha }}' }
+        with: { mode: 'release-kind', 'github-token': '${{ secrets.authz-token }}', repository: '${{ needs.lookup.outputs.repository }}', 'project-name': '${{ inputs.project-name }}', sha: '${{ steps.baseline.outputs.head-sha }}' }
       })
-      // After production has changed, so it never holds up the deploy, and
-      // before the event that reads it.
+      // Before production changes, since a stale hotfix is refused on what
+      // it finds, and so before the event that reads it.
       const names = job.steps.map((s) => s.name)
-      expect(job.steps.indexOf(kindStep)).toBeGreaterThan(names.indexOf('Deploy to production'))
+      expect(job.steps.indexOf(kindStep)).toBeLessThan(names.indexOf('Deploy to production'))
       expect(job.steps.indexOf(kindStep)).toBeLessThan(job.steps.indexOf(step))
       expect((await postFrom(step, { [PROMOTE_KIND]: 'hotfix' })).kind).toBe('hotfix')
       expect((await postFrom(step)).kind).toBe('deploy')

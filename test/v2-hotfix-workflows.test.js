@@ -16,14 +16,48 @@ describe('build-candidate', () => {
   const setup = workflow.jobs.setup
   const names = setup.steps.map((step) => step.name)
   const DEFAULT = "github.ref != format('refs/heads/{0}', github.event.repository.default_branch)"
-  const HOTFIX_ONLY = `${DEFAULT} && startsWith(github.ref, 'refs/heads/hotfix/')`
+  const HOTFIX_ONLY = "steps.ref.outputs.hotfix == 'true'"
+  const TODAY = '::error title=Build Candidate::candidates build from the default branch only -- REF is not refs/heads/main. Merge the change to main, then dispatch.'
 
-  it('keeps the default-branch refusal, word for word, for every ref but the default branch and hotfix/*', () => {
+  it('keeps the default-branch step where it was, with the same condition, before any checkout', () => {
     const { step } = findStep(workflow, 'setup', 'Assert the calling ref is the default branch')
     expect(setup.steps.indexOf(step)).toBe(0)
-    expect(step.if).toBe(`${DEFAULT} && !startsWith(github.ref, 'refs/heads/hotfix/')`)
+    expect(step.if).toBe(DEFAULT)
+    expect(step.id).toBe('ref')
     expect(step.run).toContain('echo "::error title=Build Candidate::candidates build from the default branch only -- $GITHUB_REF is not refs/heads/$DEFAULT_BRANCH. Merge the change to $DEFAULT_BRANCH, then dispatch."')
-    expect(step.run).toContain('exit 1')
+  })
+
+  describe('the default-branch step', () => {
+    const assertRef = (ref) => runShellStep(findStep(workflow, 'setup', 'Assert the calling ref is the default branch'), {
+      context: { 'github.event.repository.default_branch': 'main' },
+      runnerEnv: { GITHUB_REF: ref }
+    })
+
+    // Expression comparisons ignore case and git refs do not, so the hotfix
+    // shape is matched in bash, exactly, and nothing else gets past.
+    it.each([
+      'refs/heads/feature/login',
+      'refs/heads/hotfix/fix-login',
+      'refs/heads/HOTFIX/release-2026-10-20-10140',
+      'refs/heads/Hotfix/release-2026-10-20-10140',
+      'refs/heads/hotfix/Release-2026-10-20-10140',
+      'refs/heads/hotfix/release-2026-10-20-10140/x',
+      'refs/heads/hotfix/release-2026-10-20-',
+      'refs/heads/xhotfix/release-10140',
+      'refs/tags/hotfix/release-10140'
+    ])('refuses %s with today\'s exact message', async (ref) => {
+      const result = await assertRef(ref)
+      expect(result.status).toBe(1)
+      expect(result.stdout.trim()).toBe(TODAY.replace('REF', ref))
+      expect(result.outputs).toEqual({})
+    })
+
+    it.each(['refs/heads/hotfix/release-2026-10-20-10140', 'refs/heads/hotfix/release-10012'])('passes %s on to the hotfix check', async (ref) => {
+      const result = await assertRef(ref)
+      expect(result.status, result.stdout).toBe(0)
+      expect(result.outputs).toEqual({ hotfix: 'true' })
+      expect(result.stdout).not.toContain('::error')
+    })
   })
 
   it('checks a hotfix ref before any build job runs, and only a hotfix ref', () => {
@@ -116,6 +150,8 @@ describe('hotfix.yml', () => {
 
   it('dispatches the app\'s pipeline-v2.yml on the hotfix branch, and nothing else', () => {
     expect(step('Build the hotfix branch')).toMatchObject({
+      // The dispatch action falls back to main without a ref.
+      if: "steps.cut.outputs.branch != ''",
       uses: './cru-github-actions/actions/dispatch',
       with: { 'github-token': '${{ secrets.authz-token }}', repo: '${{ steps.app-info.outputs.repository }}', workflow: 'pipeline-v2.yml', ref: '${{ steps.cut.outputs.branch }}', 'inputs-json': '{}' }
     })
@@ -164,6 +200,60 @@ describe('hotfix.yml', () => {
     })
     expect(result.status).toBe(1)
     expect(result.stdout).toMatch(/^::error title=dispatch_failed::hotfix\/release-2026-10-20-10140 is on CruGlobal\/example-app, but dispatching its pipeline-v2\.yml failed/m)
+  })
+})
+
+describe('promote', () => {
+  const workflow = loadYaml('.github/workflows/promote.yml')
+  const KIND = 'Tell a hotfix from a deploy'
+  const REFUSE = 'Refuse a hotfix that is not for the live release'
+
+  describe.each(['promote-gcp', 'promote-aws'])('%s', (jobId) => {
+    const job = workflow.jobs[jobId]
+    const names = job.steps.map((s) => s.name)
+
+    it('checks for a stale hotfix inside the lock, after the baseline and before production changes', () => {
+      const kind = names.indexOf(KIND)
+      const refuse = names.indexOf(REFUSE)
+      expect(kind).toBeGreaterThan(names.indexOf('Fetch production baseline'))
+      expect(refuse).toBe(kind + 1)
+      expect(refuse).toBeLessThan(names.indexOf('Deploy to production'))
+      expect(refuse).toBeLessThan(names.indexOf('Classify rollback safety'))
+      expect(job.concurrency.group).toBe('production-${{ inputs.project-name }}')
+      expect(findStep(workflow, jobId, KIND).step).toMatchObject({
+        id: 'release-kind',
+        'continue-on-error': true,
+        with: { mode: 'release-kind', 'project-name': '${{ inputs.project-name }}', sha: '${{ steps.baseline.outputs.head-sha }}' }
+      })
+      // The refusal can fail the job; nothing else may hide it.
+      const refuseStep = findStep(workflow, jobId, REFUSE).step
+      expect(refuseStep['continue-on-error']).toBeUndefined()
+      expect(refuseStep.if).toBeUndefined()
+    })
+
+    const refuse = (check, why) => runShellStep(findStep(workflow, jobId, REFUSE), {
+      context: {
+        'inputs.project-name': 'example-app',
+        'secrets.datadog-api-key': 'dd-test',
+        'steps.release-kind.outputs.check': check,
+        'steps.release-kind.outputs.check-why': why
+      }
+    })
+
+    it.each(['stale', 'unconfirmed'])('refuses a %s hotfix as stale_hotfix, saying why on one line', async (check) => {
+      const result = await refuse(check, 'aaaaaaaaaaaa is a hotfix for release-2026-10-20-10140\n::error::injected')
+      expect(result.status).toBe(1)
+      const errors = result.stdout.split('\n').filter((line) => line.startsWith('::error'))
+      expect(errors).toEqual(['::error title=stale_hotfix::aaaaaaaaaaaa is a hotfix for release-2026-10-20-10140 ::error::injected'])
+      expect(result.env).toEqual({ PROMOTE_REFUSED: 'stale_hotfix' })
+    })
+
+    it.each(['live', 'skipped', ''])('lets a promote with check %j go on, silently', async (check) => {
+      const result = await refuse(check, 'anything')
+      expect(result.status).toBe(0)
+      expect(result.stdout).toBe('')
+      expect(result.env).toEqual({})
+    })
   })
 })
 

@@ -8,9 +8,9 @@ import {
   appWorkflowRuns,
   cutHotfix,
   gitIn,
+  hotfixPromoteCheck,
   oneLine,
   readProductionLedger,
-  releaseKind,
   short,
   verifyHotfixRef
 } from './v2/hotfix.js'
@@ -18,8 +18,9 @@ import {
 // hotfix: the pipeline v2 hotfix steps, one action with four modes. The logic
 // and the reasons behind it are in src/v2/hotfix.js.
 //
-//   verify        build-candidate.yml, on a hotfix/* ref: refuse the build
-//                 unless the branch is one this pipeline could have cut.
+//   verify        build-candidate.yml, on a hotfix ref: refuse the build
+//                 unless the branch is one this pipeline could have cut, for
+//                 the release production runs now.
 //   cut           hotfix.yml: cut or extend hotfix/<release>, cherry-pick the
 //                 fix and push the branch. Refuses unless the authorize-actor
 //                 check passed earlier in the same job, because the push is
@@ -27,8 +28,12 @@ import {
 //   report        hotfix.yml, after the build is dispatched: say in the run
 //                 summary whether the app's own CI ran on the hotfix branch.
 //                 Never fails the run.
-//   release-kind  promote.yml: "hotfix" when the promoted commit came from a
-//                 hotfix branch, otherwise "deploy". Never fails the run.
+//   release-kind  promote.yml, before the deploy: "hotfix" when the promoted
+//                 commit came from a hotfix branch, otherwise "deploy", and
+//                 whether a hotfix is for the release production runs now
+//                 (`check`), which promote's next step reads. Never fails
+//                 the step; anything GitHub cannot answer in 30 seconds is
+//                 an ordinary deploy.
 //
 // The entry point is src/entry/hotfix.js, which always runs the action. This
 // module never runs anything on import, so tests can load it.
@@ -166,30 +171,41 @@ async function runReport ({ sleep }) {
   await writeSummary(lines)
 }
 
-async function runReleaseKind () {
+// Never fails the step. The kind labels the release event; `check` is read
+// by promote's next step, which refuses a stale or unconfirmed hotfix.
+async function runReleaseKind ({ readLedger, request }) {
+  let result
   try {
-    const { kind, why } = await releaseKind({
+    result = await hotfixPromoteCheck({
       octokit: getOctokit(core.getInput('github-token')),
       repository: core.getInput('repository'),
-      sha: core.getInput('sha')
+      sha: core.getInput('sha'),
+      project: core.getInput('project-name'),
+      readLedger,
+      request
     })
-    core.setOutput('kind', kind)
-    core.info(`release kind ${kind}: ${why}`)
   } catch (error) {
-    // Telemetry policy: a label never changes a run's outcome.
-    core.setOutput('kind', 'deploy')
-    core.warning(`could not tell whether this promote is a hotfix, so its release event says deploy (${oneLine(error.message)})`)
+    result = { kind: 'deploy', why: oneLine(error.message), check: 'skipped', checkWhy: 'the check could not run', failed: true }
   }
+  core.setOutput('kind', result.kind)
+  core.setOutput('branch', result.branch ?? '')
+  core.setOutput('release', result.release ?? '')
+  core.setOutput('check', result.check)
+  core.setOutput('check-why', oneLine(result.checkWhy))
+  if (result.failed) {
+    core.warning(`could not tell whether this promote is a hotfix for the release production runs, so it goes on as an ordinary promote (${oneLine(result.why)}; ${oneLine(result.checkWhy)})`)
+  }
+  core.info(`release kind ${result.kind}: ${oneLine(result.why)}; hotfix check ${result.check}: ${oneLine(result.checkWhy)}`)
 }
 
-export async function run ({ env = process.env, readLedger = readProductionLedger, sleep } = {}) {
+export async function run ({ env = process.env, readLedger = readProductionLedger, sleep, request } = {}) {
   const mode = core.getInput('mode').trim()
   try {
     switch (mode) {
       case 'verify': return await runVerify({ readLedger })
       case 'cut': return await runCut({ env, readLedger })
       case 'report': return await runReport({ sleep })
-      case 'release-kind': return await runReleaseKind()
+      case 'release-kind': return await runReleaseKind({ readLedger, request })
       default: core.setFailed(`unknown mode '${oneLine(mode)}'; expected one of ${MODES.join(', ')}`)
     }
   } catch (error) {

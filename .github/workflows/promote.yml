@@ -37,8 +37,9 @@ name: Promote
 # changes, including a migration that runs before the new release starts. Each
 # refusal is an error whose title is a fixed reason word the caller can read
 # from the run's annotations: actor_not_allowed, production_moved,
-# candidate_moved or not_rollback_safe. The word names the check that refused;
-# the message says why, including when the check could not get an answer
+# candidate_moved, not_rollback_safe or, for a hotfix, stale_hotfix. The word
+# names the check that refused; the message says why, including when the
+# check could not get an answer
 # (that is a refusal too). Every input defaults to off, so a person's promote
 # runs exactly as before. An allowlisted automation account must set
 # expected-candidate and require-rollback-safe, or `lookup` refuses it.
@@ -62,8 +63,10 @@ name: Promote
 # carries `RcMode` at all.
 #
 # A hotfix candidate (built from a hotfix/<release tag> branch; see
-# hotfix.yml) is promoted by the same route. The only difference is its
-# Flightdeck release event, whose kind is hotfix instead of deploy.
+# hotfix.yml) is promoted by the same route. Its Flightdeck release event's
+# kind is hotfix instead of deploy, and it is refused as stale_hotfix unless
+# it is for the release production runs now (see "Tell a hotfix from a
+# deploy").
 #
 # Pre-release apps (`Lifecycle` "pre-release" on the staging item, or simply no
 # production app-info row) are REFUSED in `lookup`, as early as the data allows:
@@ -629,6 +632,58 @@ jobs:
           head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
 
+      # --- Hotfix or deploy, and a stale hotfix -------------------------------
+      # A hotfix candidate is promoted like any other; its release event says
+      # hotfix instead of deploy. It came from a hotfix branch when its commit
+      # (the sha- tag on the promoted digest) is not on the app repo's default
+      # branch but is on a hotfix/<release tag> branch: build-candidate builds
+      # from those two kinds of ref only. Read with authz-token, which this job
+      # already uses to read the app repo.
+      #
+      # A hotfix must also still be for the release production runs (or move
+      # production forward from it). A hotfix of release A that waited on
+      # release-candidate while release B was promoted would take production
+      # from B back to A plus the fix, and the rollback-safety check below
+      # would not see it: it diffs from the merge base, A, so it sees only the
+      # fix and none of what B changed. build-candidate refuses to build such a
+      # hotfix; this catches one built before production moved.
+      #
+      # Inside the production lock and before anything in production changes.
+      # The GitHub reads share one 30-second deadline. When GitHub cannot
+      # answer in time, the step says deploy and the check is skipped, so an
+      # ordinary promote goes on exactly as before; only a candidate GitHub
+      # confirms as a hotfix can be refused. The step itself never fails.
+      - name: Tell a hotfix from a deploy
+        id: release-kind
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: release-kind
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          project-name: ${{ inputs.project-name }}
+          sha: ${{ steps.baseline.outputs.head-sha }}
+
+      # Refused as stale_hotfix when the step above found a hotfix for a
+      # release production no longer runs, or could not read the deployment
+      # ledger to tell (the same fail-closed rule promote's other guards use
+      # for the ledger). Anything else passes silently.
+      - name: Refuse a hotfix that is not for the live release
+        env:
+          CHECK: ${{ steps.release-kind.outputs.check }}
+          WHY: ${{ steps.release-kind.outputs.check-why }}
+        run: |
+          case "$CHECK" in
+            stale|unconfirmed) ;;
+            *) exit 0 ;;
+          esac
+          # One line, always: what follows a line break must not read as a
+          # workflow command of its own.
+          why="${WHY//[$'\r\n']/ }"
+          echo "PROMOTE_REFUSED=stale_hotfix" >> "$GITHUB_ENV"
+          echo "::error title=stale_hotfix::${why:-this hotfix is not for the release production runs; refusing to promote it. Nothing in production was changed}"
+          exit 1
+
       # Classify the migrations added between the production baseline and the
       # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
       # An app whose app-info declares `Migrations = "none"` is rollback-safe
@@ -933,25 +988,6 @@ jobs:
                 + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
-      # --- Hotfix or deploy --------------------------------------------------
-      # A hotfix candidate is promoted exactly like any other; only its
-      # release event says which it was. It came from a hotfix branch when its
-      # commit (the sha- tag on the promoted digest) is not on the app repo's
-      # default branch but is on a hotfix/* branch: build-candidate builds from
-      # those two kinds of ref only. Read with authz-token, which this job
-      # already uses to read the app repo. Telemetry policy: it never fails
-      # the promote, and it runs after production has changed, so it cannot
-      # hold up the deploy.
-      - name: Tell a hotfix from a deploy
-        id: release-kind
-        continue-on-error: true
-        uses: ./cru-github-actions/actions/hotfix
-        with:
-          mode: release-kind
-          github-token: ${{ secrets.authz-token }}
-          repository: ${{ needs.lookup.outputs.repository }}
-          sha: ${{ steps.baseline.outputs.head-sha }}
-
       # Record the release on the app's Flightdeck project timeline (GateOps
       # Phase 0). Project = app-info FlightdeckProject; credential = the CruDeploy
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
@@ -964,9 +1000,9 @@ jobs:
       # All three are display-only. The action leaves out any value Flightdeck
       # would refuse, so none of them can cost the event.
       #
-      # kind is hotfix when the step above found the candidate came from a
-      # hotfix branch, and deploy for every other promote, including when that
-      # step could not tell.
+      # kind is hotfix when the "Tell a hotfix from a deploy" step found the
+      # candidate came from a hotfix branch, and deploy for every other
+      # promote, including when that step could not tell.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -1418,6 +1454,35 @@ jobs:
           head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
 
+      # Hotfix or deploy, and a stale hotfix: same two steps as in
+      # promote-gcp; see the comment there.
+      - name: Tell a hotfix from a deploy
+        id: release-kind
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: release-kind
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          project-name: ${{ inputs.project-name }}
+          sha: ${{ steps.baseline.outputs.head-sha }}
+
+      - name: Refuse a hotfix that is not for the live release
+        env:
+          CHECK: ${{ steps.release-kind.outputs.check }}
+          WHY: ${{ steps.release-kind.outputs.check-why }}
+        run: |
+          case "$CHECK" in
+            stale|unconfirmed) ;;
+            *) exit 0 ;;
+          esac
+          # One line, always: what follows a line break must not read as a
+          # workflow command of its own.
+          why="${WHY//[$'\r\n']/ }"
+          echo "PROMOTE_REFUSED=stale_hotfix" >> "$GITHUB_ENV"
+          echo "::error title=stale_hotfix::${why:-this hotfix is not for the release production runs; refusing to promote it. Nothing in production was changed}"
+          exit 1
+
       # Classify the migrations added between the production baseline and the
       # candidate as additive (EXPAND, rollback-safe) or destructive (CONTRACT).
       # An app whose app-info declares `Migrations = "none"` is rollback-safe
@@ -1694,17 +1759,6 @@ jobs:
                 + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
-      # Hotfix or deploy: same step as in promote-gcp; see the comment there.
-      - name: Tell a hotfix from a deploy
-        id: release-kind
-        continue-on-error: true
-        uses: ./cru-github-actions/actions/hotfix
-        with:
-          mode: release-kind
-          github-token: ${{ secrets.authz-token }}
-          repository: ${{ needs.lookup.outputs.repository }}
-          sha: ${{ steps.baseline.outputs.head-sha }}
-
       # Record the release on the app's Flightdeck project timeline (GateOps
       # Phase 0). Project = app-info FlightdeckProject; credential = the CruDeploy
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
@@ -1717,9 +1771,9 @@ jobs:
       # All three are display-only. The action leaves out any value Flightdeck
       # would refuse, so none of them can cost the event.
       #
-      # kind is hotfix when the step above found the candidate came from a
-      # hotfix branch, and deploy for every other promote, including when that
-      # step could not tell.
+      # kind is hotfix when the "Tell a hotfix from a deploy" step found the
+      # candidate came from a hotfix branch, and deploy for every other
+      # promote, including when that step could not tell.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event

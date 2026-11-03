@@ -15,44 +15,63 @@ import { spawn } from 'node:child_process'
 //     release the caller named, cherry-picks the fix onto
 //     hotfix/<release tag>, and pushes the branch (cutHotfix).
 //   - build-candidate.yml refuses to build a hotfix/* branch unless it is one
-//     this pipeline could have cut (verifyHotfixRef). Without that check,
-//     anyone who can push a branch could put any code on release-candidate by
-//     naming the branch hotfix/something.
+//     this pipeline could have cut, for the release production runs now
+//     (verifyHotfixRef). It is defense in depth for the hotfix path, not a
+//     boundary: anyone with write access on an app repo can already build an
+//     image from a workflow of their own on any branch, because the build
+//     identity trusts every ref of the repo. What it stops is the pipeline's
+//     own hotfix path building anything but a live release plus reviewed
+//     fixes, by mistake or by a hand-pushed branch.
 //   - promote.yml tells a hotfix promote from an ordinary one, so the release
-//     event says which it was (releaseKind).
+//     event says which it was, and refuses a hotfix candidate that is not for
+//     the release production runs now (hotfixPromoteCheck).
 //
 // What a valid hotfix branch is, in one rule: it is named
 // hotfix/<release tag>, it starts at the commit production ran for that
 // release (from the deployment ledger, never from a git tag, which anyone
 // with push access can create), and every commit after that one is a clean
-// cherry-pick of a single-parent commit on the default branch. "Clean
-// cherry-pick" is checked on content, not on the "(cherry picked from commit
-// X)" line, which is only text: X must be on the default branch, and applying
-// X's change to the commit's parent must give exactly the commit's tree. That
-// is the same three-way merge `git cherry-pick` does, so a cherry-pick that
-// applied cleanly always passes, even when the code around the change differs
-// between the default branch and the release. A patch-id comparison would
-// refuse those, because a patch-id covers the context lines too, and it would
-// not see a changed binary file or file mode at all.
+// cherry-pick of a single-parent commit on the default branch's first-parent
+// history that is not in the release already and changes no workflow file.
+// "Clean cherry-pick" is checked on content, not on the "(cherry picked from
+// commit X)" line, which is only text: applying X's change to the commit's
+// parent must give exactly the commit's tree. That is the same three-way
+// merge `git cherry-pick` does, so a cherry-pick that applied cleanly always
+// passes, even when the code around the change differs between the default
+// branch and the release. A patch-id comparison would refuse those, because a
+// patch-id covers the context lines too, and it would not see a changed
+// binary file or file mode at all. The merge reads .gitattributes from the
+// commit being picked onto, never from the checkout, so the cut and the
+// build-candidate check always agree.
 //
-// A merge commit is refused as the fix. Cherry-picking a merge needs a parent
-// chosen with -m, and the change it brings is only right when the first
-// parent is the default branch's previous tip. When a merge was made the
-// other way round, the first parent is the feature branch, and the change
-// "relative to parent 1" is everything the default branch gained in the
-// meantime, unreleased migrations included: exactly what a hotfix exists to
-// leave out. A squash merge or a rebase merge gives single-parent commits,
-// and a rebase merge's commits can be hotfixed one run at a time.
+// "On the default branch" means on its first-parent history: a commit the
+// default branch itself was at, after a pull request merged. A commit inside
+// a pull request that was merged with a merge commit is reachable from the
+// default branch too, but the default branch never had the state it makes
+// (a "wip" commit later fixed by "tidy", say), so it is refused. A rebase
+// merge puts each of a pull request's commits on the first-parent history, so
+// an intermediate commit of a rebase-merged pull request still passes; v2 app
+// repos merge with squash only, which is what makes the rule exact.
+//
+// A merge commit is refused as the fix. Picking it with -m 1 is only right
+// when the first parent is the default branch's previous tip, and picking some
+// of the commits it brought in ships a state nobody reviewed. A hotfix takes
+// the pull request's squash commit.
+//
+// A fix that changes a file under .github/workflows is refused before any
+// push. Pushing one needs the token's workflow scope, and the token is a
+// person's, able to write to every app repo; workflow changes are a person's
+// to ship by hand.
 
 export const LEDGER_URL = 'https://deploys.cru.org/deployments'
 export const PIPELINE_WORKFLOW = 'pipeline-v2.yml'
 export const PIPELINE_PATH = `.github/workflows/${PIPELINE_WORKFLOW}`
 export const BRANCH_PREFIX = 'hotfix/'
+export const WORKFLOWS_DIR = '.github/workflows/'
 
-// How many production rows build-candidate reads to find the release a
-// hotfix branch is named after. 100 is the most the ledger API returns. A
-// release older than the newest 100 production rows is too old to hotfix.
-export const LEDGER_SCAN_LIMIT = 100
+// How long promote's hotfix check may spend asking GitHub, in all. It runs
+// inside the production lock, so it must not hold it for long; past this it
+// gives up and the promote goes on as an ordinary one.
+export const PROMOTE_CHECK_DEADLINE_MS = 30000
 
 // The identity that commits the cherry-picks. The author stays the fix's
 // author, as `git cherry-pick` always keeps it.
@@ -65,11 +84,13 @@ export const COMMITTER = Object.freeze({
 // started a hotfix run can read why from the run's annotations.
 export const REASONS = Object.freeze({
   invalidInput: 'invalid_input',
+  ledgerUnavailable: 'ledger_unavailable',
   productionMoved: 'production_moved',
   releaseCommitUnknown: 'release_commit_unknown',
   notOnDefaultBranch: 'not_on_default_branch',
   mergeCommit: 'merge_commit',
   alreadyInRelease: 'already_in_release',
+  workflowChange: 'workflow_change',
   conflict: 'cherry_pick_conflict',
   branchNotClean: 'branch_not_clean',
   branchMoved: 'branch_moved',
@@ -176,24 +197,34 @@ export async function readProductionLedger ({
 
 const rowSha = (row) => (typeof row?.Sha === 'string' && FULL_SHA.test(row.Sha.trim()) ? row.Sha.trim() : '')
 
-// Production must still be running `expected`: the newest production row's
-// Revision, exactly as promote's stale-promote guard reads it. Fails closed:
-// no answer is a refusal, not a pass. Returns the release and its commit.
-export async function confirmLiveRelease ({ readLedger, project, expected, when = 'refusing to cut a hotfix' }) {
-  const unconfirmed = `cannot confirm production is still running ${expected}; ${when}. Nothing was pushed`
+// What production runs now: the newest production row's Revision and Sha, as
+// promote's stale-promote guard reads it. Promote and rollback both write a
+// row with the release's Revision and the commit its image was built from.
+// Fails closed. A ledger that cannot be read is ledger_unavailable ("try
+// again later"); a ledger that answers but cannot say what production runs is
+// production_moved. `unconfirmed` finishes the sentence of either refusal.
+export async function currentProduction ({ readLedger, project, unconfirmed, ledgerOptions = {} }) {
   let items
   try {
-    items = await readLedger({ project, limit: 1 })
+    items = await readLedger({ project, limit: 1, ...ledgerOptions })
   } catch (error) {
-    throw new HotfixRefusal(REASONS.productionMoved, `could not read the deployment ledger for ${project} (${error.message}), so ${unconfirmed}`)
+    throw new HotfixRefusal(REASONS.ledgerUnavailable, `could not read the deployment ledger for ${project} (${error.message}), so ${unconfirmed}`)
   }
   if (items.length === 0) {
     throw new HotfixRefusal(REASONS.productionMoved, `the deployment ledger has no production rows for ${project}, so ${unconfirmed}`)
   }
-  const current = typeof items[0]?.Revision === 'string' ? items[0].Revision : ''
-  if (!current) {
+  const revision = typeof items[0]?.Revision === 'string' ? items[0].Revision : ''
+  if (!revision) {
     throw new HotfixRefusal(REASONS.productionMoved, `the newest production row in the deployment ledger for ${project} has no Revision, so ${unconfirmed}`)
   }
+  return { revision, sha: rowSha(items[0]) }
+}
+
+// Production must still be running `expected`. Fails closed: no answer is a
+// refusal, not a pass. Returns the release and its commit.
+export async function confirmLiveRelease ({ readLedger, project, expected, when = 'refusing to cut a hotfix' }) {
+  const unconfirmed = `cannot confirm production is still running ${expected}; ${when}. Nothing was pushed`
+  const { revision: current, sha } = await currentProduction({ readLedger, project, unconfirmed })
   if (normalizeRelease(current) !== expected) {
     const bare = expected.slice('release-'.length)
     if (/^[0-9]+$/.test(bare) && current.endsWith(`-${bare}`)) {
@@ -201,24 +232,10 @@ export async function confirmLiveRelease ({ readLedger, project, expected, when 
     }
     throw new HotfixRefusal(REASONS.productionMoved, `production is now running ${current}, not ${expected}, so this hotfix was asked for against a release that is no longer live; ${when}. Nothing was pushed. Start a new hotfix for ${current} if the fix is still needed`)
   }
-  return { release: expected, sha: rowSha(items[0]) }
+  return { release: expected, sha }
 }
 
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1)
-
-// The commit production ran for `release`, from the production rows given.
-// Promote and rollback both write a row with the release's Revision and the
-// commit its image was built from. Every row for one release must agree.
-export function releaseCommitFromLedger (items, release) {
-  const rows = items.filter((row) => row?.Revision === release)
-  if (rows.length === 0) {
-    throw new Error(`production has not run ${release}: it is not among the newest ${items.length} production rows in the deployment ledger`)
-  }
-  const shas = [...new Set(rows.map(rowSha).filter(Boolean))]
-  if (shas.length === 0) throw new Error(`the deployment ledger's rows for ${release} name no commit`)
-  if (shas.length > 1) throw new Error(`the deployment ledger's rows for ${release} name more than one commit (${shas.map(short).join(', ')})`)
-  return shas[0]
-}
 
 // --- git ---------------------------------------------------------------------
 
@@ -305,16 +322,49 @@ async function treeOf (git, sha) {
   return must(await git(['rev-parse', `${sha}^{tree}`]), `reading the tree of ${short(sha)}`).stdout.trim()
 }
 
+// git reads .gitattributes (merge drivers among them) from the checkout
+// unless told otherwise, and the checkout is whatever commit the job checked
+// out: the branch head in build-candidate, the default branch in the hotfix
+// run. Pinning the attributes to the commit being picked onto makes the cut's
+// pre-check, its cherry-pick and build-candidate's check all merge the same
+// way. --attr-source needs git 2.40, the same as merge-tree --merge-base. The
+// newer attr.tree setting is not used as a fallback: a git too old for
+// --attr-source ignores an unknown setting silently, which would leave the
+// attributes unpinned without saying so.
+export const attrSource = (onto) => `--attr-source=${onto}`
+
+function refuseOldGit (result, what) {
+  if (result.code === 129 || /unknown option/i.test(result.stderr)) {
+    throw new Error(`${what} needs git 2.40 or later (for --attr-source and merge-tree --merge-base), and this runner's git refused the command (${result.stderr.trim().split('\n')[0]}); refusing rather than checking with the checkout's .gitattributes`)
+  }
+}
+
 // The tree `git cherry-pick` would make by applying `commit` (whose parent is
 // `parent`) onto `onto`: a three-way merge with the commit's parent as the
-// base. Nothing in the working tree or the index changes. `clean` is false
-// when the merge has conflicts, and `conflicts` lists the files.
+// base, using `onto`'s .gitattributes. Nothing in the working tree or the
+// index changes. `clean` is false when the merge has conflicts, and
+// `conflicts` lists the files.
 export async function pickTree (git, { parent, commit, onto }) {
-  const result = await git(['merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${parent}`, onto, commit])
+  const result = await git([attrSource(onto), 'merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${parent}`, onto, commit])
   const lines = result.stdout.split('\n').filter(Boolean)
   if (result.code === 0) return { clean: true, tree: lines[0] ?? '', conflicts: [] }
   if (result.code === 1) return { clean: false, tree: lines[0] ?? '', conflicts: lines.slice(1) }
-  must(result, `applying ${short(commit)} to ${short(onto)} (git merge-tree, which needs git 2.40 or later)`)
+  refuseOldGit(result, 'checking a cherry-pick')
+  must(result, `applying ${short(commit)} to ${short(onto)} (git merge-tree)`)
+}
+
+// The commits the default branch itself has been at: its first-parent
+// history (see the note at the top of the file).
+async function firstParentHistory (git, ref) {
+  const result = must(await git(['rev-list', '--first-parent', ref]), `listing ${ref}'s first-parent history`)
+  return new Set(result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
+}
+
+// The workflow files a single-parent commit changes, against its parent. -z
+// keeps every path raw: a quoted path would not start with the directory.
+async function workflowFilesChanged (git, sha, parent) {
+  const result = must(await git(['diff-tree', '-r', '-z', '--no-renames', '--name-only', '--no-commit-id', parent, sha]), `listing the files ${short(sha)} changes`)
+  return result.stdout.split('\0').filter((file) => file.startsWith(WORKFLOWS_DIR))
 }
 
 // The commits in base..head, oldest first, each with its parents.
@@ -343,14 +393,17 @@ async function remoteBranchTip (git, branch) {
 }
 
 // Check every commit after `base` up to `head` is a clean cherry-pick of a
-// single-parent commit on the default branch (see the note at the top of the
-// file). Returns [{ sha, source }], oldest first. Throws a HotfixRefusal
-// (branch_not_clean) naming the first commit that is not.
+// single-parent commit on the default branch's first-parent history, not
+// already in `base`, and changing no workflow file (see the note at the top
+// of the file). Returns [{ sha, source }], oldest first. Throws a
+// HotfixRefusal naming the first commit that is not: already_in_release or
+// workflow_change for those two, branch_not_clean for the rest.
 export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
-  const refuse = (message) => { throw new HotfixRefusal(REASONS.branchNotClean, message) }
+  const refuse = (message, reason = REASONS.branchNotClean) => { throw new HotfixRefusal(reason, message) }
   if (!(await isAncestor(git, base, head))) {
     refuse(`it does not start at ${short(base)}, the commit of the release it is named after`)
   }
+  let mainline = null
   const verified = []
   for (const { sha, parents } of await rangeCommits(git, base, head)) {
     if (parents.length !== 1) {
@@ -363,12 +416,20 @@ export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
     if (!(await hasCommit(git, source))) {
       refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which is not in the repository`)
     }
-    if (!(await isAncestor(git, source, defaultRef))) {
-      refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which is not on the default branch`)
+    if (!mainline) mainline = await firstParentHistory(git, defaultRef)
+    if (!mainline.has(source)) {
+      refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which is not on the default branch's first-parent history`)
+    }
+    if (await isAncestor(git, source, base)) {
+      refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which is already in the release the branch starts at`, REASONS.alreadyInRelease)
     }
     const sourceParents = await parentsOf(git, source)
     if (sourceParents.length !== 1) {
       refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which is ${sourceParents.length ? 'a merge commit' : 'a root commit'}`)
+    }
+    const workflows = await workflowFilesChanged(git, source, sourceParents[0])
+    if (workflows.length > 0) {
+      refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which changes ${workflows.join(', ')}; a hotfix never changes a workflow file`, REASONS.workflowChange)
     }
     const pick = await pickTree(git, { parent: sourceParents[0], commit: source, onto: parents[0] })
     if (!pick.clean || pick.tree !== await treeOf(git, sha)) {
@@ -381,8 +442,14 @@ export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
 
 // What build-candidate's guard checks for a build on a hotfix ref (see the
 // note at the top of the file). `sha` is the commit the build would build.
-// Returns { release, base, commits }, or throws a HotfixRefusal saying why
-// the ref is not a hotfix branch this pipeline can build.
+// The branch must be for the release production runs NOW, not just one it
+// ran once: a hotfix of an older release would take production backwards
+// when promoted, and promote's rollback-safety check would not see it (its
+// diff starts at the merge base, the old release). And it must hold at least
+// one fix: a branch at the release itself would only deploy that release
+// again, around rollback's checks. Returns { release, base, commits }, or
+// throws a HotfixRefusal saying why the ref is not a hotfix branch this
+// pipeline can build.
 export async function verifyHotfixRef ({ git, ref, sha, defaultBranch, project, readLedger }) {
   const release = releaseFromRef(ref)
   if (!release) {
@@ -394,12 +461,14 @@ export async function verifyHotfixRef ({ git, ref, sha, defaultBranch, project, 
   if (!String(defaultBranch ?? '').trim()) {
     throw new HotfixRefusal(REASONS.invalidInput, 'the default branch is not known, so the cherry-picks cannot be checked against it')
   }
-  let base
-  try {
-    base = releaseCommitFromLedger(await readLedger({ project, limit: LEDGER_SCAN_LIMIT }), release)
-  } catch (error) {
-    throw new HotfixRefusal(REASONS.releaseCommitUnknown, `the commit production ran for ${release} cannot be confirmed: ${error.message}`)
+  const live = await currentProduction({ readLedger, project, unconfirmed: `${release}, the release this branch is named after, cannot be confirmed as the one production runs` })
+  if (normalizeRelease(live.revision) !== release) {
+    throw new HotfixRefusal(REASONS.productionMoved, `production now runs ${live.revision}, not ${release}, the release this branch is named after. A hotfix builds only for the release production runs now, or promoting it would take production backwards; cut a new hotfix for ${live.revision}`)
   }
+  if (!live.sha) {
+    throw new HotfixRefusal(REASONS.releaseCommitUnknown, `the deployment ledger names no commit for ${release}, the release production runs, so the branch's start cannot be checked`)
+  }
+  const base = live.sha
   const defaultRef = `refs/remotes/origin/${defaultBranch}`
   if (!(await resolveCommit(git, defaultRef))) {
     must(await git(['fetch', '--no-tags', '--quiet', 'origin', `+refs/heads/${defaultBranch}:${defaultRef}`]), `fetching ${defaultBranch}`)
@@ -411,6 +480,9 @@ export async function verifyHotfixRef ({ git, ref, sha, defaultBranch, project, 
     throw new HotfixRefusal(REASONS.invalidInput, `${short(sha)}, the commit to build, is not in the repository`)
   }
   const commits = await verifyHotfixCommits({ git, base, head: sha, defaultRef })
+  if (commits.length === 0) {
+    throw new HotfixRefusal(REASONS.alreadyInRelease, `it holds no fix: it is ${release} itself, which production already runs. To deploy a release again, use rollback`)
+  }
   return { release, base, commits }
 }
 
@@ -443,9 +515,11 @@ async function checkPipelineWorkflow (git, head, branch) {
 async function cherryPick (git, { onto, commit, committer }) {
   must(await git(['checkout', '--quiet', '--detach', onto]), `checking out ${short(onto)}`)
   const env = { GIT_COMMITTER_NAME: committer.name, GIT_COMMITTER_EMAIL: committer.email }
-  const result = await git(['cherry-pick', '-x', commit], { env })
+  // The same attributes pickTree used, so the pick merges the way the check did.
+  const result = await git([attrSource(onto), 'cherry-pick', '-x', commit], { env })
   if (result.code !== 0) {
     await git(['cherry-pick', '--abort'])
+    refuseOldGit(result, 'cherry-picking the fix')
     return ''
   }
   return must(await git(['rev-parse', 'HEAD']), 'reading the cherry-pick').stdout.trim()
@@ -466,10 +540,8 @@ async function pushHotfixBranch (git, { head, branch, defaultBranch }) {
     throw new HotfixRefusal(REASONS.branchMoved, `${branch} changed on the remote while this run was cutting it, so the push was refused and nothing was pushed. Run the hotfix again`)
   }
   // The token is the one thing the app repo can say no to here, and git's
-  // own message does not say which permission is missing.
-  if (/without [`']?workflows?[`']? (scope|permission)/i.test(output)) {
-    throw new Error(`the app repo refused the push of ${branch} because the fix changes a file under .github/workflows and authz-token may not change workflow files (it needs the workflow scope, or workflows: write). Nothing was pushed`)
-  }
+  // own message does not say which permission is missing. (A fix that changes
+  // a workflow file never gets this far: the cut refuses it.)
   if (/permission .* denied|error: 403|returned error: 403|not allowed to push|protected branch|rule violations?/i.test(output)) {
     throw new Error(`the app repo refused the push of ${branch} (${output.trim().split('\n').slice(-2).join(' ')}). authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix/* branches. Nothing was pushed`)
   }
@@ -523,12 +595,19 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
   if (await isAncestor(git, fix, base)) {
     throw new HotfixRefusal(REASONS.alreadyInRelease, `commit ${short(fix)} is already in ${release}, the release production runs, so there is nothing to hotfix. Nothing was pushed`)
   }
+  if (!(await firstParentHistory(git, defaultRef)).has(fix)) {
+    throw new HotfixRefusal(REASONS.notOnDefaultBranch, `commit ${short(fix)} is on ${defaultBranch} only inside a pull request that was merged with a merge commit, so ${defaultBranch} never had exactly the code it makes. Hotfix the pull request's squash commit instead; refusing to cut a hotfix. Nothing was pushed`)
+  }
   const fixParents = await parentsOf(git, fix)
   if (fixParents.length > 1) {
-    throw new HotfixRefusal(REASONS.mergeCommit, `commit ${short(fix)} is a merge commit. A hotfix cherry-picks single-parent commits only: use the pull request's squash commit, or run one hotfix per commit the merge brought in; refusing to cut a hotfix. Nothing was pushed`)
+    throw new HotfixRefusal(REASONS.mergeCommit, `commit ${short(fix)} is a merge commit. A hotfix needs the pull request's squash commit: picking a merge, or some of the commits it brought in, would ship code nobody reviewed as a whole. Merge the fix with squash (the repo's squash-only merge setting does this), then hotfix that commit; refusing to cut a hotfix. Nothing was pushed`)
   }
   if (fixParents.length === 0) {
     throw new HotfixRefusal(REASONS.invalidInput, `commit ${short(fix)} is the repository's first commit, so it is not a fix to cherry-pick; refusing to cut a hotfix. Nothing was pushed`)
+  }
+  const workflows = await workflowFilesChanged(git, fix, fixParents[0])
+  if (workflows.length > 0) {
+    throw new HotfixRefusal(REASONS.workflowChange, `commit ${short(fix)} changes ${workflows.join(', ')}. A hotfix never changes a workflow file: pushing one needs more access than this workflow's token should have, so a person ships it by hand; refusing to cut a hotfix. Nothing was pushed`)
   }
 
   // An existing branch is an earlier fix for the same release that has not
@@ -613,6 +692,18 @@ export function parseRepo (repository) {
 
 const NEWEST_HOTFIX_BRANCHES = 50
 
+// One overall deadline for a series of requests. Each request gets what is
+// left of it (at most `timeoutMs`), and a request started after it throws, so
+// the series as a whole cannot outlast the deadline by more than a moment.
+export function deadlineRequests ({ deadlineMs = PROMOTE_CHECK_DEADLINE_MS, timeoutMs = 10000, now = Date.now } = {}) {
+  const end = now() + deadlineMs
+  return () => {
+    const left = end - now()
+    if (left <= 0) throw new Error(`gave up after ${deadlineMs / 1000} seconds`)
+    return { signal: AbortSignal.timeout(Math.min(timeoutMs, left)) }
+  }
+}
+
 // Is `sha` reachable from `tip`? The compare API's status says so: "behind"
 // means `sha` is an ancestor of `tip`, "identical" that it is `tip`.
 async function contains (octokit, { owner, repo, tip, sha, request }) {
@@ -622,17 +713,19 @@ async function contains (octokit, { owner, repo, tip, sha, request }) {
 }
 
 // Was the promoted commit built from a hotfix branch? It was when the commit
-// is not on the app repo's default branch but is on a hotfix/* branch.
-// build-candidate builds only those two kinds of ref, so a commit on neither
-// is labeled an ordinary deploy. Returns { kind: 'hotfix' | 'deploy', why,
-// branch }. Throws on an API error; the caller treats that as a deploy.
-export async function releaseKind ({ octokit, repository, sha, timeoutMs = 10000 }) {
+// is not on the app repo's default branch but is on a hotfix/<release tag>
+// branch. build-candidate builds only those two kinds of ref, so a commit on
+// neither is labeled an ordinary deploy. When the commit is on more than one
+// hotfix branch, the newest-named one wins. Every request shares one deadline
+// (`request`, from deadlineRequests). Returns { kind: 'hotfix' | 'deploy',
+// why, branch }. Throws on an API error or the deadline; the caller treats
+// that as a deploy.
+export async function releaseKind ({ octokit, repository, sha, request = deadlineRequests() }) {
   const commit = String(sha ?? '').trim()
   if (!FULL_SHA.test(commit)) {
     return { kind: 'deploy', why: 'the promoted image names no commit, so it cannot be a hotfix build' }
   }
   const { owner, repo } = parseRepo(repository)
-  const request = () => ({ signal: AbortSignal.timeout(timeoutMs) })
   const { data: info } = await octokit.rest.repos.get({ owner, repo, request: request() })
   const defaultBranch = info?.default_branch
   if (!defaultBranch) throw new Error(`GitHub did not say which branch is ${owner}/${repo}'s default`)
@@ -644,16 +737,79 @@ export async function releaseKind ({ octokit, repository, sha, timeoutMs = 10000
   }
   const { data: refs } = await octokit.rest.git.listMatchingRefs({ owner, repo, ref: 'heads/hotfix/', per_page: 100, request: request() })
   const branches = (Array.isArray(refs) ? refs : [])
-    .filter((ref) => ref?.object?.type === 'commit' && typeof ref.ref === 'string')
+    .filter((ref) => ref?.object?.type === 'commit' && releaseFromRef(ref.ref))
     .sort((a, b) => b.ref.localeCompare(a.ref))
     .slice(0, NEWEST_HOTFIX_BRANCHES)
   for (const ref of branches) {
     if (await contains(octokit, { owner, repo, tip: ref.object.sha, sha: commit, request })) {
       const name = ref.ref.replace(/^refs\/heads\//, '')
-      return { kind: 'hotfix', why: `${short(commit)} is on ${name}, not on ${defaultBranch}`, branch: name }
+      return { kind: 'hotfix', why: `${short(commit)} is on ${name}, not on ${defaultBranch}`, branch: name, release: releaseFromRef(ref.ref) }
     }
   }
   return { kind: 'deploy', why: `${short(commit)} is not on ${defaultBranch} or on any hotfix branch` }
+}
+
+// promote's hotfix check, made before anything in production changes. A
+// hotfix candidate is promoted only while it is for the release production
+// runs now, or while it moves production forward from there.
+//
+// Why promote checks this at all: a hotfix of release A that is built, then
+// sits on release-candidate while release B is promoted, would take
+// production from B back to A plus the fix. The rollback-safety classifier
+// would not catch it, since it diffs from the merge base (A) and sees only
+// the fix, so a migration in B would go unnoticed. build-candidate already
+// refuses to build a hotfix of a release production no longer runs; this
+// stops one built before production moved.
+//
+// Returns { kind, why, branch, release, check, checkWhy }. check is:
+//   live         a hotfix for the release production runs (or production
+//                already runs this commit, or the commit descends from it);
+//   stale        a hotfix for an older release; the promote must stop;
+//   unconfirmed  a hotfix, but the deployment ledger could not say what
+//                production runs; the promote must stop, as promote's other
+//                guards do when the ledger cannot answer;
+//   skipped      not a hotfix, or GitHub could not answer in time. The
+//                promote goes on exactly as it would have before this check.
+// Never throws.
+export async function hotfixPromoteCheck ({ octokit, repository, sha, project, readLedger, request = deadlineRequests() }) {
+  let kind
+  try {
+    kind = await releaseKind({ octokit, repository, sha, request })
+  } catch (error) {
+    return { kind: 'deploy', why: `could not tell whether this promote is a hotfix (${error.message})`, check: 'skipped', checkWhy: 'GitHub did not answer, so this promote is treated as an ordinary one', failed: true }
+  }
+  if (kind.kind !== 'hotfix') return { ...kind, check: 'skipped', checkWhy: 'not a hotfix' }
+
+  const commit = String(sha).trim()
+  const release = kind.release
+  let live
+  try {
+    live = await currentProduction({ readLedger, project, unconfirmed: 'it cannot be confirmed that production still runs the release this hotfix is for', ledgerOptions: { attempts: 2, timeoutMs: 10000 } })
+  } catch (error) {
+    return { ...kind, check: 'unconfirmed', checkWhy: `${short(commit)} is a hotfix for ${release} (from ${kind.branch}), but ${error.message}; refusing to promote it. Nothing in production was changed. Try again once the deployment ledger answers` }
+  }
+  if (normalizeRelease(live.revision) === release) {
+    return { ...kind, check: 'live', checkWhy: `${short(commit)} is a hotfix for ${release}, the release production runs` }
+  }
+  if (live.sha === commit) {
+    return { ...kind, check: 'live', checkWhy: `production already runs ${short(commit)}` }
+  }
+  if (live.sha) {
+    try {
+      const { owner, repo } = parseRepo(repository)
+      const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: request() })
+      if (data?.status === 'ahead' || data?.status === 'identical') {
+        return { ...kind, check: 'live', checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` }
+      }
+    } catch (error) {
+      return { ...kind, check: 'skipped', checkWhy: `GitHub did not answer whether ${short(commit)} builds on ${live.revision} (${error.message}), so the check is skipped`, failed: true }
+    }
+  }
+  return {
+    ...kind,
+    check: 'stale',
+    checkWhy: `${short(commit)} is a hotfix for ${release} (from ${kind.branch}), but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; refusing to promote it. Nothing in production was changed. Cut a new hotfix against ${live.revision}, the release production runs now`
+  }
 }
 
 // The app's own workflow runs for `sha`, other than the pipeline-v2 build the

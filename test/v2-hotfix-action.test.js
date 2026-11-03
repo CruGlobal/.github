@@ -188,17 +188,38 @@ describe('mode release-kind (promote)', () => {
         git: { listMatchingRefs: async () => ({ data: [{ ref: `refs/heads/hotfix/${RELEASE}`, object: { type: 'commit', sha: SHA } }] }) }
       }
     }
-    Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', sha: SHA })
-    await run()
-    expect(outputs).toEqual({ kind: 'hotfix' })
+    Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', 'project-name': PROJECT, sha: SHA })
+    const ledger = fakeLedger([ledgerRow(RELEASE, 'c'.repeat(40))])
+    await run({ readLedger: ledger.readLedger })
+    expect(outputs).toEqual({ kind: 'hotfix', branch: `hotfix/${RELEASE}`, release: RELEASE, check: 'live', 'check-why': `aaaaaaaaaaaa is a hotfix for ${RELEASE}, the release production runs` })
+    expect(ledger.calls).toEqual([{ project: PROJECT, limit: 1, attempts: 2, timeoutMs: 10000 }])
+    expect(core.setFailed).not.toHaveBeenCalled()
   })
 
-  it('outputs deploy, with a warning, when GitHub cannot answer, and never fails', async () => {
+  it('outputs stale for a hotfix of a release production no longer runs, still without failing the step', async () => {
+    octokit.current = {
+      rest: {
+        repos: {
+          get: async () => ({ data: { default_branch: 'main' } }),
+          getBranch: async () => ({ data: { commit: { sha: 'b'.repeat(40) } } }),
+          compareCommitsWithBasehead: async () => ({ data: { status: 'diverged' } })
+        },
+        git: { listMatchingRefs: async () => ({ data: [{ ref: `refs/heads/hotfix/${RELEASE}`, object: { type: 'commit', sha: SHA } }] }) }
+      }
+    }
+    Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', 'project-name': PROJECT, sha: SHA })
+    await run({ readLedger: fakeLedger([ledgerRow(NEWER_RELEASE, 'c'.repeat(40))]).readLedger })
+    expect(outputs).toMatchObject({ kind: 'hotfix', check: 'stale', 'check-why': expect.stringMatching(/production now runs release-2026-10-22-10150/) })
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(process.exitCode).toBeUndefined()
+  })
+
+  it('outputs deploy and skips the check, with a warning, when GitHub cannot answer, and never fails', async () => {
     octokit.current = { rest: { repos: { get: async () => { throw new Error('Not Found') } } } }
-    Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', sha: SHA })
-    await run()
-    expect(outputs).toEqual({ kind: 'deploy' })
-    expect(core.warning).toHaveBeenCalledWith(expect.stringMatching(/could not tell whether this promote is a hotfix, so its release event says deploy/))
+    Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', 'project-name': PROJECT, sha: SHA })
+    await run({ readLedger: fakeLedger(new Error('must not be read')).readLedger })
+    expect(outputs).toEqual({ kind: 'deploy', branch: '', release: '', check: 'skipped', 'check-why': 'GitHub did not answer, so this promote is treated as an ordinary one' })
+    expect(core.warning).toHaveBeenCalledWith(expect.stringMatching(/could not tell whether this promote is a hotfix for the release production runs, so it goes on as an ordinary promote/))
     expect(core.setFailed).not.toHaveBeenCalled()
   })
 })
