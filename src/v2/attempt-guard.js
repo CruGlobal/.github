@@ -27,21 +27,26 @@ export const AUTHORIZED_ATTEMPT_MARKER = 'CRU_V2_AUTHORIZED_ATTEMPT'
 //
 // It is narrower than the authorized-attempt marker on purpose. That one says
 // an account allowed to change production started this attempt, and deploy,
-// tag-image and release events accept it. This one says only that a push or a
-// manual dispatch run in the app's own repository had this commit as its head,
-// on the default branch for production. So the one thing it unlocks is a
-// release event of kind deploy, for the environment and commit it names
-// (src/flightdeck-release-event.js). The deploy and tag-image actions never
-// read it, and no existing workflow sets it.
+// tag-image and release events accept it. This one says only that a recent,
+// healthy run in the app's own repository had this commit as its head, on the
+// default branch for production. So the one thing it unlocks is a release
+// event of kind deploy, for the Flightdeck project, app, environment and commit
+// it names (src/flightdeck-release-event.js). The deploy and tag-image actions
+// never read it, and no existing workflow sets it.
 export const VERIFIED_DEPLOY_RUN_MARKER = 'CRU_V2_VERIFIED_DEPLOY_RUN'
 
 export class AttemptNotAuthorized extends Error {}
 
-// The marker's value: the attempt, the environment and the commit, so a value
-// set for one of them never counts for another.
-function deployRunMarkerValue (attempt, environment, sha) {
-  const clean = (value) => String(value ?? '').trim().toLowerCase()
-  return `${attempt}:${clean(environment)}:${clean(sha)}`
+// The marker's value names the attempt and every part of the deploy it was set
+// for, so a value set for one of them never counts for another. A JSON array,
+// so no part can borrow a separator from its neighbour. The parts are compared
+// exactly, as they will be posted, so each must already be in its final form.
+const DEPLOY_PARTS = ['project', 'app', 'environment', 'sha']
+
+function deployRunMarkerValue (attempt, deploy) {
+  const parts = DEPLOY_PARTS.map((key) => deploy?.[key])
+  if (parts.some((part) => typeof part !== 'string' || part === '' || part !== part.trim())) return ''
+  return JSON.stringify([attempt, ...parts])
 }
 
 // The current run attempt from the runner, or '' when it is missing or not a
@@ -62,26 +67,31 @@ export function markAttemptAuthorized (env = process.env) {
   return attempt
 }
 
-// Called by verify-deploy-run after it passes, for the environment and commit
-// it checked. Later steps in the same job see the marker in their environment.
-export function markDeployRunVerified ({ environment, sha }, env = process.env) {
+// Called by verify-deploy-run after it passes, for the deploy it checked: the
+// Flightdeck project, the app, the environment and the commit. Later steps in
+// the same job see the marker in their environment.
+export function markDeployRunVerified (deploy, env = process.env) {
   const attempt = currentRunAttempt(env)
   if (!attempt) {
     throw new AttemptNotAuthorized('the runner did not give a run attempt number (GITHUB_RUN_ATTEMPT), so this attempt cannot be marked as checked')
   }
-  core.exportVariable(VERIFIED_DEPLOY_RUN_MARKER, deployRunMarkerValue(attempt, environment, sha))
+  const value = deployRunMarkerValue(attempt, deploy)
+  if (!value) {
+    throw new AttemptNotAuthorized(`a verified deploy needs a project, an app, an environment and a sha, each without surrounding spaces (got ${JSON.stringify(deploy ?? {})})`)
+  }
+  core.exportVariable(VERIFIED_DEPLOY_RUN_MARKER, value)
   return attempt
 }
 
 // True only when verify-deploy-run passed earlier in this job, for this run
-// attempt, and for exactly this environment and commit. Anything missing is
-// false, never an error, so a caller falls back to the stricter check.
-export function deployRunVerifiedFor ({ environment, sha }, env = process.env) {
+// attempt, and for exactly this project, app, environment and commit. Anything
+// missing is false, never an error, so a caller falls back to the stricter
+// check.
+export function deployRunVerifiedFor (deploy, env = process.env) {
   const attempt = currentRunAttempt(env)
-  const marker = String(env[VERIFIED_DEPLOY_RUN_MARKER] ?? '').trim()
-  if (!attempt || !marker) return false
-  if (!String(environment ?? '').trim() || !String(sha ?? '').trim()) return false
-  return marker === deployRunMarkerValue(attempt, environment, sha)
+  const marker = String(env[VERIFIED_DEPLOY_RUN_MARKER] ?? '')
+  const value = attempt ? deployRunMarkerValue(attempt, deploy) : ''
+  return value !== '' && marker === value
 }
 
 // Throws unless the marker names the current run attempt. `what` says what is

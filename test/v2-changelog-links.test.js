@@ -42,14 +42,17 @@ const slackSetters = {
     ctx['inputs.tag'] = to
   },
   // `from` is production's previous release, read from Flightdeck by the
-  // release event step; `to` is the commit the app deployed.
-  record: (ctx, from, to) => {
+  // release event step; `to` is the commit the app deployed, which GitHub
+  // compares as ahead of it.
+  record: (ctx, from, to, run) => {
     ctx['steps.release-event.outputs.previous-sha'] = from
     ctx['steps.verify.outputs.sha'] = to
     ctx['steps.verify.outputs.environment'] = 'production'
     ctx['steps.verify.outputs.actor'] = 'octo-dev'
     ctx['steps.verify.outputs.run-url'] = 'https://github.com/CruGlobal/shop-web/actions/runs/123/attempts/1'
-    ctx['steps.release.outputs.tag'] = 'deploy-2026-09-04-10123'
+    ctx['steps.verify.outputs.release-tag'] = 'deploy-2026-09-04-123'
+    ctx['secrets.github-token'] = 'gh-test'
+    run.ghCompare = { status: 'ahead' }
   }
 }
 
@@ -104,7 +107,7 @@ async function linkFrom (expect, site, { from, to, ...overrides }) {
   if (!('needs.lookup.outputs.repository' in overrides)) {
     context['needs.lookup.outputs.repository'] = `CruGlobal/${context['inputs.project-name']}`
   }
-  const result = await runShellStep(findStep(workflows[site.workflow], site.job, site.step), { context, ledger: run.ledger })
+  const result = await runShellStep(findStep(workflows[site.workflow], site.job, site.step), { context, ledger: run.ledger, ghCompare: run.ghCompare })
   expect(result.status, result.stderr).toBe(0)
   expect(result.stdout).not.toMatch(/::warning/)
   if (site.kind === 'slack') {

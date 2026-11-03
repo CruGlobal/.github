@@ -11,7 +11,7 @@ description: >-
   exception: a production event fails the step unless the authorize-actor
   check passed earlier in the same job for this run attempt, or, for a deploy
   event only, verify-deploy-run passed earlier in the same job for this
-  attempt, this environment and this sha.
+  attempt and exactly this project, app, environment and sha.
 inputs:
   token:
     description: >-

@@ -11,20 +11,30 @@ name: Record Deploy
 # workflow. It is the same arrangement as notify-build-failure.
 #
 # The dispatch token's account can reach every repository, so who dispatched
-# proves nothing. The gate is the run that asked (actions/verify-deploy-run):
-# it must be a run in the app's own repository, started by a push or a manual
-# dispatch and never by a pull request, whose head commit is `sha`, and for
-# production `sha` must be on the default branch. Anything else is refused.
+# proves nothing. The gate is the run that asked (actions/verify-deploy-run).
+# It must be a run in the app's own repository, started by a push, a manual
+# dispatch, a schedule or a release and never by a pull request, whose head
+# commit is `sha`. It must still be running or have finished successfully, and
+# have started its latest attempt in the last six hours. When app-info names
+# the app's DeployWorkflow, it must be a run of that workflow. For production
+# `sha` must be on the default branch. Anything else is refused.
+#
+# The release tag comes from that run: deploy-<yyyy-mm-dd>-<run number>, dated
+# by when the run was created. Recording the same run again, after a re-run or
+# a second dispatch, posts the same tag, and Flightdeck updates the event it
+# already has rather than adding another.
 #
 # Telemetry, not a deploy: nothing here changes the app, and nothing here can
-# fail the app's workflow, which only dispatched it. Every refusal, and every
-# failure to record, is a warning in this run.
+# fail the app's workflow, which only dispatched it. Every refusal and every
+# failure to record is a warning in this run, and the run passes. A setup step
+# that fails (the role, the checkout) shows as a failed step, but it is allowed
+# to fail and the next step says what was not recorded.
 #
 # What it needs from app-info: the app's row for the environment, without
 # PipelineVersion "2" (a v2 app's own workflows record its deploys), and with a
-# FlightdeckProject. The utility/app-info Terraform module writes such a row.
-# With no row, a v2 row, or no FlightdeckProject, it records nothing and says
-# why.
+# FlightdeckProject. The utility/app-info Terraform module writes such a row,
+# and its deploy_workflow input writes DeployWorkflow. With no row, a v2 row,
+# or no FlightdeckProject, it records nothing and says why.
 #
 # Dispatch it from the app's deploy workflow, after the deploy succeeds:
 #
@@ -100,8 +110,12 @@ jobs:
       app-url: ${{ steps.app-info.outputs.app-url }}
       flightdeck-project: ${{ steps.app-info.outputs.flightdeck-project }}
       repository: ${{ steps.app-info.outputs.repository }}
+      deploy-workflow: ${{ steps.app-info.outputs.deploy-workflow }}
     steps:
+      # Allowed to fail; the lookup below then says nothing was recorded.
       - name: Configure AWS credentials for app-info
+        id: aws
+        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
@@ -112,6 +126,7 @@ jobs:
         env:
           PROJECT_NAME: ${{ inputs.project-name }}
           ENVIRONMENT: ${{ inputs.environment }}
+          CREDENTIALS: ${{ steps.aws.outcome }}
         run: |
           # Every way out below records nothing and says why, as a warning on
           # one line: an input can hold a line break, and what follows one must
@@ -125,8 +140,11 @@ jobs:
             staging|production) ;;
             *) skip "environment '$ENVIRONMENT' is not staging or production" ;;
           esac
-          if [[ ! "$PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+          if [[ ! "$PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]]; then
             skip "project name '$PROJECT_NAME' is not one app-info can hold"
+          fi
+          if [ "$CREDENTIALS" != "success" ]; then
+            skip "could not assume the role that reads CruApplicationInfo (see the step above), so '$PROJECT_NAME' ($ENVIRONMENT) could not be looked up"
           fi
           if ! info=$(aws dynamodb get-item --region us-east-1 --output json \
               --table-name CruApplicationInfo \
@@ -155,6 +173,10 @@ jobs:
           if [[ ! "$flightdeck_project" =~ ^[A-Z0-9]{1,10}$ ]]; then
             skip "$PROJECT_NAME's FlightdeckProject in CruApplicationInfo is not a Flightdeck project identifier"
           fi
+          deploy_workflow=$(echo "$item" | jq -r '.DeployWorkflow.S // empty')
+          if [ -n "$deploy_workflow" ] && [[ ! "$deploy_workflow" =~ ^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$ ]]; then
+            skip "$PROJECT_NAME's DeployWorkflow in CruApplicationInfo is not a path under .github/workflows/"
+          fi
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           # Repository is written only when the app repo is not named after the project.
@@ -170,8 +192,9 @@ jobs:
             echo "slack-channel=$slack_channel"
             echo "app-url=$app_url"
             echo "repository=$repository"
+            echo "deploy-workflow=$deploy_workflow"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::app-info $PROJECT_NAME/$ENVIRONMENT -> flightdeck=$flightdeck_project repository=$repository"
+          echo "::notice::app-info $PROJECT_NAME/$ENVIRONMENT -> flightdeck=$flightdeck_project repository=$repository deploy-workflow=${deploy_workflow:-none}"
 
   record:
     name: Record the deploy
@@ -181,29 +204,37 @@ jobs:
     # A backstop: every call below has its own timeout, so a real run takes a
     # minute or two.
     timeout-minutes: 15
-    # OIDC for the build number; contents: read to check this repo out for its
-    # actions. Nothing is checked out from the app repo, and it is only read,
-    # through the API, with github-token.
+    # contents: read to check this repo out for its actions. Nothing is checked
+    # out from the app repo; it is only read, through the API, with
+    # github-token. No cloud credential is needed here.
     permissions:
-      id-token: write
       contents: read
     env:
       PROJECT_NAME: ${{ inputs.project-name }}
     steps:
+      # Allowed to fail; the next step then says nothing was recorded.
       - name: Checkout Cru Actions & Workflows
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@v7
         with:
           repository: CruGlobal/.github
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
 
+      - name: Say why nothing was recorded
+        if: steps.checkout.outcome != 'success'
+        run: echo "::warning title=Deploy not recorded::could not check out CruGlobal/.github (see the step above), so the run that asked could not be checked"
+
       # The gate. A refusal is a warning and `verified` is "false", so every
       # step after this one is skipped. A pass also marks this job, for this
-      # attempt, environment and sha, which is what lets the production release
-      # event below through flightdeck-release-event's attempt check. Nothing
-      # else in this job reads that mark.
+      # attempt and exactly this Flightdeck project, app, environment and sha,
+      # which is what lets the production release event below through
+      # flightdeck-release-event's attempt check. Nothing else in this job
+      # reads that mark.
       - name: Verify the run that asked
         id: verify
+        if: steps.checkout.outcome == 'success'
         uses: ./cru-github-actions/actions/verify-deploy-run
         with:
           github-token: ${{ secrets.github-token }}
@@ -211,70 +242,35 @@ jobs:
           run-id: ${{ inputs.run-id }}
           sha: ${{ inputs.sha }}
           environment: ${{ inputs.environment }}
+          project: ${{ needs.lookup.outputs.flightdeck-project }}
+          app: ${{ inputs.project-name }}
+          deploy-workflow: ${{ needs.lookup.outputs.deploy-workflow }}
 
-      - name: Configure AWS credentials for the build number
-        if: steps.verify.outputs.verified == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
-
-      # The same counter the app's candidates would use (ECSBuildNumbers, one
-      # row per project), so a deploy tag's number never repeats. It needs
-      # dynamodb:UpdateItem on that table for GitHubDeployECS; without it this
-      # step fails and the next one says so, and nothing is recorded.
-      - name: Get a build number
-        id: build-number
-        if: steps.verify.outputs.verified == 'true'
-        continue-on-error: true
-        uses: ./cru-github-actions/actions/build-number
-        with:
-          project-name: ${{ inputs.project-name }}
-
-      # deploy-<yyyy-mm-dd>-<n>, dated by when the app's run finished, or today
-      # while it is still running.
-      - name: Name the release
-        id: release
-        if: steps.verify.outputs.verified == 'true'
-        env:
-          BUILD_NUMBER: ${{ steps.build-number.outputs.build-number }}
-          DEPLOYED_AT: ${{ steps.verify.outputs.deployed-at }}
-        run: |
-          if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-            echo "::warning title=Deploy not recorded::could not get a build number for $PROJECT_NAME from ECSBuildNumbers (see the step above; GitHubDeployECS needs dynamodb:UpdateItem on that table), so the deploy has no release tag"
-            exit 0
-          fi
-          day=$(date -u +%Y-%m-%d)
-          if [[ "$DEPLOYED_AT" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T ]]; then
-            day="${BASH_REMATCH[1]}"
-          fi
-          echo "tag=deploy-$day-$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "build-number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-
-      # The app's own run is the deploy, so it supplies the actor (who started
-      # its latest attempt), the run URL and the time. No rollback-safety
-      # verdict is sent: nothing classified this release, and with no opinion
-      # recorded anything reading the timeline escalates instead of acting.
-      # The sha and environment are the ones verify-deploy-run checked, which
-      # is what its mark is for.
+      # The app's own run is the deploy, so it supplies the release tag and
+      # build number (its run number), the actor (who started its latest
+      # attempt), the run URL and the time. No rollback-safety verdict is sent:
+      # nothing classified this release, and with no opinion recorded anything
+      # reading the timeline escalates instead of acting. The project, app,
+      # environment and sha are verify-deploy-run's outputs, exactly the values
+      # its mark names.
       #
       # previous-environment reads production's newest earlier release before
       # posting, for the changelog link below. For a staging deploy that shows
       # what is new since production.
       - name: Record release event in Flightdeck
         id: release-event
-        if: steps.release.outputs.tag != ''
+        if: steps.verify.outputs.verified == 'true'
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
         with:
           token: ${{ secrets.flightdeck-token }}
           endpoint: ${{ inputs.flightdeck-url }}
-          project: ${{ needs.lookup.outputs.flightdeck-project }}
-          app: ${{ inputs.project-name }}
+          project: ${{ steps.verify.outputs.project }}
+          app: ${{ steps.verify.outputs.app }}
           environment: ${{ steps.verify.outputs.environment }}
           kind: deploy
-          release-tag: ${{ steps.release.outputs.tag }}
-          build-number: ${{ steps.release.outputs.build-number }}
+          release-tag: ${{ steps.verify.outputs.release-tag }}
+          build-number: ${{ steps.verify.outputs.build-number }}
           sha: ${{ steps.verify.outputs.sha }}
           deployed-at: ${{ steps.verify.outputs.deployed-at }}
           actor: ${{ steps.verify.outputs.actor }}
@@ -283,19 +279,26 @@ jobs:
 
       # Shaped like promote's and deploy-candidate's notices. Destination = the
       # app's SlackChannel; a silent no-op when the channel OR the bot token is
-      # unset. The environment's name links to AppUrl when there is one. The
-      # closing changelog link runs from production's previous release to this
-      # commit, built by the same function the other workflows use, and is left
-      # out when there is no previous release or it is this same commit.
+      # unset. The environment's name links to AppUrl when there is one.
+      #
+      # The closing changelog link runs from production's previous release to
+      # this commit, built by the same function the other workflows use. Any
+      # commit on the default branch can be recorded, including one older than
+      # production's previous release, so the two are compared first. The link
+      # is shown only when this commit has something the previous release does
+      # not (GitHub compares it as ahead or diverged). Behind, the notice says
+      # this goes back to an earlier commit instead. No previous release, the
+      # same commit, or a comparison that fails leaves the line out.
       - name: Notify Slack
-        if: steps.release.outputs.tag != ''
+        if: steps.verify.outputs.verified == 'true'
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
+          GH_TOKEN: ${{ secrets.github-token }}
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ENVIRONMENT: ${{ steps.verify.outputs.environment }}
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ steps.verify.outputs.release-tag }}
           SHA: ${{ steps.verify.outputs.sha }}
           ACTOR: ${{ steps.verify.outputs.actor }}
           RUN_URL: ${{ steps.verify.outputs.run-url }}
@@ -308,6 +311,10 @@ jobs:
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
           fi
+          direction=""
+          if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$SHA" ]; then
+            direction=$(gh api "repos/$APP_REPO/compare/$PREV_SHA...$SHA" 2>/dev/null | jq -r '.status // empty' 2>/dev/null) || direction=""
+          fi
           payload=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
@@ -318,6 +325,7 @@ jobs:
             --arg runurl "$RUN_URL" \
             --arg appurl "$APP_URL" \
             --arg prevsha "$PREV_SHA" \
+            --arg direction "$direction" \
             --arg fdurl "$FLIGHTDECK_URL" \
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
@@ -333,12 +341,16 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              (if $environment == "production" then "production" else "stage" end) as $envname
+             | ($prevsha != "" and $prevsha != $sha) as $compared
              | {channel: $channel,
                 text: ((if $environment == "production" then ":white_check_mark:" else ":package:" end)
                        + " *\($project) deployed `\($tag)` to \(if $appurl != "" then "<" + $appurl + "|" + $envname + ">" else $envname end)*"
                        + (if $actor != "" then " by \($actor)" else "" end)
                        + (if $runurl != "" then "\nDeployed by the app'\''s own workflow: <" + $runurl + "|run>" else "" end)
-                       + (if $prevsha != "" and $prevsha != $sha
+                       + (if $compared and $direction == "behind"
+                          then "\nThis goes back to an earlier commit than production'\''s previous release."
+                          else "" end)
+                       + (if $compared and ($direction == "ahead" or $direction == "diverged")
                           then "\n<" + changelog($prevsha; $sha) + "|what'\''s in this release>"
                           else "" end))}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \

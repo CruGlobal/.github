@@ -37,10 +37,11 @@ import { assertAttemptAuthorized, deployRunVerifiedFor } from './v2/attempt-guar
 // The other way a production event passes is narrower. record-deploy posts a
 // deploy an app made itself, outside the pipeline, and nobody there started a
 // production change to check. Instead verify-deploy-run checks the app's own
-// run and marks the job for that environment and commit. That mark lets
-// through a deploy event for exactly that environment and sha, given as the
-// `sha` input, and nothing else: not another commit, not a rollback or a
-// hotfix, and not the deploy or tag-image actions.
+// run and marks the job for that Flightdeck project, app, environment and
+// commit. That mark lets through a deploy event whose project, app,
+// environment and `sha` inputs are exactly those, and nothing else: not
+// another project, app or commit, not a rollback or a hotfix, and not the
+// deploy or tag-image actions.
 //
 // With `previous-environment` set, the action also reads that environment's
 // newest earlier release event before it posts, and outputs its sha and tag,
@@ -92,8 +93,15 @@ export async function run () {
   }
   const environment = core.getInput('environment').trim()
   if (!NON_PRODUCTION_ENVIRONMENTS.includes(environment.toLowerCase())) {
+    // The inputs as given, compared exactly, so what is posted is what was
+    // verified.
     const kind = (core.getInput('kind') || 'deploy').trim()
-    const verifiedDeploy = kind === 'deploy' && deployRunVerifiedFor({ environment, sha: core.getInput('sha') })
+    const verifiedDeploy = kind === 'deploy' && deployRunVerifiedFor({
+      project,
+      app: core.getInput('app'),
+      environment: core.getInput('environment'),
+      sha: core.getInput('sha')
+    })
     if (!verifiedDeploy) {
       try {
         assertAttemptAuthorized(`post a release event for ${environment || 'an unnamed environment'}`)
