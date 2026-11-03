@@ -535,9 +535,9 @@ describe('releaseKind (promote)', () => {
     expect(await releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA })).toMatchObject({ kind: 'hotfix', branch: BRANCH })
   })
 
-  it('is deploy when the commit is on neither', async () => {
+  it('is deploy when the commit is on neither, and says it is on no branch', async () => {
     const api = octokit({ compare: { [`${MAIN_TIP}...${SHA}`]: 'diverged', [`${HOTFIX_TIP}...${SHA}`]: 'diverged' }, refs: [ref(BRANCH, HOTFIX_TIP)] })
-    expect(await releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA })).toMatchObject({ kind: 'deploy' })
+    expect(await releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA })).toMatchObject({ kind: 'deploy', offBranch: true })
   })
 
   it('is deploy without asking GitHub when the image names no commit', async () => {
@@ -574,9 +574,10 @@ describe('hotfixPromoteCheck (promote, before the deploy)', () => {
   const LIVE_SHA = 'c'.repeat(40)
   const repository = 'example-org/example-app'
 
-  // GitHub: the promoted commit is on hotfix/<release> and not on main.
-  // `fromLive` is what comparing production's commit with it says.
-  function github ({ release = RELEASE, fromLive = 'diverged', fails = false } = {}) {
+  // GitHub: the promoted commit is on hotfix/<release> and not on main (or,
+  // with `branches: []`, on no branch at all). `fromLive` is what comparing
+  // production's commit with it says.
+  function github ({ release = RELEASE, fromLive = 'diverged', fails = false, branches } = {}) {
     return {
       rest: {
         repos: {
@@ -591,11 +592,11 @@ describe('hotfixPromoteCheck (promote, before the deploy)', () => {
             throw new Error(`unexpected compare ${basehead}`)
           })
         },
-        git: { listMatchingRefs: vi.fn(async () => ({ data: [{ ref: `refs/heads/hotfix/${release}`, object: { type: 'commit', sha: SHA } }] })) }
+        git: { listMatchingRefs: vi.fn(async () => ({ data: branches ?? [{ ref: `refs/heads/hotfix/${release}`, object: { type: 'commit', sha: SHA } }] })) }
       }
     }
   }
-  const check = (octokit, ledger) => hotfixPromoteCheck({ octokit, repository, sha: SHA, project: PROJECT, readLedger: ledger.readLedger })
+  const check = (octokit, ledger, options = {}) => hotfixPromoteCheck({ octokit, repository, sha: SHA, project: PROJECT, readLedger: ledger.readLedger, ...options })
 
   it('passes a hotfix for the release production runs', async () => {
     const result = await check(github(), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
@@ -620,22 +621,66 @@ describe('hotfixPromoteCheck (promote, before the deploy)', () => {
     expect(api.rest.repos.compareCommitsWithBasehead).toHaveBeenCalledTimes(1)
   })
 
-  it('stops a hotfix promote when the ledger cannot say what production runs', async () => {
+  it('stops a hotfix promote as ledger_unavailable when the ledger cannot be read', async () => {
     const result = await check(github(), fakeLedger(new Error('the deployment ledger answered HTTP 503')))
-    expect(result).toMatchObject({ kind: 'hotfix', check: 'unconfirmed' })
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'ledger_unavailable' })
     expect(result.checkWhy).toMatch(/could not read the deployment ledger for example-app \(the deployment ledger answered HTTP 503\).*Try again once the deployment ledger answers/)
   })
 
-  it('skips the check, and says deploy, when GitHub cannot answer', async () => {
+  it('stops a hotfix promote when the ledger names no commit for the live release', async () => {
+    const result = await check(github(), fakeLedger([ledgerRow(NEWER_RELEASE, undefined)]))
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'unconfirmed' })
+    expect(result.checkWhy).toMatch(/names no commit for release-2026-10-22-10150/)
+  })
+
+  it('skips the check, and says deploy, when GitHub cannot tell whether it is a hotfix', async () => {
     const ledger = fakeLedger(new Error('must not be read'))
     const result = await check(github({ fails: true }), ledger)
-    expect(result).toMatchObject({ kind: 'deploy', check: 'skipped', failed: true })
+    expect(result).toMatchObject({ kind: 'deploy', check: 'skipped' })
+    expect(result.warning).toMatch(/could not tell whether this promote is a hotfix \(Bad gateway\), so it goes on as an ordinary promote/)
     expect(ledger.calls).toEqual([])
   })
 
-  it('skips the check when GitHub cannot say whether the hotfix builds on production', async () => {
+  it('stops a confirmed hotfix when GitHub cannot say whether it builds on production', async () => {
     const result = await check(github({ fromLive: new Error('timeout') }), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]))
-    expect(result).toMatchObject({ kind: 'hotfix', check: 'skipped', failed: true })
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'unconfirmed' })
+    expect(result.checkWhy).toMatch(/GitHub did not answer whether aaaaaaaaaaaa builds on release-2026-10-22-10150.*refusing to promote it/)
+    expect(result.warning).toMatch(/GitHub did not answer/)
+  })
+
+  it('gives the forward check its own timeout: a slow ledger cannot use up the deadline and let a stale hotfix through', async () => {
+    // The reads that find the hotfix share a 300 ms deadline, and the ledger
+    // answers after 400 ms with a newer release.
+    const slowLedger = fakeLedger(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      return [ledgerRow(NEWER_RELEASE, LIVE_SHA)]
+    })
+    const result = await check(github(), slowLedger, { request: deadlineRequests({ deadlineMs: 300 }) })
+    expect(result).toMatchObject({ kind: 'hotfix', check: 'stale' })
+  })
+
+  describe('a commit on no branch the pipeline builds from (its hotfix branch was deleted)', () => {
+    it('passes when it builds on what production runs', async () => {
+      const result = await check(github({ branches: [], fromLive: 'ahead' }), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+      expect(result).toMatchObject({ kind: 'deploy', offBranch: true, check: 'live' })
+    })
+
+    it.each(['behind', 'diverged'])('refuses it when GitHub says %s', async (fromLive) => {
+      const result = await check(github({ branches: [], fromLive }), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+      expect(result).toMatchObject({ kind: 'deploy', check: 'stale' })
+      expect(result.checkWhy).toMatch(/is not on the default branch or on any hotfix branch \(its hotfix branch may have been deleted\), but production now runs release-2026-10-20-10140, which it does not build on/)
+    })
+
+    it('skips the check, with a warning, only when GitHub cannot answer', async () => {
+      const result = await check(github({ branches: [], fromLive: new Error('timeout') }), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+      expect(result).toMatchObject({ kind: 'deploy', check: 'skipped' })
+      expect(result.warning).toMatch(/so this promote goes on without the check/)
+    })
+
+    it('stops it when the ledger cannot be read', async () => {
+      const result = await check(github({ branches: [] }), fakeLedger(new Error('no answer')))
+      expect(result).toMatchObject({ kind: 'deploy', check: 'ledger_unavailable' })
+    })
   })
 
   it('does not read the ledger for an ordinary promote', async () => {

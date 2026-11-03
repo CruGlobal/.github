@@ -91,12 +91,17 @@ outputs:
   check:
     description: >-
       release-kind. live (a hotfix for the release production runs, or one
-      that moves production forward), stale (a hotfix of an older release),
-      unconfirmed (a hotfix, but the deployment ledger could not say what
-      production runs) or skipped (not a hotfix, or GitHub could not answer
-      in time).
+      that moves production forward), stale (a hotfix, or a commit on no
+      branch the pipeline builds from, that does not build on what
+      production runs), unconfirmed (a confirmed hotfix whose forward check
+      GitHub could not answer, or whose live release has no commit in the
+      ledger), ledger_unavailable (the deployment ledger could not be read)
+      or skipped (an ordinary promote, or GitHub could not tell in time
+      whether it is a hotfix). The promote step after it refuses stale and
+      unconfirmed as stale_hotfix, and ledger_unavailable as
+      ledger_unavailable.
   check-why:
-    description: release-kind. One line saying why, for the step that refuses a stale or unconfirmed hotfix.
+    description: release-kind. One line saying why, for the step that refuses it.
 runs:
   using: 'node24'
   main: '../../dist/hotfix.js'

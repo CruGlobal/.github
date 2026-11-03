@@ -37,11 +37,14 @@ name: Promote
 # changes, including a migration that runs before the new release starts. Each
 # refusal is an error whose title is a fixed reason word the caller can read
 # from the run's annotations: actor_not_allowed, production_moved,
-# candidate_moved, not_rollback_safe or, for a hotfix, stale_hotfix. The word
-# names the check that refused; the message says why, including when the
-# check could not get an answer
-# (that is a refusal too). Every input defaults to off, so a person's promote
-# runs exactly as before. An allowlisted automation account must set
+# candidate_moved, not_rollback_safe, or, for a hotfix candidate, stale_hotfix
+# or ledger_unavailable. The word names the check that refused; the message
+# says why, including when the check could not get an answer (that is a
+# refusal too). Every input defaults to off, so a person's promote of an
+# ordinary candidate runs exactly as before. A person's promote of a hotfix
+# candidate can now be refused, input or not: as stale_hotfix when production
+# has moved to another release since the hotfix was cut (see "Tell a hotfix
+# from a deploy"). An allowlisted automation account must set
 # expected-candidate and require-rollback-safe, or `lookup` refuses it.
 #
 # The check also marks the attempt as checked for the rest of its job. The
@@ -649,13 +652,21 @@ jobs:
       # hotfix; this catches one built before production moved.
       #
       # Inside the production lock and before anything in production changes.
-      # The GitHub reads share one 30-second deadline. When GitHub cannot
-      # answer in time, the step says deploy and the check is skipped, so an
-      # ordinary promote goes on exactly as before; only a candidate GitHub
-      # confirms as a hotfix can be refused. The step itself never fails.
+      # The reads that tell a hotfix from a deploy share one 30-second
+      # deadline. When GitHub cannot answer them in time, the step says deploy
+      # and the check is skipped, so an ordinary promote goes on exactly as
+      # before. Once GitHub has confirmed a hotfix, the check fails closed:
+      # its compare has its own timeout, and no answer is a refusal. A commit
+      # on no branch the pipeline builds from (a hotfix whose branch was
+      # deleted) gets the same forward check, skipped only when GitHub cannot
+      # answer. The step itself never fails.
       - name: Tell a hotfix from a deploy
         id: release-kind
         continue-on-error: true
+        # A backstop inside the production lock: the step's own deadlines end
+        # it in about a minute. A step that times out leaves empty outputs,
+        # which the next step reads as an ordinary promote.
+        timeout-minutes: 2
         uses: ./cru-github-actions/actions/hotfix
         with:
           mode: release-kind
@@ -664,24 +675,30 @@ jobs:
           project-name: ${{ inputs.project-name }}
           sha: ${{ steps.baseline.outputs.head-sha }}
 
-      # Refused as stale_hotfix when the step above found a hotfix for a
-      # release production no longer runs, or could not read the deployment
-      # ledger to tell (the same fail-closed rule promote's other guards use
-      # for the ledger). Anything else passes silently.
+      # Refused as stale_hotfix when the step above found a hotfix (or a
+      # commit on no branch the pipeline builds from) that does not build on
+      # what production runs, or a confirmed hotfix it could not check; and
+      # as ledger_unavailable when it could not read the deployment ledger to
+      # tell (the same fail-closed rule promote's other guards use for the
+      # ledger). Anything else passes silently.
       - name: Refuse a hotfix that is not for the live release
         env:
           CHECK: ${{ steps.release-kind.outputs.check }}
           WHY: ${{ steps.release-kind.outputs.check-why }}
         run: |
+          # Anything else passes, an empty check included: the step above
+          # timed out, failed, or comes from an older action bundle, and the
+          # promote then goes on as an ordinary one.
           case "$CHECK" in
-            stale|unconfirmed) ;;
+            stale|unconfirmed) reason=stale_hotfix ;;
+            ledger_unavailable) reason=ledger_unavailable ;;
             *) exit 0 ;;
           esac
           # One line, always: what follows a line break must not read as a
           # workflow command of its own.
           why="${WHY//[$'\r\n']/ }"
-          echo "PROMOTE_REFUSED=stale_hotfix" >> "$GITHUB_ENV"
-          echo "::error title=stale_hotfix::${why:-this hotfix is not for the release production runs; refusing to promote it. Nothing in production was changed}"
+          echo "PROMOTE_REFUSED=$reason" >> "$GITHUB_ENV"
+          echo "::error title=$reason::${why:-this hotfix could not be confirmed as being for the release production runs; refusing to promote it. Nothing in production was changed}"
           exit 1
 
       # Classify the migrations added between the production baseline and the
@@ -1459,6 +1476,10 @@ jobs:
       - name: Tell a hotfix from a deploy
         id: release-kind
         continue-on-error: true
+        # A backstop inside the production lock: the step's own deadlines end
+        # it in about a minute. A step that times out leaves empty outputs,
+        # which the next step reads as an ordinary promote.
+        timeout-minutes: 2
         uses: ./cru-github-actions/actions/hotfix
         with:
           mode: release-kind
@@ -1472,15 +1493,19 @@ jobs:
           CHECK: ${{ steps.release-kind.outputs.check }}
           WHY: ${{ steps.release-kind.outputs.check-why }}
         run: |
+          # Anything else passes, an empty check included: the step above
+          # timed out, failed, or comes from an older action bundle, and the
+          # promote then goes on as an ordinary one.
           case "$CHECK" in
-            stale|unconfirmed) ;;
+            stale|unconfirmed) reason=stale_hotfix ;;
+            ledger_unavailable) reason=ledger_unavailable ;;
             *) exit 0 ;;
           esac
           # One line, always: what follows a line break must not read as a
           # workflow command of its own.
           why="${WHY//[$'\r\n']/ }"
-          echo "PROMOTE_REFUSED=stale_hotfix" >> "$GITHUB_ENV"
-          echo "::error title=stale_hotfix::${why:-this hotfix is not for the release production runs; refusing to promote it. Nothing in production was changed}"
+          echo "PROMOTE_REFUSED=$reason" >> "$GITHUB_ENV"
+          echo "::error title=$reason::${why:-this hotfix could not be confirmed as being for the release production runs; refusing to promote it. Nothing in production was changed}"
           exit 1
 
       # Classify the migrations added between the production baseline and the

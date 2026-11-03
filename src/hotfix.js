@@ -172,7 +172,8 @@ async function runReport ({ sleep }) {
 }
 
 // Never fails the step. The kind labels the release event; `check` is read
-// by promote's next step, which refuses a stale or unconfirmed hotfix.
+// by promote's next step, which refuses a stale or unconfirmed hotfix and a
+// hotfix whose release the ledger could not confirm.
 async function runReleaseKind ({ readLedger, request }) {
   let result
   try {
@@ -185,16 +186,18 @@ async function runReleaseKind ({ readLedger, request }) {
       request
     })
   } catch (error) {
-    result = { kind: 'deploy', why: oneLine(error.message), check: 'skipped', checkWhy: 'the check could not run', failed: true }
+    const why = `the hotfix check could not run (${oneLine(error.message)})`
+    result = { kind: 'deploy', why, check: 'skipped', checkWhy: why, warning: `${why}, so this promote goes on as an ordinary one` }
   }
   core.setOutput('kind', result.kind)
   core.setOutput('branch', result.branch ?? '')
   core.setOutput('release', result.release ?? '')
   core.setOutput('check', result.check)
   core.setOutput('check-why', oneLine(result.checkWhy))
-  if (result.failed) {
-    core.warning(`could not tell whether this promote is a hotfix for the release production runs, so it goes on as an ordinary promote (${oneLine(result.why)}; ${oneLine(result.checkWhy)})`)
-  }
+  // The warning says what happened to this promote, which depends on where
+  // GitHub stopped answering: before it knew a hotfix (an ordinary promote),
+  // or during a confirmed hotfix's check (refused by the next step).
+  if (result.warning) core.warning(oneLine(result.warning))
   core.info(`release kind ${result.kind}: ${oneLine(result.why)}; hotfix check ${result.check}: ${oneLine(result.checkWhy)}`)
 }
 

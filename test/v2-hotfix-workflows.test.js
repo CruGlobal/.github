@@ -19,18 +19,44 @@ describe('build-candidate', () => {
   const HOTFIX_ONLY = "steps.ref.outputs.hotfix == 'true'"
   const TODAY = '::error title=Build Candidate::candidates build from the default branch only -- REF is not refs/heads/main. Merge the change to main, then dispatch.'
 
-  it('keeps the default-branch step where it was, with the same condition, before any checkout', () => {
+  it('keeps the default-branch step first, before any checkout, and compares in bash rather than an if:', () => {
     const { step } = findStep(workflow, 'setup', 'Assert the calling ref is the default branch')
     expect(setup.steps.indexOf(step)).toBe(0)
-    expect(step.if).toBe(DEFAULT)
+    // An if: would compare without case.
+    expect(step.if).toBeUndefined()
+    expect(DEFAULT).toContain('format(')
     expect(step.id).toBe('ref')
     expect(step.run).toContain('echo "::error title=Build Candidate::candidates build from the default branch only -- $GITHUB_REF is not refs/heads/$DEFAULT_BRANCH. Merge the change to $DEFAULT_BRANCH, then dispatch."')
   })
 
   describe('the default-branch step', () => {
-    const assertRef = (ref) => runShellStep(findStep(workflow, 'setup', 'Assert the calling ref is the default branch'), {
-      context: { 'github.event.repository.default_branch': 'main' },
+    const assertRef = (ref, defaultBranch = 'main') => runShellStep(findStep(workflow, 'setup', 'Assert the calling ref is the default branch'), {
+      context: { 'github.event.repository.default_branch': defaultBranch },
       runnerEnv: { GITHUB_REF: ref }
+    })
+
+    it.each([
+      ['refs/heads/main', 'main'],
+      ['refs/heads/master', 'master'],
+      ['refs/heads/release/v2', 'release/v2']
+    ])('lets the real default branch %s build, silently', async (ref, defaultBranch) => {
+      const result = await assertRef(ref, defaultBranch)
+      expect(result.status, result.stdout).toBe(0)
+      expect(result.stdout).toBe('')
+      expect(result.outputs).toEqual({})
+    })
+
+    it.each([
+      ['refs/heads/MAIN', 'main'],
+      ['refs/heads/Main', 'main'],
+      ['refs/heads/main', 'Main'],
+      ['refs/heads/main', 'master'],
+      ['refs/heads/main', '']
+    ])('refuses %s when the default branch is %j, with today\'s exact message', async (ref, defaultBranch) => {
+      const result = await assertRef(ref, defaultBranch)
+      expect(result.status).toBe(1)
+      expect(result.stdout.trim()).toBe(`::error title=Build Candidate::candidates build from the default branch only -- ${ref} is not refs/heads/${defaultBranch}. Merge the change to ${defaultBranch}, then dispatch.`)
+      expect(result.outputs).toEqual({})
     })
 
     // Expression comparisons ignore case and git refs do not, so the hotfix
@@ -223,6 +249,9 @@ describe('promote', () => {
       expect(findStep(workflow, jobId, KIND).step).toMatchObject({
         id: 'release-kind',
         'continue-on-error': true,
+        // A backstop inside the production lock; a timed-out step leaves
+        // empty outputs, which the next step lets through.
+        'timeout-minutes': 2,
         with: { mode: 'release-kind', 'project-name': '${{ inputs.project-name }}', sha: '${{ steps.baseline.outputs.head-sha }}' }
       })
       // The refusal can fail the job; nothing else may hide it.
@@ -240,15 +269,20 @@ describe('promote', () => {
       }
     })
 
-    it.each(['stale', 'unconfirmed'])('refuses a %s hotfix as stale_hotfix, saying why on one line', async (check) => {
+    it.each([
+      ['stale', 'stale_hotfix'],
+      ['unconfirmed', 'stale_hotfix'],
+      ['ledger_unavailable', 'ledger_unavailable']
+    ])('refuses check %s as %s, saying why on one line', async (check, reason) => {
       const result = await refuse(check, 'aaaaaaaaaaaa is a hotfix for release-2026-10-20-10140\n::error::injected')
       expect(result.status).toBe(1)
       const errors = result.stdout.split('\n').filter((line) => line.startsWith('::error'))
-      expect(errors).toEqual(['::error title=stale_hotfix::aaaaaaaaaaaa is a hotfix for release-2026-10-20-10140 ::error::injected'])
-      expect(result.env).toEqual({ PROMOTE_REFUSED: 'stale_hotfix' })
+      expect(errors).toEqual([`::error title=${reason}::aaaaaaaaaaaa is a hotfix for release-2026-10-20-10140 ::error::injected`])
+      expect(result.env).toEqual({ PROMOTE_REFUSED: reason })
     })
 
-    it.each(['live', 'skipped', ''])('lets a promote with check %j go on, silently', async (check) => {
+    // '' is what a step that timed out or failed leaves behind.
+    it.each(['live', 'skipped', '', 'something-newer'])('lets a promote with check %j go on, silently', async (check) => {
       const result = await refuse(check, 'anything')
       expect(result.status).toBe(0)
       expect(result.stdout).toBe('')

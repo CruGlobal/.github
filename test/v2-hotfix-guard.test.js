@@ -143,6 +143,20 @@ describe('verifyHotfixRef (build-candidate\'s check)', () => {
     expect(error.message).toMatch(/which is already in the release the branch starts at/)
   })
 
+  it('refuses a commit that changes nothing, even when its source\'s change is already in the code', async () => {
+    const fx = app()
+    // main reverts line 3 and then makes the release's change again. Picking
+    // that onto the release changes nothing, so the tree check alone would
+    // pass an empty commit that names it.
+    fx.commit('revert line 3', { 'app.js': fx.appWith({ 6: 'const line6 = 66', 8: 'const line8 = 8 + 1' }) })
+    const again = fx.commit('line 3 again', { 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 66', 8: 'const line8 = 8 + 1' }) })
+    fx.push('main')
+    handBranch(fx, () => fx.commit(`line 3 again\n\n(cherry picked from commit ${again})`, {}))
+    const error = await refusal(verify(fx))
+    expect(error.reason).toBe(REASONS.alreadyInRelease)
+    expect(error.message).toMatch(/but it changes nothing: that change is already in the code it was picked onto/)
+  })
+
   it('refuses a cherry-pick that changes a workflow file', async () => {
     const fx = app()
     const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })

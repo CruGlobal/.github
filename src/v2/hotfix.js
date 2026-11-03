@@ -431,8 +431,15 @@ export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
     if (workflows.length > 0) {
       refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which changes ${workflows.join(', ')}; a hotfix never changes a workflow file`, REASONS.workflowChange)
     }
+    // A commit that changes nothing ships nothing new. The cut never makes
+    // one (it refuses a pick that changes nothing), and the tree check below
+    // would pass it when the source's change is already in the code.
+    const tree = await treeOf(git, sha)
+    if (tree === await treeOf(git, parents[0])) {
+      refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, but it changes nothing: that change is already in the code it was picked onto`, REASONS.alreadyInRelease)
+    }
     const pick = await pickTree(git, { parent: sourceParents[0], commit: source, onto: parents[0] })
-    if (!pick.clean || pick.tree !== await treeOf(git, sha)) {
+    if (!pick.clean || pick.tree !== tree) {
       refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, but its change is not exactly ${short(source)}'s change`)
     }
     verified.push({ sha, source })
@@ -714,12 +721,14 @@ async function contains (octokit, { owner, repo, tip, sha, request }) {
 
 // Was the promoted commit built from a hotfix branch? It was when the commit
 // is not on the app repo's default branch but is on a hotfix/<release tag>
-// branch. build-candidate builds only those two kinds of ref, so a commit on
-// neither is labeled an ordinary deploy. When the commit is on more than one
-// hotfix branch, the newest-named one wins. Every request shares one deadline
-// (`request`, from deadlineRequests). Returns { kind: 'hotfix' | 'deploy',
-// why, branch }. Throws on an API error or the deadline; the caller treats
-// that as a deploy.
+// branch. When the commit is on more than one hotfix branch, the newest-named
+// one wins. A commit on neither is labeled an ordinary deploy, and offBranch
+// says so: build-candidate builds only those two kinds of ref, so such a
+// commit is most likely a hotfix whose branch was deleted after the build.
+// Every request shares one deadline (`request`, from deadlineRequests).
+// Returns { kind: 'hotfix' | 'deploy', why, branch, release, offBranch }.
+// Throws on an API error or the deadline; the caller treats that as a
+// deploy.
 export async function releaseKind ({ octokit, repository, sha, request = deadlineRequests() }) {
   const commit = String(sha ?? '').trim()
   if (!FULL_SHA.test(commit)) {
@@ -746,7 +755,7 @@ export async function releaseKind ({ octokit, repository, sha, request = deadlin
       return { kind: 'hotfix', why: `${short(commit)} is on ${name}, not on ${defaultBranch}`, branch: name, release: releaseFromRef(ref.ref) }
     }
   }
-  return { kind: 'deploy', why: `${short(commit)} is not on ${defaultBranch} or on any hotfix branch` }
+  return { kind: 'deploy', why: `${short(commit)} is not on ${defaultBranch} or on any hotfix branch`, offBranch: true }
 }
 
 // promote's hotfix check, made before anything in production changes. A
@@ -761,54 +770,88 @@ export async function releaseKind ({ octokit, repository, sha, request = deadlin
 // refuses to build a hotfix of a release production no longer runs; this
 // stops one built before production moved.
 //
-// Returns { kind, why, branch, release, check, checkWhy }. check is:
-//   live         a hotfix for the release production runs (or production
-//                already runs this commit, or the commit descends from it);
-//   stale        a hotfix for an older release; the promote must stop;
-//   unconfirmed  a hotfix, but the deployment ledger could not say what
-//                production runs; the promote must stop, as promote's other
-//                guards do when the ledger cannot answer;
-//   skipped      not a hotfix, or GitHub could not answer in time. The
-//                promote goes on exactly as it would have before this check.
-// Never throws.
-export async function hotfixPromoteCheck ({ octokit, repository, sha, project, readLedger, request = deadlineRequests() }) {
+// The same forward check runs for a commit that is on neither the default
+// branch nor any hotfix branch: that is a hotfix whose branch was deleted
+// after the build, as far as the pipeline can tell. What this cannot see is a
+// hotfix branch merged back into the default branch with a merge commit: its
+// commits are then on the default branch, so they are labeled deploy and not
+// checked.
+//
+// Returns { kind, why, branch, release, check, checkWhy, warning }. check is:
+//   live                the commit is for the release production runs, or
+//                       production already runs it, or it builds on what
+//                       production runs (production moves forward);
+//   stale               it does not build on what production runs; the
+//                       promote must stop (stale_hotfix);
+//   unconfirmed         a confirmed hotfix whose forward check GitHub could
+//                       not answer, or whose live release the ledger names no
+//                       commit for; the promote must stop (stale_hotfix);
+//   ledger_unavailable  the deployment ledger could not be read, so what
+//                       production runs is unknown; the promote must stop;
+//   skipped             an ordinary promote, or GitHub could not tell
+//                       whether it is a hotfix in time. The promote goes on
+//                       exactly as it would have before this check.
+// `warning` is set when GitHub did not answer something. Never throws.
+//
+// The forward-check compare gets its own timeout rather than what is left of
+// the shared deadline. The ledger read before it can take most of that
+// deadline, and a compare that then gave up must not let a confirmed hotfix
+// through.
+export async function hotfixPromoteCheck ({ octokit, repository, sha, project, readLedger, request = deadlineRequests(), compareTimeoutMs = 10000 }) {
   let kind
   try {
     kind = await releaseKind({ octokit, repository, sha, request })
   } catch (error) {
-    return { kind: 'deploy', why: `could not tell whether this promote is a hotfix (${error.message})`, check: 'skipped', checkWhy: 'GitHub did not answer, so this promote is treated as an ordinary one', failed: true }
+    const why = `could not tell whether this promote is a hotfix (${error.message})`
+    return { kind: 'deploy', why, check: 'skipped', checkWhy: 'GitHub did not answer, so this promote is treated as an ordinary one', warning: `${why}, so it goes on as an ordinary promote` }
   }
-  if (kind.kind !== 'hotfix') return { ...kind, check: 'skipped', checkWhy: 'not a hotfix' }
+  if (kind.kind !== 'hotfix' && !kind.offBranch) return { ...kind, check: 'skipped', checkWhy: 'not a hotfix' }
 
   const commit = String(sha).trim()
-  const release = kind.release
+  const hotfix = kind.kind === 'hotfix'
+  const what = hotfix
+    ? `${short(commit)} is a hotfix for ${kind.release} (from ${kind.branch})`
+    : `${short(commit)} is not on the default branch or on any hotfix branch (its hotfix branch may have been deleted)`
+  const refusal = 'refusing to promote it. Nothing in production was changed'
+
   let live
   try {
-    live = await currentProduction({ readLedger, project, unconfirmed: 'it cannot be confirmed that production still runs the release this hotfix is for', ledgerOptions: { attempts: 2, timeoutMs: 10000 } })
+    live = await currentProduction({ readLedger, project, unconfirmed: 'what production runs is unknown', ledgerOptions: { attempts: 2, timeoutMs: 10000 } })
   } catch (error) {
-    return { ...kind, check: 'unconfirmed', checkWhy: `${short(commit)} is a hotfix for ${release} (from ${kind.branch}), but ${error.message}; refusing to promote it. Nothing in production was changed. Try again once the deployment ledger answers` }
+    if (error instanceof HotfixRefusal && error.reason === REASONS.ledgerUnavailable) {
+      return { ...kind, check: 'ledger_unavailable', checkWhy: `${what}, but ${error.message}; ${refusal}. Try again once the deployment ledger answers` }
+    }
+    return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but ${error.message}; ${refusal}` }
   }
-  if (normalizeRelease(live.revision) === release) {
-    return { ...kind, check: 'live', checkWhy: `${short(commit)} is a hotfix for ${release}, the release production runs` }
+  if (hotfix && normalizeRelease(live.revision) === kind.release) {
+    return { ...kind, check: 'live', checkWhy: `${short(commit)} is a hotfix for ${kind.release}, the release production runs` }
   }
   if (live.sha === commit) {
     return { ...kind, check: 'live', checkWhy: `production already runs ${short(commit)}` }
   }
-  if (live.sha) {
-    try {
-      const { owner, repo } = parseRepo(repository)
-      const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: request() })
-      if (data?.status === 'ahead' || data?.status === 'identical') {
-        return { ...kind, check: 'live', checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` }
-      }
-    } catch (error) {
-      return { ...kind, check: 'skipped', checkWhy: `GitHub did not answer whether ${short(commit)} builds on ${live.revision} (${error.message}), so the check is skipped`, failed: true }
+  if (!live.sha) {
+    return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but the deployment ledger names no commit for ${live.revision}, the release production runs, so it cannot be checked that this moves production forward; ${refusal}` }
+  }
+
+  let status
+  try {
+    const { owner, repo } = parseRepo(repository)
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: { signal: AbortSignal.timeout(compareTimeoutMs) } })
+    status = data?.status
+  } catch (error) {
+    const unanswered = `GitHub did not answer whether ${short(commit)} builds on ${live.revision}, the release production runs (${error.message})`
+    if (hotfix) {
+      return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but ${unanswered}; ${refusal}. Try again`, warning: unanswered }
     }
+    return { ...kind, check: 'skipped', checkWhy: `${unanswered}, so the check is skipped`, warning: `${unanswered}, so this promote goes on without the check` }
+  }
+  if (status === 'ahead' || status === 'identical') {
+    return { ...kind, check: 'live', checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` }
   }
   return {
     ...kind,
     check: 'stale',
-    checkWhy: `${short(commit)} is a hotfix for ${release} (from ${kind.branch}), but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; refusing to promote it. Nothing in production was changed. Cut a new hotfix against ${live.revision}, the release production runs now`
+    checkWhy: `${what}, but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; ${refusal}. Cut a new hotfix against ${live.revision}, the release production runs now`
   }
 }
 
