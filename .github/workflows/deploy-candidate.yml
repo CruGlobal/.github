@@ -79,6 +79,11 @@ jobs:
   lookup:
     name: Look up app info
     runs-on: ubuntu-latest
+    # A backstop. A real lookup takes well under a minute. Without a limit, a
+    # call that never answers would hold the run for GitHub's six-hour
+    # default. Nothing here changes an environment, and when this job stops
+    # the deploy jobs after it are skipped, so stopping it early is safe.
+    timeout-minutes: 10
     # OIDC only: the job assumes GitHubDeployECS to read the table and checks
     # nothing out.
     permissions:
@@ -281,6 +286,11 @@ jobs:
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before it writes the ledger row. It takes
+        # seconds, so two minutes is plenty.
+        timeout-minutes: 2
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -489,13 +499,22 @@ jobs:
       # earlier step's output, so the message renders whichever step failed.
       # A healthy no-op (skip=true) cannot reach here: its remaining steps are
       # SKIPPED, not failed, so failure() stays false.
+      #
+      # It also runs when the job is cancelled, because that is how a job ends
+      # when it hits its time limit: GitHub cancels it, so failure() is false
+      # and only cancelled() is true. Inside the job a timeout and a person's
+      # cancel look the same, so the message says the deploy stopped before it
+      # finished and names both causes rather than guess. A deploy cancelled
+      # while it waits for the release-candidate lock never starts, so it posts
+      # nothing.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           TAG: ${{ inputs.tag }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -504,9 +523,12 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg tag "$TAG" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) `\($tag)` deploy to stage FAILED*"
+              text: ((if $status == "cancelled"
+                      then ":octagonal_sign: *\($project) `\($tag)` deploy to stage stopped before it finished*: it was cancelled, or it ran past its time limit"
+                      else ":x: *\($project) `\($tag)` deploy to stage FAILED*" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -621,6 +643,11 @@ jobs:
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before it writes the ledger row. It takes
+        # seconds, so two minutes is plenty.
+        timeout-minutes: 2
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -816,13 +843,22 @@ jobs:
       # earlier step's output, so the message renders whichever step failed.
       # A healthy no-op (skip=true) cannot reach here: its remaining steps are
       # SKIPPED, not failed, so failure() stays false.
+      #
+      # It also runs when the job is cancelled, because that is how a job ends
+      # when it hits its time limit: GitHub cancels it, so failure() is false
+      # and only cancelled() is true. Inside the job a timeout and a person's
+      # cancel look the same, so the message says the deploy stopped before it
+      # finished and names both causes rather than guess. A deploy cancelled
+      # while it waits for the release-candidate lock never starts, so it posts
+      # nothing.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           TAG: ${{ inputs.tag }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -831,9 +867,12 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg tag "$TAG" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) `\($tag)` deploy to stage FAILED*"
+              text: ((if $status == "cancelled"
+                      then ":octagonal_sign: *\($project) `\($tag)` deploy to stage stopped before it finished*: it was cancelled, or it ran past its time limit"
+                      else ":x: *\($project) `\($tag)` deploy to stage FAILED*" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -1017,6 +1056,11 @@ jobs:
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before it writes the ledger row. It takes
+        # seconds, so two minutes is plenty.
+        timeout-minutes: 2
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -1199,13 +1243,18 @@ jobs:
       # whole second line, nothing else. "verification FAILED" rather than
       # "deploy to stage FAILED" so the reader knows which gate is red — and
       # knows the candidate is unpromotable, not that stage is broken.
+      #
+      # It also runs when the job is cancelled, which is how a job ends when it
+      # hits its time limit. A timeout and a person's cancel look the same in
+      # here, so the message names both; see the deploy job's failure notify.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           TAG: ${{ inputs.tag }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1214,9 +1263,12 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg project "$PROJECT_NAME" \
             --arg tag "$TAG" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{channel: $channel,
-              text: (":x: *\($project) `\($tag)` verification FAILED (stage-less)*"
+              text: ((if $status == "cancelled"
+                      then ":octagonal_sign: *\($project) `\($tag)` verification stopped before it finished (stage-less)*: it was cancelled, or it ran past its time limit"
+                      else ":x: *\($project) `\($tag)` verification FAILED (stage-less)*" end)
                      + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \

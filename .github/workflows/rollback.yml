@@ -111,6 +111,11 @@ jobs:
   lookup:
     name: Authorize & look up app info
     runs-on: ubuntu-latest
+    # A backstop. A real lookup takes a minute or two at most. Without a limit,
+    # a call that never answers would hold the run for GitHub's six-hour
+    # default. Nothing here changes production, and when this job stops the
+    # provider jobs after it are skipped, so stopping it early is safe.
+    timeout-minutes: 10
     # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB.
     # contents: read lets it check this repo out for the authz action, which
     # reads permissions with the authz-token PAT.
@@ -516,6 +521,11 @@ jobs:
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before the rollback reaches the ledger. It takes
+        # seconds, so two minutes is plenty.
+        timeout-minutes: 2
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -727,14 +737,24 @@ jobs:
       # changelog link -- the run URL is the reader's next step, so it is the
       # whole second line. References no earlier step's output at all, so it
       # renders whichever step failed.
+      #
+      # It also runs when the job is cancelled, because that is how a job ends
+      # when it hits its time limit: GitHub cancels it, so failure() is false
+      # and only cancelled() is true. Inside the job a timeout and a person's
+      # cancel look the same, so the message says the rollback stopped before
+      # it finished and names both causes rather than guess. Either way
+      # production may not be on the release it was rolling back to, which is
+      # worth a line. A rollback cancelled while it waits for the production
+      # lock never starts, so it posts nothing.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -744,10 +764,14 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '{channel: $channel,
-              text: (":x: *\($project) rollback in production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
-                     + "\n\($runurl)")}')
+            '(if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
+             | {channel: $channel,
+                text: ((if $status == "cancelled"
+                        then ":octagonal_sign: *\($project) rollback in production stopped before it finished* by \($actor)\($rerun): it was cancelled, or it ran past its time limit"
+                        else ":x: *\($project) rollback in production FAILED* by \($actor)\($rerun)" end)
+                       + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -1023,6 +1047,11 @@ jobs:
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before the rollback reaches the ledger. It takes
+        # seconds, so two minutes is plenty.
+        timeout-minutes: 2
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -1222,14 +1251,24 @@ jobs:
       # changelog link -- the run URL is the reader's next step, so it is the
       # whole second line. References no earlier step's output at all, so it
       # renders whichever step failed.
+      #
+      # It also runs when the job is cancelled, because that is how a job ends
+      # when it hits its time limit: GitHub cancels it, so failure() is false
+      # and only cancelled() is true. Inside the job a timeout and a person's
+      # cancel look the same, so the message says the rollback stopped before
+      # it finished and names both causes rather than guess. Either way
+      # production may not be on the release it was rolling back to, which is
+      # worth a line. A rollback cancelled while it waits for the production
+      # lock never starts, so it posts nothing.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1239,10 +1278,14 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '{channel: $channel,
-              text: (":x: *\($project) rollback in production FAILED* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
-                     + "\n\($runurl)")}')
+            '(if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
+             | {channel: $channel,
+                text: ((if $status == "cancelled"
+                        then ":octagonal_sign: *\($project) rollback in production stopped before it finished* by \($actor)\($rerun): it was cancelled, or it ran past its time limit"
+                        else ":x: *\($project) rollback in production FAILED* by \($actor)\($rerun)" end)
+                       + "\n\($runurl)")}')
           response=$(curl -fsS https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

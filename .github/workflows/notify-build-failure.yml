@@ -34,6 +34,9 @@ jobs:
   notify:
     name: Notify Slack
     runs-on: ubuntu-latest
+    # A backstop. One read and one post take seconds. Without a limit, a call
+    # that never answers would hold the run for GitHub's six-hour default.
+    timeout-minutes: 10
     # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
     # and checks nothing out.
     permissions:
