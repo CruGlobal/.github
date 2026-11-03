@@ -5,6 +5,10 @@ name: Build Candidate
 # (build date + build number; and sha-<gitsha> for traceability). Nothing is deployed here — every
 # environment later deploys this exact artifact by digest.
 #
+# The triggering commit is the tip of the default branch, or of a hotfix
+# branch (hotfix/<release tag>) that holds only cherry-picks of default-branch
+# commits on top of a production release; see `setup`.
+#
 # Candidates are prod-bound, so the build runs in the app's `production` GitHub
 # environment and uses its build identity. A PRE-RELEASE app (stage-only: a
 # release candidate exists, production does not yet) has no production
@@ -66,8 +70,14 @@ jobs:
       # any push-triggered caller) on a feature ref. Compared against the
       # repository's OWN default branch rather than the literal `main`, so an
       # app still on `master` is guarded, not wedged.
+      #
+      # The one other ref a candidate builds from is a hotfix branch,
+      # refs/heads/hotfix/<release tag>, which cru-deploy's hotfix workflow
+      # cuts from the release production runs. Such a ref skips this step and
+      # gets the stricter check further down instead, which refuses with this
+      # same message unless the branch is one that workflow could have cut.
       - name: Assert the calling ref is the default branch
-        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !startsWith(github.ref, 'refs/heads/hotfix/')
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -90,6 +100,57 @@ jobs:
           fi
           echo "project-name=$project_name" >> "$GITHUB_OUTPUT"
           echo "::notice title=Build Candidate::project=$project_name type=$TYPE"
+
+      # --- Hotfix branches ---------------------------------------------------
+      # A hotfix branch is promotable too, so it must hold nothing but code
+      # that was already reviewed: the release it is named after, plus clean
+      # cherry-picks of default-branch commits. Without this check, anyone who
+      # can push a branch could put any code on release-candidate by naming it
+      # hotfix/something. The rule, and why it checks content rather than the
+      # "(cherry picked from commit X)" line, is in src/v2/hotfix.js:
+      #
+      #   - the branch is named hotfix/<release tag>, and production has run
+      #     that release (a production row in the deployment ledger, the
+      #     public read promote's guards use, so no credential is needed);
+      #   - it starts at the commit the ledger records for that release (a git
+      #     tag is never trusted for this: anyone with push access can make
+      #     one);
+      #   - every commit after it has one parent, names its source with a
+      #     "(cherry picked from commit X)" line, X is on the default branch,
+      #     and applying X's change to the commit's parent gives exactly the
+      #     commit's tree.
+      #
+      # It checks github.sha, the commit the build jobs below check out, not
+      # the branch's current tip. Anything that fails is refused with the
+      # default-branch refusal above, plus the reason. Fails closed: a ledger
+      # that cannot be read is a refusal. These steps run only on a hotfix ref,
+      # so a default-branch build is exactly as before.
+      - name: Checkout Cru Actions & Workflows (hotfix check)
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && startsWith(github.ref, 'refs/heads/hotfix/')
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Checkout project with full history (hotfix check)
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && startsWith(github.ref, 'refs/heads/hotfix/')
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: project
+          fetch-depth: 0
+
+      - name: Assert the hotfix branch holds only cherry-picks of default-branch commits
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && startsWith(github.ref, 'refs/heads/hotfix/')
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: verify
+          project-name: ${{ steps.info.outputs.project-name }}
+          path: project
+          ref: ${{ github.ref }}
+          sha: ${{ github.sha }}
+          default-branch: ${{ github.event.repository.default_branch }}
 
       # Which GitHub Actions environment the runtime build job below runs in --
       # i.e. whose cloud identity builds the candidate. Normally "production":

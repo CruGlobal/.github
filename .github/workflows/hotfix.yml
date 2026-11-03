@@ -1,0 +1,245 @@
+name: Hotfix
+
+# Ship one fix to production without shipping everything else the default
+# branch holds.
+#
+# The default branch often has changes that are not released yet. A hotfix
+# built from its tip would ship them all, and an unreleased migration among
+# them would make the hotfix unsafe to roll back. So a hotfix ships on a branch
+# cut from the release production runs now: hotfix/<release tag>. The fix
+# lands on the default branch first, through a normal pull request and its
+# checks, and this workflow cherry-picks that commit onto the branch:
+#
+#   1. Authorize the account that started this attempt, the same check
+#      promote and rollback run: push access on the app repo, or an
+#      allowlisted automation account that started both the run and this
+#      attempt.
+#   2. Read the release production runs from the deployment ledger, the way
+#      promote's stale-promote guard does, and refuse unless it is
+#      expected-release.
+#   3. Check the fix's commit is on the default branch, and is not a merge
+#      commit (see src/v2/hotfix.js for why a merge is refused rather than
+#      picked with -m 1).
+#   4. Cut hotfix/<release tag> from the commit the ledger records for that
+#      release, or add to the branch when it already exists (an earlier fix
+#      for the same release that has not been promoted yet). The commit comes
+#      from the ledger, not from the release's git tag: promote's GitHub
+#      Release makes that tag, but only best effort, so some releases have
+#      none.
+#   5. Cherry-pick the fix with -x. A conflict stops the run and nothing is
+#      pushed.
+#   6. Read the ledger again, then push the branch with authz-token. A plain
+#      push, never forced, and only to hotfix/<release tag>. This workflow
+#      never pushes to the default branch and never deletes a branch.
+#   7. Dispatch the app's .github/workflows/pipeline-v2.yml on the branch. It
+#      builds a candidate with build-candidate.yml, whose hotfix check accepts
+#      only a branch this workflow could have cut, and sends it to
+#      release-candidate. It is promoted from there like any candidate, and
+#      its release event says hotfix.
+#   8. Say in the run summary whether the app's own CI ran on the branch.
+#      Most apps run CI only on pull requests and the default branch, which is
+#      accepted for now: the fix passed its checks on the default branch.
+#
+# Every refusal is an error titled with a fixed reason word (actor_not_allowed,
+# no_production, invalid_input, production_moved, release_commit_unknown,
+# not_on_default_branch, merge_commit, already_in_release,
+# cherry_pick_conflict, branch_not_clean, branch_moved or no_pipeline), and
+# every one of them happens before the push.
+#
+# Re-runs and repeats are safe. A run whose fix is already on the branch
+# pushes nothing and dispatches the build again; build-candidate reuses the
+# candidate already built for that commit. Two runs for one app wait for each
+# other (the concurrency group below), so the second sees the first's commit
+# and adds to it. GitHub keeps only one run waiting, and a newer one cancels
+# the one already waiting; a cancelled run changed nothing and can be started
+# again.
+#
+# Production can move after the push. The branch is still a correct hotfix
+# for the release it is named after; promoting it is the promote's decision,
+# and an automation promote names the release it expects to replace.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at.
+      project-name:
+        type: string
+        required: true
+        description: Project name (shared-registry repo/image, and the deployment ledger's key).
+      commit:
+        type: string
+        required: true
+        description: >-
+          The fix's commit on the app repo's default branch (7 to 40 hex
+          characters). A merge commit is refused; use the pull request's
+          squash commit.
+      expected-release:
+        type: string
+        required: true
+        description: >-
+          The release production runs, release-[<yyyy-mm-dd>-]<n> (the
+          release- prefix is optional). The run is refused unless production
+          is still running it.
+      trusted-automation-actor-ids:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Comma-separated numeric GitHub user ids of automation accounts
+          allowed to cut a hotfix without push access on the app repo. One
+          passes only when it started the run and also started this attempt.
+          Empty allows none.
+    secrets:
+      authz-token:
+        required: true
+        description: >-
+          GitHub token for the app repo. It reads the permission of the
+          account that started this attempt, clones the repo, pushes the
+          hotfix branch (contents: write, plus workflows: write when a fix
+          changes a file under .github/workflows) and dispatches the app's
+          pipeline-v2.yml (actions: write).
+    outputs:
+      branch:
+        description: The hotfix branch, hotfix/<release tag>.
+        value: ${{ jobs.hotfix.outputs.branch }}
+      head-sha:
+        description: The hotfix branch's head, the commit the dispatched build builds.
+        value: ${{ jobs.hotfix.outputs.head-sha }}
+      pushed:
+        description: true when this run pushed the branch, false when the branch already had the fix.
+        value: ${{ jobs.hotfix.outputs.pushed }}
+
+jobs:
+  hotfix:
+    name: Cut the hotfix branch and build it
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # One hotfix run per app at a time, so two fixes for one release never race
+    # to create or extend the same branch. Not the production lock: a hotfix
+    # run changes no environment, and sharing that group would let a hotfix
+    # dispatch cancel a promote or rollback that is waiting for it.
+    concurrency:
+      group: hotfix-${{ inputs.project-name }}
+      cancel-in-progress: false
+    # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB,
+    # as promote's lookup does. contents: read lets it check this repo out for
+    # the actions. Everything on the app repo uses authz-token.
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      branch: ${{ steps.cut.outputs.branch }}
+      head-sha: ${{ steps.cut.outputs.head-sha }}
+      pushed: ${{ steps.cut.outputs.pushed }}
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+    steps:
+      # app-info straight from the CruApplicationInfo table, as promote reads
+      # it, for the app repo's name. The table is keyed by legacy env names.
+      - name: Configure AWS credentials for app-info
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # No production row means no production release, so nothing to hotfix:
+      # a pre-release (stage-only) app, or one whose production directory has
+      # not been applied yet.
+      - name: Look up app info (production)
+        id: app-info
+        run: |
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment production \
+              '{Project: {S: $project}, Environment: {S: $environment}}')")
+          item=$(echo "$info" | jq -c '.Item // empty')
+          if [ -z "$item" ]; then
+            echo "::error title=no_production::${PROJECT_NAME//[$'\r\n']/ } has no CruApplicationInfo row for 'production', so there is no production release to hotfix. Nothing was pushed"
+            exit 1
+          fi
+          # Repository is written only when the app repo is not named after the project.
+          repository=$(echo "$item" | jq -r --arg default "CruGlobal/$PROJECT_NAME" '.Repository.S // $default')
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/production -> repository=$repository"
+
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      # The same check promote and rollback run, and the first thing that
+      # touches the app repo. It is in the one job that does everything, so
+      # "Re-run failed jobs" runs it again for whoever pressed re-run. The cut
+      # step below refuses to push unless it passed in this job.
+      - name: Authorize actor
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ steps.app-info.outputs.repository }}
+          operation: cut a hotfix for
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refusal-title: actor_not_allowed
+
+      # Full history: the cut checks ancestry against the default branch and
+      # reads any existing hotfix branch. The token stays in this checkout's
+      # git config so the cut step can push; the checkout's post step removes
+      # it when the job ends.
+      - name: Checkout the app repo
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.app-info.outputs.repository }}
+          token: ${{ secrets.authz-token }}
+          fetch-depth: 0
+          path: app
+
+      - name: Cut the hotfix branch
+        id: cut
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: cut
+          path: app
+          project-name: ${{ inputs.project-name }}
+          commit: ${{ inputs.commit }}
+          expected-release: ${{ inputs.expected-release }}
+
+      # The app's own pipeline-v2.yml, as it is on the hotfix branch, builds the
+      # candidate and sends it to release-candidate. It is dispatched even when
+      # the branch already had the fix: an earlier run may have pushed and then
+      # failed here, and a build of a commit already built reuses its candidate.
+      - name: Build the hotfix branch
+        id: dispatch
+        uses: ./cru-github-actions/actions/dispatch
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repo: ${{ steps.app-info.outputs.repository }}
+          workflow: pipeline-v2.yml
+          ref: ${{ steps.cut.outputs.branch }}
+          inputs-json: '{}'
+
+      - name: Explain a failed build dispatch
+        if: failure() && steps.dispatch.outcome == 'failure'
+        env:
+          BRANCH: ${{ steps.cut.outputs.branch }}
+          REPOSITORY: ${{ steps.app-info.outputs.repository }}
+        run: |
+          echo "::error title=dispatch_failed::$BRANCH is on $REPOSITORY, but dispatching its pipeline-v2.yml failed (see the step above). A 403 or 404 there means authz-token cannot dispatch workflows on the app repo (it needs actions: write). Fix that and re-run this workflow, or run the app's Pipeline v2 workflow on $BRANCH by hand. The branch stays as it is"
+          exit 1
+
+      - name: Report the app's CI on the hotfix branch
+        if: ${{ !cancelled() && steps.cut.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: report
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ steps.app-info.outputs.repository }}
+          branch: ${{ steps.cut.outputs.branch }}
+          sha: ${{ steps.cut.outputs.head-sha }}
+          pushed: ${{ steps.cut.outputs.pushed }}
+          dispatch-outcome: ${{ steps.dispatch.outcome }}

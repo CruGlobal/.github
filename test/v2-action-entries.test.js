@@ -30,6 +30,10 @@ const ACTIONS = {
   'flightdeck-release-event': {
     inputs: { TOKEN: 'tok', PROJECT: 'APP', ENVIRONMENT: 'production', KIND: 'deploy' },
     error: '::error::refusing to post a release event for production: no authorize-actor check passed earlier in this job'
+  },
+  hotfix: {
+    inputs: { MODE: 'cut', 'PROJECT-NAME': 'example-app', COMMIT: 'a'.repeat(40), 'EXPECTED-RELEASE': 'release-2026-10-20-10140' },
+    error: '::error title=actor_not_allowed::refusing to push a hotfix branch: no authorize-actor check passed earlier in this job'
   }
 }
 

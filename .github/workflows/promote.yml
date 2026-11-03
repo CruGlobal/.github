@@ -61,6 +61,10 @@ name: Promote
 # without them nothing writes the ledger row this reads and no app-info item
 # carries `RcMode` at all.
 #
+# A hotfix candidate (built from a hotfix/<release tag> branch; see
+# hotfix.yml) is promoted by the same route. The only difference is its
+# Flightdeck release event, whose kind is hotfix instead of deploy.
+#
 # Pre-release apps (`Lifecycle` "pre-release" on the staging item, or simply no
 # production app-info row) are REFUSED in `lookup`, as early as the data allows:
 # they are stage-only on purpose and have no production environment to promote
@@ -929,6 +933,25 @@ jobs:
                 + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
+      # --- Hotfix or deploy --------------------------------------------------
+      # A hotfix candidate is promoted exactly like any other; only its
+      # release event says which it was. It came from a hotfix branch when its
+      # commit (the sha- tag on the promoted digest) is not on the app repo's
+      # default branch but is on a hotfix/* branch: build-candidate builds from
+      # those two kinds of ref only. Read with authz-token, which this job
+      # already uses to read the app repo. Telemetry policy: it never fails
+      # the promote, and it runs after production has changed, so it cannot
+      # hold up the deploy.
+      - name: Tell a hotfix from a deploy
+        id: release-kind
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: release-kind
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          sha: ${{ steps.baseline.outputs.head-sha }}
+
       # Record the release on the app's Flightdeck project timeline (GateOps
       # Phase 0). Project = app-info FlightdeckProject; credential = the CruDeploy
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
@@ -940,6 +963,10 @@ jobs:
       # run-url names this attempt, and image-digest is the digest that shipped.
       # All three are display-only. The action leaves out any value Flightdeck
       # would refuse, so none of them can cost the event.
+      #
+      # kind is hotfix when the step above found the candidate came from a
+      # hotfix branch, and deploy for every other promote, including when that
+      # step could not tell.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -949,7 +976,7 @@ jobs:
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: production
-          kind: deploy
+          kind: ${{ steps.release-kind.outputs.kind == 'hotfix' && 'hotfix' || 'deploy' }}
           release-tag: ${{ steps.release.outputs.release }}
           image-tags: ${{ steps.resolve.outputs.tags }}
           rollback-safety: ${{ steps.rollback-safety.outputs.verdict }}
@@ -1667,6 +1694,17 @@ jobs:
                 + (if ($rollbacksafe != "" and $rollbackreasons != "" and $rollbackreasons != "[]") then {RollbackSafeReasons: {S: $rollbackreasons}} else {} end)')" \
             || echo "::warning title=Ledger write failed::promotion event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
+      # Hotfix or deploy: same step as in promote-gcp; see the comment there.
+      - name: Tell a hotfix from a deploy
+        id: release-kind
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: release-kind
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          sha: ${{ steps.baseline.outputs.head-sha }}
+
       # Record the release on the app's Flightdeck project timeline (GateOps
       # Phase 0). Project = app-info FlightdeckProject; credential = the CruDeploy
       # service user's PAT held by cru-deploy. Either unset => silent skip. Same
@@ -1678,6 +1716,10 @@ jobs:
       # run-url names this attempt, and image-digest is the digest that shipped.
       # All three are display-only. The action leaves out any value Flightdeck
       # would refuse, so none of them can cost the event.
+      #
+      # kind is hotfix when the step above found the candidate came from a
+      # hotfix branch, and deploy for every other promote, including when that
+      # step could not tell.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -1687,7 +1729,7 @@ jobs:
           project: ${{ needs.lookup.outputs.flightdeck-project }}
           app: ${{ inputs.project-name }}
           environment: production
-          kind: deploy
+          kind: ${{ steps.release-kind.outputs.kind == 'hotfix' && 'hotfix' || 'deploy' }}
           release-tag: ${{ steps.release.outputs.release }}
           image-tags: ${{ steps.resolve.outputs.tags }}
           rollback-safety: ${{ steps.rollback-safety.outputs.verdict }}

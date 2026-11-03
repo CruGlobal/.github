@@ -1,0 +1,91 @@
+name: Hotfix
+description: >-
+  Pipeline v2 hotfix steps. A hotfix ships on hotfix/<release tag>, a branch
+  cut from the commit production runs, holding only clean cherry-picks of
+  default-branch commits. Modes: `verify` (build-candidate refuses a hotfix/*
+  build unless the branch is exactly that), `cut` (cherry-pick a fix onto the
+  branch and push it; needs the authorize-actor check earlier in the same
+  job), `report` (say in the run summary whether the app's own CI ran on the
+  branch; never fails) and `release-kind` (promote: hotfix or deploy; never
+  fails). A refusal's error title is a fixed reason word.
+inputs:
+  mode:
+    description: One of verify | cut | report | release-kind.
+    required: true
+  project-name:
+    description: Project name, the deployment ledger's key. verify and cut.
+    required: false
+    default: ''
+  path:
+    description: >-
+      Path to the app repo's checkout, with full history (fetch-depth 0).
+      verify and cut. cut pushes from it, so the checkout's credentials must
+      be able to push to the app repo.
+    required: false
+    default: '.'
+  ref:
+    description: The ref being built, e.g. refs/heads/hotfix/release-2026-10-20-10140. verify.
+    required: false
+    default: ''
+  sha:
+    description: >-
+      The commit being built (verify), the hotfix branch's head (report), or
+      the promoted commit (release-kind).
+    required: false
+    default: ''
+  default-branch:
+    description: The app repo's default branch. verify.
+    required: false
+    default: ''
+  commit:
+    description: The fix's commit on the default branch (7 to 40 hex characters). cut.
+    required: false
+    default: ''
+  expected-release:
+    description: >-
+      The release production must still be running, release-[<yyyy-mm-dd>-]<n>
+      (the release- prefix is optional). cut.
+    required: false
+    default: ''
+  github-token:
+    description: Token that can read the app repo's branches, commits and workflow runs. report and release-kind.
+    required: false
+    default: ''
+  repository:
+    description: App repo in owner/name form. report and release-kind.
+    required: false
+    default: ''
+  branch:
+    description: The hotfix branch. report.
+    required: false
+    default: ''
+  pushed:
+    description: The cut step's `pushed` output. report.
+    required: false
+    default: 'false'
+  dispatch-outcome:
+    description: The build dispatch step's outcome (success, failure or skipped). report.
+    required: false
+    default: ''
+outputs:
+  release:
+    description: cut. The release the hotfix is for.
+  branch:
+    description: cut. The hotfix branch, hotfix/<release>.
+  base-sha:
+    description: cut. The commit production runs, where the branch starts.
+  commit-sha:
+    description: cut. The fix's full commit sha.
+  head-sha:
+    description: cut. The branch's head after the cherry-pick.
+  pushed:
+    description: cut. true when this run pushed the branch.
+  already-applied:
+    description: cut. true when the branch already had the fix, so nothing was pushed.
+  ci-ran:
+    description: report. true, false or unknown.
+  kind:
+    description: release-kind. hotfix or deploy.
+runs:
+  using: 'node24'
+  main: '../../dist/hotfix.js'
