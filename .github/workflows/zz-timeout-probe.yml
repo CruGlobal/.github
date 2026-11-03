@@ -1,8 +1,8 @@
 name: Timeout probe
 
 # Temporary. Shows how a job that hits its timeout-minutes reports to a job
-# that needs it, and to a step inside it. Removed again before this branch is
-# merged.
+# that needs it, and to a step inside it, and how a person's cancel of the
+# whole run differs. Removed again before this branch is merged.
 
 on:
   push:
