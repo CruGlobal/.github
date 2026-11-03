@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
+import { chmodSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   COMMITTER,
   REASONS,
@@ -382,6 +384,18 @@ describe('cutHotfix', () => {
     const error = await refusal(cut(fx, { ledger }))
     expect(error.reason).toBe(REASONS.branchMoved)
     expect(fx.refs()[BRANCH_REF]).toBe(raced)
+  })
+
+  it.each([
+    ['a ruleset', 'echo "error: GH013: Repository rule violations found for refs/heads/hotfix/x." >&2', /authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix\/\* branches\. Nothing was pushed/],
+    ['a token without the workflow scope', 'echo "! [remote rejected] refusing to allow a Personal Access Token to create or update workflow \\`.github/workflows/ci.yml\\` without \\`workflow\\` scope" >&2', /authz-token may not change workflow files \(it needs the workflow scope, or workflows: write\)\. Nothing was pushed/]
+  ])('says what the token needs when the app repo refuses the push (%s)', async (_label, hook, message) => {
+    const fx = app()
+    writeFileSync(path.join(fx.origin, 'hooks', 'pre-receive'), `#!/bin/sh\n${hook}\nexit 1\n`)
+    chmodSync(path.join(fx.origin, 'hooks', 'pre-receive'), 0o755)
+    const before = fx.refs()
+    await expect(cut(fx)).rejects.toThrow(message)
+    expect(fx.refs()).toEqual(before)
   })
 
   it.each([

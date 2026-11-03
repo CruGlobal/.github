@@ -465,6 +465,14 @@ async function pushHotfixBranch (git, { head, branch, defaultBranch }) {
   if (/\[rejected\]|non-fast-forward|fetch first|\[remote rejected\].*(cannot lock ref|reference already exists|incorrect old value)/i.test(output)) {
     throw new HotfixRefusal(REASONS.branchMoved, `${branch} changed on the remote while this run was cutting it, so the push was refused and nothing was pushed. Run the hotfix again`)
   }
+  // The token is the one thing the app repo can say no to here, and git's
+  // own message does not say which permission is missing.
+  if (/without [`']?workflows?[`']? (scope|permission)/i.test(output)) {
+    throw new Error(`the app repo refused the push of ${branch} because the fix changes a file under .github/workflows and authz-token may not change workflow files (it needs the workflow scope, or workflows: write). Nothing was pushed`)
+  }
+  if (/permission .* denied|error: 403|returned error: 403|not allowed to push|protected branch|rule violations?/i.test(output)) {
+    throw new Error(`the app repo refused the push of ${branch} (${output.trim().split('\n').slice(-2).join(' ')}). authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix/* branches. Nothing was pushed`)
+  }
   must(result, `pushing ${branch}`)
 }
 
