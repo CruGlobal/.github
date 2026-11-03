@@ -485,6 +485,18 @@ describe('record-deploy lookup', () => {
     expect(result.outputs).toEqual({})
   })
 
+  it.each([
+    ['a FlightdeckProject that is not an identifier', { FlightdeckProject: { S: 'EXAMPLE\nrecord=true' } }, 'is not a Flightdeck project identifier'],
+    ['a SlackChannel with a line break', { SlackChannel: { S: 'C0TEST\nflightdeck-project=OTHER' } }, 'holds a line break'],
+    ['an AppUrl with a line break', { AppUrl: { S: 'https://example.test\nrepository=someone/else' } }, 'holds a line break'],
+    ['a Repository with a line break', { Repository: { S: 'CruGlobal/example-app\nx=y' } }, 'holds a line break']
+  ])('records nothing for %s, so no value can add an output of its own', async (_label, extra, why) => {
+    const result = await lookup(row(extra))
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(why)
+    expect(result.outputs).toEqual({})
+  })
+
   it('records nothing for a project name app-info cannot hold', async () => {
     const result = await lookup(row(), { project: 'example app' })
     expect(result.status).toBe(0)

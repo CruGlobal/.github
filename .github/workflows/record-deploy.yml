@@ -149,10 +149,21 @@ jobs:
           if [ -z "$flightdeck_project" ]; then
             skip "$PROJECT_NAME's CruApplicationInfo row for '$ENVIRONMENT' has no FlightdeckProject, so there is no Flightdeck project to record it on"
           fi
+          # Each value below becomes one key=value line of the step's output,
+          # so a line break inside one could add an output of its own, such as
+          # another Flightdeck project. Refuse rather than guess.
+          if [[ ! "$flightdeck_project" =~ ^[A-Z0-9]{1,10}$ ]]; then
+            skip "$PROJECT_NAME's FlightdeckProject in CruApplicationInfo is not a Flightdeck project identifier"
+          fi
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           app_url=$(echo "$item" | jq -r '.AppUrl.S // empty')
           # Repository is written only when the app repo is not named after the project.
           repository=$(echo "$item" | jq -r --arg default "CruGlobal/$PROJECT_NAME" '.Repository.S // $default')
+          for value in "$slack_channel" "$app_url" "$repository"; do
+            if [[ "$value" == *[$'\r\n']* ]]; then
+              skip "$PROJECT_NAME's CruApplicationInfo row for '$ENVIRONMENT' holds a line break in SlackChannel, AppUrl or Repository"
+            fi
+          done
           {
             echo "record=true"
             echo "flightdeck-project=$flightdeck_project"
