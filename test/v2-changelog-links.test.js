@@ -14,7 +14,8 @@ import { loadYaml, findStep, runShellStep, removeFakes } from './support/workflo
 const WORKFLOW_FILES = {
   promote: '.github/workflows/promote.yml',
   rollback: '.github/workflows/rollback.yml',
-  'deploy-candidate': '.github/workflows/deploy-candidate.yml'
+  'deploy-candidate': '.github/workflows/deploy-candidate.yml',
+  'record-deploy': '.github/workflows/record-deploy.yml'
 }
 const workflows = Object.fromEntries(Object.entries(WORKFLOW_FILES).map(([name, file]) => [name, loadYaml(file)]))
 const DEFAULT_ENDPOINT = loadYaml('actions/flightdeck-release-event/action.yml').inputs.endpoint.default
@@ -39,6 +40,19 @@ const slackSetters = {
   candidate: (ctx, from, to, run) => {
     run.ledger = { Items: from === '' ? [] : [{ Sha: from }] }
     ctx['inputs.tag'] = to
+  },
+  // `from` is production's previous release, read from Flightdeck by the
+  // release event step; `to` is the commit the app deployed, which GitHub
+  // compares as ahead of it.
+  record: (ctx, from, to, run) => {
+    ctx['steps.release-event.outputs.previous-sha'] = from
+    ctx['steps.verify.outputs.sha'] = to
+    ctx['steps.verify.outputs.environment'] = 'production'
+    ctx['steps.verify.outputs.actor'] = 'octo-dev'
+    ctx['steps.verify.outputs.run-url'] = 'https://github.com/CruGlobal/shop-web/actions/runs/123/attempts/1'
+    ctx['steps.verify.outputs.release-tag'] = 'deploy-2026-09-04-123'
+    ctx['secrets.github-token'] = 'gh-test'
+    run.ghCompare = { status: 'ahead' }
   }
 }
 
@@ -51,7 +65,8 @@ const SITES = [
   { workflow: 'rollback', job: 'rollback-aws', step: 'Notify Slack', kind: 'slack', text: 'what this rollback reverts', set: slackSetters.rollback },
   { workflow: 'deploy-candidate', job: 'deploy-candidate-gcp', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate },
   { workflow: 'deploy-candidate', job: 'deploy-candidate-aws', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate },
-  { workflow: 'deploy-candidate', job: 'verify-candidate-aws', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate }
+  { workflow: 'deploy-candidate', job: 'verify-candidate-aws', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate },
+  { workflow: 'record-deploy', job: 'record', step: 'Notify Slack', kind: 'slack', text: "what's in this release", set: slackSetters.record }
 ]
 const siteName = (site) => `${site.job} / ${site.step}`
 
@@ -92,7 +107,7 @@ async function linkFrom (expect, site, { from, to, ...overrides }) {
   if (!('needs.lookup.outputs.repository' in overrides)) {
     context['needs.lookup.outputs.repository'] = `CruGlobal/${context['inputs.project-name']}`
   }
-  const result = await runShellStep(findStep(workflows[site.workflow], site.job, site.step), { context, ledger: run.ledger })
+  const result = await runShellStep(findStep(workflows[site.workflow], site.job, site.step), { context, ledger: run.ledger, ghCompare: run.ghCompare })
   expect(result.status, result.stderr).toBe(0)
   expect(result.stdout).not.toMatch(/::warning/)
   if (site.kind === 'slack') {
@@ -115,7 +130,8 @@ const encode = (value) => Array.from(new TextEncoder().encode(value))
 const ranges = {
   promote: { from: PROD_SHA, to: 'release-2026-09-04-10123' },
   rollback: { from: 'release-2026-09-03-10120', to: 'release-2026-09-04-10123' },
-  'deploy-candidate': { from: PROD_SHA, to: 'candidate-2026-09-04-10123' }
+  'deploy-candidate': { from: PROD_SHA, to: 'candidate-2026-09-04-10123' },
+  'record-deploy': { from: PROD_SHA, to: HEAD_SHA }
 }
 
 describe.concurrent.each(SITES.map((site) => [siteName(site), site]))('%s', (_name, site) => {
@@ -183,6 +199,12 @@ describe.concurrent.each(SITES.map((site) => [siteName(site), site]))('%s', (_na
   if (site.workflow === 'rollback') {
     it('leaves the line out when production was already on the target release', async ({ expect }) => {
       expect(await linkFrom(expect, site, { from, to: from })).toBeNull()
+    })
+  }
+
+  if (site.workflow === 'record-deploy') {
+    it('leaves the line out when production\'s previous release is this same commit', async ({ expect }) => {
+      expect(await linkFrom(expect, site, { from: to, to })).toBeNull()
     })
   }
 })
@@ -276,7 +298,7 @@ describe('changelog link wiring', () => {
 describe('deploy-candidate lookup: repository', () => {
   const { job, step } = findStep(workflows['deploy-candidate'], 'lookup', 'Look up app info')
   const item = (extra = {}) => ({
-    Item: { Provider: { S: 'aws' }, Type: { S: 'ecs' }, ProjectId: { S: '' }, FlightdeckProject: { S: 'SHOP' }, ...extra }
+    Item: { Provider: { S: 'aws' }, Type: { S: 'ecs' }, PipelineVersion: { S: '2' }, ProjectId: { S: '' }, FlightdeckProject: { S: 'SHOP' }, ...extra }
   })
   const lookup = (aws) => runShellStep({ job, step }, { context: { 'inputs.project-name': 'shop-web' }, aws })
 

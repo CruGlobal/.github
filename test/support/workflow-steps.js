@@ -86,7 +86,15 @@ printf '%s' "$FAKE_AWS"
 `
 
 const FAKE_GH = `#!/bin/bash
-# Fake gh: records the release body a step sends on stdin.
+# Fake gh: answers a commit comparison read from FAKE_GH_COMPARE (failing like
+# gh does on an HTTP error when FAKE_GH_COMPARE_FAILS is set), and records the
+# release body a step sends on stdin.
+if [ "$1" = api ] && [[ "$2" == */compare/* ]]; then
+  printf '%s' "$2" > "$FAKE_OUT/gh-compare-path"
+  if [ -n "$FAKE_GH_COMPARE_FAILS" ]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+  printf '%s' "$FAKE_GH_COMPARE"
+  exit 0
+fi
 cat > "$FAKE_OUT/release.json"
 echo '{"html_url":"https://github.example.test/release"}'
 `
@@ -152,11 +160,13 @@ function readOutputs (file) {
 // the step env and the script. `ledger` is what a deploys.cru.org read
 // answers (an object is sent as JSON, a string as it is), `ledgerFails` makes
 // that read fail the way curl -f does on an HTTP error, and `aws` is what an
-// aws call prints. Resolves to the exit status, the output, the step's
-// outputs, the variables it set for later steps ($GITHUB_ENV), what was sent
-// to Slack and to the GitHub releases API, and the table and item a DynamoDB
-// put-item wrote (each null when nothing was).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, aws = {}, runnerEnv = {} }) {
+// aws call prints. `ghCompare` is what a `gh api .../compare/...` read
+// answers, and `ghCompareFails` makes it fail. Resolves to the exit status,
+// the output, the step's outputs, the variables it set for later steps
+// ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API, the
+// path a comparison asked for, and the table and item a DynamoDB put-item
+// wrote (each null when nothing was).
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, aws = {}, ghCompare = {}, ghCompareFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -180,7 +190,9 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       FAKE_OUT: out,
       FAKE_LEDGER: typeof ledger === 'string' ? ledger : JSON.stringify(ledger),
       FAKE_LEDGER_FAILS: ledgerFails ? '1' : '',
-      FAKE_AWS: JSON.stringify(aws)
+      FAKE_AWS: JSON.stringify(aws),
+      FAKE_GH_COMPARE: JSON.stringify(ghCompare),
+      FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : ''
     }
     const result = await spawnBash(script, env)
     return {
@@ -191,6 +203,7 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       env: readOutputs(path.join(out, 'github-env')),
       slack: readJson(path.join(out, 'slack.json')),
       release: readJson(path.join(out, 'release.json')),
+      comparePath: existsSync(path.join(out, 'gh-compare-path')) ? readFileSync(path.join(out, 'gh-compare-path'), 'utf8') : null,
       putItem: readPutItem(out)
     }
   } finally {
