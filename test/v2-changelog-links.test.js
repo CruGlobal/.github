@@ -276,7 +276,7 @@ describe('changelog link wiring', () => {
 describe('deploy-candidate lookup: repository', () => {
   const { job, step } = findStep(workflows['deploy-candidate'], 'lookup', 'Look up app info')
   const item = (extra = {}) => ({
-    Item: { Provider: { S: 'aws' }, Type: { S: 'ecs' }, ProjectId: { S: '' }, FlightdeckProject: { S: 'SHOP' }, ...extra }
+    Item: { Provider: { S: 'aws' }, Type: { S: 'ecs' }, PipelineVersion: { S: '2' }, ProjectId: { S: '' }, FlightdeckProject: { S: 'SHOP' }, ...extra }
   })
   const lookup = (aws) => runShellStep({ job, step }, { context: { 'inputs.project-name': 'shop-web' }, aws })
 
