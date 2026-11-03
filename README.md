@@ -119,3 +119,71 @@ Secrets are exported to the environment.
         environment: staging
         type: BUILD
 ```
+
+
+### flightdeck-sourcemaps [link](https://github.com/CruGlobal/.github/tree/main/actions/flightdeck-sourcemaps)
+Uploads the browser source maps in a directory of built files to Flightdeck, so a minified stack frame from the
+browser shows the original source. It is for apps that build and deploy in their own workflow, for example a build
+that is synced to an S3 bucket. Pipeline v2 apps don't need it: their deploy already uploads the maps their image
+carries.
+
+How it works:
+- Each `.js` and `.mjs` file is paired with its map through the `//# sourceMappingURL=` comment at the end of
+  the file, read relative to that file. The map's file name is never used to guess the pair, because some bundlers
+  (Turbopack, for one) hash a file and its map separately, and a map uploaded under the wrong URL fails silently.
+- Each map is uploaded under its `.js` file's public URL: `base-url` plus the file's path in `directory`.
+- `sourcesContent` is removed before upload, the same way every time, so a re-run sends the same bytes and
+  Flightdeck counts the map as `unchanged`.
+- A file with an inline `data:` map, or with no comment at all, is skipped and logged.
+- When it is done, every `.map` file in `directory` is deleted, whether the upload worked or not.
+
+**Keep maps off the public site.** Run this action after the build and before the step that publishes the
+directory. A build that writes source maps, followed by `aws s3 sync dist s3://<bucket>`, publishes every `.map`
+file, and the source code inside it, to anyone who asks. This action deletes them first unless `delete-maps` is
+`false`. Maps that an earlier deploy already published stay in the bucket unless the sync runs with `--delete`.
+The `.js` files keep their `sourceMappingURL` comment, which then points at a missing file; that is harmless.
+
+**Have the bundler write separate `.map` files and keep the comment.** A "hidden" source map setting leaves the
+comment out, and then nothing can be paired or uploaded. An inline map is not uploaded, and it publishes the source
+with the `.js` file.
+
+**A clean upload is not proof the maps work.** Flightdeck accepts a well-formed map under any URL and version. Once
+errors arrive, check each map's `applied_count` in the Flightdeck project's source map settings. If it stays at 0,
+the map matched nothing, which means `base-url` or `version` does not match what the browser reports.
+
+Telemetry never blocks a deploy, so this action never fails the job. A missing token or directory is a warning and
+no upload, and every other problem is a warning too. The outputs count what happened.
+
+#### Inputs
+| Name        | Required | Description                                                                                                                      |
+|-------------|----------|----------------------------------------------------------------------------------------------------------------------------------|
+| directory   | [x]      | Directory of built files, laid out the way they are served.                                                                      |
+| base-url    | [x]      | Public URL the directory is served from, e.g. `https://example-app.example.org/`.                                                |
+| version     | [x]      | Code version the app's browser SDK reports (`code_version`), exactly.                                                            |
+| token       | [ ]      | The app's server-scope Flightdeck ingestion token, not the client token in the browser bundle. Unset skips the upload.          |
+| endpoint    | [ ]      | Flightdeck base URL, or any https URL on it. Only its origin is kept, and maps go to `/api/1/sourcemap` there.                   |
+| delete-maps | [ ]      | Delete every `.map` file in the directory after the upload. Defaults to `true`.                                                  |
+
+#### Outputs
+| Name      | Description                                                                                                          |
+|-----------|----------------------------------------------------------------------------------------------------------------------|
+| uploaded  | Maps Flightdeck stored, new or replacing different bytes.                                                            |
+| unchanged | Maps Flightdeck already had byte for byte, as on a re-run of the same build.                                        |
+| failed    | Maps a `.js` file names that did not land: the upload failed or was stopped, or the map is missing or unusable.     |
+
+#### Example
+```yaml
+...
+  steps:
+    - name: Build
+      run: npm run build # writes dist/, with source maps
+    - name: Upload source maps
+      uses: CruGlobal/.github/actions/flightdeck-sourcemaps@v2
+      with:
+        directory: dist
+        base-url: https://example-app.example.org/
+        version: ${{ github.sha }} # the same value the build gives the browser SDK
+        token: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
+    - name: Publish
+      run: aws s3 sync dist s3://example-app-bucket --delete
+```
