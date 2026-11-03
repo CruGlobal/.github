@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.15.0](https://github.com/CruGlobal/.github/compare/v2.14.3...v2.15.0) (2026-11-03)
+
+
+### Features
+
+* add a flightdeck-sourcemaps action for apps that deploy outside pipeline v2 ([#550](https://github.com/CruGlobal/.github/issues/550)) ([12adb50](https://github.com/CruGlobal/.github/commit/12adb5044b4c615afa1fea0a76979ef5c5c10beb))
+* **v2:** hotfix builds from the live production release ([#552](https://github.com/CruGlobal/.github/issues/552)) ([b029e57](https://github.com/CruGlobal/.github/commit/b029e5729f08796c7ea5b766c17eec251cf31232))
+* **v2:** record a deploy an app made outside pipeline v2 ([#551](https://github.com/CruGlobal/.github/issues/551)) ([6bd68a2](https://github.com/CruGlobal/.github/commit/6bd68a2f6939b6c8441013359d91224769df4d89))
+
 ## [2.14.3](https://github.com/CruGlobal/.github/compare/v2.14.2...v2.14.3) (2026-10-30)
 
 
