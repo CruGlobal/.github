@@ -9,7 +9,9 @@ description: >-
   display-only field (actor, run-url, image-digest) that Flightdeck would
   refuse is left out with a warning, so it never costs the event. One
   exception: a production event fails the step unless the authorize-actor
-  check passed earlier in the same job for this run attempt.
+  check passed earlier in the same job for this run attempt, or, for a deploy
+  event only, verify-deploy-run passed earlier in the same job for this
+  attempt, this environment and this sha.
 inputs:
   token:
     description: >-
@@ -84,11 +86,25 @@ inputs:
     description: Flightdeck base URL.
     required: false
     default: 'https://flightdeck.cru.org'
+  previous-environment:
+    description: >-
+      When set, read this environment's newest earlier release event before
+      posting, and output its sha and tag (previous-sha, previous-release-tag)
+      for a changelog link. A failed read is a warning; the event is still
+      posted. Unset reads nothing.
+    required: false
+    default: ''
 outputs:
   status:
     description: skipped | created | updated | failed
   event-id:
     description: Id of the Flightdeck release event when status is created or updated.
+  previous-sha:
+    description: >-
+      With previous-environment, the sha of that environment's newest earlier
+      release event; empty when there is none or it could not be read.
+  previous-release-tag:
+    description: With previous-environment, that event's release tag; empty when there is none.
 
 runs:
   using: 'node24'

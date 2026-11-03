@@ -30,6 +30,13 @@ const ACTIONS = {
   'flightdeck-release-event': {
     inputs: { TOKEN: 'tok', PROJECT: 'APP', ENVIRONMENT: 'production', KIND: 'deploy' },
     error: '::error::refusing to post a release event for production: no authorize-actor check passed earlier in this job'
+  },
+  // A refusal here is a warning and the step passes: recording a deploy is
+  // telemetry. What matters is that the check still runs and does not pass.
+  'verify-deploy-run': {
+    inputs: { REPOSITORY: 'CruGlobal/some-app', 'RUN-ID': '1', SHA: 'a'.repeat(40), ENVIRONMENT: 'production' },
+    error: '::warning title=Deploy not recorded::no github-token was given, so the run cannot be read',
+    status: 0
   }
 }
 
@@ -48,7 +55,7 @@ beforeAll(async () => {
 
 afterAll(() => rmSync(outDir, { recursive: true, force: true }))
 
-describe.each(Object.entries(ACTIONS))('%s', (name, { inputs, error }) => {
+describe.each(Object.entries(ACTIONS))('%s', (name, { inputs, error, status = 1 }) => {
   it('is built from its entry file', () => {
     const config = readFileSync(path.join(root, 'esbuild.config.mjs'), 'utf8')
     expect(config).toContain(`'./src/entry/${name}.js': '${name}'`)
@@ -64,6 +71,6 @@ describe.each(Object.entries(ACTIONS))('%s', (name, { inputs, error }) => {
     for (const [key, value] of Object.entries(inputs)) env[`INPUT_${key}`] = value
     const result = spawnSync(process.execPath, [path.join(outDir, `${name}.js`)], { env, encoding: 'utf8', timeout: 30000 })
     expect(result.stdout).toContain(error)
-    expect(result.status).toBe(1)
+    expect(result.status).toBe(status)
   })
 })

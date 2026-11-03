@@ -14,7 +14,8 @@ import { loadYaml, findStep, runShellStep, removeFakes } from './support/workflo
 const WORKFLOW_FILES = {
   promote: '.github/workflows/promote.yml',
   rollback: '.github/workflows/rollback.yml',
-  'deploy-candidate': '.github/workflows/deploy-candidate.yml'
+  'deploy-candidate': '.github/workflows/deploy-candidate.yml',
+  'record-deploy': '.github/workflows/record-deploy.yml'
 }
 const workflows = Object.fromEntries(Object.entries(WORKFLOW_FILES).map(([name, file]) => [name, loadYaml(file)]))
 const DEFAULT_ENDPOINT = loadYaml('actions/flightdeck-release-event/action.yml').inputs.endpoint.default
@@ -39,6 +40,16 @@ const slackSetters = {
   candidate: (ctx, from, to, run) => {
     run.ledger = { Items: from === '' ? [] : [{ Sha: from }] }
     ctx['inputs.tag'] = to
+  },
+  // `from` is production's previous release, read from Flightdeck by the
+  // release event step; `to` is the commit the app deployed.
+  record: (ctx, from, to) => {
+    ctx['steps.release-event.outputs.previous-sha'] = from
+    ctx['steps.verify.outputs.sha'] = to
+    ctx['steps.verify.outputs.environment'] = 'production'
+    ctx['steps.verify.outputs.actor'] = 'octo-dev'
+    ctx['steps.verify.outputs.run-url'] = 'https://github.com/CruGlobal/shop-web/actions/runs/123/attempts/1'
+    ctx['steps.release.outputs.tag'] = 'deploy-2026-09-04-10123'
   }
 }
 
@@ -51,7 +62,8 @@ const SITES = [
   { workflow: 'rollback', job: 'rollback-aws', step: 'Notify Slack', kind: 'slack', text: 'what this rollback reverts', set: slackSetters.rollback },
   { workflow: 'deploy-candidate', job: 'deploy-candidate-gcp', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate },
   { workflow: 'deploy-candidate', job: 'deploy-candidate-aws', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate },
-  { workflow: 'deploy-candidate', job: 'verify-candidate-aws', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate }
+  { workflow: 'deploy-candidate', job: 'verify-candidate-aws', step: 'Notify Slack', kind: 'slack', text: "what's in this candidate", set: slackSetters.candidate },
+  { workflow: 'record-deploy', job: 'record', step: 'Notify Slack', kind: 'slack', text: "what's in this release", set: slackSetters.record }
 ]
 const siteName = (site) => `${site.job} / ${site.step}`
 
@@ -115,7 +127,8 @@ const encode = (value) => Array.from(new TextEncoder().encode(value))
 const ranges = {
   promote: { from: PROD_SHA, to: 'release-2026-09-04-10123' },
   rollback: { from: 'release-2026-09-03-10120', to: 'release-2026-09-04-10123' },
-  'deploy-candidate': { from: PROD_SHA, to: 'candidate-2026-09-04-10123' }
+  'deploy-candidate': { from: PROD_SHA, to: 'candidate-2026-09-04-10123' },
+  'record-deploy': { from: PROD_SHA, to: HEAD_SHA }
 }
 
 describe.concurrent.each(SITES.map((site) => [siteName(site), site]))('%s', (_name, site) => {
@@ -183,6 +196,12 @@ describe.concurrent.each(SITES.map((site) => [siteName(site), site]))('%s', (_na
   if (site.workflow === 'rollback') {
     it('leaves the line out when production was already on the target release', async ({ expect }) => {
       expect(await linkFrom(expect, site, { from, to: from })).toBeNull()
+    })
+  }
+
+  if (site.workflow === 'record-deploy') {
+    it('leaves the line out when production\'s previous release is this same commit', async ({ expect }) => {
+      expect(await linkFrom(expect, site, { from: to, to })).toBeNull()
     })
   }
 })

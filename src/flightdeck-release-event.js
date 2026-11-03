@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { assertAttemptAuthorized } from './v2/attempt-guard.js'
+import { assertAttemptAuthorized, deployRunVerifiedFor } from './v2/attempt-guard.js'
 
 // flightdeck-release-event: post a pipeline v2 deploy/hotfix/rollback to the
 // app's Flightdeck project timeline (GateOps Phase 0). The project comes from
@@ -33,11 +33,25 @@ import { assertAttemptAuthorized } from './v2/attempt-guard.js'
 // non-production names below skip that check. The production callers run this
 // step with continue-on-error, so a refusal here does not change the run's
 // result; the deploy step before it has already refused by then.
+//
+// The other way a production event passes is narrower. record-deploy posts a
+// deploy an app made itself, outside the pipeline, and nobody there started a
+// production change to check. Instead verify-deploy-run checks the app's own
+// run and marks the job for that environment and commit. That mark lets
+// through a deploy event for exactly that environment and sha, given as the
+// `sha` input, and nothing else: not another commit, not a rollback or a
+// hotfix, and not the deploy or tag-image actions.
+//
+// With `previous-environment` set, the action also reads that environment's
+// newest earlier release event before it posts, and outputs its sha and tag,
+// so a caller can link "what's in this release". A failed read is a warning
+// and the event is still posted.
 
 export const DEFAULT_ENDPOINT = 'https://flightdeck.cru.org'
 export const KINDS = ['deploy', 'hotfix', 'rollback']
 const PER_PAGE = 100
 const MAX_PAGES = 50
+const RELEASE_EVENTS_PER_PAGE = 20
 const TIMEOUT_MS = 10000
 export const NON_PRODUCTION_ENVIRONMENTS = Object.freeze(['staging', 'release-candidate', 'preview', 'lab'])
 
@@ -78,12 +92,16 @@ export async function run () {
   }
   const environment = core.getInput('environment').trim()
   if (!NON_PRODUCTION_ENVIRONMENTS.includes(environment.toLowerCase())) {
-    try {
-      assertAttemptAuthorized(`post a release event for ${environment || 'an unnamed environment'}`)
-    } catch (error) {
-      core.setFailed(error.message)
-      core.setOutput('status', 'failed')
-      return
+    const kind = (core.getInput('kind') || 'deploy').trim()
+    const verifiedDeploy = kind === 'deploy' && deployRunVerifiedFor({ environment, sha: core.getInput('sha') })
+    if (!verifiedDeploy) {
+      try {
+        assertAttemptAuthorized(`post a release event for ${environment || 'an unnamed environment'}`)
+      } catch (error) {
+        core.setFailed(error.message)
+        core.setOutput('status', 'failed')
+        return
+      }
     }
   }
   try {
@@ -109,6 +127,18 @@ export async function run () {
       core.warning(`Flightdeck release event not recorded (non-blocking): no project with identifier "${project}" is readable by the token's user at ${endpoint}`)
       core.setOutput('status', 'failed')
       return
+    }
+    // Read before the post, or the newest event would be this one.
+    const previousEnvironment = core.getInput('previous-environment').trim()
+    if (previousEnvironment) {
+      let previous = null
+      try {
+        previous = previousReleaseEvent(await client.listReleaseEvents(projectId, previousEnvironment), event)
+      } catch (error) {
+        core.warning(`Flightdeck: could not read the previous ${previousEnvironment} release event (non-blocking; the event is still posted): ${error.message}`)
+      }
+      core.setOutput('previous-sha', previous?.sha ?? '')
+      core.setOutput('previous-release-tag', previous?.release_tag ?? '')
     }
     const { status, body } = await postReleaseEvent(client, projectId, event, core.warning)
     const outcome = status === 201 ? 'created' : 'updated'
@@ -241,6 +271,25 @@ export function refusedDisplayFields (error, event) {
   return carried.some((key) => named.includes(key)) ? carried : []
 }
 
+// The release that came before `event`, from `events` (one environment's
+// timeline, newest first, as Flightdeck lists it): the newest one that has a
+// sha, is not `event` itself restated, and was not deployed after it. A
+// recorded deploy can be dated earlier than events already on the timeline,
+// when its run finished before they were posted, and a link from a later
+// release would read backwards. null when there is none.
+export function previousReleaseEvent (events, event) {
+  const stated = event.deployed_at ? Date.parse(event.deployed_at) : NaN
+  const before = Number.isNaN(stated) ? Infinity : stated
+  for (const candidate of Array.isArray(events) ? events : []) {
+    if (typeof candidate?.sha !== 'string' || candidate.sha.trim() === '') continue
+    if (candidate.environment === event.environment && candidate.release_tag === event.release_tag) continue
+    const at = Date.parse(candidate.deployed_at)
+    if (!(at <= before)) continue
+    return candidate
+  }
+  return null
+}
+
 // classify-rollback-safety emits `reasons` as a JSON array of strings. Anything
 // else (unset, malformed, wrong shape) is sent as no reasons rather than
 // letting a malformed advisory 422 the whole event.
@@ -301,6 +350,14 @@ export class FlightdeckClient {
 
   postReleaseEvent (projectId, event) {
     return this.request('POST', `/api/v1/projects/${projectId}/release-events`, { release_event: event })
+  }
+
+  // The newest release events in one environment, newest first (by
+  // deployed_at). One page is enough to find the release before a new one.
+  async listReleaseEvents (projectId, environment) {
+    const { body } = await this.request('GET', `/api/v1/projects/${projectId}/release-events?environment=${encodeURIComponent(environment)}&per_page=${RELEASE_EVENTS_PER_PAGE}`)
+    if (!Array.isArray(body?.results)) throw new Error('the release events list had no results array')
+    return body.results
   }
 }
 
