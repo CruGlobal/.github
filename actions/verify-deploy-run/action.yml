@@ -1,0 +1,68 @@
+name: Verify Deploy Run
+description: >-
+  Check the app run that asked record-deploy to record a deploy, through
+  GitHub's API. It passes only when the run is in the app's own repository
+  (not a fork); was started by a push, a manual dispatch, a schedule or a
+  release (never a pull request); has `sha` as its head commit; is still
+  running or finished successfully; started its latest attempt in the last
+  six hours; is a run of `deploy-workflow` when that is set; and, for
+  production, has `sha` on the repository's default branch. On a pass it
+  marks the job so flightdeck-release-event can post a production deploy
+  event for exactly that project, app, environment and sha. A refusal is a
+  warning, not a failed step, and sets `verified` to "false"; gate later
+  steps on `verified == 'true'`.
+inputs:
+  github-token:
+    description: GitHub token that can read the app repository's Actions runs, repository settings and commits.
+    required: true
+  repository:
+    description: App repository in "owner/name" form.
+    required: true
+  run-id:
+    description: Id of the app repository's Actions run that made the deploy.
+    required: true
+  sha:
+    description: Full 40-character sha of the commit the run deployed.
+    required: true
+  environment:
+    description: Environment the run deployed to, staging or production.
+    required: true
+  project:
+    description: Flightdeck project identifier the deploy will be posted to (app-info FlightdeckProject).
+    required: true
+  app:
+    description: Project name the deploy belongs to, as app-info knows it.
+    required: true
+  deploy-workflow:
+    description: >-
+      Workflow file the run must be a run of, e.g. .github/workflows/deploy.yml
+      (app-info DeployWorkflow). Empty accepts a run of any workflow, with a
+      warning that the deploy workflow is not pinned.
+    required: false
+    default: ''
+outputs:
+  verified:
+    description: '"true" when the run passed every check, "false" otherwise.'
+  reason:
+    description: Why the run was refused, when verified is "false".
+  sha:
+    description: The checked sha, lowercase.
+  environment:
+    description: The checked environment, lowercase.
+  project:
+    description: The checked Flightdeck project.
+  app:
+    description: The checked project name.
+  actor:
+    description: Login of the account that started the run's latest attempt.
+  run-url:
+    description: The run's page, for its latest attempt.
+  deployed-at:
+    description: When the run finished, if it has; empty while it is still running.
+  release-tag:
+    description: deploy-<yyyy-mm-dd>-<run number>, from the run's creation date (UTC) and run number.
+  build-number:
+    description: The run's run number.
+runs:
+  using: 'node24'
+  main: '../../dist/verify-deploy-run.js'

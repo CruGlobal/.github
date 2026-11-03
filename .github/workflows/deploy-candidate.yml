@@ -127,6 +127,15 @@ jobs:
             echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before deploying"
             exit 1
           fi
+          # Only a row the v2 app modules wrote carries PipelineVersion "2".
+          # Without it the app is not one pipeline v2 deploys: it is still on
+          # the old pipeline, or it deploys itself (a static site or an
+          # Amplify app, whose row has a Type of its own). Refused here,
+          # before any credential.
+          if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
+            echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so pipeline v2 does not deploy its candidates. Nothing was deployed."
+            exit 1
+          fi
           provider=$(echo "$item" | jq -r '.Provider.S // empty')
           type=$(echo "$item" | jq -r '.Type.S // empty')
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')

@@ -28,6 +28,36 @@
 // know — is the single source of truth.
 import * as core from '@actions/core'
 import { findAppContainer } from './gcp'
+import {
+  BUDGET_MS,
+  CONCURRENCY,
+  DEFAULT_ENDPOINT,
+  MAX_ATTEMPTS,
+  MAX_MAP_BYTES,
+  MAX_VERSION_LENGTH,
+  REQUEST_TIMEOUT_MS,
+  RETRY_BASE_DELAY_MS,
+  UPLOAD_PATH,
+  isUsableCodeVersion,
+  publicUrl,
+  uploadMaps
+} from '../sourcemap-upload'
+
+// The upload itself (the multipart post, retries, concurrency, the time budget
+// and the log lines about them) lives in src/sourcemap-upload.js, shared with
+// the flightdeck-sourcemaps action. Its constants are re-exported here, where
+// pipeline v2 has always read them.
+export {
+  BUDGET_MS,
+  CONCURRENCY,
+  DEFAULT_ENDPOINT,
+  MAX_ATTEMPTS,
+  MAX_MAP_BYTES,
+  MAX_VERSION_LENGTH,
+  REQUEST_TIMEOUT_MS,
+  TOKEN_HEADER,
+  UPLOAD_PATH
+} from '../sourcemap-upload'
 
 /** Image label naming the code version. Absent = this app ships no maps. */
 export const SOURCEMAPS_LABEL = 'org.cru.sourcemaps'
@@ -47,53 +77,6 @@ export const TOKEN_SECRET = 'ROLLBAR_ACCESS_TOKEN'
 /** Env var on the app container naming the ingestion endpoint. */
 export const ENDPOINT_ENV = 'ROLLBAR_ENDPOINT'
 
-/** Where uploads go when the app container names no endpoint. */
-export const DEFAULT_ENDPOINT = 'https://flightdeck.cru.org'
-
-/** Path of the Rollbar-compatible source-map ingestion API. */
-export const UPLOAD_PATH = '/api/1/sourcemap'
-
-/** Header carrying the ingestion token. */
-export const TOKEN_HEADER = 'X-Rollbar-Access-Token'
-
-// A code version is a short opaque token (a build number, a release tag, a git
-// sha). Whitespace and control characters cannot survive the round trip through
-// a multipart field and a browser payload intact, and a 40-character ceiling
-// comfortably covers a full git sha.
-export const MAX_VERSION_LENGTH = 40
-
-/**
- * Per-map ceiling. Real chunk maps are tens to a few hundred KB; a map that
- * exceeds this is a build accident (a whole vendor bundle, an inlined
- * `sourcesContent` of the world) and uploading it would spend the entire time
- * budget on one file.
- */
-export const MAX_MAP_BYTES = 16 * 1024 * 1024
-
-/** Uploads in flight at once. */
-export const CONCURRENCY = 4
-
-/** Per-request ceiling. */
-export const REQUEST_TIMEOUT_MS = 60 * 1000
-
-/**
- * Overall ceiling for the whole upload phase, after which the remaining maps
- * are abandoned and the deploy proceeds.
- *
- * This code path runs on ROLLBACK, which is the emergency path, and an
- * unbounded step between an operator and a restored production is not
- * acceptable at any level of usefulness. ~40 maps normally finish in seconds;
- * the budget only bites when the ingestion service is slow or down, and that is
- * exactly when nobody wants to wait for it.
- */
-export const BUDGET_MS = 3 * 60 * 1000
-
-/** Attempts per map, first included. */
-export const MAX_ATTEMPTS = 3
-const RETRY_BASE_DELAY_MS = 500
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-
 /**
  * Read and validate the code version from an image's labels.
  *
@@ -107,9 +90,7 @@ export function sourceMapsVersion (labels) {
   if (raw == null) return null
 
   const version = raw.trim()
-  // eslint-disable-next-line no-control-regex
-  const invalid = version === '' || version.length > MAX_VERSION_LENGTH || /[\s\u0000-\u001f\u007f]/.test(version)
-  if (invalid) {
+  if (!isUsableCodeVersion(version)) {
     throw new Error(
       `Image label ${SOURCEMAPS_LABEL}="${raw}" is not a usable code version — expected 1-` +
       `${MAX_VERSION_LENGTH} characters with no whitespace or control characters.`
@@ -138,51 +119,10 @@ export function minifiedUrl (appUrl, relativePath) {
   // silently upload it against the wrong URL.
   const target = relativePath.slice(0, -'.map'.length)
 
-  // Segments are checked DECODED, because URL() decodes before it resolves: a
-  // raw ".." is caught below, but so must "%2e%2e" be, or it walks up out of the
-  // tree the path is supposed to mirror. A colon is refused outright — a first
-  // segment containing one parses as a SCHEME, so "http:host/x.js" and
-  // "javascript:alert(1).js" both resolve somewhere that is not this app, and no
-  // chunk path has ever contained one.
-  const invalid =
-    target === '' ||
-    target.startsWith('/') ||
-    target.includes('\\') ||
-    target.includes(':') ||
-    target.split('/').some(segment => {
-      const decoded = decodeSegment(segment)
-      return decoded === null || decoded === '' || decoded === '.' || decoded === '..'
-    })
-  if (invalid) {
-    throw new Error(
-      `"${relativePath}" is not a usable source-map path — expected a relative path with no ` +
-      'empty, ".", ".." or scheme-like segments.'
-    )
-  }
-
-  // Always resolve against a directory: without the trailing slash, URL()
-  // treats the app URL's last segment as a file and replaces it, so an app
-  // served at https://host/app would lose the /app.
-  const base = appUrl.endsWith('/') ? appUrl : `${appUrl}/`
-  const composed = new URL(target, base).toString()
-  // The belt behind those checks. Whatever URL() made of the path, the result
-  // has to still be under this app: a map uploaded against another host matches
-  // no frame and reports nothing, which is the silent failure this step exists
-  // to avoid.
-  if (!composed.startsWith(base)) {
-    throw new Error(`"${relativePath}" resolves to ${composed}, which is outside ${base}`)
-  }
-  return composed
-}
-
-// decodeURIComponent throws on a malformed escape. A segment we cannot decode is
-// one we cannot check, so it is refused rather than trusted.
-function decodeSegment (segment) {
-  try {
-    return decodeURIComponent(segment)
-  } catch {
-    return null
-  }
+  // The path checks and the stays-under-the-app check are shared with the
+  // flightdeck-sourcemaps action, and name the staged .map path when they
+  // refuse it.
+  return publicUrl(appUrl, target, relativePath)
 }
 
 /**
@@ -219,73 +159,6 @@ export function sourceMapsEndpoint (services, repo) {
     const app = findAppContainer(service.template?.containers ?? [], repo)
     return app?.env?.find(entry => entry.name === ENDPOINT_ENV)?.value
   }))
-}
-
-// POST one map. Rollbar-compatible multipart: the token rides in a header, the
-// map rides as a file part named `source_map`, and the code-version field is
-// spelled `version` (NOT `code_version`, which is the spelling the occurrence
-// payload uses).
-//
-// Content-Type is deliberately not set: fetch derives it from the FormData,
-// boundary included, and setting it by hand produces a body the server cannot
-// split.
-async function postMap ({ url, token, version, minified, name, contents, timeoutMs, phase }) {
-  const form = new FormData()
-  form.append('version', version)
-  form.append('minified_url', minified)
-  form.append('source_map', new Blob([contents], { type: 'application/json' }), name)
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { [TOKEN_HEADER]: token },
-    body: form,
-    signal: phase ? AbortSignal.any([AbortSignal.timeout(timeoutMs), phase]) : AbortSignal.timeout(timeoutMs)
-  })
-  if (response.ok) return
-
-  // Errors come back as {"err":1,"message":"..."} and the message is the whole
-  // value of the failure: a map the parser rejected is a 422 that NAMES what it
-  // could not parse. "HTTP 422" alone would send someone hunting for an
-  // afternoon; the message usually makes it a five-minute fix.
-  const body = await response.json().catch(() => null)
-  const error = new Error(
-    `HTTP ${response.status}${body?.message ? `: ${body.message}` : ` ${response.statusText || ''}`.trimEnd()}`
-  )
-  error.status = response.status
-  throw error
-}
-
-// Which failures are worth another go. A 4xx is the server's considered answer
-// about THIS request — a bad map, a bad version, a rejected token — and sending
-// it again produces the same answer more slowly. 429 and 5xx are about the
-// moment, and a network error never got an answer at all.
-function retryable (error) {
-  const { status } = error
-  if (status === undefined) return true // network / abort: no answer received
-  return status === 429 || status >= 500
-}
-
-// An auth failure is not per-map: every remaining upload carries the same
-// token and would fail identically, so the run stops rather than spending the
-// budget proving it 39 more times.
-function fatal (error) {
-  return error.status === 401 || error.status === 403
-}
-
-async function uploadWithRetries (request, { attempts, retryDelayMs }) {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await postMap(request)
-    } catch (error) {
-      // An aborted phase is the budget expiring, not a flake — and retryable()
-      // treats an abort as retryable because no answer came back, so without
-      // this the ceiling would be retried straight through.
-      if (request.phase?.aborted) throw new Error('the upload budget ran out', { cause: error })
-      // retryable() already refuses every 4xx, auth failures included.
-      if (attempt >= attempts || !retryable(error)) throw error
-      await sleep(retryDelayMs * 2 ** (attempt - 1))
-    }
-  }
 }
 
 /**
@@ -349,17 +222,6 @@ export async function publishSourceMaps ({
   // Everything under the prefix ending in .map is a map; anything else is
   // reported and left alone, because the directory's whole meaning is "these
   // are maps" and a stray file there is a build mistake worth seeing.
-  // Declared before the queue it is attached to. The per-map timeout bounds a
-  // single attempt; this bounds all of them together, including retries and
-  // anything already in flight. Without it a worker starting just under the
-  // deadline could run three more attempts past it, and every worker could be
-  // doing that at once — on the rollback path, where the budget exists to keep
-  // this step from standing between an operator and a restored production.
-  const deadline = Date.now() + budgetMs
-  // Clamped: AbortSignal.timeout refuses a negative delay, and a budget already
-  // spent is a legitimate caller input meaning "do not start".
-  const phase = AbortSignal.timeout(Math.max(0, budgetMs))
-
   const queue = []
   for (const file of files) {
     if (!file.name.endsWith('.map')) {
@@ -373,14 +235,9 @@ export async function publishSourceMaps ({
     }
     try {
       queue.push({
-        url: endpoint,
-        token,
-        version,
         minified: minifiedUrl(appUrl, file.name),
         name: file.name.split('/').pop(),
         contents: file.contents,
-        timeoutMs: requestTimeoutMs,
-        phase,
         file: file.path
       })
     } catch (error) {
@@ -389,8 +246,7 @@ export async function publishSourceMaps ({
     }
   }
 
-  const attempted = queue.length
-  if (attempted === 0) {
+  if (queue.length === 0) {
     // An app that ships no maps and an app whose every map was unusable both
     // upload nothing, but only the second is a build mistake. Reading the same
     // on the action output would hide it.
@@ -398,48 +254,15 @@ export async function publishSourceMaps ({
       ? { ...result, status: 'failed', reason: 'no-usable-maps' }
       : { ...result, reason: 'no-maps' }
   }
-  core.info(`uploading ${attempted} source map(s) for version ${version} to ${endpoint}`)
 
-  // One signal for the whole phase. The per-map timeout bounds a single attempt;
-  // this bounds all of them together, including retries and anything already in
-  // flight. Without it a worker starting just under the deadline could run three
-  // more attempts past it, and every worker could be doing that at once — on the
-  // rollback path, where the budget exists precisely to keep this step from
-  // standing between an operator and a restored production.
-  let abort = null
-
-  const worker = async () => {
-    for (;;) {
-      if (abort) return
-      if (Date.now() >= deadline) return
-      const request = queue.shift()
-      if (!request) return
-      try {
-        await uploadWithRetries(request, { attempts, retryDelayMs })
-        result.uploaded++
-      } catch (error) {
-        result.failed++
-        result.failures.push({ file: request.file, message: error.message })
-        core.warning(`source map ${request.file} not uploaded: ${error.message}`)
-        if (fatal(error)) abort = error
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, attempted) }, worker))
-
-  // Anything still queued was never attempted: an auth failure stopped the run,
-  // or the budget ran out.
-  if (queue.length > 0) {
-    result.skipped += queue.length
-    core.warning(
-      abort
-        ? `${queue.length} source map(s) not uploaded: the ingestion token was rejected (${abort.message}), ` +
-          'so the remaining uploads would have failed identically.'
-        : `${queue.length} source map(s) not uploaded: the ${Math.round(budgetMs / 1000)}s upload budget ran ` +
-          'out. Every map that did land still resolves its own chunk; the deploy is unaffected.'
-    )
-  }
+  const upload = await uploadMaps(queue, {
+    endpoint, token, version, concurrency, requestTimeoutMs, budgetMs, attempts, retryDelayMs
+  })
+  result.uploaded = upload.landed
+  result.failed = upload.failed
+  result.failures = upload.failures
+  // Never attempted, because a rejected token or the budget stopped the run.
+  result.skipped += upload.notAttempted
 
   // `uploaded` means EVERY map this image ships landed, so a map skipped for
   // being oversized or unusably named makes the run partial just as a failed

@@ -75,6 +75,10 @@ name: Promote
 # production app-info row) are REFUSED in `lookup`, as early as the data allows:
 # they are stage-only on purpose and have no production environment to promote
 # into. Both readings are handled in the two app-info steps below.
+#
+# Apps that are not on pipeline v2 are refused in `lookup` as well: a row
+# without PipelineVersion "2" belongs to an app still on the old pipeline, or
+# to one that deploys itself (a static site or an Amplify app).
 
 on:
   workflow_call:
@@ -211,12 +215,22 @@ jobs:
               '{Project: {S: $project}, Environment: {S: $environment}}')")
           item=$(echo "$info" | jq -c '.Item // empty')
           if [ -z "$item" ]; then
-            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); add the row before promoting"
+            echo "::error::no CruApplicationInfo row for project '$PROJECT_NAME' environment '$legacy_env' (v2 env $V2_ENV); a pipeline v2 app's module writes it, so add the row before promoting. An app with no app module deploys itself and cannot be promoted here."
             exit 1
           fi
           provider=$(echo "$item" | jq -r '.Provider.S // empty')
           type=$(echo "$item" | jq -r '.Type.S // empty')
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
+          # Only a row the v2 app modules wrote carries PipelineVersion "2".
+          # Without it the app is not one pipeline v2 deploys: it is still on
+          # the old pipeline, or it deploys itself (a static site or an
+          # Amplify app, whose row has a Type of its own). Refused here, before
+          # any credential, rather than deep in a provider job inside the
+          # production lock.
+          if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
+            echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so there is no release candidate to promote. Nothing was changed. An app that deploys itself ships with its own workflow."
+            exit 1
+          fi
           # RcMode absent = "deploy". Terraform omits the attribute on the
           # default, so every pre-existing app item reads as a stage deploy
           # without being rewritten. Read from the release-candidate (legacy
@@ -290,6 +304,12 @@ jobs:
           # which reads as a misconfiguration and is wrong for a pre-release app.
           if [ -z "$item" ]; then
             echo "::error title=No production environment::$PROJECT_NAME has no CruApplicationInfo row for '$legacy_env', so there is no production environment to promote into. If the app is pre-release (stage-only) this is expected -- promote becomes available when it launches: stand up its production Terraform directory and clear pre_release on the stage module. If it is meant to have production already, that directory has not been applied. Ask #dps-devops."
+            exit 1
+          fi
+          # Production is what changes, so its row must say v2 as well; see the
+          # same check in the release-candidate step.
+          if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
+            echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so there is nothing to promote into. Nothing was changed."
             exit 1
           fi
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')

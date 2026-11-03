@@ -16,9 +16,11 @@ const handlerMap = {
     './src/entry/deploy.js': 'deploy',
     './src/dispatch.js': 'dispatch',
     './src/entry/tag-image.js': 'tag-image',
+    './src/entry/flightdeck-sourcemaps.js': 'flightdeck-sourcemaps',
     './src/classify-rollback-safety.js': 'classify-rollback-safety',
     './src/entry/flightdeck-release-event.js': 'flightdeck-release-event',
     './src/entry/authorize-actor.js': 'authorize-actor',
+    './src/entry/verify-deploy-run.js': 'verify-deploy-run',
     './src/entry/hotfix.js': 'hotfix'
 }
 

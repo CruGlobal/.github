@@ -1,0 +1,69 @@
+name: Flightdeck Source Maps
+description: >-
+  Upload the browser source maps in a directory of built files to Flightdeck,
+  for an app that builds and deploys in its own workflow (pipeline v2 apps
+  already get this at deploy time). Each .js file is paired with its map
+  through the file's own trailing sourceMappingURL comment, never by file
+  name, and the map is uploaded under that .js file's public URL with
+  sourcesContent stripped. Then every map in the directory is deleted, so a
+  later sync of the directory does not publish them. Run it after the build
+  and before the sync. Telemetry policy: the action NEVER fails the job.
+  A missing token or directory is a warning and no upload, and the outputs
+  count what landed.
+inputs:
+  directory:
+    description: >-
+      Directory of built files, laid out the way they are served (the
+      directory a later step syncs to the site). Missing skips everything with
+      a warning.
+    required: true
+  base-url:
+    description: >-
+      Public URL the directory is served from, e.g.
+      https://example-app.example.org/ or https://cdn.example.org/assets/. A
+      file at <directory>/js/app.js is taken to be served at
+      <base-url>js/app.js, and its map is uploaded under that URL.
+    required: true
+  version:
+    description: >-
+      Code version the app's browser SDK reports with each error
+      (code_version), exactly. A map uploaded under any other version is
+      never used.
+    required: true
+  token:
+    description: >-
+      The app's SERVER-scope Flightdeck ingestion token (the one that may post
+      server items, not the client token built into the browser bundle).
+      Unset skips the upload with a warning; the maps are still deleted.
+    required: false
+  endpoint:
+    description: >-
+      Flightdeck base URL, or any https URL on it such as the app's own item
+      endpoint. Only its origin is kept, and maps go to /api/1/sourcemap there.
+    required: false
+    default: 'https://flightdeck.cru.org'
+  delete-maps:
+    description: >-
+      Delete every map in the directory once the upload is done, whether or
+      not it worked, so a sync of the directory does not publish them: every
+      file ending in .map (in any case) or .map.gz, .map.br or .map.zst, and
+      any other file a .js file names that reads as a source map. A folder
+      that is a symbolic link is not followed, and a warning says so. Set
+      false only if a later step keeps the maps off the site some other way.
+    required: false
+    default: 'true'
+outputs:
+  uploaded:
+    description: Maps Flightdeck stored, new or replacing different bytes.
+  unchanged:
+    description: Maps Flightdeck already held byte for byte (a re-run of the same build).
+  failed:
+    description: >-
+      Maps a .js file names that did not land: the upload failed or was never
+      attempted (a rejected token or the time budget stopped it), or the named
+      map is missing, outside the directory or unusable. A .js file with no
+      sourceMappingURL, or with an inline data: map, is logged and not counted.
+
+runs:
+  using: 'node24'
+  main: '../../dist/flightdeck-sourcemaps.js'
