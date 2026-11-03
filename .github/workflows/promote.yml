@@ -857,8 +857,8 @@ jobs:
         # gh api has no time limit of its own, and the ledger write comes
         # after this step. A call that never answers must not use up the job's
         # time, or the job would stop before the release reaches the ledger.
-        # It takes seconds, so two minutes is plenty.
-        timeout-minutes: 2
+        # It takes seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
@@ -931,8 +931,8 @@ jobs:
         # Its curl has no time limit, and the ledger write comes after this
         # step. A post that never answers must not use up the job's time, or
         # the job would stop before the release reaches the ledger. It takes
-        # seconds, so two minutes is plenty.
-        timeout-minutes: 2
+        # seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -1100,6 +1100,11 @@ jobs:
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too. Without them a post that never
+        # answers would run a good deploy into the job's time limit, and the
+        # job would end cancelled with a notice that it stopped.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -1156,7 +1161,7 @@ jobs:
                      + (if $prevsha != ""
                         then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
                         else "" end))}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
@@ -1189,6 +1194,10 @@ jobs:
       - name: Notify Slack (failure)
         if: failure() || cancelled()
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too, so a call that never answers
+        # cannot hold the job until its time limit.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -1215,10 +1224,10 @@ jobs:
                 text: ((if $refused != ""
                         then ":no_entry: *\($project) promote \($what) to production refused* (`\($refused)`) by \($actor)\($rerun); production was not changed"
                         elif $status == "cancelled"
-                        then ":octagonal_sign: *\($project) promote \($what) to production stopped before it finished* by \($actor)\($rerun): it was cancelled, or it ran past its time limit"
+                        then ":octagonal_sign: *\($project) promote \($what) to production by \($actor)\($rerun) stopped before it finished*: it was cancelled, or it ran past its time limit"
                         else ":x: *\($project) promote \($what) to production FAILED* by \($actor)\($rerun)" end)
                        + "\n\($runurl)")}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
@@ -1671,8 +1680,8 @@ jobs:
         # gh api has no time limit of its own, and the ledger write comes
         # after this step. A call that never answers must not use up the job's
         # time, or the job would stop before the release reaches the ledger.
-        # It takes seconds, so two minutes is plenty.
-        timeout-minutes: 2
+        # It takes seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
@@ -1745,8 +1754,8 @@ jobs:
         # Its curl has no time limit, and the ledger write comes after this
         # step. A post that never answers must not use up the job's time, or
         # the job would stop before the release reaches the ledger. It takes
-        # seconds, so two minutes is plenty.
-        timeout-minutes: 2
+        # seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -1902,6 +1911,11 @@ jobs:
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too. Without them a post that never
+        # answers would run a good deploy into the job's time limit, and the
+        # job would end cancelled with a notice that it stopped.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -1958,7 +1972,7 @@ jobs:
                      + (if $prevsha != ""
                         then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
                         else "" end))}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
@@ -1991,6 +2005,10 @@ jobs:
       - name: Notify Slack (failure)
         if: failure() || cancelled()
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too, so a call that never answers
+        # cannot hold the job until its time limit.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -2017,10 +2035,10 @@ jobs:
                 text: ((if $refused != ""
                         then ":no_entry: *\($project) promote \($what) to production refused* (`\($refused)`) by \($actor)\($rerun); production was not changed"
                         elif $status == "cancelled"
-                        then ":octagonal_sign: *\($project) promote \($what) to production stopped before it finished* by \($actor)\($rerun): it was cancelled, or it ran past its time limit"
+                        then ":octagonal_sign: *\($project) promote \($what) to production by \($actor)\($rerun) stopped before it finished*: it was cancelled, or it ran past its time limit"
                         else ":x: *\($project) promote \($what) to production FAILED* by \($actor)\($rerun)" end)
                        + "\n\($runurl)")}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }

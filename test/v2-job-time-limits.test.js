@@ -129,32 +129,80 @@ describe('job time limits', () => {
   })
 })
 
-// Between the deploy and the ledger write, a step that is allowed to fail and
-// makes a network call has a limit of its own. Without one, a call that never
-// answers would run until the job's limit, and the job would stop before the
-// ledger row is written: a release in production that the ledger does not
-// show.
+// Between the deploy and the ledger write, every step has a limit of its own
+// or is on the list below. Without one, a call that never answers would run
+// until the job's limit, and the job would stop before the ledger row is
+// written: a release in production that the ledger does not show.
 describe('steps before the ledger write', () => {
   const LEDGER = 'Record deployment in ledger'
   const changesTheEnvironment = (step) => /^Deploy to /.test(step.name ?? '') || step.name === 'Verify the candidate image'
 
-  it.each(deployJobs.map(([file, id, job]) => [`${file}:${id}`, job]))('%s limits each telemetry step that comes first', (key, job) => {
+  // Steps on this list may run without a limit of their own, so the job's
+  // limit is their backstop. Neither is allowed to fail, so when either one
+  // fails, every step after it is skipped, the ledger write included. A step
+  // limit would skip the ledger write just as the job's limit does, only
+  // sooner, and it could cut off a slow call that would have worked.
+  const ALLOWED_BEFORE_LEDGER = [
+    // Tags the promoted digest in the registry.
+    'Tag digest as release',
+    // The credential for the ledger write itself.
+    'Configure AWS credentials for ledger'
+  ]
+
+  it.each(deployJobs.map(([file, id, job]) => [`${file}:${id}`, job]))('%s limits each step that comes first', (key, job) => {
     const steps = job.steps
     const deploy = steps.findIndex(changesTheEnvironment)
     const ledger = steps.findIndex((step) => step.name === LEDGER)
     expect(deploy, `${key} has no deploy step`).toBeGreaterThanOrEqual(0)
     expect(ledger, `${key} has no ledger step`).toBeGreaterThan(deploy)
 
-    const between = steps.slice(deploy + 1, ledger).filter((step) => step['continue-on-error'] === true)
+    const between = steps.slice(deploy + 1, ledger)
     expect(between.map((step) => step.name)).toContain('Record deployment event in Datadog')
     let limits = 0
     for (const step of between) {
-      expect(step['timeout-minutes'], `${key}: "${step.name}" needs its own limit`).toBeGreaterThan(0)
+      if (ALLOWED_BEFORE_LEDGER.includes(step.name)) {
+        expect(step['continue-on-error'], `${key}: "${step.name}" is on the list because it may not fail`).toBeUndefined()
+        continue
+      }
+      expect(step['timeout-minutes'], `${key}: "${step.name}" needs its own limit, or a place on the list`).toBeGreaterThan(0)
       limits += step['timeout-minutes']
     }
-    // Even when the deploy step runs to its cap and each of these steps runs
-    // to its limit, the ledger write still starts inside the job's limit.
+    // What this proves is narrow: the deploy step's own cap plus the step
+    // limits counted above stay inside the job's limit. It does not prove the
+    // ledger write always starts in time. The cap counts from when the deploy
+    // step starts, so the steps before it are not in the sum, and neither are
+    // the listed steps, which have no limit. Those took seconds in real runs.
     expect(STEP_CAP_MS + limits * 60 * 1000).toBeLessThan(job['timeout-minutes'] * 60 * 1000)
+  })
+})
+
+// Every Slack post in these workflows has a two-minute step limit, and every
+// curl in the step has --max-time. A post that never answered would otherwise
+// run the job into its time limit. After a good deploy the job would then end
+// cancelled, and the failure notice would say it stopped.
+describe('Slack posts', () => {
+  const slackSteps = allJobs.flatMap(([file, id, job]) => (job.steps ?? [])
+    .filter((step) => (step.run ?? '').includes('https://slack.com/api/chat.postMessage'))
+    .map((step) => [`${file}:${id}: ${step.name}`, file, step]))
+
+  it('finds the Slack posts in every workflow that has one', () => {
+    expect([...new Set(slackSteps.map(([, file]) => file))].sort()).toEqual([
+      'deploy-candidate.yml',
+      'notify-build-failure.yml',
+      'promote.yml',
+      'record-deploy.yml',
+      'rollback.yml'
+    ])
+  })
+
+  it.each(slackSteps.map(([key, , step]) => [key, step]))('%s has a time limit and caps each curl', (_key, step) => {
+    expect(step['timeout-minutes']).toBe(2)
+    expect(step['continue-on-error']).toBe(true)
+    const curls = step.run.split('\n')
+      .filter((line) => !/^\s*#/.test(line))
+      .filter((line) => /\bcurl\b/.test(line))
+    expect(curls.length).toBeGreaterThan(0)
+    for (const line of curls) expect(line).toMatch(/--max-time \d+/)
   })
 })
 
@@ -193,13 +241,19 @@ describe('failure notices reach a job that timed out', () => {
       ':octagonal_sign: *example-app `candidate-2026-10-21-10150` verification stopped before it finished (stage-less)*: it was cancelled, or it ran past its time limit'],
     ['rollback.yml', 'rollback-gcp',
       ':x: *example-app rollback in production FAILED* by example-user',
-      ':octagonal_sign: *example-app rollback in production stopped before it finished* by example-user: it was cancelled, or it ran past its time limit'],
+      ':octagonal_sign: *example-app rollback in production by example-user stopped before it finished*: it was cancelled, or it ran past its time limit'],
     ['rollback.yml', 'rollback-aws',
       ':x: *example-app rollback in production FAILED* by example-user',
-      ':octagonal_sign: *example-app rollback in production stopped before it finished* by example-user: it was cancelled, or it ran past its time limit']
+      ':octagonal_sign: *example-app rollback in production by example-user stopped before it finished*: it was cancelled, or it ran past its time limit'],
+    // The account named is the one that started the run, not one that
+    // stopped it, so a re-run names both, as the FAILED line does.
+    ['rollback.yml', 'rollback-aws',
+      ':x: *example-app rollback in production FAILED* by example-user (re-run by other-user)',
+      ':octagonal_sign: *example-app rollback in production by example-user (re-run by other-user) stopped before it finished*: it was cancelled, or it ran past its time limit',
+      'other-user']
   ]
 
-  const notify = (file, id, status) => runShellStep(findStep(workflows[file], id, 'Notify Slack (failure)'), {
+  const notify = (file, id, status, triggering) => runShellStep(findStep(workflows[file], id, 'Notify Slack (failure)'), {
     context: {
       'inputs.project-name': 'example-app',
       'secrets.datadog-api-key': 'dd-test',
@@ -207,21 +261,21 @@ describe('failure notices reach a job that timed out', () => {
       'secrets.slack-bot-token': 'xoxb-test',
       'inputs.tag': 'candidate-2026-10-21-10150',
       'github.actor': 'example-user',
-      'github.triggering_actor': 'example-user',
+      'github.triggering_actor': triggering,
       'job.status': status
     }
   })
   const RUN_URL = 'https://github.com/example-org/deploy-wrappers/actions/runs/9001'
 
-  describe.concurrent.each(messages)('%s:%s', (file, id, failed, stopped) => {
-    it('says FAILED, as before, when a step failed', async ({ expect }) => {
-      const result = await notify(file, id, 'failure')
+  describe.concurrent.each(messages)('%s:%s', (file, id, failed, stopped, triggering = 'example-user') => {
+    it(`says FAILED, as before, when a step failed (this attempt started by ${triggering})`, async ({ expect }) => {
+      const result = await notify(file, id, 'failure', triggering)
       expect(result.status, result.stderr).toBe(0)
       expect(result.slack.text).toBe(`${failed}\n${RUN_URL}`)
     })
 
-    it('says it stopped, naming both causes, when the job was cancelled', async ({ expect }) => {
-      const result = await notify(file, id, 'cancelled')
+    it(`says it stopped, naming both causes, when the job was cancelled (this attempt started by ${triggering})`, async ({ expect }) => {
+      const result = await notify(file, id, 'cancelled', triggering)
       expect(result.status, result.stderr).toBe(0)
       expect(result.slack.text).toBe(`${stopped}\n${RUN_URL}`)
     })
