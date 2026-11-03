@@ -135,13 +135,20 @@ How it works:
 - `sourcesContent` is removed before upload, the same way every time, so a re-run sends the same bytes and
   Flightdeck counts the map as `unchanged`.
 - A file with an inline `data:` map, or with no comment at all, is skipped and logged.
-- When it is done, every `.map` file in `directory` is deleted, whether the upload worked or not.
+- When it is done, every map in `directory` is deleted, whether the upload worked or not. That is every file
+  ending in `.map` (in any case) or in `.map.gz`, `.map.br` or `.map.zst`, and any other file a `.js` file names
+  that reads as a source map.
 
 **Keep maps off the public site.** Run this action after the build and before the step that publishes the
 directory. A build that writes source maps, followed by `aws s3 sync dist s3://<bucket>`, publishes every `.map`
 file, and the source code inside it, to anyone who asks. This action deletes them first unless `delete-maps` is
 `false`. Maps that an earlier deploy already published stay in the bucket unless the sync runs with `--delete`.
 The `.js` files keep their `sourceMappingURL` comment, which then points at a missing file; that is harmless.
+
+The action never reaches outside `directory`. A folder inside it that is a symbolic link is not followed, but
+`aws s3 sync` follows links by default, so the action warns that any map under such a folder will be published.
+It also warns when a folder cannot be read, when any map is left behind, and when `directory` holds
+`node_modules` or `.git`, which means it is probably set too high.
 
 **Have the bundler write separate `.map` files and keep the comment.** A "hidden" source map setting leaves the
 comment out, and then nothing can be paired or uploaded. An inline map is not uploaded, and it publishes the source
@@ -162,7 +169,7 @@ no upload, and every other problem is a warning too. The outputs count what happ
 | version     | [x]      | Code version the app's browser SDK reports (`code_version`), exactly.                                                            |
 | token       | [ ]      | The app's server-scope Flightdeck ingestion token, not the client token in the browser bundle. Unset skips the upload.          |
 | endpoint    | [ ]      | Flightdeck base URL, or any https URL on it. Only its origin is kept, and maps go to `/api/1/sourcemap` there.                   |
-| delete-maps | [ ]      | Delete every `.map` file in the directory after the upload. Defaults to `true`.                                                  |
+| delete-maps | [ ]      | Delete every map in the directory after the upload, as described above. Defaults to `true`.                                     |
 
 #### Outputs
 | Name      | Description                                                                                                          |

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -30,6 +30,7 @@ vi.mock('@actions/core', () => ({
 
 import {
   MAX_READ_BYTES,
+  TAIL_BYTES,
   deleteMapsInput,
   mapPath,
   normalizeBaseUrl,
@@ -176,6 +177,19 @@ describe('sourceMappingUrl', () => {
   it('returns an inline data: URL as it is, for the caller to recognize', () => {
     expect(sourceMappingUrl(chunk('data:application/json;base64,e30='))).toBe('data:application/json;base64,e30=')
   })
+
+  // Only the end of a chunk is read, so its first line may be cut.
+  it('reads a cut first line that is nothing but base64 as the end of an inline map', () => {
+    expect(sourceMappingUrl('QUFBQUFBQUFB/+QUFB==\n', { partial: true })).toBe('data:')
+  })
+
+  it('reads a cut first line of code as no comment', () => {
+    expect(sourceMappingUrl('ole.log("x");var a=1\n', { partial: true })).toBeNull()
+  })
+
+  it('still finds a whole comment line after a cut first line', () => {
+    expect(sourceMappingUrl('QUFB\n//# sourceMappingURL=a.js.map\n', { partial: true })).toBe('a.js.map')
+  })
 })
 
 describe('mapPath', () => {
@@ -249,6 +263,31 @@ describe('stripSourcesContent', () => {
     expect(() => stripSourcesContent(Buffer.from(''))).toThrow()
   })
 
+  it('throws on a JSON object that is not a version 3 source map', () => {
+    expect(() => stripSourcesContent(Buffer.from('{"name":"example-app","version":"1.0.0"}'))).toThrow(/not a version 3 source map/)
+    expect(() => stripSourcesContent(Buffer.from('{"version":3}'))).toThrow(/not a version 3 source map/)
+    expect(stripSourcesContent(Buffer.from('{"version":"3","mappings":""}')).toString()).toBe('{"version":"3","mappings":""}')
+  })
+
+  const BOM = Buffer.from([0xef, 0xbb, 0xbf])
+  const PLAIN = Buffer.from('{"version":3,"sources":["a.ts"],"names":[],"mappings":"AAAA"}')
+
+  // Flightdeck parses the bytes as plain JSON, so neither prefix may be sent.
+  it('drops a byte order mark, and otherwise sends the map\'s own bytes', () => {
+    expect(stripSourcesContent(Buffer.concat([BOM, PLAIN])).equals(PLAIN)).toBe(true)
+  })
+
+  it('drops the source map spec\'s )]}\' first line, and otherwise sends the map\'s own bytes', () => {
+    expect(stripSourcesContent(Buffer.concat([Buffer.from(")]}'\n"), PLAIN])).equals(PLAIN)).toBe(true)
+    expect(stripSourcesContent(Buffer.concat([BOM, Buffer.from(")]}'\r\n"), PLAIN])).equals(PLAIN)).toBe(true)
+  })
+
+  it('strips sourcesContent from a map that has a prefix too, to the same pinned bytes', () => {
+    expect(stripSourcesContent(Buffer.concat([BOM, Buffer.from(")]}'\n"), Buffer.from(INPUT)])).toString('utf8')).toBe(
+      '{"version":3,"file":"app.js","sources":["src/app.ts","src/util.ts"],"names":["a","b"],"mappings":"AAAA,MAAM"}'
+    )
+  })
+
   it('uploads identical bytes from two builds of the same code', async () => {
     const files = { 'a1b2.js': chunk('c3d4.js.map'), 'c3d4.js.map': sourceMap(['src/a.ts']) }
     await publish(build(files))
@@ -284,7 +323,7 @@ describe('pairing a chunk with its map', () => {
       contents: stripped(['src/real.ts'])
     }])
     expect(result).toEqual({ uploaded: 1, unchanged: 0, failed: 0 })
-    expect(logged('.map file(s) are named by no chunk and were not uploaded: _next/static/chunks/f3k9a1.js.map')).toBe(true)
+    expect(logged('map file(s) are named by no chunk and were not uploaded: _next/static/chunks/f3k9a1.js.map')).toBe(true)
   })
 
   it('keeps each chunk\'s nested path and a base URL\'s own path', async () => {
@@ -466,6 +505,43 @@ describe('retries', () => {
   })
 })
 
+describe('a redirect', () => {
+  // Followed, fetch would send the token header on to the new host, plain http
+  // included, and a 301, 302 or 303 would turn the POST into a GET whose 200
+  // counts as a map that landed.
+  for (const status of [301, 302, 303, 307, 308]) {
+    it(`is not followed on a ${status}, not retried, and counts the map failed`, async () => {
+      fetch.mockResolvedValue({
+        ok: false,
+        status,
+        statusText: 'Redirect',
+        headers: new Headers({ location: 'http://elsewhere.example.net/api/1/sourcemap' }),
+        json: async () => null
+      })
+
+      const result = await publish(build({ 'a.js': chunk('a.js.map'), 'a.js.map': sourceMap(['src/a.ts']) }))
+
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls[0][1].redirect).toBe('manual')
+      expect(result).toEqual({ uploaded: 0, unchanged: 0, failed: 1 })
+      expect(warned(
+        `source map a.js.map (for a.js) not uploaded: HTTP ${status}: redirected to ` +
+        'http://elsewhere.example.net/api/1/sourcemap; not followed with the token'
+      )).toBe(true)
+    })
+  }
+
+  it('is not followed when fetch hands back an opaque redirect', async () => {
+    fetch.mockResolvedValue({ ok: false, status: 0, type: 'opaqueredirect', headers: new Headers(), json: async () => null })
+
+    const result = await publish(build({ 'a.js': chunk('a.js.map'), 'a.js.map': sourceMap(['src/a.ts']) }))
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(result.failed).toBe(1)
+    expect(warned('HTTP 0: redirected; not followed with the token')).toBe(true)
+  })
+})
+
 describe('a rejected token', () => {
   for (const status of [401, 403]) {
     it(`stops the rest of the uploads on a ${status}, and still deletes the maps`, async () => {
@@ -504,7 +580,7 @@ describe('keeping maps off the site', () => {
 
     for (const map of ['9f8e.js.map', 'css/site.css.map', 'orphan.js.map']) expect(existsSync(path.join(dir, map))).toBe(false)
     for (const kept of ['index.html', 'app.js']) expect(existsSync(path.join(dir, kept))).toBe(true)
-    expect(logged(`deleted 3 .map file(s) from ${dir}, so a sync of it does not publish them`)).toBe(true)
+    expect(logged(`deleted 3 map file(s) from ${dir}, so a sync of it does not publish them`)).toBe(true)
   })
 
   it('leaves the maps in place with delete-maps off, and says a sync publishes them', async () => {
@@ -513,7 +589,7 @@ describe('keeping maps off the site', () => {
     await publish(dir, { deleteMaps: false })
 
     for (const map of ['9f8e.js.map', 'css/site.css.map', 'orphan.js.map']) expect(existsSync(path.join(dir, map))).toBe(true)
-    expect(logged('left 3 .map file(s)')).toBe(true)
+    expect(logged('left 3 map file(s)')).toBe(true)
     expect(logged('publishes them')).toBe(true)
   })
 
@@ -524,6 +600,196 @@ describe('keeping maps off the site', () => {
 
     expect(fetch).not.toHaveBeenCalled()
     expect(existsSync(path.join(dir, '9f8e.js.map'))).toBe(false)
+  })
+
+  it('deletes compressed copies and maps in any case, and keeps other compressed files', async () => {
+    // A compression plugin writes app.js.map.gz beside app.js.map by default.
+    const dir = build({
+      'app.js': chunk('app.js.map'),
+      'app.js.map': sourceMap(['src/app.ts']),
+      'app.js.map.gz': 'gzip bytes',
+      'app.js.map.br': 'brotli bytes',
+      'app.js.map.zst': 'zstd bytes',
+      'b.js.MAP': sourceMap(['src/b.ts']),
+      'c.js.Map.GZ': 'gzip bytes',
+      'app.js.gz': 'gzip bytes',
+      'app.js.mapping': 'not a map'
+    })
+
+    await publish(dir)
+
+    for (const gone of ['app.js.map', 'app.js.map.gz', 'app.js.map.br', 'app.js.map.zst', 'b.js.MAP', 'c.js.Map.GZ']) {
+      expect(existsSync(path.join(dir, gone)), gone).toBe(false)
+    }
+    for (const kept of ['app.js', 'app.js.gz', 'app.js.mapping']) expect(existsSync(path.join(dir, kept)), kept).toBe(true)
+  })
+
+  it('deletes a file a chunk names that reads as a map, whatever it is called', async () => {
+    const dir = build({ 'app.js': chunk('app.js.json'), 'app.js.json': sourceMap(['src/app.ts']) })
+
+    const result = await publish(dir)
+
+    expect((await uploads()).map(upload => upload.filename)).toEqual(['app.js.json'])
+    expect(result.uploaded).toBe(1)
+    expect(existsSync(path.join(dir, 'app.js.json'))).toBe(false)
+  })
+
+  it.each([
+    ['no token', { token: '' }],
+    ['an unusable base URL', { baseUrl: 'example-app' }],
+    ['an unusable endpoint', { endpoint: 'http://flightdeck.example.org' }]
+  ])('deletes such a file when the upload is skipped for %s', async (unused, overrides) => {
+    const dir = build({ 'app.js': chunk('app.js.json'), 'app.js.json': sourceMap(['src/app.ts']) })
+
+    await publish(dir, overrides)
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(existsSync(path.join(dir, 'app.js.json'))).toBe(false)
+  })
+
+  it('keeps a file a chunk names that is not a map, and keeps such a file with delete-maps off', async () => {
+    const dir = build({
+      'app.js': chunk('index.html'),
+      'index.html': '<!doctype html>',
+      'other.js': chunk('other.js.json'),
+      'other.js.json': sourceMap(['src/other.ts'])
+    })
+
+    const result = await publish(dir, { deleteMaps: false })
+
+    expect(result).toEqual({ uploaded: 1, unchanged: 0, failed: 1 })
+    expect(warned('skipping app.js: index.html is not a usable source map: it is not valid JSON')).toBe(true)
+    for (const kept of ['index.html', 'other.js.json']) expect(existsSync(path.join(dir, kept)), kept).toBe(true)
+  })
+})
+
+describe('reading the directory with care', () => {
+  const unix = process.platform !== 'win32'
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0
+
+  it.skipIf(!unix || asRoot)('deletes the maps it can reach when one folder cannot be read, and says some were NOT deleted', async () => {
+    const dir = build({
+      'a.js': chunk('a.js.map'),
+      'a.js.map': sourceMap(['src/a.ts']),
+      'locked/b.js.map': sourceMap(['src/b.ts']),
+      'open/c.js.map': sourceMap(['src/c.ts'])
+    })
+    chmodSync(path.join(dir, 'locked'), 0o000)
+    try {
+      const result = await publish(dir)
+
+      expect(result.uploaded).toBe(1)
+      for (const gone of ['a.js.map', 'open/c.js.map']) expect(existsSync(path.join(dir, gone)), gone).toBe(false)
+      expect(warned(`could not read the folder locked in ${dir} (EACCES), so nothing in it was uploaded or deleted`)).toBe(true)
+      expect(warned(`Not every map was deleted from ${dir}: 1 folder(s) could not be read (locked)`)).toBe(true)
+      expect(warned('a sync of the directory will publish it')).toBe(true)
+    } finally {
+      chmodSync(path.join(dir, 'locked'), 0o755)
+    }
+    expect(existsSync(path.join(dir, 'locked/b.js.map'))).toBe(true)
+  })
+
+  it.skipIf(!unix)('does not follow a folder that is a symbolic link, and warns that a sync would publish what is under it', async () => {
+    const outside = build({ 'x.js': chunk('x.js.map'), 'x.js.map': sourceMap(['src/x.ts']) })
+    const dir = build({ 'a.js': chunk('a.js.map'), 'a.js.map': sourceMap(['src/a.ts']) })
+    symlinkSync(outside, path.join(dir, 'linked'))
+
+    const result = await publish(dir)
+
+    expect((await uploads()).map(upload => upload.minified_url)).toEqual([`${BASE_URL}a.js`])
+    expect(result.uploaded).toBe(1)
+    expect(existsSync(path.join(outside, 'x.js.map'))).toBe(true)
+    expect(warned('1 folder(s) in')).toBe(true)
+    expect(warned('are symbolic links, which were not followed: linked')).toBe(true)
+    expect(warned('aws s3 sync follows links by default and will publish any map under them')).toBe(true)
+    expect(warned('1 folder(s) are symbolic links that were not followed (linked)')).toBe(true)
+  })
+
+  it.skipIf(!unix)('refuses to read a map that links outside the directory, and never logs what is in it', async () => {
+    const outside = build({ 'private.txt': 'SECRET-VALUE-0000 not a map' })
+    const dir = build({ 'a.js': chunk('a.js.map') })
+    symlinkSync(path.join(outside, 'private.txt'), path.join(dir, 'a.js.map'))
+
+    const result = await publish(dir)
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(result.failed).toBe(1)
+    expect(warned('skipping a.js: a.js.map is a link to a file outside the directory, so it was not read')).toBe(true)
+    // The link is removed from the directory; what it pointed at is untouched.
+    expect(existsSync(path.join(dir, 'a.js.map'))).toBe(false)
+    expect(readFileSync(path.join(outside, 'private.txt'), 'utf8')).toBe('SECRET-VALUE-0000 not a map')
+  })
+
+  it.skipIf(!unix)('reads a map that links to another file inside the directory', async () => {
+    const dir = build({ 'a.js': chunk('a.js.map'), 'maps/real.map': sourceMap(['src/a.ts']) })
+    symlinkSync(path.join(dir, 'maps/real.map'), path.join(dir, 'a.js.map'))
+
+    const result = await publish(dir)
+
+    expect((await uploads()).map(upload => upload.contents)).toEqual([stripped(['src/a.ts'])])
+    expect(result.uploaded).toBe(1)
+  })
+
+  it('never repeats a broken map\'s contents in a log line', async () => {
+    const dir = build({ 'a.js': chunk('a.js.map'), 'a.js.map': 'SECRET-VALUE-0000 is not json' })
+
+    const result = await publish(dir)
+
+    expect(result.failed).toBe(1)
+    expect(warned('skipping a.js: a.js.map is not a usable source map: it is not valid JSON')).toBe(true)
+    const lines = [...warningMock.mock.calls, ...infoMock.mock.calls].map(([text]) => text)
+    expect(lines.some(text => text.includes('SECRET'))).toBe(false)
+  })
+
+  it('warns when the directory holds node_modules or .git, as it is probably set too high', async () => {
+    const dir = build({
+      'a.js': chunk('a.js.map'),
+      'a.js.map': sourceMap(['src/a.ts']),
+      'node_modules/lib/index.js': chunk(null),
+      '.git/HEAD': 'ref: refs/heads/main\n'
+    })
+
+    await publish(dir)
+
+    expect(warned(`${dir} holds node_modules, so it is probably set too high`)).toBe(true)
+    expect(warned(`${dir} holds .git, so it is probably set too high`)).toBe(true)
+  })
+
+  it.skipIf(!unix)('skips a FIFO rather than blocking on it', async () => {
+    const dir = build({ 'a.js': chunk('a.js.map'), 'a.js.map': sourceMap(['src/a.ts']) })
+    const made = spawnSync('mkfifo', [path.join(dir, 'pipe.js')])
+    if (made.status !== 0) return
+
+    const result = await publish(dir)
+
+    expect(result.uploaded).toBe(1)
+    expect(warned('that are not regular files: pipe.js')).toBe(true)
+  })
+
+  it(`reads only the last ${TAIL_BYTES} bytes of a chunk`, async () => {
+    // Read whole, this chunk's only comment is found past the blank lines; read
+    // from the end, it is never reached.
+    const dir = build({
+      'far.js': `//# sourceMappingURL=far.js.map\n${'\n'.repeat(TAIL_BYTES + 100)}`,
+      'far.js.map': sourceMap(['src/far.ts']),
+      'big.js': chunk('big.js.map', `var x="${'a'.repeat(TAIL_BYTES * 4)}"`),
+      'big.js.map': sourceMap(['src/big.ts'])
+    })
+
+    const result = await publish(dir)
+
+    expect((await uploads()).map(upload => upload.minified_url)).toEqual([`${BASE_URL}big.js`])
+    expect(result.uploaded).toBe(1)
+    expect(logged('carry no sourceMappingURL comment, so there is no map to upload for them: far.js')).toBe(true)
+  })
+
+  it('still recognizes an inline map far longer than what is read', async () => {
+    const dir = build({ 'inline.js': chunk(`data:application/json;base64,${'eyJ2'.repeat(TAIL_BYTES)}`) })
+
+    await publish(dir)
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(warned('1 chunk(s) carry an inline data: source map, which is not uploaded: inline.js')).toBe(true)
   })
 })
 
@@ -568,9 +834,13 @@ describe('gates', () => {
     ['a version past 40 characters', { version: 'a'.repeat(41) }, 'is not a usable code version'],
     ['no base URL', { baseUrl: '' }, 'no base-url was given'],
     ['a base URL that is not one', { baseUrl: 'example-app' }, 'is not a URL'],
-    ['a base URL with a query', { baseUrl: `${BASE_URL}?v=1` }, 'has a query, fragment or credentials'],
+    ['a base URL with a query', { baseUrl: `${BASE_URL}?v=1` }, 'has a query or fragment'],
     ['an endpoint that is not https', { endpoint: 'http://flightdeck.example.org' }, 'is not https'],
-    ['an endpoint that is not a URL', { endpoint: 'flightdeck' }, 'is not a URL']
+    ['an endpoint that is not a URL', { endpoint: 'flightdeck' }, 'is not a URL'],
+    // Resolves to other.example, with "flightdeck.example.org" as a user name.
+    ['an endpoint with a user name', { endpoint: 'https://flightdeck.example.org@other.example' }, 'endpoint has a user name or password'],
+    ['an endpoint with a password', { endpoint: 'https://user:pa55word@flightdeck.example.org' }, 'endpoint has a user name or password'],
+    ['a base URL with a password', { baseUrl: 'https://user:pa55word@example-app.example.org/' }, 'base-url has a user name or password']
   ])('warns and uploads nothing given %s, but still deletes the maps', async (unused, overrides, message) => {
     const dir = site()
 
@@ -580,6 +850,8 @@ describe('gates', () => {
     expect(warned(message)).toBe(true)
     expect(result).toEqual({ uploaded: 0, unchanged: 0, failed: 0 })
     expect(existsSync(path.join(dir, 'a.js.map'))).toBe(false)
+    // A user name or password could be a secret, so it is never repeated.
+    expect(warningMock.mock.calls.some(([text]) => text.includes('pa55word') || text.includes('other.example'))).toBe(false)
   })
 
   it('normalizes a base URL to end in one slash', () => {

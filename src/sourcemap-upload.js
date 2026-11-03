@@ -142,8 +142,25 @@ async function postMap ({ url, token, version, minified, name, contents, timeout
     method: 'POST',
     headers: { [TOKEN_HEADER]: token },
     body: form,
+    // Never follow a redirect. fetch would carry the token header on to
+    // wherever the server points, another host or plain http included (it
+    // drops only Authorization and Cookie when the origin changes), and on a
+    // 301, 302 or 303 it would turn the POST into a GET whose 200 reads as a
+    // map that landed. The ingestion API answers directly, so a 3xx means the
+    // endpoint is wrong, and asking again changes nothing.
+    redirect: 'manual',
     signal: phase ? AbortSignal.any([AbortSignal.timeout(timeoutMs), phase]) : AbortSignal.timeout(timeoutMs)
   })
+  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+    const location = response.headers?.get('location')
+    const error = new Error(
+      `HTTP ${response.status}: redirected${location ? ` to ${location}` : ''}; not followed with the token`
+    )
+    // retryable() refuses a status under 500 other than 429, so this is not
+    // sent again either.
+    error.status = response.status
+    throw error
+  }
   if (response.ok) {
     // A 200 says whether the server already held these exact bytes
     // ({"err":0,"result":{"unchanged":true}}). Only a caller that reports that
