@@ -48577,12 +48577,12 @@ var require_extend = __commonJS({
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/package.json
+// node_modules/gaxios/package.json
 var require_package2 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/package.json"(exports2, module2) {
+  "node_modules/gaxios/package.json"(exports2, module2) {
     module2.exports = {
       name: "gaxios",
-      version: "8.3.1",
+      version: "8.3.2",
       description: "A simple common HTTP client specifically for Google APIs and services.",
       main: "build/cjs/src/index.js",
       types: "build/cjs/src/index.d.ts",
@@ -48695,18 +48695,18 @@ var require_package2 = __commonJS({
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/util.cjs
+// node_modules/gaxios/build/cjs/src/util.cjs
 var require_util11 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/util.cjs"(exports2, module2) {
+  "node_modules/gaxios/build/cjs/src/util.cjs"(exports2, module2) {
     "use strict";
     var pkg = require_package2();
     module2.exports = { pkg };
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/common.js
+// node_modules/gaxios/build/cjs/src/common.js
 var require_common2 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/common.js"(exports2) {
+  "node_modules/gaxios/build/cjs/src/common.js"(exports2) {
     "use strict";
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -48946,9 +48946,9 @@ var require_common2 = __commonJS({
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/retry.js
+// node_modules/gaxios/build/cjs/src/retry.js
 var require_retry2 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/retry.js"(exports2) {
+  "node_modules/gaxios/build/cjs/src/retry.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getRetryConfig = getRetryConfig;
@@ -49052,9 +49052,9 @@ var require_retry2 = __commonJS({
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/interceptor.js
+// node_modules/gaxios/build/cjs/src/interceptor.js
 var require_interceptor = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/interceptor.js"(exports2) {
+  "node_modules/gaxios/build/cjs/src/interceptor.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.GaxiosInterceptorManager = void 0;
@@ -56671,9 +56671,9 @@ var init_src = __esm({
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/gaxios.js
+// node_modules/gaxios/build/cjs/src/gaxios.js
 var require_gaxios = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/gaxios.js"(exports2) {
+  "node_modules/gaxios/build/cjs/src/gaxios.js"(exports2) {
     "use strict";
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -56721,7 +56721,7 @@ var require_gaxios = __commonJS({
        *
        * ```ts
        * const gaxios = new Gaxios();
-       * const myFetch: typeof fetch = (...args) => gaxios.fetch(...args);
+       * const myFetch: GaxiosOptions['fetchImplementation'] = (...args) => gaxios.fetch(...args);
        * await myFetch('https://example.com');
        * ```
        *
@@ -57274,9 +57274,9 @@ Content-Type: ${partContentType}\r
   }
 });
 
-// node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/index.js
+// node_modules/gaxios/build/cjs/src/index.js
 var require_src5 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gaxios/build/cjs/src/index.js"(exports2) {
+  "node_modules/gaxios/build/cjs/src/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
       if (k22 === void 0) k22 = k5;
@@ -57306,998 +57306,6 @@ var require_src5 = __commonJS({
       return common_js_1.GaxiosError;
     } });
     __exportStar(require_interceptor(), exports2);
-    exports2.instance = new gaxios_js_1.Gaxios();
-    async function request(opts) {
-      return exports2.instance.request(opts);
-    }
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/package.json
-var require_package3 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/package.json"(exports2, module2) {
-    module2.exports = {
-      name: "gaxios",
-      version: "7.3.1",
-      description: "A simple common HTTP client specifically for Google APIs and services.",
-      main: "build/cjs/src/index.js",
-      types: "build/cjs/src/index.d.ts",
-      files: [
-        "build/"
-      ],
-      exports: {
-        ".": {
-          import: {
-            types: "./build/esm/src/index.d.ts",
-            default: "./build/esm/src/index.js"
-          },
-          require: {
-            types: "./build/cjs/src/index.d.ts",
-            default: "./build/cjs/src/index.js"
-          }
-        }
-      },
-      scripts: {
-        lint: "gts check --no-inline-config",
-        test: "c8 mocha build/esm/test",
-        "presystem-test": "npm run compile",
-        "system-test": "mocha build/esm/system-test --timeout 80000",
-        compile: "tsc -b ./tsconfig.json ./tsconfig.cjs.json && node utils/enable-esm.mjs",
-        fix: "gts fix",
-        prepare: "npm run compile",
-        pretest: "npm run compile",
-        webpack: "webpack",
-        "prebrowser-test": "npm run compile",
-        "browser-test": "node build/browser-test/browser-test-runner.js",
-        docs: "jsdoc -c .jsdoc.js",
-        "samples-test": "cd samples/ && npm link ../ && npm test && cd ../",
-        prelint: "cd samples; npm link ../; npm install",
-        clean: "gts clean"
-      },
-      repository: {
-        type: "git",
-        directory: "core/packages/gaxios",
-        url: "https://github.com/googleapis/google-cloud-node.git"
-      },
-      keywords: [
-        "google"
-      ],
-      engines: {
-        node: ">=18"
-      },
-      author: "Google, LLC",
-      license: "Apache-2.0",
-      devDependencies: {
-        "@babel/plugin-proposal-private-methods": "^7.18.6",
-        "@types/cors": "^2.8.6",
-        "@types/express": "^5.0.0",
-        "@types/extend": "^3.0.1",
-        "@types/mocha": "^10.0.10",
-        "@types/multiparty": "4.2.1",
-        "@types/mv": "^2.1.0",
-        "@types/ncp": "^2.0.8",
-        "@types/node": "^24.0.0",
-        "@types/sinon": "^21.0.0",
-        "@types/tmp": "^0.2.6",
-        assert: "^2.0.0",
-        browserify: "^17.0.0",
-        c8: "^10.1.3",
-        cors: "^2.8.5",
-        express: "^5.0.0",
-        gts: "^6.0.2",
-        "is-docker": "^3.0.0",
-        jsdoc: "^4.0.4",
-        "jsdoc-fresh": "^5.0.0",
-        "jsdoc-region-tag": "^4.0.0",
-        karma: "^6.0.0",
-        "karma-chrome-launcher": "^3.0.0",
-        "karma-coverage": "^2.0.0",
-        "karma-firefox-launcher": "^2.0.0",
-        "karma-mocha": "^2.0.0",
-        "karma-remap-coverage": "^0.1.5",
-        "karma-sourcemap-loader": "^0.4.0",
-        "karma-webpack": "^5.0.0",
-        mocha: "^11.1.0",
-        multiparty: "^4.2.1",
-        mv: "^2.1.1",
-        ncp: "^2.0.0",
-        nock: "14.0.5",
-        "null-loader": "^4.0.1",
-        "pack-n-play": "^4.0.0",
-        puppeteer: "^24.0.0",
-        sinon: "21.0.3",
-        "stream-browserify": "^3.0.0",
-        tmp: "0.2.7",
-        "ts-loader": "^9.5.2",
-        typescript: "5.8.3",
-        "undici-types": "^7.24.1",
-        webpack: "^5.97.1",
-        "webpack-cli": "^6.0.1"
-      },
-      dependencies: {
-        extend: "^3.0.2",
-        "https-proxy-agent": "^7.0.1",
-        "node-fetch": "^3.3.2"
-      },
-      homepage: "https://github.com/googleapis/google-cloud-node/tree/main/core/packages/gaxios"
-    };
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/util.cjs
-var require_util12 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/util.cjs"(exports2, module2) {
-    "use strict";
-    var pkg = require_package3();
-    module2.exports = { pkg };
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/common.js
-var require_common4 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/common.js"(exports2) {
-    "use strict";
-    var __importDefault = exports2 && exports2.__importDefault || function(mod) {
-      return mod && mod.__esModule ? mod : { "default": mod };
-    };
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.GaxiosError = exports2.GAXIOS_ERROR_SYMBOL = void 0;
-    exports2.defaultErrorRedactor = defaultErrorRedactor;
-    var extend_1 = __importDefault(require_extend());
-    var util_cjs_1 = __importDefault(require_util12());
-    var pkg = util_cjs_1.default.pkg;
-    exports2.GAXIOS_ERROR_SYMBOL = /* @__PURE__ */ Symbol.for(`${pkg.name}-gaxios-error`);
-    var GaxiosError = class _GaxiosError extends Error {
-      config;
-      response;
-      /**
-       * An error code.
-       * Can be a system error code, DOMException error name, or any error's 'code' property where it is a `string`.
-       *
-       * It is only a `number` when the cause is sourced from an API-level error (AIP-193).
-       *
-       * @see {@link https://nodejs.org/api/errors.html#errorcode error.code}
-       * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/DOMException#error_names DOMException#error_names}
-       * @see {@link https://google.aip.dev/193#http11json-representation AIP-193}
-       *
-       * @example
-       * 'ECONNRESET'
-       *
-       * @example
-       * 'TimeoutError'
-       *
-       * @example
-       * 500
-       */
-      code;
-      /**
-       * An HTTP Status code.
-       * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/Response/status Response#status}
-       *
-       * @example
-       * 500
-       */
-      status;
-      /**
-       * @deprecated use {@link GaxiosError.cause} instead.
-       *
-       * @see {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/cause Error#cause}
-       *
-       * @privateRemarks
-       *
-       * We will want to remove this property later as the modern `cause` property is better suited
-       * for displaying and relaying nested errors. Keeping this here makes the resulting
-       * error log larger than it needs to be.
-       *
-       */
-      error;
-      /**
-       * Support `instanceof` operator for `GaxiosError` across builds/duplicated files.
-       *
-       * @see {@link GAXIOS_ERROR_SYMBOL}
-       * @see {@link GaxiosError[Symbol.hasInstance]}
-       * @see {@link https://github.com/microsoft/TypeScript/issues/13965#issuecomment-278570200}
-       * @see {@link https://stackoverflow.com/questions/46618852/require-and-instanceof}
-       * @see {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/@@hasInstance#reverting_to_default_instanceof_behavior}
-       */
-      [exports2.GAXIOS_ERROR_SYMBOL] = pkg.version;
-      /**
-       * Support `instanceof` operator for `GaxiosError` across builds/duplicated files.
-       *
-       * @see {@link GAXIOS_ERROR_SYMBOL}
-       * @see {@link GaxiosError[GAXIOS_ERROR_SYMBOL]}
-       */
-      static [Symbol.hasInstance](instance) {
-        if (instance && typeof instance === "object" && exports2.GAXIOS_ERROR_SYMBOL in instance && instance[exports2.GAXIOS_ERROR_SYMBOL] === pkg.version) {
-          return true;
-        }
-        return Function.prototype[Symbol.hasInstance].call(_GaxiosError, instance);
-      }
-      constructor(message, config, response, cause) {
-        super(message, { cause });
-        this.config = config;
-        this.response = response;
-        this.error = cause instanceof Error ? cause : void 0;
-        this.config = (0, extend_1.default)(true, {}, config);
-        if (this.response) {
-          this.response.config = (0, extend_1.default)(true, {}, this.response.config);
-        }
-        if (this.response) {
-          try {
-            this.response.data = translateData(
-              this.config.responseType,
-              // workaround for `node-fetch`'s `.data` deprecation...
-              this.response?.bodyUsed ? this.response?.data : void 0
-            );
-          } catch {
-          }
-          this.status = this.response.status;
-        }
-        if (cause instanceof DOMException) {
-          this.code = cause.name;
-        } else if (cause && typeof cause === "object" && "code" in cause && (typeof cause.code === "string" || typeof cause.code === "number")) {
-          this.code = cause.code;
-        }
-      }
-      /**
-       * An AIP-193 conforming error extractor.
-       *
-       * @see {@link https://google.aip.dev/193#http11json-representation AIP-193}
-       *
-       * @internal
-       * @expiremental
-       *
-       * @param res the response object
-       * @returns the extracted error information
-       */
-      static extractAPIErrorFromResponse(res, defaultErrorMessage = "The request failed") {
-        let message = defaultErrorMessage;
-        if (typeof res.data === "string") {
-          message = res.data;
-        }
-        if (res.data && typeof res.data === "object" && "error" in res.data && res.data.error && !res.ok) {
-          if (typeof res.data.error === "string") {
-            return {
-              message: res.data.error,
-              code: res.status,
-              status: res.statusText
-            };
-          }
-          if (typeof res.data.error === "object") {
-            message = "message" in res.data.error && typeof res.data.error.message === "string" ? res.data.error.message : message;
-            const status = "status" in res.data.error && typeof res.data.error.status === "string" ? res.data.error.status : res.statusText;
-            const code = "code" in res.data.error && typeof res.data.error.code === "number" ? res.data.error.code : res.status;
-            if ("errors" in res.data.error && Array.isArray(res.data.error.errors)) {
-              const errorMessages = [];
-              for (const e6 of res.data.error.errors) {
-                if (typeof e6 === "object" && "message" in e6 && typeof e6.message === "string") {
-                  errorMessages.push(e6.message);
-                }
-              }
-              return Object.assign({
-                message: errorMessages.join("\n") || message,
-                code,
-                status
-              }, res.data.error);
-            }
-            return Object.assign({
-              message,
-              code,
-              status
-            }, res.data.error);
-          }
-        }
-        return {
-          message,
-          code: res.status,
-          status: res.statusText
-        };
-      }
-    };
-    exports2.GaxiosError = GaxiosError;
-    function translateData(responseType, data) {
-      switch (responseType) {
-        case "stream":
-          return data;
-        case "json":
-          return JSON.parse(JSON.stringify(data));
-        case "arraybuffer":
-          return JSON.parse(Buffer.from(data).toString("utf8"));
-        case "blob":
-          return JSON.parse(data.text());
-        default:
-          return data;
-      }
-    }
-    function defaultErrorRedactor(data) {
-      const REDACT = "<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.";
-      function redactHeaders(headers) {
-        if (!headers)
-          return;
-        headers.forEach((_, key) => {
-          if (/^authentication$/i.test(key) || /^authorization$/i.test(key) || /secret/i.test(key))
-            headers.set(key, REDACT);
-        });
-      }
-      function redactString(obj, key) {
-        if (typeof obj === "object" && obj !== null && typeof obj[key] === "string") {
-          const text = obj[key];
-          if (/grant_type=/i.test(text) || /assertion=/i.test(text) || /secret/i.test(text)) {
-            obj[key] = REDACT;
-          }
-        }
-      }
-      function redactObject(obj) {
-        if (!obj || typeof obj !== "object") {
-          return;
-        } else if (obj instanceof FormData || obj instanceof URLSearchParams || // support `node-fetch` FormData/URLSearchParams
-        "forEach" in obj && "set" in obj) {
-          obj.forEach((_, key) => {
-            if (["grant_type", "assertion"].includes(key) || /secret/.test(key)) {
-              obj.set(key, REDACT);
-            }
-          });
-        } else {
-          if ("grant_type" in obj) {
-            obj["grant_type"] = REDACT;
-          }
-          if ("assertion" in obj) {
-            obj["assertion"] = REDACT;
-          }
-          if ("client_secret" in obj) {
-            obj["client_secret"] = REDACT;
-          }
-        }
-      }
-      if (data.config) {
-        redactHeaders(data.config.headers);
-        redactString(data.config, "data");
-        redactObject(data.config.data);
-        redactString(data.config, "body");
-        redactObject(data.config.body);
-        if (data.config.url.searchParams.has("token")) {
-          data.config.url.searchParams.set("token", REDACT);
-        }
-        if (data.config.url.searchParams.has("client_secret")) {
-          data.config.url.searchParams.set("client_secret", REDACT);
-        }
-      }
-      if (data.response) {
-        defaultErrorRedactor({ config: data.response.config });
-        redactHeaders(data.response.headers);
-        if (data.response.bodyUsed) {
-          redactString(data.response, "data");
-          redactObject(data.response.data);
-        }
-      }
-      return data;
-    }
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/retry.js
-var require_retry3 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/retry.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.getRetryConfig = getRetryConfig;
-    async function getRetryConfig(err) {
-      let config = getConfig(err);
-      if (!err || !err.config || !config && !err.config.retry) {
-        return { shouldRetry: false };
-      }
-      config = config || {};
-      config.currentRetryAttempt = config.currentRetryAttempt || 0;
-      config.retry = config.retry === void 0 || config.retry === null ? 3 : config.retry;
-      config.httpMethodsToRetry = config.httpMethodsToRetry || [
-        "GET",
-        "HEAD",
-        "PUT",
-        "OPTIONS",
-        "DELETE"
-      ];
-      config.noResponseRetries = config.noResponseRetries === void 0 || config.noResponseRetries === null ? 2 : config.noResponseRetries;
-      config.retryDelayMultiplier = config.retryDelayMultiplier ? config.retryDelayMultiplier : 2;
-      config.timeOfFirstRequest = config.timeOfFirstRequest ? config.timeOfFirstRequest : Date.now();
-      config.totalTimeout = config.totalTimeout ? config.totalTimeout : Number.MAX_SAFE_INTEGER;
-      config.maxRetryDelay = config.maxRetryDelay ? config.maxRetryDelay : Number.MAX_SAFE_INTEGER;
-      const retryRanges = [
-        // https://en.wikipedia.org/wiki/List_of_HTTP_status_codes
-        // 1xx - Retry (Informational, request still processing)
-        // 2xx - Do not retry (Success)
-        // 3xx - Do not retry (Redirect)
-        // 4xx - Do not retry (Client errors)
-        // 408 - Retry ("Request Timeout")
-        // 429 - Retry ("Too Many Requests")
-        // 5xx - Retry (Server errors)
-        [100, 199],
-        [408, 408],
-        [429, 429],
-        [500, 599]
-      ];
-      config.statusCodesToRetry = config.statusCodesToRetry || retryRanges;
-      err.config.retryConfig = config;
-      const shouldRetryFn = config.shouldRetry || shouldRetryRequest;
-      if (!await shouldRetryFn(err)) {
-        return { shouldRetry: false, config: err.config };
-      }
-      const delay = getNextRetryDelay(config);
-      err.config.retryConfig.currentRetryAttempt += 1;
-      const backoff2 = config.retryBackoff ? config.retryBackoff(err, delay) : new Promise((resolve) => {
-        setTimeout(resolve, delay);
-      });
-      if (config.onRetryAttempt) {
-        await config.onRetryAttempt(err);
-      }
-      await backoff2;
-      return { shouldRetry: true, config: err.config };
-    }
-    function shouldRetryRequest(err) {
-      const config = getConfig(err);
-      if (err.config.signal?.aborted && err.code !== "TimeoutError" || err.code === "AbortError") {
-        return false;
-      }
-      if (!config || config.retry === 0) {
-        return false;
-      }
-      if (!err.response && (config.currentRetryAttempt || 0) >= config.noResponseRetries) {
-        return false;
-      }
-      if (!config.httpMethodsToRetry || !config.httpMethodsToRetry.includes(err.config.method?.toUpperCase() || "GET")) {
-        return false;
-      }
-      if (err.response && err.response.status) {
-        let isInRange = false;
-        for (const [min, max] of config.statusCodesToRetry) {
-          const status = err.response.status;
-          if (status >= min && status <= max) {
-            isInRange = true;
-            break;
-          }
-        }
-        if (!isInRange) {
-          return false;
-        }
-      }
-      config.currentRetryAttempt = config.currentRetryAttempt || 0;
-      if (config.currentRetryAttempt >= config.retry) {
-        return false;
-      }
-      return true;
-    }
-    function getConfig(err) {
-      if (err && err.config && err.config.retryConfig) {
-        return err.config.retryConfig;
-      }
-      return;
-    }
-    function getNextRetryDelay(config) {
-      const retryDelay = config.currentRetryAttempt ? 0 : config.retryDelay ?? 100;
-      const calculatedDelay = retryDelay + (Math.pow(config.retryDelayMultiplier, config.currentRetryAttempt) - 1) / 2 * 1e3;
-      const maxAllowableDelay = config.totalTimeout - (Date.now() - config.timeOfFirstRequest);
-      return Math.min(calculatedDelay, maxAllowableDelay, config.maxRetryDelay);
-    }
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/interceptor.js
-var require_interceptor2 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/interceptor.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.GaxiosInterceptorManager = void 0;
-    var GaxiosInterceptorManager = class extends Set {
-    };
-    exports2.GaxiosInterceptorManager = GaxiosInterceptorManager;
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/gaxios.js
-var require_gaxios2 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/gaxios.js"(exports2) {
-    "use strict";
-    var __importDefault = exports2 && exports2.__importDefault || function(mod) {
-      return mod && mod.__esModule ? mod : { "default": mod };
-    };
-    var _a2;
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.Gaxios = void 0;
-    var extend_1 = __importDefault(require_extend());
-    var https_1 = require("https");
-    var common_js_1 = require_common4();
-    var retry_js_1 = require_retry3();
-    var stream_1 = require("stream");
-    var interceptor_js_1 = require_interceptor2();
-    var randomUUID2 = async () => globalThis.crypto?.randomUUID() || (await import("crypto")).randomUUID();
-    var HTTP_STATUS_NO_CONTENT = 204;
-    var Gaxios = class {
-      agentCache = /* @__PURE__ */ new Map();
-      /**
-       * Default HTTP options that will be used for every HTTP request.
-       */
-      defaults;
-      /**
-       * Interceptors
-       */
-      interceptors;
-      /**
-       * The Gaxios class is responsible for making HTTP requests.
-       * @param defaults The default set of options to be used for this instance.
-       */
-      constructor(defaults) {
-        this.defaults = defaults || {};
-        this.interceptors = {
-          request: new interceptor_js_1.GaxiosInterceptorManager(),
-          response: new interceptor_js_1.GaxiosInterceptorManager()
-        };
-      }
-      /**
-       * A {@link fetch `fetch`} compliant API for {@link Gaxios}.
-       *
-       * @remarks
-       *
-       * This is useful as a drop-in replacement for `fetch` API usage.
-       *
-       * @example
-       *
-       * ```ts
-       * const gaxios = new Gaxios();
-       * const myFetch: typeof fetch = (...args) => gaxios.fetch(...args);
-       * await myFetch('https://example.com');
-       * ```
-       *
-       * @param args `fetch` API or `Gaxios#request` parameters
-       * @returns the {@link Response} with Gaxios-added properties
-       */
-      fetch(...args) {
-        const input = args[0];
-        const init = args[1];
-        let url = void 0;
-        const headers = new Headers();
-        if (typeof input === "string") {
-          url = new URL(input);
-        } else if (input instanceof URL) {
-          url = input;
-        } else if (input && input.url) {
-          url = new URL(input.url);
-        }
-        if (input && typeof input === "object" && "headers" in input) {
-          _a2.mergeHeaders(headers, input.headers);
-        }
-        if (init) {
-          _a2.mergeHeaders(headers, new Headers(init.headers));
-        }
-        if (typeof input === "object" && !(input instanceof URL)) {
-          return this.request({ ...init, ...input, headers, url });
-        } else {
-          return this.request({ ...init, headers, url });
-        }
-      }
-      /**
-       * Perform an HTTP request with the given options.
-       * @param opts Set of HTTP options that will be used for this HTTP request.
-       */
-      async request(opts = {}) {
-        let prepared = await this.#prepareRequest(opts);
-        prepared = await this.#applyRequestInterceptors(prepared);
-        return this.#applyResponseInterceptors(this._request(prepared));
-      }
-      async _defaultAdapter(config) {
-        const fetchImpl = config.fetchImplementation || this.defaults.fetchImplementation || await _a2.#getFetch();
-        const preparedOpts = { ...config };
-        delete preparedOpts.data;
-        const res = await fetchImpl(config.url, preparedOpts);
-        const data = await this.getResponseData(config, res);
-        if (!Object.getOwnPropertyDescriptor(res, "data")?.configurable) {
-          Object.defineProperties(res, {
-            data: {
-              configurable: true,
-              writable: true,
-              enumerable: true,
-              value: data
-            }
-          });
-        }
-        return Object.assign(res, { config, data });
-      }
-      /**
-       * Internal, retryable version of the `request` method.
-       * @param opts Set of HTTP options that will be used for this HTTP request.
-       */
-      async _request(opts) {
-        try {
-          let translatedResponse;
-          if (opts.adapter) {
-            translatedResponse = await opts.adapter(opts, this._defaultAdapter.bind(this));
-          } else {
-            translatedResponse = await this._defaultAdapter(opts);
-          }
-          if (!opts.validateStatus(translatedResponse.status)) {
-            if (opts.responseType === "stream") {
-              const response = [];
-              for await (const chunk2 of translatedResponse.data) {
-                response.push(chunk2);
-              }
-              translatedResponse.data = Buffer.concat(response.map((c5) => typeof c5 === "string" ? Buffer.from(c5) : c5)).toString("utf8");
-            }
-            const errorInfo = common_js_1.GaxiosError.extractAPIErrorFromResponse(translatedResponse, `Request failed with status code ${translatedResponse.status}`);
-            throw new common_js_1.GaxiosError(errorInfo?.message, opts, translatedResponse, errorInfo);
-          }
-          return translatedResponse;
-        } catch (e6) {
-          let err;
-          if (e6 instanceof common_js_1.GaxiosError) {
-            err = e6;
-          } else if (e6 instanceof Error) {
-            err = new common_js_1.GaxiosError(e6.message, opts, void 0, e6);
-          } else {
-            err = new common_js_1.GaxiosError("Unexpected Gaxios Error", opts, void 0, e6);
-          }
-          const { shouldRetry, config } = await (0, retry_js_1.getRetryConfig)(err);
-          if (shouldRetry && config) {
-            err.config.retryConfig.currentRetryAttempt = config.retryConfig.currentRetryAttempt;
-            opts.retryConfig = err.config?.retryConfig;
-            this.#appendTimeoutToSignal(opts);
-            return this._request(opts);
-          }
-          if (opts.errorRedactor) {
-            opts.errorRedactor(err);
-          }
-          throw err;
-        }
-      }
-      async getResponseData(opts, res) {
-        if (res.status === HTTP_STATUS_NO_CONTENT) {
-          return "";
-        }
-        if (opts.maxContentLength && res.headers.has("content-length") && opts.maxContentLength < Number.parseInt(res.headers?.get("content-length") || "")) {
-          throw new common_js_1.GaxiosError("Response's `Content-Length` is over the limit.", opts, Object.assign(res, { config: opts }));
-        }
-        switch (opts.responseType) {
-          case "stream":
-            return res.body;
-          case "json": {
-            const data = await res.text();
-            try {
-              return JSON.parse(data);
-            } catch {
-              return data;
-            }
-          }
-          case "arraybuffer":
-            return res.arrayBuffer();
-          case "blob":
-            return res.blob();
-          case "text":
-            return res.text();
-          default:
-            return this.getResponseDataFromContentType(res);
-        }
-      }
-      #urlMayUseProxy(url, noProxy = []) {
-        const candidate = new URL(url);
-        const noProxyList = [...noProxy];
-        const noProxyEnvList = (process.env.NO_PROXY ?? process.env.no_proxy)?.split(",") || [];
-        for (const rule of noProxyEnvList) {
-          noProxyList.push(rule.trim());
-        }
-        for (const rule of noProxyList) {
-          if (rule instanceof RegExp) {
-            if (rule.test(candidate.toString())) {
-              return false;
-            }
-          } else if (rule instanceof URL) {
-            if (rule.origin === candidate.origin) {
-              return false;
-            }
-          } else if (rule.startsWith("*.") || rule.startsWith(".")) {
-            const cleanedRule = rule.replace(/^\*\./, ".");
-            if (candidate.hostname.endsWith(cleanedRule)) {
-              return false;
-            }
-          } else if (rule === candidate.origin || rule === candidate.hostname || rule === candidate.href) {
-            return false;
-          }
-        }
-        return true;
-      }
-      /**
-       * Applies the request interceptors. The request interceptors are applied after the
-       * call to prepareRequest is completed.
-       *
-       * @param {GaxiosOptionsPrepared} options The current set of options.
-       *
-       * @returns {Promise<GaxiosOptionsPrepared>} Promise that resolves to the set of options or response after interceptors are applied.
-       */
-      async #applyRequestInterceptors(options) {
-        let promiseChain = Promise.resolve(options);
-        for (const interceptor of this.interceptors.request.values()) {
-          if (interceptor) {
-            promiseChain = promiseChain.then(interceptor.resolved, interceptor.rejected);
-          }
-        }
-        return promiseChain;
-      }
-      /**
-       * Applies the response interceptors. The response interceptors are applied after the
-       * call to request is made.
-       *
-       * @param {GaxiosOptionsPrepared} options The current set of options.
-       *
-       * @returns {Promise<GaxiosOptionsPrepared>} Promise that resolves to the set of options or response after interceptors are applied.
-       */
-      async #applyResponseInterceptors(response) {
-        let promiseChain = Promise.resolve(response);
-        for (const interceptor of this.interceptors.response.values()) {
-          if (interceptor) {
-            promiseChain = promiseChain.then(interceptor.resolved, interceptor.rejected);
-          }
-        }
-        return promiseChain;
-      }
-      /**
-       * Validates the options, merges them with defaults, and prepare request.
-       *
-       * @param options The original options passed from the client.
-       * @returns Prepared options, ready to make a request
-       */
-      async #prepareRequest(options) {
-        const preparedHeaders = new Headers(this.defaults.headers);
-        _a2.mergeHeaders(preparedHeaders, options.headers);
-        const opts = (0, extend_1.default)(true, {}, this.defaults, options);
-        if (!opts.url) {
-          throw new Error("URL is required.");
-        }
-        if (opts.baseURL) {
-          opts.url = new URL(opts.url, opts.baseURL);
-        }
-        opts.url = new URL(opts.url);
-        if (opts.params) {
-          if (opts.paramsSerializer) {
-            let additionalQueryParams = opts.paramsSerializer(opts.params);
-            if (additionalQueryParams.startsWith("?")) {
-              additionalQueryParams = additionalQueryParams.slice(1);
-            }
-            const prefix = opts.url.toString().includes("?") ? "&" : "?";
-            opts.url = opts.url + prefix + additionalQueryParams;
-          } else {
-            const url = opts.url instanceof URL ? opts.url : new URL(opts.url);
-            for (const [key, value] of new URLSearchParams(opts.params)) {
-              url.searchParams.append(key, value);
-            }
-            opts.url = url;
-          }
-        }
-        if (typeof options.maxContentLength === "number") {
-          opts.size = options.maxContentLength;
-        }
-        if (typeof options.maxRedirects === "number") {
-          opts.follow = options.maxRedirects;
-        }
-        const shouldDirectlyPassData = typeof opts.data === "string" || opts.data instanceof ArrayBuffer || opts.data instanceof Blob || // Node 18 does not have a global `File` object
-        globalThis.File && opts.data instanceof File || opts.data instanceof FormData || opts.data instanceof stream_1.Readable || opts.data instanceof ReadableStream || opts.data instanceof String || opts.data instanceof URLSearchParams || ArrayBuffer.isView(opts.data) || // `Buffer` (Node.js), `DataView`, `TypedArray`
-        /**
-         * @deprecated `node-fetch` or another third-party's request types
-         */
-        ["Blob", "File", "FormData"].includes(opts.data?.constructor?.name || "");
-        if (opts.multipart?.length) {
-          const boundary = await randomUUID2();
-          preparedHeaders.set("content-type", `multipart/related; boundary=${boundary}`);
-          opts.body = stream_1.Readable.from(this.getMultipartRequest(opts.multipart, boundary));
-        } else if (shouldDirectlyPassData) {
-          opts.body = opts.data;
-        } else if (typeof opts.data === "object") {
-          if (preparedHeaders.get("Content-Type") === "application/x-www-form-urlencoded") {
-            opts.body = opts.paramsSerializer ? opts.paramsSerializer(opts.data) : new URLSearchParams(opts.data);
-          } else {
-            if (!preparedHeaders.has("content-type")) {
-              preparedHeaders.set("content-type", "application/json");
-            }
-            opts.body = JSON.stringify(opts.data);
-          }
-        } else if (opts.data) {
-          opts.body = opts.data;
-        }
-        opts.validateStatus = opts.validateStatus || this.validateStatus;
-        opts.responseType = opts.responseType || "unknown";
-        if (!preparedHeaders.has("accept") && opts.responseType === "json") {
-          preparedHeaders.set("accept", "application/json");
-        }
-        const proxy = opts.proxy || process?.env?.HTTPS_PROXY || process?.env?.https_proxy || process?.env?.HTTP_PROXY || process?.env?.http_proxy;
-        if (opts.agent) {
-        } else if (proxy && this.#urlMayUseProxy(opts.url, opts.noProxy)) {
-          const HttpsProxyAgent = await _a2.#getProxyAgent();
-          if (this.agentCache.has(proxy)) {
-            opts.agent = this.agentCache.get(proxy);
-          } else {
-            opts.agent = new HttpsProxyAgent(proxy, {
-              cert: opts.cert,
-              key: opts.key
-            });
-            this.agentCache.set(proxy, opts.agent);
-          }
-        } else if (opts.cert && opts.key) {
-          if (this.agentCache.has(opts.key)) {
-            opts.agent = this.agentCache.get(opts.key);
-          } else {
-            opts.agent = new https_1.Agent({
-              cert: opts.cert,
-              key: opts.key
-            });
-            this.agentCache.set(opts.key, opts.agent);
-          }
-        }
-        if (typeof opts.errorRedactor !== "function" && opts.errorRedactor !== false) {
-          opts.errorRedactor = common_js_1.defaultErrorRedactor;
-        }
-        if (opts.body && !("duplex" in opts)) {
-          opts.duplex = "half";
-        }
-        this.#appendTimeoutToSignal(opts);
-        return Object.assign(opts, {
-          headers: preparedHeaders,
-          url: opts.url instanceof URL ? opts.url : new URL(opts.url)
-        });
-      }
-      #appendTimeoutToSignal(opts) {
-        if (opts.timeout) {
-          const timeoutSignal = AbortSignal.timeout(opts.timeout);
-          if (opts.signal && !opts.signal.aborted) {
-            opts.signal = AbortSignal.any([opts.signal, timeoutSignal]);
-          } else {
-            opts.signal = timeoutSignal;
-          }
-        }
-      }
-      /**
-       * By default, throw for any non-2xx status code
-       * @param status status code from the HTTP response
-       */
-      validateStatus(status) {
-        return status >= 200 && status < 300;
-      }
-      /**
-       * Attempts to parse a response by looking at the Content-Type header.
-       * @param {Response} response the HTTP response.
-       * @returns a promise that resolves to the response data.
-       */
-      async getResponseDataFromContentType(response) {
-        let contentType = response.headers.get("Content-Type");
-        if (contentType === null) {
-          return response.text();
-        }
-        contentType = contentType.toLowerCase();
-        if (contentType.includes("application/json")) {
-          let data = await response.text();
-          try {
-            data = JSON.parse(data);
-          } catch {
-          }
-          return data;
-        } else if (contentType.match(/^text\//)) {
-          return response.text();
-        } else {
-          return response.blob();
-        }
-      }
-      /**
-       * Creates an async generator that yields the pieces of a multipart/related request body.
-       * This implementation follows the spec: https://www.ietf.org/rfc/rfc2387.txt. However, recursive
-       * multipart/related requests are not currently supported.
-       *
-       * @param {GaxiosMultipartOptions[]} multipartOptions the pieces to turn into a multipart/related body.
-       * @param {string} boundary the boundary string to be placed between each part.
-       */
-      async *getMultipartRequest(multipartOptions, boundary) {
-        const finale = `--${boundary}--`;
-        for (const currentPart of multipartOptions) {
-          const partContentType = currentPart.headers.get("Content-Type") || "application/octet-stream";
-          const preamble = `--${boundary}\r
-Content-Type: ${partContentType}\r
-\r
-`;
-          yield preamble;
-          if (typeof currentPart.content === "string") {
-            yield currentPart.content;
-          } else {
-            yield* currentPart.content;
-          }
-          yield "\r\n";
-        }
-        yield finale;
-      }
-      /**
-       * A cache for the lazily-loaded proxy agent.
-       *
-       * Should use {@link Gaxios[#getProxyAgent]} to retrieve.
-       */
-      // using `import` to dynamically import the types here
-      static #proxyAgent;
-      /**
-       * A cache for the lazily-loaded fetch library.
-       *
-       * Should use {@link Gaxios[#getFetch]} to retrieve.
-       */
-      //
-      static #fetch;
-      /**
-       * Imports, caches, and returns a proxy agent - if not already imported
-       *
-       * @returns A proxy agent
-       */
-      static async #getProxyAgent() {
-        this.#proxyAgent ||= (await Promise.resolve().then(() => __toESM(require_dist2()))).HttpsProxyAgent;
-        return this.#proxyAgent;
-      }
-      static async #getFetch() {
-        const hasWindow = typeof window !== "undefined" && !!window;
-        this.#fetch ||= hasWindow ? window.fetch : (await Promise.resolve().then(() => (init_src(), src_exports))).default;
-        return this.#fetch;
-      }
-      /**
-       * Merges headers.
-       * If the base headers do not exist a new `Headers` object will be returned.
-       *
-       * @remarks
-       *
-       * Using this utility can be helpful when the headers are not known to exist:
-       * - if they exist as `Headers`, that instance will be used
-       *   - it improves performance and allows users to use their existing references to their `Headers`
-       * - if they exist in another form (`HeadersInit`), they will be used to create a new `Headers` object
-       * - if the base headers do not exist a new `Headers` object will be created
-       *
-       * @param base headers to append/overwrite to
-       * @param append headers to append/overwrite with
-       * @returns the base headers instance with merged `Headers`
-       */
-      static mergeHeaders(base, ...append) {
-        base = base instanceof Headers ? base : new Headers(base);
-        for (const headers of append) {
-          const add = headers instanceof Headers ? headers : new Headers(headers);
-          add.forEach((value, key) => {
-            key === "set-cookie" ? base.append(key, value) : base.set(key, value);
-          });
-        }
-        return base;
-      }
-    };
-    exports2.Gaxios = Gaxios;
-    _a2 = Gaxios;
-  }
-});
-
-// node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/index.js
-var require_src6 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/node_modules/gaxios/build/cjs/src/index.js"(exports2) {
-    "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
-      if (k22 === void 0) k22 = k5;
-      var desc = Object.getOwnPropertyDescriptor(m4, k5);
-      if (!desc || ("get" in desc ? !m4.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m4[k5];
-        } };
-      }
-      Object.defineProperty(o3, k22, desc);
-    }) : (function(o3, m4, k5, k22) {
-      if (k22 === void 0) k22 = k5;
-      o3[k22] = m4[k5];
-    }));
-    var __exportStar = exports2 && exports2.__exportStar || function(m4, exports3) {
-      for (var p3 in m4) if (p3 !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p3)) __createBinding(exports3, m4, p3);
-    };
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.instance = exports2.Gaxios = exports2.GaxiosError = void 0;
-    exports2.request = request;
-    var gaxios_js_1 = require_gaxios2();
-    Object.defineProperty(exports2, "Gaxios", { enumerable: true, get: function() {
-      return gaxios_js_1.Gaxios;
-    } });
-    var common_js_1 = require_common4();
-    Object.defineProperty(exports2, "GaxiosError", { enumerable: true, get: function() {
-      return common_js_1.GaxiosError;
-    } });
-    __exportStar(require_interceptor2(), exports2);
     exports2.instance = new gaxios_js_1.Gaxios();
     async function request(opts) {
       return exports2.instance.request(opts);
@@ -60065,9 +59073,9 @@ var require_json_bigint = __commonJS({
   }
 });
 
-// node_modules/google-auth-library/node_modules/gcp-metadata/build/src/gcp-residency.js
+// node_modules/gcp-metadata/build/src/gcp-residency.js
 var require_gcp_residency = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/build/src/gcp-residency.js"(exports2) {
+  "node_modules/gcp-metadata/build/src/gcp-residency.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.GCE_LINUX_BIOS_PATHS = void 0;
@@ -60083,9 +59091,14 @@ var require_gcp_residency = __commonJS({
       BIOS_VENDOR: "/sys/class/dmi/id/bios_vendor"
     };
     var GCE_MAC_ADDRESS_REGEX = /^42:01/;
+    var SERVERLESS_ENV_VARS = [
+      "CLOUD_RUN_JOB",
+      "FUNCTION_NAME",
+      "K_SERVICE",
+      "CLOUD_RUN_WORKER_POOL"
+    ];
     function isGoogleCloudServerless() {
-      const isGFEnvironment = process.env.CLOUD_RUN_JOB || process.env.FUNCTION_NAME || process.env.K_SERVICE;
-      return !!isGFEnvironment;
+      return SERVERLESS_ENV_VARS.some((key) => Boolean(process.env[key]));
     }
     function isGoogleComputeEngineLinux() {
       if ((0, os_1.platform)() !== "linux")
@@ -60304,7 +59317,7 @@ var require_logging_utils = __commonJS({
       filtersSet = false;
       constructor() {
         let nodeFlag = process2.env[exports2.env.nodeEnables] ?? "*";
-        if (nodeFlag === "all") {
+        if (nodeFlag === "all" || nodeFlag === "true") {
           nodeFlag = "*";
         }
         this.filters = nodeFlag.split(",");
@@ -60482,7 +59495,7 @@ var require_logging_utils = __commonJS({
 });
 
 // node_modules/google-logging-utils/build/src/index.js
-var require_src7 = __commonJS({
+var require_src6 = __commonJS({
   "node_modules/google-logging-utils/build/src/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
@@ -60502,13 +59515,18 @@ var require_src7 = __commonJS({
       for (var p3 in m4) if (p3 !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p3)) __createBinding(exports3, m4, p3);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.LogSeverity = void 0;
     __exportStar(require_logging_utils(), exports2);
+    var types_1 = require_types2();
+    Object.defineProperty(exports2, "LogSeverity", { enumerable: true, get: function() {
+      return types_1.LogSeverity;
+    } });
   }
 });
 
-// node_modules/google-auth-library/node_modules/gcp-metadata/build/src/index.js
-var require_src8 = __commonJS({
-  "node_modules/google-auth-library/node_modules/gcp-metadata/build/src/index.js"(exports2) {
+// node_modules/gcp-metadata/build/src/index.js
+var require_src7 = __commonJS({
+  "node_modules/gcp-metadata/build/src/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
       if (k22 === void 0) k22 = k5;
@@ -60561,10 +59579,10 @@ var require_src8 = __commonJS({
     exports2.getGCPResidency = getGCPResidency;
     exports2.setGCPResidency = setGCPResidency;
     exports2.requestTimeout = requestTimeout;
-    var gaxios_1 = require_src6();
+    var gaxios_1 = require_src5();
     var jsonBigint = require_json_bigint();
     var gcp_residency_1 = require_gcp_residency();
-    var logger2 = __importStar(require_src7());
+    var logger2 = __importStar(require_src6());
     exports2.BASE_PATH = "/computeMetadata/v1";
     exports2.HOST_ADDRESS = "http://169.254.169.254";
     exports2.SECONDARY_HOST_ADDRESS = "http://metadata.google.internal.";
@@ -60634,9 +59652,9 @@ var require_src8 = __commonJS({
         responseType: "text",
         timeout: requestTimeout()
       };
-      log.info("instance request %j", req);
+      log.debug("instance request %j", req);
       const res = await requestMethod(req);
-      log.info("instance metadata is %s", res.data);
+      log.debug("instance metadata is %s", res.data);
       const metadataFlavor = res.headers.get(exports2.HEADER_NAME);
       if (metadataFlavor !== exports2.HEADER_VALUE) {
         throw new RangeError(`Invalid response from metadata service: incorrect ${exports2.HEADER_NAME} header. Expected '${exports2.HEADER_VALUE}', got ${metadataFlavor ? `'${metadataFlavor}'` : "no header"}`);
@@ -60656,7 +59674,14 @@ var require_src8 = __commonJS({
       };
       const r1 = (0, gaxios_1.request)(options);
       const r22 = (0, gaxios_1.request)(secondaryOptions);
-      return Promise.any([r1, r22]);
+      try {
+        return await Promise.any([r1, r22]);
+      } catch (err) {
+        if (err instanceof AggregateError && !err.message) {
+          err.message = "All promises were rejected";
+        }
+        throw err;
+      }
     }
     function instance(options) {
       return metadataAccessor("instance", options);
@@ -60682,6 +59707,51 @@ var require_src8 = __commonJS({
       return process.env.DETECT_GCP_RETRIES ? Number(process.env.DETECT_GCP_RETRIES) : 0;
     }
     var cachedIsAvailableResponse;
+    var EXPECTED_NETWORK_ERROR_CODES = /* @__PURE__ */ new Set([
+      "EHOSTDOWN",
+      "EHOSTUNREACH",
+      "ENETUNREACH",
+      "ENOENT",
+      "ENOTFOUND",
+      "ECONNREFUSED",
+      "ConnectionRefused",
+      "FailedToOpenSocket"
+    ]);
+    var TIMEOUT_NAMES_AND_CODES = /* @__PURE__ */ new Set([
+      "AbortError",
+      "TimeoutError"
+    ]);
+    var TIMEOUT_TYPES = /* @__PURE__ */ new Set([
+      "aborted",
+      "request-timeout"
+    ]);
+    var MAX_ERROR_DEPTH = 20;
+    function isErrorWithDetails(val) {
+      return typeof val === "object" && val !== null;
+    }
+    function getErrorCodes(err, visited = /* @__PURE__ */ new Set(), depth = 0) {
+      if (!isErrorWithDetails(err) || visited.has(err) || depth > MAX_ERROR_DEPTH) {
+        return ["UNKNOWN"];
+      }
+      visited.add(err);
+      if (err.name === "AggregateError" && Array.isArray(err.errors)) {
+        if (err.errors.length === 0) {
+          return ["UNKNOWN"];
+        }
+        return err.errors.flatMap((subErr) => getErrorCodes(subErr, visited, depth + 1));
+      }
+      if (err.name !== void 0 && TIMEOUT_NAMES_AND_CODES.has(err.name) || err.code !== void 0 && TIMEOUT_NAMES_AND_CODES.has(err.code) || err.type !== void 0 && TIMEOUT_TYPES.has(err.type)) {
+        return ["ETIMEDOUT"];
+      }
+      if ((typeof err.code === "string" || typeof err.code === "number") && err.code !== "") {
+        return [String(err.code)];
+      }
+      const nested = err.cause ?? err.error;
+      if (nested !== void 0) {
+        return getErrorCodes(nested, visited, depth + 1);
+      }
+      return ["UNKNOWN"];
+    }
     async function isAvailable() {
       if (process.env.METADATA_SERVER_DETECTION) {
         const value = process.env.METADATA_SERVER_DETECTION.trim().toLocaleLowerCase();
@@ -60713,46 +59783,23 @@ var require_src8 = __commonJS({
               );
               return true;
             } catch (e6) {
-              const err = e6;
               if (process.env.DEBUG_AUTH) {
-                console.info(err);
+                console.info(e6);
               }
-              if (err.type === "request-timeout") {
+              if (!isErrorWithDetails(e6)) {
+                process.emitWarning(`received unexpected error = ${String(e6)} code = UNKNOWN`, "MetadataLookupWarning");
                 return false;
               }
-              if (err.response && err.response.status === 404) {
-                return false;
-              } else {
-                const errObj = e6;
-                const getErrorCodes = (err2) => {
-                  if (!err2)
-                    return ["UNKNOWN"];
-                  if (err2.name === "AggregateError" && Array.isArray(err2.errors)) {
-                    return err2.errors.flatMap(getErrorCodes);
-                  }
-                  if (err2.code) {
-                    return [err2.code.toString()];
-                  }
-                  if (err2.cause) {
-                    return getErrorCodes(err2.cause);
-                  }
-                  return ["UNKNOWN"];
-                };
-                const codes = getErrorCodes(errObj);
-                const isExpected = codes.every((code) => [
-                  "EHOSTDOWN",
-                  "EHOSTUNREACH",
-                  "ENETUNREACH",
-                  "ENOENT",
-                  "ENOTFOUND",
-                  "ECONNREFUSED"
-                ].includes(code));
-                if (!isExpected) {
-                  const code = err.code ? err.code.toString() : "UNKNOWN";
-                  process.emitWarning(`received unexpected error = ${err.message} code = ${code}`, "MetadataLookupWarning");
-                }
+              if (e6.type === "request-timeout" || e6.response?.status === 404) {
                 return false;
               }
+              const codes = getErrorCodes(e6);
+              const isExpected = codes.length > 0 && codes.every((code) => EXPECTED_NETWORK_ERROR_CODES.has(code));
+              if (!isExpected) {
+                const code = [...new Set(codes)].join(", ");
+                process.emitWarning(`received unexpected error = ${e6.message} code = ${code}`, "MetadataLookupWarning");
+              }
+              return false;
             }
           })();
         }
@@ -61323,7 +60370,7 @@ var require_ecdsa_sig_formatter = __commonJS({
 });
 
 // node_modules/google-auth-library/build/src/util.js
-var require_util13 = __commonJS({
+var require_util12 = __commonJS({
   "node_modules/google-auth-library/build/src/util.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -61333,6 +60380,10 @@ var require_util13 = __commonJS({
     exports2.removeUndefinedValuesInObject = removeUndefinedValuesInObject;
     exports2.isValidFile = isValidFile;
     exports2.getWellKnownCertificateConfigFileLocation = getWellKnownCertificateConfigFileLocation;
+    exports2.isAdcWarningSuppressed = isAdcWarningSuppressed;
+    exports2.suppressAdcWarning = suppressAdcWarning;
+    exports2.isFromJsonWarningSuppressed = isFromJsonWarningSuppressed;
+    exports2.suppressFromJsonWarning = suppressFromJsonWarning;
     var fs4 = require("fs");
     var os5 = require("os");
     var path = require("path");
@@ -61434,15 +60485,39 @@ var require_util13 = __commonJS({
     function _isWindows() {
       return os5.platform().startsWith("win");
     }
+    var adcWarningSuppressionDepth = 0;
+    var fromJsonWarningSuppressionDepth = 0;
+    function isAdcWarningSuppressed() {
+      return adcWarningSuppressionDepth > 0;
+    }
+    function suppressAdcWarning(fn) {
+      adcWarningSuppressionDepth++;
+      try {
+        return fn();
+      } finally {
+        adcWarningSuppressionDepth--;
+      }
+    }
+    function isFromJsonWarningSuppressed() {
+      return adcWarningSuppressionDepth > 0 || fromJsonWarningSuppressionDepth > 0;
+    }
+    function suppressFromJsonWarning(fn) {
+      fromJsonWarningSuppressionDepth++;
+      try {
+        return fn();
+      } finally {
+        fromJsonWarningSuppressionDepth--;
+      }
+    }
   }
 });
 
 // node_modules/google-auth-library/package.json
-var require_package4 = __commonJS({
+var require_package3 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.3.1",
+      version: "11.3.2",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -61465,9 +60540,9 @@ var require_package4 = __commonJS({
       dependencies: {
         "base64-js": "^1.3.0",
         "ecdsa-sig-formatter": "^1.0.11",
-        gaxios: "^8.3.0",
-        "gcp-metadata": "^9.0.0",
-        "google-logging-utils": "^2.0.0",
+        gaxios: "^8.3.1",
+        "gcp-metadata": "^9.2.1",
+        "google-logging-utils": "^2.1.0",
         jws: "^4.0.0"
       },
       devDependencies: {
@@ -61484,8 +60559,8 @@ var require_package4 = __commonJS({
         gts: "^6.0.2",
         "is-docker": "^3.0.0",
         jsdoc: "^4.0.4",
-        "jsdoc-fresh": "^6.0.0",
-        "jsdoc-region-tag": "^5.0.0",
+        "jsdoc-fresh": "^6.1.0",
+        "jsdoc-region-tag": "^5.1.0",
         karma: "^6.0.0",
         "karma-chrome-launcher": "^3.0.0",
         "karma-coverage": "^2.0.0",
@@ -61537,7 +60612,7 @@ var require_shared2 = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.USER_AGENT = exports2.PRODUCT_NAME = exports2.pkg = void 0;
-    var pkg = require_package4();
+    var pkg = require_package3();
     exports2.pkg = pkg;
     var PRODUCT_NAME = "google-api-nodejs-client";
     exports2.PRODUCT_NAME = PRODUCT_NAME;
@@ -61554,8 +60629,8 @@ var require_authclient = __commonJS({
     exports2.AuthClient = exports2.DEFAULT_EAGER_REFRESH_THRESHOLD_MILLIS = exports2.DEFAULT_UNIVERSE = void 0;
     var events_1 = require("events");
     var gaxios_1 = require_src5();
-    var util_1 = require_util13();
-    var google_logging_utils_1 = require_src7();
+    var util_1 = require_util12();
+    var google_logging_utils_1 = require_src6();
     var shared_cjs_1 = require_shared2();
     exports2.DEFAULT_UNIVERSE = "googleapis.com";
     exports2.DEFAULT_EAGER_REFRESH_THRESHOLD_MILLIS = 5 * 60 * 1e3;
@@ -61707,9 +60782,9 @@ var require_authclient = __commonJS({
               headers: config.headers
             };
             if (methodName) {
-              _AuthClient.log.info("%s [%s] request %j", methodName, logId, logObject);
+              _AuthClient.log.debug("%s [%s] request %j", methodName, logId, logObject);
             } else {
-              _AuthClient.log.info("[%s] request %j", logId, logObject);
+              _AuthClient.log.debug("[%s] request %j", logId, logObject);
             }
           } catch (e6) {
           }
@@ -61723,9 +60798,9 @@ var require_authclient = __commonJS({
             const methodName = symbols[_AuthClient.RequestMethodNameSymbol];
             const logId = symbols[_AuthClient.RequestLogIdSymbol];
             if (methodName) {
-              _AuthClient.log.info("%s [%s] response %j", methodName, logId, response.data);
+              _AuthClient.log.debug("%s [%s] response %j", methodName, logId, response.data);
             } else {
-              _AuthClient.log.info("[%s] response %j", logId, response.data);
+              _AuthClient.log.debug("[%s] response %j", logId, response.data);
             }
           } catch (e6) {
           }
@@ -61737,9 +60812,9 @@ var require_authclient = __commonJS({
             const methodName = symbols[_AuthClient.RequestMethodNameSymbol];
             const logId = symbols[_AuthClient.RequestLogIdSymbol];
             if (methodName) {
-              _AuthClient.log.info("%s [%s] error %j", methodName, logId, error3.response?.data);
+              _AuthClient.log.debug("%s [%s] error %j", methodName, logId, error3.response?.data);
             } else {
-              _AuthClient.log.error("[%s] error %j", logId, error3.response?.data);
+              _AuthClient.log.debug("[%s] error %j", logId, error3.response?.data);
             }
           } catch (e6) {
           }
@@ -61843,7 +60918,7 @@ var require_oauth2client = __commonJS({
     var querystring = require("querystring");
     var stream = require("stream");
     var formatEcdsa = require_ecdsa_sig_formatter();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var crypto_1 = require_crypto3();
     var authclient_1 = require_authclient();
     var loginticket_1 = require_loginticket();
@@ -62521,7 +61596,7 @@ var require_computeclient = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Compute = void 0;
     var gaxios_1 = require_src5();
-    var gcpMetadata = require_src8();
+    var gcpMetadata = require_src7();
     var oauth2client_1 = require_oauth2client();
     var Compute = class extends oauth2client_1.OAuth2Client {
       serviceAccountEmail;
@@ -62660,7 +61735,7 @@ var require_envDetect = __commonJS({
     exports2.GCPEnv = void 0;
     exports2.clear = clear;
     exports2.getEnv = getEnv;
-    var gcpMetadata = require_src8();
+    var gcpMetadata = require_src7();
     var GCPEnv;
     (function(GCPEnv2) {
       GCPEnv2["APP_ENGINE"] = "APP_ENGINE";
@@ -63690,7 +62765,7 @@ var require_jwtaccess = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.JWTAccess = void 0;
     var jws = require_jws();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var DEFAULT_HEADER = {
       alg: "RS256",
       typ: "JWT"
@@ -64261,7 +63336,7 @@ var require_impersonated = __commonJS({
     exports2.Impersonated = exports2.IMPERSONATED_ACCOUNT_TYPE = void 0;
     var oauth2client_1 = require_oauth2client();
     var gaxios_1 = require_src5();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     exports2.IMPERSONATED_ACCOUNT_TYPE = "impersonated_service_account";
     var Impersonated = class _Impersonated extends oauth2client_1.OAuth2Client {
       sourceClient;
@@ -64311,6 +63386,9 @@ var require_impersonated = __commonJS({
        */
       constructor(options = {}) {
         super(options);
+        if (!(0, util_1.isAdcWarningSuppressed)()) {
+          console.warn("The `Impersonated` constructor does not validate the credential configuration. A security risk occurs when a credential configuration configured with malicious URLs is used. When the credential configuration is accepted from an untrusted source, you should validate it before using it with this method. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.");
+        }
         this.credentials = {
           expiry_date: 1,
           refresh_token: "impersonated-placeholder"
@@ -64589,7 +63667,7 @@ var require_stscredentials = __commonJS({
     var gaxios_1 = require_src5();
     var authclient_1 = require_authclient();
     var oauth2common_1 = require_oauth2common();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var StsCredentials = class _StsCredentials extends oauth2common_1.OAuthClientAuthHandler {
       #tokenExchangeEndpoint;
       /**
@@ -64678,7 +63756,7 @@ var require_baseexternalclient = __commonJS({
     var stream = require("stream");
     var authclient_1 = require_authclient();
     var sts = require_stscredentials();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var shared_cjs_1 = require_shared2();
     var STS_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
     var STS_REQUEST_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
@@ -65176,7 +64254,7 @@ var require_certificatesubjecttokensupplier = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CertificateSubjectTokenSupplier = exports2.InvalidConfigurationError = exports2.CertificateSourceUnavailableError = exports2.CERTIFICATE_CONFIGURATION_ENV_VARIABLE = void 0;
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var fs4 = require("fs");
     var crypto_1 = require("crypto");
     var https2 = require("https");
@@ -65361,7 +64439,7 @@ var require_identitypoolclient = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.IdentityPoolClient = void 0;
     var baseexternalclient_1 = require_baseexternalclient();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var filesubjecttokensupplier_1 = require_filesubjecttokensupplier();
     var urlsubjecttokensupplier_1 = require_urlsubjecttokensupplier();
     var certificatesubjecttokensupplier_1 = require_certificatesubjecttokensupplier();
@@ -65780,7 +64858,7 @@ var require_awsclient = __commonJS({
     var awsrequestsigner_1 = require_awsrequestsigner();
     var baseexternalclient_1 = require_baseexternalclient();
     var defaultawssecuritycredentialssupplier_1 = require_defaultawssecuritycredentialssupplier();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     var gaxios_1 = require_src5();
     var AwsClient = class _AwsClient extends baseexternalclient_1.BaseExternalAccountClient {
       environmentId;
@@ -66294,6 +65372,7 @@ var require_externalclient = __commonJS({
     var identitypoolclient_1 = require_identitypoolclient();
     var awsclient_1 = require_awsclient();
     var pluggable_auth_client_1 = require_pluggable_auth_client();
+    var util_1 = require_util12();
     var ExternalAccountClient = class {
       constructor() {
         throw new Error("ExternalAccountClients should be initialized via: ExternalAccountClient.fromJSON(), directly via explicit constructors, eg. new AwsClient(options), new IdentityPoolClient(options), newPluggableAuthClientOptions, or via new GoogleAuth(options).getClient()");
@@ -66316,6 +65395,9 @@ var require_externalclient = __commonJS({
        *   provided do not correspond to an external account credential.
        */
       static fromJSON(options) {
+        if (!(0, util_1.isAdcWarningSuppressed)()) {
+          console.warn("The `fromJSON` method does not validate the credential configuration. A security risk occurs when a credential configuration configured with malicious URLs is used. When the credential configuration is accepted from an untrusted source, you should validate it before using it with this method. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.");
+        }
         if (options && options.type === baseexternalclient_1.EXTERNAL_ACCOUNT_TYPE) {
           if (options.credential_source?.environment_id) {
             return new awsclient_1.AwsClient(options);
@@ -66812,7 +65894,7 @@ var require_googleauth = __commonJS({
     var child_process_1 = require("child_process");
     var fs4 = require("fs");
     var gaxios_1 = require_src5();
-    var gcpMetadata = require_src8();
+    var gcpMetadata = require_src7();
     var os5 = require("os");
     var path = require("path");
     var crypto_1 = require_crypto3();
@@ -66827,7 +65909,7 @@ var require_googleauth = __commonJS({
     var authclient_1 = require_authclient();
     var externalAccountAuthorizedUserClient_1 = require_externalAccountAuthorizedUserClient();
     var gdchclient_1 = require_gdchclient();
-    var util_1 = require_util13();
+    var util_1 = require_util12();
     exports2.GoogleAuthExceptionMessages = {
       API_KEY_WITH_CREDENTIALS: "API Keys and Credentials are mutually exclusive authentication methods and cannot be used together.",
       NO_PROJECT_ID_FOUND: "Unable to detect a Project Id in the current environment. \nTo learn more about authentication and Google APIs, visit: \nhttps://cloud.google.com/docs/authentication/getting-started",
@@ -66882,9 +65964,15 @@ var require_googleauth = __commonJS({
         this._cachedProjectId = opts.projectId || null;
         this.cachedCredential = opts.authClient || null;
         this.keyFilename = opts.keyFilename || opts.keyFile;
+        if (this.keyFilename) {
+          console.warn("The `keyFilename` option is deprecated. Please use the `auth` object constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.");
+        }
         this.scopes = opts.scopes;
         this.clientOptions = opts.clientOptions || {};
         this.jsonContent = opts.credentials || null;
+        if (this.jsonContent) {
+          console.warn("The `credentials` option is deprecated. Please use the `auth` object constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.");
+        }
         this.apiKey = opts.apiKey || this.clientOptions.apiKey || null;
         if (this.apiKey && (this.jsonContent || this.clientOptions.credentials)) {
           throw new RangeError(exports2.GoogleAuthExceptionMessages.API_KEY_WITH_CREDENTIALS);
@@ -66897,13 +65985,13 @@ var require_googleauth = __commonJS({
       // variables are set on the JWT client in order to indicate the type of library,
       // and sign the JWT with the correct audience and scopes (if not supplied).
       setGapicJWTValues(client) {
-        client.defaultServicePath = this.defaultServicePath;
-        client.useJWTAccessWithScope = this.useJWTAccessWithScope;
-        client.defaultScopes = this.defaultScopes;
+        client.defaultServicePath ??= this.defaultServicePath;
+        client.useJWTAccessWithScope ??= this.useJWTAccessWithScope;
+        client.defaultScopes ??= this.defaultScopes;
       }
       getProjectId(callback) {
         if (callback) {
-          this.getProjectIdAsync().then((r6) => callback(null, r6), callback);
+          void this.getProjectIdAsync().then((r6) => callback(null, r6), callback);
         } else {
           return this.getProjectIdAsync();
         }
@@ -67014,7 +66102,7 @@ var require_googleauth = __commonJS({
           options = optionsOrCallback;
         }
         if (callback) {
-          this.getApplicationDefaultAsync(options).then((r6) => callback(null, r6.credential, r6.projectId), callback);
+          void this.getApplicationDefaultAsync(options).then((r6) => callback(null, r6.credential, r6.projectId), callback);
         } else {
           return this.getApplicationDefaultAsync(options);
         }
@@ -67140,7 +66228,7 @@ var require_googleauth = __commonJS({
           throw err;
         }
         const readStream = fs4.createReadStream(filePath);
-        return this.fromStream(readStream, options);
+        return (0, util_1.suppressAdcWarning)(() => this.fromStream(readStream, options));
       }
       /**
        * Create a credentials instance using a given impersonated input options.
@@ -67160,7 +66248,7 @@ var require_googleauth = __commonJS({
         if (!json.service_account_impersonation_url) {
           throw new Error("The incoming JSON object does not contain a service_account_impersonation_url field");
         }
-        const sourceClient = this.fromJSON(json.source_credentials);
+        const sourceClient = (0, util_1.suppressFromJsonWarning)(() => this.fromJSON(json.source_credentials));
         if (json.service_account_impersonation_url?.length > 256) {
           throw new RangeError(`Target principal is too long: ${json.service_account_impersonation_url}`);
         }
@@ -67220,6 +66308,9 @@ var require_googleauth = __commonJS({
        */
       fromJSON(json, options = {}) {
         let client;
+        if (!(0, util_1.isFromJsonWarningSuppressed)()) {
+          console.warn("The `fromJSON` method is deprecated. Please use the `JWT` constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.");
+        }
         const preferredUniverseDomain = (0, util_1.originalOrCamelOptions)(options).get("universe_domain");
         if (json.type === refreshclient_1.USER_REFRESH_ACCOUNT_TYPE) {
           client = new refreshclient_1.UserRefreshClient(options);
@@ -67259,12 +66350,16 @@ var require_googleauth = __commonJS({
        * @returns JWT or UserRefresh Client with data
        */
       _cacheClientFromJSON(json, options) {
-        const client = this.fromJSON(json, options);
+        const client = (0, util_1.suppressFromJsonWarning)(() => this.fromJSON(json, options));
         this.jsonContent = json;
         this.cachedCredential = client;
         return client;
       }
       fromStream(inputStream, optionsOrCallback = {}, callback) {
+        const isADC = (0, util_1.isAdcWarningSuppressed)();
+        if (!isADC) {
+          console.warn("The `fromStream` method is deprecated. Please use the `JWT` constructor with a parsed stream instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.");
+        }
         let options = {};
         if (typeof optionsOrCallback === "function") {
           callback = optionsOrCallback;
@@ -67272,12 +66367,12 @@ var require_googleauth = __commonJS({
           options = optionsOrCallback;
         }
         if (callback) {
-          this.fromStreamAsync(inputStream, options).then((r6) => callback(null, r6), callback);
+          void this.fromStreamAsync(inputStream, options, isADC).then((r6) => callback(null, r6), callback);
         } else {
-          return this.fromStreamAsync(inputStream, options);
+          return this.fromStreamAsync(inputStream, options, isADC);
         }
       }
-      fromStreamAsync(inputStream, options) {
+      fromStreamAsync(inputStream, options, isADC = false) {
         return new Promise((resolve, reject) => {
           if (!inputStream) {
             throw new Error("Must pass in a stream containing the Google auth settings.");
@@ -67287,7 +66382,7 @@ var require_googleauth = __commonJS({
             try {
               try {
                 const data = JSON.parse(chunks.join(""));
-                const r6 = this._cacheClientFromJSON(data, options);
+                const r6 = isADC ? (0, util_1.suppressAdcWarning)(() => this._cacheClientFromJSON(data, options)) : this._cacheClientFromJSON(data, options);
                 return resolve(r6);
               } catch (err) {
                 if (!this.keyFilename)
@@ -67399,7 +66494,7 @@ var require_googleauth = __commonJS({
       }
       getCredentials(callback) {
         if (callback) {
-          this.getCredentialsAsync().then((r6) => callback(null, r6), callback);
+          void this.getCredentialsAsync().then((r6) => callback(null, r6), callback);
         } else {
           return this.getCredentialsAsync();
         }
@@ -67441,11 +66536,17 @@ var require_googleauth = __commonJS({
        */
       async getClient() {
         if (this.cachedCredential) {
+          if (this.cachedCredential instanceof jwtclient_1.JWT) {
+            this.setGapicJWTValues(this.cachedCredential);
+          }
           return this.cachedCredential;
         }
         this.#pendingAuthClient = this.#pendingAuthClient || this.#determineClient();
         try {
           const client = await this.#pendingAuthClient;
+          if (client instanceof jwtclient_1.JWT) {
+            this.setGapicJWTValues(client);
+          }
           if (client instanceof gdchclient_1.GdchClient && !client.apiAudience) {
             const opts = this.clientOptions;
             const endpoint = opts.apiEndpoint || opts.servicePath;
@@ -67878,7 +66979,7 @@ var require_passthrough = __commonJS({
 });
 
 // node_modules/google-auth-library/build/src/index.js
-var require_src9 = __commonJS({
+var require_src8 = __commonJS({
   "node_modules/google-auth-library/build/src/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
@@ -67903,7 +67004,7 @@ var require_src9 = __commonJS({
     Object.defineProperty(exports2, "GoogleAuth", { enumerable: true, get: function() {
       return googleauth_1.GoogleAuth;
     } });
-    exports2.gcpMetadata = require_src8();
+    exports2.gcpMetadata = require_src7();
     exports2.gaxios = require_src5();
     var authclient_1 = require_authclient();
     Object.defineProperty(exports2, "AuthClient", { enumerable: true, get: function() {
@@ -68442,7 +67543,7 @@ var require_warnings = __commonJS({
 });
 
 // node_modules/google-gax/build/src/util.js
-var require_util14 = __commonJS({
+var require_util13 = __commonJS({
   "node_modules/google-gax/build/src/util.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -68697,7 +67798,7 @@ var require_gax = __commonJS({
     exports2.constructSettings = constructSettings;
     exports2.createByteLengthFunction = createByteLengthFunction;
     var warnings_1 = require_warnings();
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     var status_1 = require_status();
     var RetryOptions = class {
       retryCodes;
@@ -69245,7 +68346,7 @@ var require_grpc = __commonJS({
     var grpcProtoLoader = __importStar(require_src2());
     var child_process_1 = require("child_process");
     var fs4 = __importStar(require("fs"));
-    var google_auth_library_1 = require_src9();
+    var google_auth_library_1 = require_src8();
     var grpc = __importStar(require_src3());
     var os5 = __importStar(require("os"));
     var path_1 = require("path");
@@ -90478,7 +89579,7 @@ var require_enum2 = __commonJS({
 });
 
 // node_modules/proto3-json-serializer/build/src/util.js
-var require_util15 = __commonJS({
+var require_util14 = __commonJS({
   "node_modules/proto3-json-serializer/build/src/util.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -90523,7 +89624,7 @@ var require_value = __commonJS({
     exports2.googleProtobufStructFromProto3JSON = googleProtobufStructFromProto3JSON;
     exports2.googleProtobufListValueFromProto3JSON = googleProtobufListValueFromProto3JSON;
     exports2.googleProtobufValueFromProto3JSON = googleProtobufValueFromProto3JSON;
-    var util_1 = require_util15();
+    var util_1 = require_util14();
     function googleProtobufStructToProto3JSON(obj) {
       const result = {};
       const fields = obj.fields;
@@ -90690,7 +89791,7 @@ var require_wrappers2 = __commonJS({
     exports2.wrapperToProto3JSON = wrapperToProto3JSON;
     exports2.wrapperFromProto3JSON = wrapperFromProto3JSON;
     var bytes_1 = require_bytes();
-    var util_1 = require_util15();
+    var util_1 = require_util14();
     function wrapperToProto3JSON(obj) {
       if (!Object.prototype.hasOwnProperty.call(obj, "value")) {
         return null;
@@ -90757,7 +89858,7 @@ var require_fromproto3json = __commonJS({
     var bytes_1 = require_bytes();
     var enum_1 = require_enum2();
     var value_1 = require_value();
-    var util_1 = require_util15();
+    var util_1 = require_util14();
     var duration_1 = require_duration2();
     var timestamp_1 = require_timestamp();
     var wrappers_1 = require_wrappers2();
@@ -90971,7 +90072,7 @@ var require_toproto3json = __commonJS({
     exports2.toProto3JSON = toProto3JSON;
     var any_1 = require_any();
     var bytes_1 = require_bytes();
-    var util_1 = require_util15();
+    var util_1 = require_util14();
     var enum_1 = require_enum2();
     var value_1 = require_value();
     var duration_1 = require_duration2();
@@ -91093,7 +90194,7 @@ var require_toproto3json = __commonJS({
 });
 
 // node_modules/proto3-json-serializer/build/src/index.js
-var require_src10 = __commonJS({
+var require_src9 = __commonJS({
   "node_modules/proto3-json-serializer/build/src/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -91176,7 +90277,7 @@ var require_transcoding = __commonJS({
     exports2.isProto3OptionalField = isProto3OptionalField;
     exports2.transcode = transcode;
     exports2.overrideHttpRules = overrideHttpRules;
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     var httpOptionName = "(google.api.http)";
     var proto3OptionalName = "proto3_optional";
     var supportedHttpMethods = ["get", "post", "put", "patch", "delete"];
@@ -91475,7 +90576,7 @@ var require_fallbackRest = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.encodeRequest = encodeRequest;
     exports2.decodeResponse = decodeResponse;
-    var serializer = __importStar(require_src10());
+    var serializer = __importStar(require_src9());
     var fallback_1 = require_fallback();
     var googleError_1 = require_googleError();
     var status_1 = require_status();
@@ -91739,7 +90840,7 @@ var require_fallbackServiceStub = __commonJS({
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.generateServiceStub = generateServiceStub;
-    var serializer = __importStar(require_src10());
+    var serializer = __importStar(require_src9());
     var featureDetection_1 = require_featureDetection();
     var streamArrayParser_1 = require_streamArrayParser();
     var fallback_1 = require_fallback();
@@ -95811,7 +94912,7 @@ var require_pathTemplate = __commonJS({
 });
 
 // node_modules/google-gax/package.json
-var require_package5 = __commonJS({
+var require_package4 = __commonJS({
   "node_modules/google-gax/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-gax",
@@ -97158,7 +96259,7 @@ var require_bundleDescriptor = __commonJS({
     var normalApiCaller_1 = require_normalApiCaller();
     var bundleApiCaller_1 = require_bundleApiCaller();
     var bundleExecutor_1 = require_bundleExecutor();
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     var BundleDescriptor = class {
       bundledField;
       requestDiscriminatorFields;
@@ -97255,7 +96356,7 @@ var require_resumableUpload = __commonJS({
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ResumableUploadSession = exports2.ResumableUploadApiCaller = exports2.ResumableUploadDescriptor = exports2.resumableUploadStub = exports2.ResumableUploadState = exports2.DEFAULT_STALL_TIMEOUT_MS = exports2.DEFAULT_PER_REQUEST_TIMEOUT_MS = exports2.DEFAULT_MAX_INNER_RETRIES = exports2.MAX_GLOBAL_DEADLINE_MS = exports2.DEFAULT_GLOBAL_DEADLINE_MS = exports2.DEFAULT_CHUNK_SIZE = void 0;
-    var serializer = __importStar(require_src10());
+    var serializer = __importStar(require_src9());
     var call_1 = require_call2();
     var fallbackRest_1 = require_fallbackRest();
     var gax_1 = require_gax();
@@ -99787,7 +98888,7 @@ var require_iamService = __commonJS({
     var routingHeader = __importStar(require_routingHeader());
     var gapicConfig = __importStar(require_iam_policy_service_client_config());
     var fallback2 = __importStar(require_fallback());
-    var version = require_package5().version;
+    var version = require_package4().version;
     var jsonProtos = require_iam_service2();
     var IamClient = class {
       _terminated = false;
@@ -101230,7 +100331,7 @@ var require_locationService = __commonJS({
     var pageDescriptor_1 = require_pageDescriptor();
     var jsonProtos = require_locations2();
     var gapicConfig = __importStar(require_locations_client_config());
-    var version = require_package5().version;
+    var version = require_package4().version;
     var LocationsClient = class {
       _terminated = false;
       _opts;
@@ -101594,14 +100695,14 @@ var require_fallback = __commonJS({
     var routingHeader = __importStar(require_routingHeader());
     exports2.routingHeader = routingHeader;
     var status_1 = require_status();
-    var google_auth_library_1 = require_src9();
+    var google_auth_library_1 = require_src8();
     var operationsClient_1 = require_operationsClient();
     var createApiCall_1 = require_createApiCall();
     var fallbackRest = __importStar(require_fallbackRest());
     var featureDetection_1 = require_featureDetection();
     var fallbackServiceStub_1 = require_fallbackServiceStub();
     var streaming_1 = require_streaming();
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     var IamProtos = __importStar(require_iam_service());
     exports2.IamProtos = IamProtos;
     var LocationProtos = __importStar(require_locations());
@@ -101625,7 +100726,7 @@ var require_fallback = __commonJS({
     Object.defineProperty(exports2, "createDefaultBackoffSettings", { enumerable: true, get: function() {
       return gax_1.createDefaultBackoffSettings;
     } });
-    exports2.version = require_package5().version + "-fallback";
+    exports2.version = require_package4().version + "-fallback";
     var descriptor_1 = require_descriptor3();
     Object.defineProperty(exports2, "BundleDescriptor", { enumerable: true, get: function() {
       return descriptor_1.BundleDescriptor;
@@ -101672,7 +100773,7 @@ var require_fallback = __commonJS({
     Object.defineProperty(exports2, "LocationsClient", { enumerable: true, get: function() {
       return locationService_1.LocationsClient;
     } });
-    var util_2 = require_util14();
+    var util_2 = require_util13();
     Object.defineProperty(exports2, "makeUUID", { enumerable: true, get: function() {
       return util_2.makeUUID;
     } });
@@ -101721,7 +100822,7 @@ var require_fallback = __commonJS({
           });
         }
         this.fallback = options.fallback ? true : false;
-        this.grpcVersion = require_package5().version;
+        this.grpcVersion = require_package4().version;
         this.httpRules = options.httpRules;
         this.numericEnums = options.numericEnums ?? false;
         this.minifyJson = options.minifyJson ?? false;
@@ -102226,7 +101327,7 @@ var require_googleError = __commonJS({
     exports2.GoogleErrorDecoder = exports2.GoogleError = void 0;
     var status_1 = require_status();
     var protobuf = __importStar(require_protobufjs());
-    var serializer = __importStar(require_src10());
+    var serializer = __importStar(require_src9());
     var fallback_1 = require_fallback();
     var PROTO_TYPE_PREFIX = "type.googleapis.com/";
     var RESOURCE_INFO_TYPE = "type.googleapis.com/google.rpc.ResourceInfo";
@@ -104376,7 +103477,7 @@ var require_TracerHelper = __commonJS({
     var api_1 = (init_esm(), __toCommonJS(esm_exports));
     var googleError_1 = require_googleError();
     var status_1 = require_status();
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     function getGaxTracer() {
       return api_1.trace.getTracer("google-gax");
     }
@@ -104968,7 +104069,7 @@ var require_metadataResolver = __commonJS({
     exports2.extractFromEnvironment = extractFromEnvironment;
     exports2.clearMetadataCache = clearMetadataCache;
     exports2.resolveStaticTraceContext = resolveStaticTraceContext;
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     exports2.DEFAULT_GCP_REPO = "googleapis/google-cloud-node";
     function extractClientServiceFromPackageName(name) {
       const scopedMatch = name.match(/^@[^/]+\/(?:google-cloud-)?(.*)$/);
@@ -105007,7 +104108,7 @@ var require_metadataResolver = __commonJS({
       fallbackVersion = require("../../package.json").version;
     } catch {
       try {
-        fallbackVersion = require_package5().version;
+        fallbackVersion = require_package4().version;
       } catch {
       }
     }
@@ -105145,7 +104246,7 @@ var require_createApiCall = __commonJS({
     var warnings_1 = require_warnings();
     var TracerHelper_1 = require_TracerHelper();
     var metadataResolver_1 = require_metadataResolver();
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     function createApiCall(func, settings, descriptor, _fallback) {
       const funcPromise = typeof func === "function" ? Promise.resolve(func) : func;
       const apiCaller = (0, apiCaller_1.createAPICaller)(settings, descriptor);
@@ -106622,7 +105723,7 @@ var require_operationsClient = __commonJS({
     var operationProtoJson = require_operations2();
     var transcoding_1 = require_transcoding();
     exports2.SERVICE_ADDRESS = "longrunning.googleapis.com";
-    var version = require_package5().version;
+    var version = require_package4().version;
     var DEFAULT_SERVICE_PORT = 443;
     var CODE_GEN_NAME_VERSION = "gapic/0.7.1";
     exports2.ALL_SCOPES = [];
@@ -107003,7 +106104,7 @@ var require_operationsClient = __commonJS({
 });
 
 // node_modules/google-gax/build/src/index.js
-var require_src11 = __commonJS({
+var require_src10 = __commonJS({
   "node_modules/google-gax/build/src/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o3, m4, k5, k22) {
@@ -107059,12 +106160,12 @@ var require_src11 = __commonJS({
     var operationsClient = __importStar(require_operationsClient());
     var routingHeader = __importStar(require_routingHeader());
     exports2.routingHeader = routingHeader;
-    var google_auth_library_1 = require_src9();
+    var google_auth_library_1 = require_src8();
     Object.defineProperty(exports2, "GoogleAuth", { enumerable: true, get: function() {
       return google_auth_library_1.GoogleAuth;
     } });
-    exports2.googleAuthLibrary = __importStar(require_src9());
-    exports2.loggingUtils = __importStar(require_src7());
+    exports2.googleAuthLibrary = __importStar(require_src8());
+    exports2.loggingUtils = __importStar(require_src6());
     var call_1 = require_call2();
     Object.defineProperty(exports2, "OngoingCall", { enumerable: true, get: function() {
       return call_1.OngoingCall;
@@ -107182,14 +106283,14 @@ var require_src11 = __commonJS({
       return locationService_1.LocationsClient;
     } });
     exports2.createByteLengthFunction = grpc_1.GrpcClient?.createByteLengthFunction;
-    exports2.version = require_package5().version;
+    exports2.version = require_package4().version;
     var protobuf = __importStar(require_protobufjs());
     exports2.protobuf = protobuf;
     exports2.protobufMinimal = __importStar(require_minimal2());
     var fallback2 = __importStar(require_fallback());
     exports2.fallback = fallback2;
     exports2.protobufFromJSON = fallback2.protobufFromJSON;
-    var util_1 = require_util14();
+    var util_1 = require_util13();
     Object.defineProperty(exports2, "makeUUID", { enumerable: true, get: function() {
       return util_1.makeUUID;
     } });
@@ -107221,7 +106322,7 @@ var require_src11 = __commonJS({
     Object.defineProperty(exports2, "warn", { enumerable: true, get: function() {
       return warnings_1.warn;
     } });
-    var serializer = __importStar(require_src10());
+    var serializer = __importStar(require_src9());
     exports2.serializer = serializer;
   }
 });
@@ -107355,7 +106456,7 @@ var require_secret_manager_service_client_config = __commonJS({
 });
 
 // node_modules/@google-cloud/secret-manager/package.json
-var require_package6 = __commonJS({
+var require_package5 = __commonJS({
   "node_modules/@google-cloud/secret-manager/package.json"(exports2, module2) {
     module2.exports = {
       name: "@google-cloud/secret-manager",
@@ -107434,9 +106535,9 @@ var require_secret_manager_service_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SecretManagerServiceClient = void 0;
     var jsonProtos = require_protos();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_secret_manager_service_client_config();
-    var version = require_package6().version;
+    var version = require_package5().version;
     var SecretManagerServiceClient2 = class {
       _terminated = false;
       _opts;
@@ -107518,7 +106619,7 @@ var require_secret_manager_service_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -108980,9 +108081,9 @@ var require_secret_manager_service_client2 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SecretManagerServiceClient = void 0;
     var jsonProtos = require_protos();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_secret_manager_service_client_config2();
-    var version = require_package6().version;
+    var version = require_package5().version;
     var SecretManagerServiceClient2 = class {
       _terminated = false;
       _opts;
@@ -109064,7 +108165,7 @@ var require_secret_manager_service_client2 = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -130083,7 +129184,7 @@ var require_protos2 = __commonJS({
 });
 
 // node_modules/@google-cloud/secret-manager/build/src/index.js
-var require_src12 = __commonJS({
+var require_src11 = __commonJS({
   "node_modules/@google-cloud/secret-manager/build/src/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -138289,7 +137390,7 @@ var require_builds_client_config = __commonJS({
 });
 
 // node_modules/@google-cloud/run/package.json
-var require_package7 = __commonJS({
+var require_package6 = __commonJS({
   "node_modules/@google-cloud/run/package.json"(exports2, module2) {
     module2.exports = {
       name: "@google-cloud/run",
@@ -138368,9 +137469,9 @@ var require_builds_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.BuildsClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_builds_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var BuildsClient = class {
       _terminated = false;
       _opts;
@@ -138452,7 +137553,7 @@ var require_builds_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -139120,9 +138221,9 @@ var require_executions_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ExecutionsClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_executions_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var ExecutionsClient2 = class {
       _terminated = false;
       _opts;
@@ -139205,7 +138306,7 @@ var require_executions_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -140364,9 +139465,9 @@ var require_instances_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InstancesClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_instances_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var InstancesClient = class {
       _terminated = false;
       _opts;
@@ -140449,7 +139550,7 @@ var require_instances_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -141832,9 +140933,9 @@ var require_jobs_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.JobsClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_jobs_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var JobsClient2 = class {
       _terminated = false;
       _opts;
@@ -141917,7 +141018,7 @@ var require_jobs_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -143339,9 +142440,9 @@ var require_revisions_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.RevisionsClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_revisions_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var RevisionsClient2 = class {
       _terminated = false;
       _opts;
@@ -143424,7 +142525,7 @@ var require_revisions_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -144661,9 +143762,9 @@ var require_services_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ServicesClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_services_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var ServicesClient2 = class {
       _terminated = false;
       _opts;
@@ -144746,7 +143847,7 @@ var require_services_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -146107,9 +145208,9 @@ var require_tasks_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TasksClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_tasks_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var TasksClient = class {
       _terminated = false;
       _opts;
@@ -146191,7 +145292,7 @@ var require_tasks_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -147109,9 +146210,9 @@ var require_worker_pools_client = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WorkerPoolsClient = void 0;
     var jsonProtos = require_protos3();
-    var google_gax_1 = require_src11();
+    var google_gax_1 = require_src10();
     var gapicConfig = require_worker_pools_client_config();
-    var version = require_package7().version;
+    var version = require_package6().version;
     var WorkerPoolsClient = class {
       _terminated = false;
       _opts;
@@ -147194,7 +146295,7 @@ var require_worker_pools_client = __commonJS({
           opts["scopes"] = staticMembers.scopes;
         }
         if (!gaxInstance) {
-          gaxInstance = require_src11();
+          gaxInstance = require_src10();
         }
         this._gaxModule = opts.fallback ? gaxInstance.fallback : gaxInstance;
         this._gaxGrpc = new this._gaxModule.GrpcClient(opts);
@@ -178845,7 +177946,7 @@ var require_protos4 = __commonJS({
 });
 
 // node_modules/@google-cloud/run/build/src/index.js
-var require_src13 = __commonJS({
+var require_src12 = __commonJS({
   "node_modules/@google-cloud/run/build/src/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -179097,8 +178198,9 @@ var init_MiddlewareStack = __esm({
           const aliases = getAllAliases(name, _aliases);
           if (aliases.length > 0) {
             if (aliases.some((alias) => entriesNameSet.has(alias))) {
-              if (!override)
+              if (!override) {
                 throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
+              }
               for (const alias of aliases) {
                 const toOverrideIndex = absoluteEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
                 if (toOverrideIndex === -1) {
@@ -179126,8 +178228,9 @@ var init_MiddlewareStack = __esm({
           const aliases = getAllAliases(name, _aliases);
           if (aliases.length > 0) {
             if (aliases.some((alias) => entriesNameSet.has(alias))) {
-              if (!override)
+              if (!override) {
                 throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
+              }
               for (const alias of aliases) {
                 const toOverrideIndex = relativeEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
                 if (toOverrideIndex === -1) {
@@ -179151,10 +178254,11 @@ var init_MiddlewareStack = __esm({
           plugin.applyToStack(stack);
         },
         remove: (toRemove) => {
-          if (typeof toRemove === "string")
+          if (typeof toRemove === "string") {
             return removeByName(toRemove);
-          else
+          } else {
             return removeByReference(toRemove);
+          }
         },
         removeByTag: (toRemove) => {
           let isRemoved = false;
@@ -179188,8 +178292,9 @@ var init_MiddlewareStack = __esm({
           });
         },
         identifyOnResolve(toggle) {
-          if (typeof toggle === "boolean")
+          if (typeof toggle === "boolean") {
             identifyOnResolve = toggle;
+          }
           return identifyOnResolve;
         },
         resolve: (handler, context2) => {
@@ -179408,8 +178513,9 @@ var init_httpResponse = __esm({
         this.body = options.body;
       }
       static isInstance(response) {
-        if (!response)
+        if (!response) {
           return false;
+        }
         const resp = response;
         return typeof resp.statusCode === "number" && typeof resp.headers === "object";
       }
@@ -179452,8 +178558,9 @@ var normalizeProvider;
 var init_normalizeProvider = __esm({
   "node_modules/@smithy/core/dist-es/submodules/transport/normalizeProvider.js"() {
     normalizeProvider = (input) => {
-      if (typeof input === "function")
+      if (typeof input === "function") {
         return input;
+      }
       const promisified = Promise.resolve(input);
       return () => promisified;
     };
@@ -179525,8 +178632,9 @@ var init_toEndpointV1 = __esm({
           if (endpoint.headers) {
             v1Endpoint.headers = {};
             for (const name in endpoint.headers) {
-              if (!hasOwn(endpoint.headers, name))
+              if (!hasOwn(endpoint.headers, name)) {
                 continue;
+              }
               v1Endpoint.headers[name.toLowerCase()] = endpoint.headers[name].join(", ");
             }
           }
@@ -180685,14 +179793,20 @@ function schemaLogFilter(schema, data) {
     return SENSITIVE_STRING;
   }
   if (ns.isListSchema()) {
-    const isSensitive = !!ns.getValueSchema().getMergedTraits().sensitive;
-    if (isSensitive) {
+    const valueSchema = ns.getValueSchema();
+    if (valueSchema.getMergedTraits().sensitive) {
       return SENSITIVE_STRING;
     }
+    if (Array.isArray(data)) {
+      return data.map((value) => schemaLogFilter(valueSchema, value));
+    }
   } else if (ns.isMapSchema()) {
-    const isSensitive = !!ns.getKeySchema().getMergedTraits().sensitive || !!ns.getValueSchema().getMergedTraits().sensitive;
-    if (isSensitive) {
+    const valueSchema = ns.getValueSchema();
+    if (ns.getKeySchema().getMergedTraits().sensitive || valueSchema.getMergedTraits().sensitive) {
       return SENSITIVE_STRING;
+    }
+    if (typeof data === "object") {
+      return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, schemaLogFilter(valueSchema, value)]));
     }
   } else if (ns.isStructSchema() && typeof data === "object") {
     const object = data;
@@ -180892,8 +180006,9 @@ var init_create_aggregated_client = __esm({
           if (typeof optionsOrCb === "function") {
             this.send(command6, optionsOrCb);
           } else if (typeof cb === "function") {
-            if (typeof optionsOrCb !== "object")
+            if (typeof optionsOrCb !== "object") {
               throw new Error(`Expected http options but got ${typeof optionsOrCb}`);
+            }
             this.send(command6, optionsOrCb || {}, cb);
           } else {
             return this.send(command6, optionsOrCb);
@@ -180951,14 +180066,16 @@ var init_exceptions = __esm({
         this.$metadata = options.$metadata;
       }
       static isInstance(value) {
-        if (!value)
+        if (!value) {
           return false;
+        }
         const candidate = value;
         return _ServiceException.prototype.isPrototypeOf(candidate) || Boolean(candidate.$fault) && Boolean(candidate.$metadata) && (candidate.$fault === "client" || candidate.$fault === "server");
       }
       static [Symbol.hasInstance](instance) {
-        if (!instance)
+        if (!instance) {
           return false;
+        }
         const candidate = instance;
         if (this === _ServiceException) {
           return _ServiceException.isInstance(instance);
@@ -181103,8 +180220,9 @@ var init_checksum = __esm({
     getChecksumConfiguration = (runtimeConfig) => {
       const checksumAlgorithms = [];
       for (const id in import_types6.AlgorithmId) {
-        if (!hasOwn(import_types6.AlgorithmId, id))
+        if (!hasOwn(import_types6.AlgorithmId, id)) {
           continue;
+        }
         const algorithmId = import_types6.AlgorithmId[id];
         if (runtimeConfig[algorithmId] === void 0) {
           continue;
@@ -181204,8 +180322,9 @@ var init_get_value_from_text_node = __esm({
     getValueFromTextNode = (obj) => {
       const textNodeName = "#text";
       for (const key in obj) {
-        if (!hasOwn(obj, key))
+        if (!hasOwn(obj, key)) {
           continue;
+        }
         if (obj[key][textNodeName] !== void 0) {
           obj[key] = obj[key][textNodeName];
         } else if (typeof obj[key] === "object" && obj[key] !== null) {
@@ -181265,8 +180384,9 @@ function map2(arg0, arg1, arg2) {
     }
   }
   for (const key in instructions) {
-    if (!hasOwn(instructions, key))
+    if (!hasOwn(instructions, key)) {
       continue;
+    }
     if (!Array.isArray(instructions[key])) {
       target[key] = instructions[key];
       continue;
@@ -181289,8 +180409,9 @@ var init_object_mapping = __esm({
     take = (source, instructions) => {
       const out = {};
       for (const key in instructions) {
-        if (!hasOwn(instructions, key))
+        if (!hasOwn(instructions, key)) {
           continue;
+        }
         applyInstruction(out, source, instructions, key);
       }
       return out;
@@ -181380,8 +180501,9 @@ var init_serde_json = __esm({
       if (typeof obj === "object") {
         const target = {};
         for (const key in obj) {
-          if (!hasOwn(obj, key))
+          if (!hasOwn(obj, key)) {
             continue;
+          }
           if (obj[key] == null) {
             continue;
           }
@@ -181784,8 +180906,9 @@ var init_parse_utils = __esm({
       const asObject = expectObject(value);
       const setKeys = [];
       for (const k5 in asObject) {
-        if (!hasOwn(asObject, k5))
+        if (!hasOwn(asObject, k5)) {
           continue;
+        }
         if (asObject[k5] != null) {
           setKeys.push(k5);
         }
@@ -182645,12 +181768,15 @@ var booleanSelector;
 var init_booleanSelector = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/util-config-provider/booleanSelector.js"() {
     booleanSelector = (obj, key, type) => {
-      if (!(key in obj))
+      if (!(key in obj)) {
         return void 0;
-      if (obj[key] === "true")
+      }
+      if (obj[key] === "true") {
         return true;
-      if (obj[key] === "false")
+      }
+      if (obj[key] === "false") {
         return false;
+      }
       throw new Error(`Cannot load ${type} "${key}". Expected "true" or "false", got ${obj[key]}.`);
     };
   }
@@ -182661,8 +181787,9 @@ var numberSelector;
 var init_numberSelector = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/util-config-provider/numberSelector.js"() {
     numberSelector = (obj, key, type) => {
-      if (!(key in obj))
+      if (!(key in obj)) {
         return void 0;
+      }
       const numberValue = parseInt(obj[key], 10);
       if (Number.isNaN(numberValue)) {
         throw new TypeError(`Cannot load ${type} '${key}'. Expected number, got '${obj[key]}'.`);
@@ -182698,15 +181825,19 @@ var init_getHomeDir = __esm({
     };
     getHomeDir = () => {
       const { HOME, USERPROFILE, HOMEPATH, HOMEDRIVE = `C:${import_node_path2.sep}` } = process.env;
-      if (HOME)
+      if (HOME) {
         return HOME;
-      if (USERPROFILE)
+      }
+      if (USERPROFILE) {
         return USERPROFILE;
-      if (HOMEPATH)
+      }
+      if (HOMEPATH) {
         return `${HOMEDRIVE}${HOMEPATH}`;
+      }
       const homeDirCacheKey = getHomeDirCacheKey();
-      if (!homeDirCache[homeDirCacheKey])
+      if (!homeDirCache[homeDirCacheKey]) {
         homeDirCache[homeDirCacheKey] = (0, import_node_os.homedir)();
+      }
       return homeDirCache[homeDirCacheKey];
     };
   }
@@ -183639,11 +182770,13 @@ var init_getEndpointUrlConfig = __esm({
       environmentVariableSelector: (env2) => {
         const serviceSuffixParts = serviceId.split(" ").map((w) => w.toUpperCase());
         const serviceEndpointUrl = env2[[ENV_ENDPOINT_URL, ...serviceSuffixParts].join("_")];
-        if (serviceEndpointUrl)
+        if (serviceEndpointUrl) {
           return serviceEndpointUrl;
+        }
         const endpointUrl = env2[ENV_ENDPOINT_URL];
-        if (endpointUrl)
+        if (endpointUrl) {
           return endpointUrl;
+        }
         return void 0;
       },
       configFileSelector: (profile, config) => {
@@ -183655,12 +182788,14 @@ var init_getEndpointUrlConfig = __esm({
           const servicesSection = config[servicesSectionKey];
           const servicePrefixParts = serviceId.split(" ").map((w) => w.toLowerCase());
           const endpointUrl2 = servicesSection[[servicePrefixParts.join("_"), CONFIG_ENDPOINT_URL].join(CONFIG_PREFIX_SEPARATOR)];
-          if (endpointUrl2)
+          if (endpointUrl2) {
             return endpointUrl2;
+          }
         }
         const endpointUrl = profile[CONFIG_ENDPOINT_URL];
-        if (endpointUrl)
+        if (endpointUrl) {
           return endpointUrl;
+        }
         return void 0;
       },
       default: void 0
@@ -184794,8 +183929,9 @@ var init_resolveEndpoint = __esm({
       const { parameters, rules } = ruleSetObject;
       options.logger?.debug?.(`${debugId} Initial EndpointParams: ${toDebugString(endpointParams)}`);
       for (const paramKey in parameters) {
-        if (!hasOwn(parameters, paramKey))
+        if (!hasOwn(parameters, paramKey)) {
           continue;
+        }
         const parameter = parameters[paramKey];
         const endpointParam = endpointParams[paramKey];
         if (endpointParam == null && parameter.default != null) {
@@ -185810,6 +184946,15 @@ var init_splitStream = __esm({
   }
 });
 
+// node_modules/@smithy/core/dist-es/submodules/serde/writeKey.js
+function writeKey(obj) {
+  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
+}
+var init_writeKey = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/writeKey.js"() {
+  }
+});
+
 // node_modules/@smithy/core/dist-es/submodules/serde/index.js
 var serde_exports = {};
 __export(serde_exports, {
@@ -185885,7 +185030,8 @@ __export(serde_exports, {
   toHex: () => toHex,
   toUint8Array: () => toUint8Array,
   toUtf8: () => toUtf8,
-  v4: () => v4
+  v4: () => v4,
+  writeKey: () => writeKey
 });
 var import_node_crypto3, Uint8ArrayBlobAdapter, _getRandomValues, v4, generateIdempotencyToken;
 var init_serde = __esm({
@@ -185926,6 +185072,7 @@ var init_serde = __esm({
     init_stream_type_check();
     init_stream_collector();
     init_transport();
+    init_writeKey();
     Uint8ArrayBlobAdapter = class extends bindUint8ArrayBlobAdapter(toUtf8, fromUtf8, toBase64, fromBase64) {
     };
     _getRandomValues = import_node_crypto3.getRandomValues;
@@ -186705,8 +185852,9 @@ function negate(bytes) {
   }
   for (let i6 = 7; i6 > -1; i6--) {
     bytes[i6]++;
-    if (bytes[i6] !== 0)
+    if (bytes[i6] !== 0) {
       break;
+    }
   }
 }
 var Int64;
@@ -186766,8 +185914,9 @@ var init_HeaderMarshaller = __esm({
       format(headers) {
         const chunks = [];
         for (const headerName in headers) {
-          if (!hasOwn(headers, headerName))
+          if (!hasOwn(headers, headerName)) {
             continue;
+          }
           const bytes = this.fromUtf8(headerName);
           if (bytes.byteLength > 255) {
             throw new Error(`@smithy/core/event-streams - header name exceeds 255 bytes: ${bytes.byteLength}`);
@@ -187126,8 +186275,9 @@ var init_SmithyMessageDecoderStream = __esm({
       async *asyncIterator() {
         for await (const message of this.options.messageStream) {
           const deserialized = await this.options.deserializer(message);
-          if (deserialized === void 0)
+          if (deserialized === void 0) {
             continue;
+          }
           yield deserialized;
         }
       }
@@ -187235,8 +186385,9 @@ function getUnmarshalledStream(source, options) {
       for await (const chunk2 of source) {
         const message = options.eventStreamCodec.decode(chunk2);
         const type = await messageUnmarshaller(message);
-        if (type === void 0)
+        if (type === void 0) {
           continue;
+        }
         yield type;
       }
     }
@@ -187264,8 +186415,9 @@ function getMessageUnmarshaller(deserializer, toUtf83) {
         [message.headers[":event-type"].value]: message
       };
       const deserialized = await deserializer(event);
-      if (deserialized.$unknown)
+      if (deserialized.$unknown) {
         return;
+      }
       return deserialized;
     } else {
       throw Error(`Unrecognizable event type: ${message.headers[":event-type"].value}`);
@@ -187376,8 +186528,9 @@ var init_utils4 = __esm({
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done)
+            if (done) {
               return;
+            }
             yield value;
           }
         } finally {
@@ -187469,8 +186622,9 @@ var init_EventStreamSerde = __esm({
           }
           let unionMember = "";
           for (const key in event) {
-            if (!hasOwn(event, key))
+            if (!hasOwn(event, key)) {
               continue;
+            }
             if (key !== "__type") {
               unionMember = key;
               break;
@@ -187498,8 +186652,9 @@ var init_EventStreamSerde = __esm({
         const asyncIterable = marshaller.deserialize(response.body, async (event) => {
           let unionMember = "";
           for (const key in event) {
-            if (!hasOwn(event, key))
+            if (!hasOwn(event, key)) {
               continue;
+            }
             if (key !== "__type") {
               unionMember = key;
               break;
@@ -187567,8 +186722,9 @@ var init_EventStreamSerde = __esm({
             throw new Error("@smithy::core/protocols - initial-response event encountered in event stream but no response schema given.");
           }
           for (const key in firstEvent.value) {
-            if (!hasOwn(firstEvent.value, key))
+            if (!hasOwn(firstEvent.value, key)) {
               continue;
+            }
             initialResponseContainer[key] = firstEvent.value[key];
           }
         }
@@ -187777,8 +186933,9 @@ var init_HttpProtocol = __esm({
           }
           if (endpoint.headers) {
             for (const name in endpoint.headers) {
-              if (!hasOwn(endpoint.headers, name))
+              if (!hasOwn(endpoint.headers, name)) {
                 continue;
+              }
               request.headers[name] = endpoint.headers[name].join(", ");
             }
           }
@@ -187793,8 +186950,9 @@ var init_HttpProtocol = __esm({
           };
           if (endpoint.headers) {
             for (const name in endpoint.headers) {
-              if (!hasOwn(endpoint.headers, name))
+              if (!hasOwn(endpoint.headers, name)) {
                 continue;
+              }
               request.headers[name] = endpoint.headers[name];
             }
           }
@@ -188023,8 +187181,9 @@ var init_HttpBindingProtocol = __esm({
             headers[memberTraits.httpHeader.toLowerCase()] = String(serializer.flush());
           } else if (typeof memberTraits.httpPrefixHeaders === "string") {
             for (const key in inputMemberValue) {
-              if (!hasOwn(inputMemberValue, key))
+              if (!hasOwn(inputMemberValue, key)) {
                 continue;
+              }
               const val = inputMemberValue[key];
               const amalgam = memberTraits.httpPrefixHeaders + key;
               serializer.write([memberNs.getValueSchema(), { httpHeader: amalgam }], val);
@@ -188068,8 +187227,9 @@ var init_HttpBindingProtocol = __esm({
         const traits = ns.getMergedTraits();
         if (traits.httpQueryParams) {
           for (const key in data) {
-            if (!hasOwn(data, key))
+            if (!hasOwn(data, key)) {
               continue;
+            }
             if (!(key in query)) {
               const val = data[key];
               const valueSchema = ns.getValueSchema();
@@ -188112,8 +187272,9 @@ var init_HttpBindingProtocol = __esm({
           throw new Error("@smithy/core/protocols - HTTP Protocol error handler failed to throw.");
         }
         for (const header in response.headers) {
-          if (!hasOwn(response.headers, header))
+          if (!hasOwn(response.headers, header)) {
             continue;
+          }
           const value = response.headers[header];
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
@@ -188192,8 +187353,9 @@ var init_HttpBindingProtocol = __esm({
           } else if (memberTraits.httpPrefixHeaders !== void 0) {
             dataObject[memberName] = {};
             for (const header in response.headers) {
-              if (!hasOwn(response.headers, header))
+              if (!hasOwn(response.headers, header)) {
                 continue;
+              }
               if (header.startsWith(memberTraits.httpPrefixHeaders)) {
                 const value = response.headers[header];
                 const valueSchema = memberSchema.getValueSchema();
@@ -188278,7 +187440,7 @@ var init_RpcProtocol = __esm({
         const deserializer = this.deserializer;
         const ns = NormalizedSchema.of(operationSchema.output);
         const dataObject = {};
-        if (response.statusCode >= 300) {
+        if (this.isErrorResponse(response.statusCode)) {
           const bytes = await collectBody(response.body, context2);
           if (bytes.byteLength > 0) {
             Object.assign(dataObject, await deserializer.read(15, bytes));
@@ -188287,8 +187449,9 @@ var init_RpcProtocol = __esm({
           throw new Error("@smithy/core/protocols - RPC Protocol error handler failed to throw.");
         }
         for (const header in response.headers) {
-          if (!hasOwn(response.headers, header))
+          if (!hasOwn(response.headers, header)) {
             continue;
+          }
           const value = response.headers[header];
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
@@ -188308,6 +187471,49 @@ var init_RpcProtocol = __esm({
         }
         dataObject.$metadata = this.deserializeMetadata(response);
         return dataObject;
+      }
+      isErrorResponse(statusCode) {
+        return statusCode >= 300;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/AbstractRpcV2Protocol.js
+var AbstractRpcV2Protocol;
+var init_AbstractRpcV2Protocol = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/AbstractRpcV2Protocol.js"() {
+    init_schema();
+    init_transport();
+    init_RpcProtocol();
+    AbstractRpcV2Protocol = class extends RpcProtocol {
+      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
+        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
+      }
+      async serializeRequest(operationSchema, input, context2) {
+        const request = await super.serializeRequest(operationSchema, input, context2);
+        Object.assign(request.headers, {
+          "content-type": this.getDefaultContentType(),
+          "smithy-protocol": this.getSmithyProtocolHeaderValue(),
+          accept: this.getDefaultContentType()
+        });
+        if (deref(operationSchema.input) === "unit") {
+          delete request.body;
+          delete request.headers["content-type"];
+        } else {
+          this.applyEmptyBody(request);
+        }
+        const { service, operation: operation2 } = getSmithyContext(context2);
+        const path = `/service/${service}/operation/${operation2}`;
+        if (request.path.endsWith("/")) {
+          request.path += path.slice(1);
+        } else {
+          request.path += path;
+        }
+        return request;
+      }
+      isErrorResponse(statusCode) {
+        return statusCode !== 200;
       }
     };
   }
@@ -188747,6 +187953,9 @@ var init_httpExtensionConfiguration = __esm({
     getHttpHandlerExtensionConfiguration = (runtimeConfig) => {
       if (runtimeConfig.logger && runtimeConfig.logger.constructor?.name !== "NoOpLogger") {
         runtimeConfig.requestHandler?.updateHttpClientConfig?.(/* @__PURE__ */ Symbol.for("logger"), runtimeConfig.logger);
+      }
+      if (runtimeConfig.defaultSocketTimeout) {
+        runtimeConfig.requestHandler?.updateHttpClientConfig?.(/* @__PURE__ */ Symbol.for("@smithy/defaultSocketTimeout"), runtimeConfig.defaultSocketTimeout);
       }
       return {
         setHttpHandler(handler) {
@@ -189212,15 +188421,6 @@ var init_parseJsonBody = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/protocols/writeKey.js
-function writeKey(obj) {
-  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
-}
-var init_writeKey = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/protocols/writeKey.js"() {
-  }
-});
-
 // node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeDeserializer2.js
 var JsonShapeDeserializer2;
 var init_JsonShapeDeserializer2 = __esm({
@@ -189234,7 +188434,6 @@ var init_JsonShapeDeserializer2 = __esm({
     init_jsonReviver();
     init_needsReviver();
     init_parseJsonBody();
-    init_writeKey();
     init_transport();
     JsonShapeDeserializer2 = class extends SerdeContextConfig {
       settings;
@@ -189285,8 +188484,9 @@ var init_JsonShapeDeserializer2 = __esm({
             const map3 = value;
             if (this.needsTransform(mapMember)) {
               for (const k5 in map3) {
-                if (!hasOwn(map3, k5))
+                if (!hasOwn(map3, k5)) {
                   continue;
+                }
                 if (k5 === "__proto__") {
                   writeKey(map3);
                 }
@@ -189357,8 +188557,9 @@ var init_JsonShapeDeserializer2 = __esm({
             } else {
               const doc = value;
               for (const k5 in doc) {
-                if (!hasOwn(doc, k5))
+                if (!hasOwn(doc, k5)) {
                   continue;
+                }
                 if (k5 === "__proto__") {
                   writeKey(doc);
                 }
@@ -189404,8 +188605,9 @@ var init_JsonShapeDeserializer2 = __esm({
           unionSerde.writeUnknown();
         } else if (hasType) {
           for (const k5 in record) {
-            if (!hasOwn(record, k5))
+            if (!hasOwn(record, k5)) {
               continue;
+            }
             const v = record[k5];
             const t2 = jsonName ? nameMap[k5] ?? k5 : k5;
             if (!(t2 in out)) {
@@ -189950,8 +189152,9 @@ var init_JsonShapeSerializer2 = __esm({
               const out = [];
               for (let i6 = 0; i6 < value.length; ++i6) {
                 const v = value[i6];
-                if (v == null && !sparse)
+                if (v == null && !sparse) {
                   continue;
+                }
                 if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
                   out.push(String(v));
                 } else {
@@ -189990,8 +189193,9 @@ var init_JsonShapeSerializer2 = __esm({
           if (valueSchema.isStringSchema() || valueSchema.isNumericSchema() || valueSchema.isBooleanSchema()) {
             let modifications;
             for (const k5 in value) {
-              if (!hasOwn(value, k5))
+              if (!hasOwn(value, k5)) {
                 continue;
+              }
               const v = value[k5];
               if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
                 (modifications ??= {})[k5] = v;
@@ -190014,8 +189218,9 @@ var init_JsonShapeSerializer2 = __esm({
         this.json[this.i++] = OPEN_BRACE;
         let first = true;
         for (const k5 in value) {
-          if (!hasOwn(value, k5))
+          if (!hasOwn(value, k5)) {
             continue;
+          }
           const v = value[k5];
           if (isDocument ? v === void 0 : v == null && !sparse) {
             continue;
@@ -190092,12 +189297,11 @@ var init_JsonCodec2 = __esm({
 var SmithyRpcV2JsonProtocol;
 var init_SmithyRpcV2JsonProtocol = __esm({
   "node_modules/@smithy/core/dist-es/submodules/protocols/json/SmithyRpcV2JsonProtocol.js"() {
-    init_RpcProtocol();
+    init_AbstractRpcV2Protocol();
     init_schema();
-    init_transport();
     init_JsonCodec2();
     init_parseJsonBody();
-    SmithyRpcV2JsonProtocol = class extends RpcProtocol {
+    SmithyRpcV2JsonProtocol = class extends AbstractRpcV2Protocol {
       codec = new JsonCodec2({
         timestampFormat: {
           useTrait: false,
@@ -190108,39 +189312,19 @@ var init_SmithyRpcV2JsonProtocol = __esm({
       });
       serializer = this.codec.createSerializer();
       deserializer = this.codec.createDeserializer();
-      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
-        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
-      }
       getShapeId() {
         return "smithy.protocols#rpcv2Json";
       }
       getPayloadCodec() {
         return this.codec;
       }
-      async serializeRequest(operationSchema, input, context2) {
-        const request = await super.serializeRequest(operationSchema, input, context2);
-        Object.assign(request.headers, {
-          "content-type": this.getDefaultContentType(),
-          "smithy-protocol": "rpc-v2-json",
-          accept: this.getDefaultContentType()
-        });
-        if (deref(operationSchema.input) === "unit") {
-          delete request.body;
-          delete request.headers["content-type"];
-        } else if (!request.body) {
+      getSmithyProtocolHeaderValue() {
+        return "rpc-v2-json";
+      }
+      applyEmptyBody(request) {
+        if (!request.body) {
           request.body = "{}";
         }
-        const { service, operation: operation2 } = getSmithyContext(context2);
-        const path = `/service/${service}/operation/${operation2}`;
-        if (request.path.endsWith("/")) {
-          request.path += path.slice(1);
-        } else {
-          request.path += path;
-        }
-        return request;
-      }
-      async deserializeResponse(operationSchema, context2, response) {
-        return super.deserializeResponse(operationSchema, context2, response);
       }
       async handleError(operationSchema, context2, response, dataObject, metadata) {
         const errorName = loadSmithyRpcV2JsonErrorCode(response, dataObject) ?? "Unknown";
@@ -190208,7 +189392,6 @@ var init_JsonShapeDeserializer = __esm({
     init_jsonReviver();
     init_needsReviver();
     init_parseJsonBody();
-    init_writeKey();
     JsonShapeDeserializer = class extends SerdeContextConfig {
       settings;
       constructor(settings) {
@@ -190256,8 +189439,9 @@ var init_JsonShapeDeserializer = __esm({
               unionSerde.writeUnknown();
             } else if (typeof record.__type === "string") {
               for (const k5 in record) {
-                if (!hasOwn(record, k5))
+                if (!hasOwn(record, k5)) {
                   continue;
+                }
                 const v = record[k5];
                 const t2 = jsonName ? nameMap[k5] ?? k5 : k5;
                 if (!(t2 in out)) {
@@ -190279,8 +189463,9 @@ var init_JsonShapeDeserializer = __esm({
             const mapMember = ns.getValueSchema();
             const out = {};
             for (const _k in value) {
-              if (!hasOwn(value, _k))
+              if (!hasOwn(value, _k)) {
                 continue;
+              }
               if (_k === "__proto__") {
                 writeKey(out);
               }
@@ -190342,8 +189527,9 @@ var init_JsonShapeDeserializer = __esm({
           if (isObject) {
             const out = Array.isArray(value) ? [] : {};
             for (const k5 in value) {
-              if (!hasOwn(value, k5))
+              if (!hasOwn(value, k5)) {
                 continue;
+              }
               if (k5 === "__proto__") {
                 writeKey(out);
               }
@@ -190427,7 +189613,6 @@ var init_JsonShapeSerializer = __esm({
     init_serde();
     init_ConfigurableSerdeContext();
     init_jsonReplacer();
-    init_writeKey();
     init_transport();
     JsonShapeSerializer = class extends SerdeContextConfig {
       settings;
@@ -190497,8 +189682,9 @@ var init_JsonShapeSerializer = __esm({
               }
             } else if (typeof record.__type === "string") {
               for (const k5 in record) {
-                if (!hasOwn(record, k5))
+                if (!hasOwn(record, k5)) {
                   continue;
+                }
                 const v = record[k5];
                 const targetKey = jsonName ? nameMap[k5] ?? k5 : k5;
                 if (!(targetKey in out)) {
@@ -190524,8 +189710,9 @@ var init_JsonShapeSerializer = __esm({
             const out = {};
             const sparse = !!ns.getMergedTraits().sparse;
             for (const _k in value) {
-              if (!hasOwn(value, _k))
+              if (!hasOwn(value, _k)) {
                 continue;
+              }
               const _v = value[_k];
               if (sparse || _v != null) {
                 if (_k === "__proto__") {
@@ -190598,8 +189785,9 @@ var init_JsonShapeSerializer = __esm({
             }
             const out = Array.isArray(value) ? [] : {};
             for (const k5 in value) {
-              if (!hasOwn(value, k5))
+              if (!hasOwn(value, k5)) {
                 continue;
+              }
               const v = value[k5];
               if (k5 === "__proto__") {
                 writeKey(out);
@@ -190652,6 +189840,7 @@ var init_JsonCodec = __esm({
 // node_modules/@smithy/core/dist-es/submodules/protocols/index.js
 var protocols_exports = {};
 __export(protocols_exports, {
+  AbstractRpcV2Protocol: () => AbstractRpcV2Protocol,
   Field: () => Field,
   Fields: () => Fields,
   FromStringShapeDeserializer: () => FromStringShapeDeserializer,
@@ -190701,6 +189890,7 @@ var init_protocols = __esm({
     init_HttpBindingProtocol();
     init_HttpProtocol();
     init_RpcProtocol();
+    init_AbstractRpcV2Protocol();
     init_requestBuilder();
     init_resolve_path();
     init_FromStringShapeDeserializer();
@@ -190830,8 +190020,9 @@ function parseRetryAfterHeader(response, logger2) {
     return;
   }
   for (const header in response.headers) {
-    if (!hasOwn(response.headers, header))
+    if (!hasOwn(response.headers, header)) {
       continue;
+    }
     const h6 = header.toLowerCase();
     if (h6 === "retry-after") {
       const retryAfter = response.headers[header];
@@ -190882,12 +190073,15 @@ var asSdkError;
 var init_util = __esm({
   "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js"() {
     asSdkError = (error3) => {
-      if (error3 instanceof Error)
+      if (error3 instanceof Error) {
         return error3;
-      if (error3 instanceof Object)
+      }
+      if (error3 instanceof Object) {
         return Object.assign(new Error(), error3);
-      if (typeof error3 === "string")
+      }
+      if (typeof error3 === "string") {
         return new Error(error3);
+      }
       return new Error(`AWS SDK error wrapper for ${error3}`);
     };
   }
@@ -190985,12 +190179,15 @@ var init_retryMiddleware = __esm({
       return errorInfo;
     };
     getRetryErrorType = (error3) => {
-      if (isThrottlingError(error3))
+      if (isThrottlingError(error3)) {
         return "THROTTLING";
-      if (isTransientError(error3))
+      }
+      if (isTransientError(error3)) {
         return "TRANSIENT";
-      if (isServerError(error3))
+      }
+      if (isServerError(error3)) {
         return "SERVER_ERROR";
+      }
       return "CLIENT_ERROR";
     };
     retryMiddlewareOptions = {
@@ -191521,15 +190718,18 @@ var init_StandardRetryStrategy2 = __esm({
       }
     };
     getDelayFromRetryAfterHeader = (response) => {
-      if (!HttpResponse.isInstance(response))
+      if (!HttpResponse.isInstance(response)) {
         return;
+      }
       const retryAfterHeaderName = Object.keys(response.headers).find((key) => key.toLowerCase() === "retry-after");
-      if (!retryAfterHeaderName)
+      if (!retryAfterHeaderName) {
         return;
+      }
       const retryAfter = response.headers[retryAfterHeaderName];
       const retryAfterSeconds = Number(retryAfter);
-      if (!Number.isNaN(retryAfterSeconds))
+      if (!Number.isNaN(retryAfterSeconds)) {
         return Math.min(retryAfterSeconds * 1e3, 2e4);
+      }
       const retryAfterDate = new Date(retryAfter);
       return Math.min(retryAfterDate.getTime() - Date.now(), 2e4);
     };
@@ -191579,8 +190779,9 @@ var init_configurations = __esm({
     NODE_MAX_ATTEMPT_CONFIG_OPTIONS = {
       environmentVariableSelector: (env2) => {
         const value = env2[ENV_MAX_ATTEMPTS];
-        if (!value)
+        if (!value) {
           return void 0;
+        }
         const maxAttempt = parseInt(value);
         if (Number.isNaN(maxAttempt)) {
           throw new Error(`Environment variable ${ENV_MAX_ATTEMPTS} mast be a number, got "${value}"`);
@@ -191589,8 +190790,9 @@ var init_configurations = __esm({
       },
       configFileSelector: (profile) => {
         const value = profile[CONFIG_MAX_ATTEMPTS];
-        if (!value)
+        if (!value) {
           return void 0;
+        }
         const maxAttempt = parseInt(value);
         if (Number.isNaN(maxAttempt)) {
           throw new Error(`Shared config file entry ${CONFIG_MAX_ATTEMPTS} mast be a number, got "${value}"`);
@@ -191775,8 +190977,9 @@ var init_hostHeaderMiddleware = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-host-header/hostHeaderMiddleware.js"() {
     init_protocols();
     hostHeaderMiddleware = (options) => (next) => async (args) => {
-      if (!HttpRequest.isInstance(args.request))
+      if (!HttpRequest.isInstance(args.request)) {
         return next(args);
+      }
       const { request } = args;
       const { handlerProtocol = "" } = options.requestHandler.metadata || {};
       if (handlerProtocol.indexOf("h2") >= 0 && !request.headers[":authority"]) {
@@ -191784,8 +190987,9 @@ var init_hostHeaderMiddleware = __esm({
         request.headers[":authority"] = request.hostname + (request.port ? ":" + request.port : "");
       } else if (!request.headers["host"]) {
         let host = request.hostname;
-        if (request.port != null)
+        if (request.port != null) {
           host += `:${request.port}`;
+        }
         request.headers["host"] = host;
       }
       return next(args);
@@ -192271,8 +191475,9 @@ var normalizeProvider2;
 var init_normalizeProvider2 = __esm({
   "node_modules/@smithy/core/dist-es/normalizeProvider.js"() {
     normalizeProvider2 = (input) => {
-      if (typeof input === "function")
+      if (typeof input === "function") {
         return input;
+      }
       const promisified = Promise.resolve(input);
       return () => promisified;
     };
@@ -192351,8 +191556,9 @@ var init_DefaultIdentityProviderConfig = __esm({
       authSchemes = /* @__PURE__ */ new Map();
       constructor(config) {
         for (const key in config) {
-          if (!hasOwn(config, key))
+          if (!hasOwn(config, key)) {
             continue;
+          }
           const value = config[key];
           if (value !== void 0) {
             this.authSchemes.set(key, value);
@@ -194029,27 +193235,36 @@ var init_defaultUserAgent2 = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/util-user-agent-browser/defaultUserAgent.js"() {
     fallback = {
       os(ua) {
-        if (/iPhone|iPad|iPod/.test(ua))
+        if (/iPhone|iPad|iPod/.test(ua)) {
           return "iOS";
-        if (/Macintosh|Mac OS X/.test(ua))
+        }
+        if (/Macintosh|Mac OS X/.test(ua)) {
           return "macOS";
-        if (/Windows NT/.test(ua))
+        }
+        if (/Windows NT/.test(ua)) {
           return "Windows";
-        if (/Android/.test(ua))
+        }
+        if (/Android/.test(ua)) {
           return "Android";
-        if (/Linux/.test(ua))
+        }
+        if (/Linux/.test(ua)) {
           return "Linux";
+        }
         return void 0;
       },
       browser(ua) {
-        if (/EdgiOS|EdgA|Edg\//.test(ua))
+        if (/EdgiOS|EdgA|Edg\//.test(ua)) {
           return "Microsoft Edge";
-        if (/Firefox\//.test(ua))
+        }
+        if (/Firefox\//.test(ua)) {
           return "Firefox";
-        if (/Chrome\//.test(ua))
+        }
+        if (/Chrome\//.test(ua)) {
           return "Chrome";
-        if (/Safari\//.test(ua))
+        }
+        if (/Safari\//.test(ua)) {
           return "Safari";
+        }
         return void 0;
       }
     };
@@ -194103,11 +193318,13 @@ var init_parseArn = __esm({
     RESOURCE_DELIMITER = "/";
     parseArn = (value) => {
       const segments = value.split(ARN_DELIMITER);
-      if (segments.length < 6)
+      if (segments.length < 6) {
         return null;
+      }
       const [arn, partition2, service, region, accountId, ...resourcePath] = segments;
-      if (arn !== "arn" || partition2 === "" || service === "" || resourcePath.join(ARN_DELIMITER) === "")
+      if (arn !== "arn" || partition2 === "" || service === "" || resourcePath.join(ARN_DELIMITER) === "") {
         return null;
+      }
       const resourceId = resourcePath.map((resource) => resource.split(RESOURCE_DELIMITER)).flat();
       return {
         partition: partition2,
@@ -194346,8 +193563,7 @@ var init_getUpdatedSystemClockOffset = __esm({
       if (timeRequestSent !== void 0 && timeResponseReceived - timeRequestSent > 9e5) {
         return currentSystemClockOffset;
       }
-      const candidateSkew = timeRequestSent !== void 0 ? serverTime - (timeRequestSent + timeResponseReceived) / 2 : serverTime - timeResponseReceived;
-      return candidateSkew;
+      return serverTime - timeResponseReceived;
     };
   }
 });
@@ -194527,16 +193743,19 @@ var init_NODE_AUTH_SCHEME_PREFERENCE_OPTIONS = __esm({
       environmentVariableSelector: (env2, options) => {
         if (options?.signingName) {
           const bearerTokenKey = getBearerTokenEnvKey(options.signingName);
-          if (bearerTokenKey in env2)
+          if (bearerTokenKey in env2) {
             return ["httpBearerAuth"];
+          }
         }
-        if (!(NODE_AUTH_SCHEME_PREFERENCE_ENV_KEY in env2))
+        if (!(NODE_AUTH_SCHEME_PREFERENCE_ENV_KEY in env2)) {
           return void 0;
+        }
         return getArrayForCommaSeparatedString(env2[NODE_AUTH_SCHEME_PREFERENCE_ENV_KEY]);
       },
       configFileSelector: (profile) => {
-        if (!(NODE_AUTH_SCHEME_PREFERENCE_CONFIG_KEY in profile))
+        if (!(NODE_AUTH_SCHEME_PREFERENCE_CONFIG_KEY in profile)) {
           return void 0;
+        }
         return getArrayForCommaSeparatedString(profile[NODE_AUTH_SCHEME_PREFERENCE_CONFIG_KEY]);
       },
       default: []
@@ -194579,15 +193798,16 @@ var init_resolveAwsSdkSigV4AConfig = __esm({
 // node_modules/@smithy/signature-v4/dist-cjs/index.js
 var require_dist_cjs2 = __commonJS({
   "node_modules/@smithy/signature-v4/dist-cjs/index.js"(exports2) {
-    var { hasOwn: hasOwn2, fromUtf8: fromUtf83, fromHex: fromHex2, toHex: toHex2, toUint8Array: toUint8Array2, isArrayBuffer: isArrayBuffer2 } = (init_serde(), __toCommonJS(serde_exports));
+    var { hasOwn: hasOwn2, fromUtf8: fromUtf83, fromHex: fromHex2, toHex: toHex2, toUint8Array: toUint8Array2, writeKey: writeKey3, isArrayBuffer: isArrayBuffer2 } = (init_serde(), __toCommonJS(serde_exports));
     var { normalizeProvider: normalizeProvider3 } = (init_client2(), __toCommonJS(client_exports));
     var { escapeUri: escapeUri2, HttpRequest: HttpRequest2 } = (init_protocols(), __toCommonJS(protocols_exports));
     var HeaderFormatter = class {
       format(headers) {
         const chunks = [];
         for (const headerName in headers) {
-          if (!hasOwn2(headers, headerName))
+          if (!hasOwn2(headers, headerName)) {
             continue;
+          }
           const bytes = fromUtf83(headerName);
           chunks.push(Uint8Array.from([bytes.byteLength]), bytes, this.formatHeaderValue(headers[headerName]));
         }
@@ -194704,8 +193924,9 @@ var require_dist_cjs2 = __commonJS({
       }
       for (let i6 = 7; i6 > -1; i6--) {
         bytes[i6]++;
-        if (bytes[i6] !== 0)
+        if (bytes[i6] !== 0) {
           break;
+        }
       }
     }
     var ALGORITHM_QUERY_PARAM = "X-Amz-Algorithm";
@@ -194755,8 +193976,9 @@ var require_dist_cjs2 = __commonJS({
       const keys = [];
       const serialized = {};
       for (const key in query) {
-        if (!hasOwn2(query, key))
+        if (!hasOwn2(query, key)) {
           continue;
+        }
         if (key.toLowerCase() === SIGNATURE_HEADER) {
           continue;
         }
@@ -194822,10 +194044,12 @@ ${toHex2(hashedRequest)}`;
         if (this.uriEscapePath) {
           const normalizedPathSegments = [];
           for (const pathSegment of path.split("/")) {
-            if (pathSegment?.length === 0)
+            if (pathSegment?.length === 0) {
               continue;
-            if (pathSegment === ".")
+            }
+            if (pathSegment === ".") {
               continue;
+            }
             if (pathSegment === "..") {
               normalizedPathSegments.pop();
             } else {
@@ -194891,10 +194115,13 @@ ${toHex2(hashedRequest)}`;
           continue;
         }
         const canonicalHeaderName = headerName.toLowerCase();
-        if (canonicalHeaderName in ALWAYS_UNSIGNABLE_HEADERS || unsignableHeaders?.has(canonicalHeaderName) || PROXY_HEADER_PATTERN.test(canonicalHeaderName) || SEC_HEADER_PATTERN.test(canonicalHeaderName)) {
+        if (hasOwn2(ALWAYS_UNSIGNABLE_HEADERS, canonicalHeaderName) || unsignableHeaders?.has(canonicalHeaderName) || PROXY_HEADER_PATTERN.test(canonicalHeaderName) || SEC_HEADER_PATTERN.test(canonicalHeaderName)) {
           if (!signableHeaders || signableHeaders && !signableHeaders.has(canonicalHeaderName)) {
             continue;
           }
+        }
+        if (canonicalHeaderName === "__proto__") {
+          writeKey3(canonical);
         }
         canonical[canonicalHeaderName] = headers[headerName].replace(/[\r\n]/g, " ").replace(/[ \t]+/g, " ").replace(/^ | $/g, "");
       }
@@ -194902,8 +194129,9 @@ ${toHex2(hashedRequest)}`;
     };
     var getPayloadHash = async ({ headers, body }, hashConstructor) => {
       for (const headerName in headers) {
-        if (!hasOwn2(headers, headerName))
+        if (!hasOwn2(headers, headerName)) {
           continue;
+        }
         if (headerName.toLowerCase() === SHA256_HEADER) {
           return headers[headerName];
         }
@@ -194920,8 +194148,9 @@ ${toHex2(hashedRequest)}`;
     var hasHeader = (soughtHeader, headers) => {
       soughtHeader = soughtHeader.toLowerCase();
       for (const headerName in headers) {
-        if (!hasOwn2(headers, headerName))
+        if (!hasOwn2(headers, headerName)) {
           continue;
+        }
         if (soughtHeader === headerName.toLowerCase()) {
           return true;
         }
@@ -194931,8 +194160,9 @@ ${toHex2(hashedRequest)}`;
     var moveHeadersToQuery = (request, options = {}) => {
       const { headers, query = {} } = HttpRequest2.clone(request);
       for (const name in headers) {
-        if (!hasOwn2(headers, name))
+        if (!hasOwn2(headers, name)) {
           continue;
+        }
         const lname = name.toLowerCase();
         if (lname.slice(0, 6) === "x-amz-" && !options.unhoistableHeaders?.has(lname) || options.hoistableHeaders?.has(lname)) {
           query[name] = headers[name];
@@ -194948,8 +194178,9 @@ ${toHex2(hashedRequest)}`;
     var prepareRequest = (request) => {
       request = HttpRequest2.clone(request);
       for (const headerName in request.headers) {
-        if (!hasOwn2(request.headers, headerName))
+        if (!hasOwn2(request.headers, headerName)) {
           continue;
+        }
         if (GENERATED_HEADERS.indexOf(headerName.toLowerCase()) > -1) {
           delete request.headers[headerName];
         }
@@ -195742,8 +194973,9 @@ var require_dist_cjs5 = __commonJS({
     var getTransformedHeaders = (headers) => {
       const transformedHeaders = {};
       for (const name in headers) {
-        if (!hasOwn2(headers, name))
+        if (!hasOwn2(headers, name)) {
           continue;
+        }
         const headerValues = headers[name];
         transformedHeaders[name] = Array.isArray(headerValues) ? headerValues.join(",") : headerValues;
       }
@@ -195825,13 +195057,25 @@ var require_dist_cjs5 = __commonJS({
       }
       return timing.setTimeout(registerListener, deferTimeMs);
     };
+    var resolveDefaultSocketTimeout = (config) => {
+      const value = config?.defaultSocketTimeout;
+      return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
+    };
     var DEFER_EVENT_LISTENER_TIME = 3e3;
-    var setSocketTimeout = (request, reject, timeoutInMs = 0) => {
+    var setSocketTimeout = (request, reject, timeoutInMs = 0, destroyResponseBodyOnTimeout = false) => {
+      let response;
+      if (destroyResponseBodyOnTimeout) {
+        request.once("response", (res) => response = res);
+      }
       const registerTimeout = (offset) => {
         const timeout = timeoutInMs - offset;
         const onTimeout = () => {
+          const error3 = Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (${destroyResponseBodyOnTimeout ? "service default socket timeout" : "configured by client requestHandler"}).`), { name: "TimeoutError" });
+          if (destroyResponseBodyOnTimeout) {
+            response?.destroy(error3);
+          }
           request.destroy();
-          reject(Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (configured by client requestHandler).`), { name: "TimeoutError" }));
+          reject(error3);
         };
         if (request.socket) {
           request.socket.setTimeout(timeout, onTimeout);
@@ -195844,7 +195088,12 @@ var require_dist_cjs5 = __commonJS({
         registerTimeout(0);
         return 0;
       }
-      return timing.setTimeout(registerTimeout.bind(null, timeoutInMs === 0 ? 0 : DEFER_EVENT_LISTENER_TIME), DEFER_EVENT_LISTENER_TIME);
+      const deferralId = timing.setTimeout(registerTimeout.bind(null, timeoutInMs === 0 ? 0 : DEFER_EVENT_LISTENER_TIME), DEFER_EVENT_LISTENER_TIME);
+      if (destroyResponseBodyOnTimeout) {
+        request.once("close", () => timing.clearTimeout(deferralId));
+        return 0;
+      }
+      return deferralId;
     };
     var MIN_WAIT_TIME = 6e3;
     async function writeRequestBody(httpRequest, request, maxContinueTimeoutMs = MIN_WAIT_TIME, externalAgent = false) {
@@ -195929,8 +195178,9 @@ var require_dist_cjs5 = __commonJS({
         }
         if (sockets && requests) {
           for (const origin in sockets) {
-            if (!hasOwn2(sockets, origin))
+            if (!hasOwn2(sockets, origin)) {
               continue;
+            }
             const socketsInUse = sockets[origin]?.length ?? 0;
             const requestsEnqueued = requests[origin]?.length ?? 0;
             if (socketsInUse >= maxSockets && requestsEnqueued >= 2 * maxSockets) {
@@ -196072,7 +195322,12 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
           const effectiveRequestTimeout = requestTimeout ?? config.requestTimeout;
           connectionTimeoutId = setConnectionTimeout(req, reject, config.connectionTimeout);
           requestTimeoutId = setRequestTimeout(req, reject, effectiveRequestTimeout, config.throwOnRequestTimeout, logger2 ?? console);
-          socketTimeoutId = setSocketTimeout(req, reject, config.socketTimeout);
+          const defaultSocketTimeout = config.socketTimeout === void 0 ? resolveDefaultSocketTimeout(config) : void 0;
+          if (defaultSocketTimeout) {
+            socketTimeoutId = setSocketTimeout(req, reject, defaultSocketTimeout, true);
+          } else {
+            socketTimeoutId = setSocketTimeout(req, reject, config.socketTimeout);
+          }
           const httpAgent = nodeHttpsOptions.agent;
           if (typeof httpAgent === "object" && "keepAlive" in httpAgent) {
             keepAliveTimeoutId = setSocketKeepAlive(req, {
@@ -196089,11 +195344,15 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
       updateHttpClientConfig(key, value) {
         this.config = void 0;
         this.configProvider = this.configProvider.then((config) => {
-          if (key === /* @__PURE__ */ Symbol.for("logger")) {
-            return {
-              ...config,
-              logger: config.logger ?? value
-            };
+          switch (key) {
+            case /* @__PURE__ */ Symbol.for("logger"):
+              key = "logger";
+              value = config.logger ?? value;
+              break;
+            case /* @__PURE__ */ Symbol.for("@smithy/defaultSocketTimeout"):
+              key = "defaultSocketTimeout";
+              value = resolveDefaultSocketTimeout(config) ?? value;
+              break;
           }
           return {
             ...config,
@@ -196108,13 +195367,15 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
         const { requestTimeout, connectionTimeout, socketTimeout, socketAcquisitionWarningTimeout, httpAgent, httpsAgent, throwOnRequestTimeout, logger: logger2 } = options || {};
         const keepAlive = true;
         const maxSockets = 50;
+        let httpAgentPromise;
         return {
           connectionTimeout,
           requestTimeout,
           socketTimeout,
+          defaultSocketTimeout: resolveDefaultSocketTimeout(options),
           socketAcquisitionWarningTimeout,
           throwOnRequestTimeout,
-          httpAgentProvider: async () => {
+          httpAgentProvider: () => httpAgentPromise ??= (async () => {
             const node_http = require("node:http");
             const { Agent, request } = node_http.default ?? node_http;
             hRequest = request;
@@ -196124,7 +195385,7 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
               return httpAgent;
             }
             return new hAgent({ keepAlive, maxSockets, ...httpAgent });
-          },
+          })(),
           httpsAgent: (() => {
             if (httpsAgent instanceof node_https.Agent || typeof httpsAgent?.destroy === "function") {
               this.externalAgent = true;
@@ -196389,7 +195650,8 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
       }
       async handle(request, { abortSignal, requestTimeout, isEventStream } = {}) {
         if (!this.config) {
-          this.config = await this.configProvider;
+          const config = await this.configProvider;
+          this.config = { ...config, defaultSocketTimeout: resolveDefaultSocketTimeout(config) };
           const { disableConcurrentStreams: disableConcurrentStreams2, maxConcurrentStreams, nodeHttp2ConnectOptions } = this.config;
           this.connectionManager.setDisableConcurrentStreams(disableConcurrentStreams2 ?? false);
           if (maxConcurrentStreams) {
@@ -196399,9 +195661,10 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
             this.connectionManager.setNodeHttp2ConnectOptions(nodeHttp2ConnectOptions);
           }
         }
-        const { requestTimeout: configRequestTimeout, disableConcurrentStreams } = this.config;
+        const { requestTimeout: configRequestTimeout, disableConcurrentStreams, sessionTimeout } = this.config;
         const useIsolatedSession = disableConcurrentStreams || isEventStream;
         const effectiveRequestTimeout = requestTimeout ?? configRequestTimeout;
+        const defaultSocketTimeout = effectiveRequestTimeout === void 0 && sessionTimeout === void 0 ? this.config.defaultSocketTimeout : void 0;
         return new Promise((_resolve, _reject) => {
           let fulfilled = false;
           let writeRequestBodyPromise = void 0;
@@ -196461,6 +195724,18 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
               timeoutError.name = "TimeoutError";
               rejectWithDestroy(timeoutError);
             });
+          } else if (defaultSocketTimeout) {
+            clientHttp2Stream.setTimeout(defaultSocketTimeout, () => {
+              const timeoutError = new Error(`Stream timed out because of no activity for ${defaultSocketTimeout} ms`);
+              timeoutError.name = "TimeoutError";
+              fulfilled = true;
+              reject(timeoutError);
+              clientHttp2Stream.destroy(timeoutError);
+              if (useIsolatedSession) {
+                ref.destroy();
+              }
+            });
+            clientHttp2Stream.once("response", () => clientHttp2Stream.setTimeout(defaultSocketTimeout));
           }
           if (abortSignal) {
             const onAbort = () => {
@@ -196518,6 +195793,12 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
       updateHttpClientConfig(key, value) {
         this.config = void 0;
         this.configProvider = this.configProvider.then((config) => {
+          switch (key) {
+            case /* @__PURE__ */ Symbol.for("@smithy/defaultSocketTimeout"):
+              key = "defaultSocketTimeout";
+              value = resolveDefaultSocketTimeout(config) ?? value;
+              break;
+          }
           return {
             ...config,
             [key]: value
@@ -196777,7 +196058,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.50",
+      version: "3.997.54",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -196877,12 +196158,12 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.978.5",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.49",
+        "@aws-sdk/core": "^3.979.1",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.51",
         "@aws-sdk/types": "^3.975.0",
-        "@smithy/core": "^3.36.1",
+        "@smithy/core": "^3.38.0",
         "@smithy/fetch-http-handler": "^5.8.0",
-        "@smithy/node-http-handler": "^4.12.1",
+        "@smithy/node-http-handler": "^4.14.0",
         "@smithy/types": "^4.19.0",
         tslib: "^2.6.2"
       },
@@ -197162,8 +196443,9 @@ function writeStruct(ns, value, serdeContext) {
   }
   if (typeof value.__type === "string") {
     for (const k5 in value) {
-      if (!hasOwn(value, k5))
+      if (!hasOwn(value, k5)) {
         continue;
+      }
       if (!memberNames.includes(k5)) {
         writeString(k5);
         writeUntypedValue(value[k5]);
@@ -197225,8 +196507,9 @@ function writeMap(ns, value, isDocument, serdeContext) {
   const valueSchema = ns.getValueSchema();
   const keys = [];
   for (const k5 in value) {
-    if (!hasOwn(value, k5))
+    if (!hasOwn(value, k5)) {
       continue;
+    }
     const v = value[k5];
     if (isDocument ? v !== void 0 : v != null || sparse) {
       keys.push(k5);
@@ -197635,8 +196918,9 @@ function readStruct(ns, count, startPos) {
   if (isUnion) {
     let resultEmpty = true;
     for (const _ in result) {
-      if (!hasOwn(result, _))
+      if (!hasOwn(result, _)) {
         continue;
+      }
       resultEmpty = false;
       break;
     }
@@ -197799,8 +197083,9 @@ function readMapIndefinite(ns) {
         if (isUnion) {
           let resultEmpty = true;
           for (const _ in result) {
-            if (!hasOwn(result, _))
+            if (!hasOwn(result, _)) {
               continue;
+            }
             resultEmpty = false;
             break;
           }
@@ -198096,8 +197381,9 @@ function transformObject(ns, value) {
   if (ns.isMapSchema()) {
     const targetSchema = ns.getValueSchema();
     for (const key in value) {
-      if (!hasOwn(value, key))
+      if (!hasOwn(value, key)) {
         continue;
+      }
       newObject[key] = transformObject(targetSchema, value[key]);
     }
   } else if (ns.isStructSchema()) {
@@ -198106,8 +197392,9 @@ function transformObject(ns, value) {
     if (isUnion) {
       keys = /* @__PURE__ */ new Set();
       for (const k5 in value) {
-        if (!hasOwn(value, k5))
+        if (!hasOwn(value, k5)) {
           continue;
+        }
         if (k5 !== "__type") {
           keys.add(k5);
         }
@@ -198124,8 +197411,9 @@ function transformObject(ns, value) {
     if (isUnion && keys?.size === 1) {
       let newObjectEmpty = true;
       for (const _ in newObject) {
-        if (!hasOwn(newObject, _))
+        if (!hasOwn(newObject, _)) {
           continue;
+        }
         newObjectEmpty = false;
         break;
       }
@@ -198135,8 +197423,9 @@ function transformObject(ns, value) {
       }
     } else if (typeof value.__type === "string") {
       for (const k5 in value) {
-        if (!hasOwn(value, k5))
+        if (!hasOwn(value, k5)) {
           continue;
+        }
         if (!(k5 in newObject)) {
           newObject[k5] = value[k5];
         }
@@ -198210,52 +197499,29 @@ var init_SmithyRpcV2CborProtocol = __esm({
   "node_modules/@smithy/core/dist-es/submodules/cbor/SmithyRpcV2CborProtocol.js"() {
     init_protocols();
     init_schema();
-    init_transport();
     init_CborCodec();
     init_parseCborBody();
-    SmithyRpcV2CborProtocol = class extends RpcProtocol {
+    SmithyRpcV2CborProtocol = class extends AbstractRpcV2Protocol {
       codec = new CborCodec();
       serializer = this.codec.createSerializer();
       deserializer = this.codec.createDeserializer();
-      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
-        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
-      }
       getShapeId() {
         return "smithy.protocols#rpcv2Cbor";
       }
       getPayloadCodec() {
         return this.codec;
       }
-      async serializeRequest(operationSchema, input, context2) {
-        const request = await super.serializeRequest(operationSchema, input, context2);
-        Object.assign(request.headers, {
-          "content-type": this.getDefaultContentType(),
-          "smithy-protocol": "rpc-v2-cbor",
-          accept: this.getDefaultContentType()
-        });
-        if (deref(operationSchema.input) === "unit") {
-          delete request.body;
-          delete request.headers["content-type"];
-        } else {
-          if (!request.body) {
-            this.serializer.write(15, {});
-            request.body = this.serializer.flush();
-          }
-          if (request.body instanceof Uint8Array) {
-            request.headers["content-length"] = String(request.body.byteLength);
-          }
-        }
-        const { service, operation: operation2 } = getSmithyContext(context2);
-        const path = `/service/${service}/operation/${operation2}`;
-        if (request.path.endsWith("/")) {
-          request.path += path.slice(1);
-        } else {
-          request.path += path;
-        }
-        return request;
+      getSmithyProtocolHeaderValue() {
+        return "rpc-v2-cbor";
       }
-      async deserializeResponse(operationSchema, context2, response) {
-        return super.deserializeResponse(operationSchema, context2, response);
+      applyEmptyBody(request) {
+        if (!request.body) {
+          this.serializer.write(15, {});
+          request.body = this.serializer.flush();
+        }
+        if (request.body instanceof Uint8Array) {
+          request.headers["content-length"] = String(request.body.byteLength);
+        }
       }
       async handleError(operationSchema, context2, response, dataObject, metadata) {
         const errorIdentifier = loadSmithyRpcV2CborErrorCode(response, dataObject) ?? "Unknown";
@@ -198735,6 +198001,64 @@ var init_AwsRestJsonProtocol = __esm({
       }
       getDefaultContentType() {
         return "application/json";
+      }
+    };
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/AwsSmithyRpcV2JsonProtocol.js
+var AwsSmithyRpcV2JsonProtocol;
+var init_AwsSmithyRpcV2JsonProtocol = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/AwsSmithyRpcV2JsonProtocol.js"() {
+    init_protocols();
+    init_schema();
+    init_ProtocolLib();
+    AwsSmithyRpcV2JsonProtocol = class extends SmithyRpcV2JsonProtocol {
+      awsQueryCompatible;
+      mixin;
+      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5, awsQueryCompatible }) {
+        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
+        this.awsQueryCompatible = !!awsQueryCompatible;
+        this.mixin = new ProtocolLib(this.awsQueryCompatible);
+      }
+      async serializeRequest(operationSchema, input, context2) {
+        const request = await super.serializeRequest(operationSchema, input, context2);
+        if (this.awsQueryCompatible) {
+          request.headers["x-amzn-query-mode"] = "true";
+        }
+        return request;
+      }
+      async handleError(operationSchema, context2, response, dataObject, metadata) {
+        if (this.awsQueryCompatible) {
+          this.mixin.setQueryCompatError(dataObject, response);
+        }
+        const errorName = (() => {
+          const compatHeader = response.headers["x-amzn-query-error"];
+          if (compatHeader && this.awsQueryCompatible) {
+            return compatHeader.split(";")[0];
+          }
+          return loadSmithyRpcV2JsonErrorCode(response, dataObject) ?? "Unknown";
+        })();
+        this.mixin.compose(this.compositeErrorRegistry, errorName, this.options.defaultNamespace);
+        const { errorSchema, errorMetadata } = await this.mixin.getErrorSchemaOrThrowBaseException(errorName, this.options.defaultNamespace, response, dataObject, metadata, this.awsQueryCompatible ? this.mixin.findQueryCompatibleError : void 0);
+        const ns = NormalizedSchema.of(errorSchema);
+        const message = dataObject.message ?? dataObject.Message ?? "UnknownError";
+        const ErrorCtor = this.compositeErrorRegistry.getErrorCtor(errorSchema) ?? Error;
+        const exception = new ErrorCtor({});
+        const output = {};
+        const errorDeserializer = this.getPayloadCodec().createDeserializer();
+        for (const [name, member2] of ns.structIterator()) {
+          if (dataObject[name] != null) {
+            output[name] = errorDeserializer.readObject(member2, dataObject[name]);
+          }
+        }
+        if (this.awsQueryCompatible) {
+          this.mixin.queryCompatOutput(dataObject, output);
+        }
+        throw this.mixin.decorateServiceException(Object.assign(exception, errorMetadata, {
+          $fault: ns.getMergedTraits().error,
+          message
+        }, output), dataObject);
       }
     };
   }
@@ -200215,6 +199539,7 @@ __export(protocols_exports2, {
   AwsRestJsonProtocol: () => AwsRestJsonProtocol,
   AwsRestXmlProtocol: () => AwsRestXmlProtocol,
   AwsSmithyRpcV2CborProtocol: () => AwsSmithyRpcV2CborProtocol,
+  AwsSmithyRpcV2JsonProtocol: () => AwsSmithyRpcV2JsonProtocol,
   JsonCodec: () => JsonCodec,
   JsonCodec2: () => JsonCodec2,
   JsonShapeDeserializer: () => JsonShapeDeserializer,
@@ -200244,6 +199569,7 @@ var init_protocols2 = __esm({
     init_AwsJson1_1Protocol();
     init_AwsJsonRpcProtocol();
     init_AwsRestJsonProtocol();
+    init_AwsSmithyRpcV2JsonProtocol();
     init_protocols();
     init_AwsEc2QueryProtocol();
     init_AwsQueryProtocol();
@@ -204367,6 +203693,13 @@ var init_enums2 = __esm({
       CONFLICT: "CONFLICT",
       INSUFFICIENT_PERMISSIONS: "INSUFFICIENT_PERMISSIONS",
       INVALID_REQUEST: "INVALID_REQUEST",
+      OAUTH_INVALID_GRANT: "invalid_grant",
+      OAUTH_INVALID_REQUEST: "invalid_request",
+      OAUTH_INVALID_SCOPE: "invalid_scope",
+      OAUTH_INVALID_TARGET: "invalid_target",
+      OAUTH_RATE_EXCEEDED: "rate_exceeded",
+      OAUTH_SERVICE_UNAVAILABLE: "service_unavailable",
+      OAUTH_UNSUPPORTED_GRANT_TYPE: "unsupported_grant_type",
       RESOURCE_NOT_FOUND: "RESOURCE_NOT_FOUND",
       SERVER_ERROR: "server_error",
       SERVICE_QUOTA_EXCEEDED: "SERVICE_QUOTA_EXCEEDED",
@@ -205270,7 +204603,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1155.0";
+    var version = "3.1160.0";
     var packageInfo = {
       version
     };
@@ -206065,6 +205398,8 @@ var require_dist_cjs16 = __commonJS({
     var _GCR = "GatewayConnectionResources";
     var _GCa = "GatewayConnector";
     var _GCat = "GatewayConfiguration";
+    var _GD = "GpuDevice";
+    var _GDp = "GpuDevices";
     var _GEALC = "GatewayElbAccessLogConfiguration";
     var _GEALD = "GatewayElbAccessLogDestination";
     var _GEALSD = "GatewayElbAccessLogS3Destination";
@@ -206214,6 +205549,7 @@ var require_dist_cjs16 = __commonJS({
     var _NI = "NetworkInterface";
     var _NICR = "NetworkInterfaceCountRequest";
     var _NIe = "NetworkInterfaces";
+    var _NMA = "NvidiaMpsAllocation";
     var _NNFE = "NamespaceNotFoundException";
     var _NUAE = "NoUpdateAvailableException";
     var _PA2 = "PutAttributes";
@@ -206322,6 +205658,7 @@ var require_dist_cjs16 = __commonJS({
     var _SSD = "StopServiceDeployment";
     var _SSDR = "StopServiceDeploymentRequest";
     var _SSDRt = "StopServiceDeploymentResponse";
+    var _SSh = "SharingStrategy";
     var _ST2 = "StartTask";
     var _STR = "StartTaskRequest";
     var _STRt = "StartTaskResponse";
@@ -206498,7 +205835,8 @@ var require_dist_cjs16 = __commonJS({
     var _cBTIM = "canaryBakeTimeInMinutes";
     var _cBr = "createdBy";
     var _cC = "canaryConfiguration";
-    var _cCo = "containerConfigurations";
+    var _cCo = "containerCount";
+    var _cCon = "containerConfigurations";
     var _cD = "containerDefinitions";
     var _cDC = "computedDesiredCount";
     var _cDu = "currentDeployment";
@@ -206656,13 +205994,16 @@ var require_dist_cjs16 = __commonJS({
     var _gCA = "gatewayClusterAssociations";
     var _gCa = "gatewayConnections";
     var _gCr = "grpcCode";
+    var _gD = "gpuDevices";
     var _gDE = "guardDutyEnabled";
     var _gI = "gpuIds";
+    var _gIp = "gpuId";
     var _gR = "gatewayResources";
     var _gRA = "gatewayRouteArn";
     var _gRAa = "gatewayRouteArns";
     var _gRa = "gatewayRoute";
     var _gRat = "gatewayRoutes";
+    var _gSS = "gpuSharingStrategy";
     var _ga = "gateways";
     var _gr = "group";
     var _h4 = "hostname";
@@ -206765,6 +206106,7 @@ var require_dist_cjs16 = __commonJS({
     var _mAN = "managedAgentName";
     var _mAe = "metricAlarms";
     var _mC = "minCapacity";
+    var _mCP = "maxComputePercent";
     var _mCa = "maxCapacity";
     var _mCe = "metricConfigurations";
     var _mD = "managedDraining";
@@ -206802,6 +206144,7 @@ var require_dist_cjs16 = __commonJS({
     var _nI = "networkInterfaces";
     var _nIC = "networkInterfaceCount";
     var _nM = "networkMode";
+    var _nMv = "nvidiaMps";
     var _nT = "nextToken";
     var _na = "namespace";
     var _nam = "names";
@@ -206864,6 +206207,7 @@ var require_dist_cjs16 = __commonJS({
     var _rIC = "runningInstanceCount";
     var _rIe = "referenceId";
     var _rIu = "runtimeId";
+    var _rMIMB = "remainingMemoryInMiB";
     var _rMT = "resourceManagementType";
     var _rO = "readOnly";
     var _rOHT = "resetOnHealthyTask";
@@ -206924,6 +206268,7 @@ var require_dist_cjs16 = __commonJS({
     var _sIn = "snapshotId";
     var _sKP = "s3KeyPrefix";
     var _sL = "softLimit";
+    var _sM = "sharingMode";
     var _sMPPOLP = "spotMaxPricePercentageOverLowestPrice";
     var _sMS = "sharedMemorySize";
     var _sN = "serviceName";
@@ -206945,6 +206290,7 @@ var require_dist_cjs16 = __commonJS({
     var _sSR = "sourceServiceRevisions";
     var _sSRC = "sourceServiceRevisionCleanup";
     var _sSV = "stringSetValue";
+    var _sSh = "sharingStrategy";
     var _sSt = "stabilityStatus";
     var _sT3 = "startTimeout";
     var _sTc = "scalingTarget";
@@ -207002,6 +206348,7 @@ var require_dist_cjs16 = __commonJS({
     var _tLRA = "testListenerRuleArn";
     var _tLRAe = "testListenerRuleArns";
     var _tLSGB = "totalLocalStorageGB";
+    var _tMIMB = "totalMemoryInMiB";
     var _tP = "terminationPolicy";
     var _tR = "totalResources";
     var _tRA = "taskRoleArn";
@@ -207531,8 +206878,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _Co,
       0,
-      [_cAo, _tA, _n, _im, _iD, _rIu, _lS, _eC, _r3, _nB, _nI, _hS, _mA, _cp, _me, _mR, _gI, _nDI],
-      [0, 0, 0, 0, 0, 0, 0, 1, 0, () => NetworkBindings, () => NetworkInterfaces, 0, () => ManagedAgents, 0, 0, 0, 64 | 0, 64 | 0]
+      [_cAo, _tA, _n, _im, _iD, _rIu, _lS, _eC, _r3, _nB, _nI, _hS, _mA, _cp, _me, _mR, _gI, _nDI, _gSS],
+      [0, 0, 0, 0, 0, 0, 0, 1, 0, () => NetworkBindings, () => NetworkInterfaces, 0, () => ManagedAgents, 0, 0, 0, 64 | 0, 64 | 0, () => SharingStrategy$]
     ];
     var ContainerDefinition$ = [
       3,
@@ -207564,8 +206911,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _CIo,
       0,
-      [_cIA, _eII, _cPN, _ve, _vI, _rRe, _rReg, _st, _sR, _aC, _rTC, _pTC, _aUS, _at2, _rAe, _a2, _ta, _hS],
-      [0, 0, 0, 1, () => VersionInfo$, () => Resources, () => Resources, 0, 0, 2, 1, 1, 0, () => Attributes, 4, () => Attachments, () => Tags, () => ContainerInstanceHealthStatus$]
+      [_cIA, _eII, _cPN, _ve, _vI, _rRe, _rReg, _st, _sR, _aC, _rTC, _pTC, _aUS, _at2, _rAe, _a2, _ta, _hS, _gD],
+      [0, 0, 0, 1, () => VersionInfo$, () => Resources, () => Resources, 0, 0, 2, 1, 1, 0, () => Attributes, 4, () => Attachments, () => Tags, () => ContainerInstanceHealthStatus$, () => GpuDevices]
     ];
     var ContainerInstanceHealthStatus$ = [
       3,
@@ -208945,6 +208292,14 @@ var require_dist_cjs16 = __commonJS({
       [_pTro, _fa],
       [() => ProtectedTasks, () => Failures]
     ];
+    var GpuDevice$ = [
+      3,
+      n05,
+      _GD,
+      0,
+      [_gIp, _sM, _tMIMB, _rMIMB, _cCo],
+      [0, 0, 1, 1, 1]
+    ];
     var HealthCheck$ = [
       3,
       n05,
@@ -209627,6 +208982,15 @@ var require_dist_cjs16 = __commonJS({
       [_mi, _ma],
       [1, 1]
     ];
+    var NvidiaMpsAllocation$ = [
+      3,
+      n05,
+      _NMA,
+      0,
+      [_me, _mCP],
+      [1, 1],
+      1
+    ];
     var PlacementConstraint$ = [
       3,
       n05,
@@ -209825,9 +209189,9 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _RR,
       0,
-      [_v, _t],
-      [0, 0],
-      2
+      [_t, _v, _sSh],
+      [0, 0, () => SharingStrategy$],
+      1
     ];
     var Rollback$ = [
       3,
@@ -209927,7 +209291,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _SCC,
       0,
-      [_ena, _na, _serv, _lC, _aLCc, _cCo],
+      [_ena, _na, _serv, _lC, _aLCc, _cCon],
       [2, 0, () => ServiceConnectServiceList, () => LogConfiguration$, () => ServiceConnectAccessLogConfiguration$, () => ServiceConnectContainerConfigurations],
       1
     ];
@@ -211081,6 +210445,13 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => GatewaySummary$
     ];
+    var GpuDevices = [
+      1,
+      n05,
+      _GDp,
+      0,
+      () => GpuDevice$
+    ];
     var HostEntryList = [
       1,
       n05,
@@ -211561,6 +210932,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_lL],
       [0]
+    ];
+    var SharingStrategy$ = [
+      4,
+      n05,
+      _SSh,
+      0,
+      [_nMv],
+      [() => NvidiaMpsAllocation$]
     ];
     var UpdateGatewayConfiguration$ = [
       4,
@@ -213345,6 +212724,11 @@ var require_dist_cjs16 = __commonJS({
     var TargetType = {
       CONTAINER_INSTANCE: "container-instance"
     };
+    var GpuSharingMode = {
+      DEDICATED: "DEDICATED",
+      IDLE: "IDLE",
+      NVIDIA_MPS: "NVIDIA_MPS"
+    };
     var InstanceHealthCheckState = {
       IMPAIRED: "IMPAIRED",
       INITIALIZING: "INITIALIZING",
@@ -214205,6 +213589,8 @@ var require_dist_cjs16 = __commonJS({
     exports2.GetTaskProtectionCommand = GetTaskProtectionCommand;
     exports2.GetTaskProtectionRequest$ = GetTaskProtectionRequest$;
     exports2.GetTaskProtectionResponse$ = GetTaskProtectionResponse$;
+    exports2.GpuDevice$ = GpuDevice$;
+    exports2.GpuSharingMode = GpuSharingMode;
     exports2.HealthCheck$ = HealthCheck$;
     exports2.HealthStatus = HealthStatus;
     exports2.HostEntry$ = HostEntry$;
@@ -214347,6 +213733,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.NetworkMode = NetworkMode;
     exports2.NoUpdateAvailableException = NoUpdateAvailableException;
     exports2.NoUpdateAvailableException$ = NoUpdateAvailableException$;
+    exports2.NvidiaMpsAllocation$ = NvidiaMpsAllocation$;
     exports2.OSFamily = OSFamily;
     exports2.PidMode = PidMode;
     exports2.PlacementConstraint$ = PlacementConstraint$;
@@ -214463,6 +213850,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.Setting$ = Setting$;
     exports2.SettingName = SettingName;
     exports2.SettingType = SettingType;
+    exports2.SharingStrategy$ = SharingStrategy$;
     exports2.SortOrder = SortOrder;
     exports2.StabilityStatus = StabilityStatus;
     exports2.StartTask$ = StartTask$;
@@ -214701,7 +214089,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1155.0";
+    var version = "3.1160.0";
     var packageInfo = {
       version
     };
@@ -215253,6 +214641,19 @@ var require_dist_cjs17 = __commonJS({
         Object.setPrototypeOf(this, _ScanNotFoundException.prototype);
       }
     };
+    var ReplicationBackfillNotFoundException = class _ReplicationBackfillNotFoundException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ReplicationBackfillNotFoundException";
+      name = "ReplicationBackfillNotFoundException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ReplicationBackfillNotFoundException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ReplicationBackfillNotFoundException.prototype);
+      }
+    };
     var LayerInaccessibleException = class _LayerInaccessibleException extends ECRServiceException {
       static shapeId = "com.amazonaws.ecr#LayerInaccessibleException";
       name = "LayerInaccessibleException";
@@ -215435,6 +214836,32 @@ var require_dist_cjs17 = __commonJS({
         Object.setPrototypeOf(this, _LifecyclePolicyPreviewInProgressException.prototype);
       }
     };
+    var ReplicationBackfillInProgressException = class _ReplicationBackfillInProgressException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ReplicationBackfillInProgressException";
+      name = "ReplicationBackfillInProgressException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ReplicationBackfillInProgressException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ReplicationBackfillInProgressException.prototype);
+      }
+    };
+    var ReplicationBackfillInvalidStatusException = class _ReplicationBackfillInvalidStatusException extends ECRServiceException {
+      static shapeId = "com.amazonaws.ecr#ReplicationBackfillInvalidStatusException";
+      name = "ReplicationBackfillInvalidStatusException";
+      $fault = "client";
+      constructor(opts) {
+        super({
+          name: "ReplicationBackfillInvalidStatusException",
+          $fault: "client",
+          ...opts
+        });
+        Object.setPrototypeOf(this, _ReplicationBackfillInvalidStatusException.prototype);
+      }
+    };
     var ImageStorageClassUpdateNotSupportedException = class _ImageStorageClassUpdateNotSupportedException extends ECRServiceException {
       static shapeId = "com.amazonaws.ecr#ImageStorageClassUpdateNotSupportedException";
       name = "ImageStorageClassUpdateNotSupportedException";
@@ -215530,6 +214957,9 @@ var require_dist_cjs17 = __commonJS({
     var _DPTUER = "DeregisterPullTimeUpdateExclusionRequest";
     var _DPTUERe = "DeregisterPullTimeUpdateExclusionResponse";
     var _DR = "DeleteRepository";
+    var _DRBR = "DescribeReplicationBackfillResults";
+    var _DRBRR = "DescribeReplicationBackfillResultsRequest";
+    var _DRBRRe = "DescribeReplicationBackfillResultsResponse";
     var _DRCT = "DeleteRepositoryCreationTemplate";
     var _DRCTR = "DeleteRepositoryCreationTemplateRequest";
     var _DRCTRe = "DeleteRepositoryCreationTemplateResponse";
@@ -215652,6 +215082,9 @@ var require_dist_cjs17 = __commonJS({
     var _LPTUE = "ListPullTimeUpdateExclusions";
     var _LPTUER = "ListPullTimeUpdateExclusionsRequest";
     var _LPTUERi = "ListPullTimeUpdateExclusionsResponse";
+    var _LRB = "ListReplicationBackfills";
+    var _LRBR = "ListReplicationBackfillsRequest";
+    var _LRBRi = "ListReplicationBackfillsResponse";
     var _LTFR = "ListTagsForResource";
     var _LTFRR = "ListTagsForResourceRequest";
     var _LTFRRi = "ListTagsForResourceResponse";
@@ -215689,6 +215122,14 @@ var require_dist_cjs17 = __commonJS({
     var _PVD = "PackageVulnerabilityDetails";
     var _R = "Recommendation";
     var _RAEE = "RepositoryAlreadyExistsException";
+    var _RBIPE = "ReplicationBackfillInProgressException";
+    var _RBISE = "ReplicationBackfillInvalidStatusException";
+    var _RBNFE = "ReplicationBackfillNotFoundException";
+    var _RBP = "ReplicationBackfillProgress";
+    var _RBR = "ReplicationBackfillResult";
+    var _RBRL = "ReplicationBackfillResultList";
+    var _RBS = "ReplicationBackfillSummary";
+    var _RBSL = "ReplicationBackfillSummaryList";
     var _RC2 = "ReplicationConfiguration";
     var _RCT = "RepositoryCreationTemplate";
     var _RCTL = "RepositoryCreationTemplateList";
@@ -215733,6 +215174,12 @@ var require_dist_cjs17 = __commonJS({
     var _SNFE = "ScanNotFoundException";
     var _SNFEe = "SecretNotFoundException";
     var _SR = "SigningRule";
+    var _SRB = "StartReplicationBackfill";
+    var _SRBR = "StartReplicationBackfillRequest";
+    var _SRBRt = "StartReplicationBackfillResponse";
+    var _SRBRto = "StopReplicationBackfillRequest";
+    var _SRBRtop = "StopReplicationBackfillResponse";
+    var _SRBt = "StopReplicationBackfill";
     var _SRF = "ScanningRepositoryFilter";
     var _SRFL = "ScanningRepositoryFilterList";
     var _SRFLi = "SigningRepositoryFilterList";
@@ -215800,19 +215247,23 @@ var require_dist_cjs17 = __commonJS({
     var _ar = "arch";
     var _at2 = "attributes";
     var _au = "author";
+    var _b = "backfills";
     var _bS = "baseScore";
     var _c5 = "client";
     var _cA = "credentialArn";
     var _cAr = "createdAt";
     var _cRA = "customRoleArn";
+    var _cRC = "completedReplicationCount";
     var _cv = "cvss";
     var _d = "description";
     var _dU = "downloadUrl";
-    var _de = "destinations";
+    var _de = "destination";
+    var _des = "destinations";
     var _det = "details";
     var _di = "digest";
     var _e5 = "error";
     var _eA = "expiresAt";
+    var _eAn = "endedAt";
     var _eAx = "exploitAvailable";
     var _eC = "encryptionConfiguration";
     var _eF = "enhancedFindings";
@@ -215825,10 +215276,12 @@ var require_dist_cjs17 = __commonJS({
     var _fA = "findingArn";
     var _fAi = "fixAvailable";
     var _fC = "failureCode";
+    var _fCa = "failureCodes";
     var _fIV = "fixedInVersion";
     var _fOA = "firstObservedAt";
     var _fP = "filePath";
     var _fR = "failureReason";
+    var _fRC = "failedReplicationCount";
     var _fSC = "findingSeverityCounts";
     var _fT = "filterType";
     var _fa = "failure";
@@ -215901,9 +215354,11 @@ var require_dist_cjs17 = __commonJS({
     var _pVD = "packageVulnerabilityDetails";
     var _pr = "prefix";
     var _pre = "prefixes";
+    var _pro = "progress";
     var _r3 = "registry";
     var _rA = "resourceArn";
     var _rAe = "repositoryArn";
+    var _rBI = "replicationBackfillId";
     var _rC2 = "replicationConfiguration";
     var _rCT = "repositoryCreationTemplate";
     var _rCTe = "repositoryCreationTemplates";
@@ -215915,6 +215370,7 @@ var require_dist_cjs17 = __commonJS({
     var _rP = "repositoryPolicy";
     var _rS = "replicationStatuses";
     var _rSC = "registryScanningConfiguration";
+    var _rSF = "resultStatusFilter";
     var _rT3 = "resourceTags";
     var _rU3 = "referenceUrls";
     var _rUe = "repositoryUri";
@@ -215927,9 +215383,11 @@ var require_dist_cjs17 = __commonJS({
     var _rel = "release";
     var _rem = "remediation";
     var _rep = "repositories";
-    var _res = "resources";
+    var _res = "results";
+    var _reso = "resources";
     var _ru = "rules";
     var _s5 = "smithy.ts.sdk.synthetic.com.amazonaws.ecr";
+    var _sA = "startedAt";
     var _sC = "scanningConfigurations";
     var _sCc = "scanningConfiguration";
     var _sCi = "signingConfiguration";
@@ -215937,6 +215395,7 @@ var require_dist_cjs17 = __commonJS({
     var _sD = "scoreDetails";
     var _sF = "scanFrequency";
     var _sI = "subjectId";
+    var _sIFC = "subImageFailureCodes";
     var _sLH = "sourceLayerHash";
     var _sMD = "subjectManifestDigest";
     var _sOP = "scanOnPush";
@@ -215956,6 +215415,7 @@ var require_dist_cjs17 = __commonJS({
     var _t = "tags";
     var _tITC = "transitioningImageTotalCounts";
     var _tK = "tagKeys";
+    var _tRC = "totalReplicationCount";
     var _tS = "tagStatus";
     var _tSC = "targetStorageClass";
     var _te = "text";
@@ -216224,6 +215684,33 @@ var require_dist_cjs17 = __commonJS({
       [0]
     ];
     n0_registry5.registerError(RegistryPolicyNotFoundException$, RegistryPolicyNotFoundException);
+    var ReplicationBackfillInProgressException$ = [
+      -3,
+      n05,
+      _RBIPE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ReplicationBackfillInProgressException$, ReplicationBackfillInProgressException);
+    var ReplicationBackfillInvalidStatusException$ = [
+      -3,
+      n05,
+      _RBISE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ReplicationBackfillInvalidStatusException$, ReplicationBackfillInvalidStatusException);
+    var ReplicationBackfillNotFoundException$ = [
+      -3,
+      n05,
+      _RBNFE,
+      { [_e5]: _c5 },
+      [_m4],
+      [0]
+    ];
+    n0_registry5.registerError(ReplicationBackfillNotFoundException$, ReplicationBackfillNotFoundException);
     var RepositoryAlreadyExistsException$ = [
       -3,
       n05,
@@ -216835,6 +216322,23 @@ var require_dist_cjs17 = __commonJS({
       [_rI, _rC2],
       [0, () => ReplicationConfiguration$]
     ];
+    var DescribeReplicationBackfillResultsRequest$ = [
+      3,
+      n05,
+      _DRBRR,
+      0,
+      [_rBI, _rI, _rSF, _mR, _nT],
+      [0, 0, 0, 1, 0],
+      1
+    ];
+    var DescribeReplicationBackfillResultsResponse$ = [
+      3,
+      n05,
+      _DRBRRe,
+      0,
+      [_rI, _rBI, _de, _st, _fC, _pro, _res, _sA, _eAn, _nT],
+      [0, 0, () => ReplicationDestination$, 0, 0, () => ReplicationBackfillProgress$, () => ReplicationBackfillResultList, 4, 4, 0]
+    ];
     var DescribeRepositoriesRequest$ = [
       3,
       n05,
@@ -216890,7 +216394,7 @@ var require_dist_cjs17 = __commonJS({
       n05,
       _EISF,
       0,
-      [_aAI, _d, _fA, _fOA, _lOA, _pVD, _rem, _res, _sc2, _sD, _sev, _st, _ti, _ty, _uA, _fAi, _eAx],
+      [_aAI, _d, _fA, _fOA, _lOA, _pVD, _rem, _reso, _sc2, _sD, _sev, _st, _ti, _ty, _uA, _fAi, _eAx],
       [0, 0, 0, 4, 4, () => PackageVulnerabilityDetails$, () => Remediation$, () => ResourceList, 1, () => ScoreDetails$, 0, 0, 0, 0, 4, 0, 0]
     ];
     var GetAccountSettingRequest$ = [
@@ -217279,6 +216783,22 @@ var require_dist_cjs17 = __commonJS({
       [_pTUE, _nT],
       [64 | 0, 0]
     ];
+    var ListReplicationBackfillsRequest$ = [
+      3,
+      n05,
+      _LRBR,
+      0,
+      [_rI, _mR, _nT],
+      [0, 1, 0]
+    ];
+    var ListReplicationBackfillsResponse$ = [
+      3,
+      n05,
+      _LRBRi,
+      0,
+      [_rI, _b, _nT],
+      [0, () => ReplicationBackfillSummaryList, 0]
+    ];
     var ListTagsForResourceRequest$ = [
       3,
       n05,
@@ -217514,6 +217034,33 @@ var require_dist_cjs17 = __commonJS({
       [_rec],
       [() => Recommendation$]
     ];
+    var ReplicationBackfillProgress$ = [
+      3,
+      n05,
+      _RBP,
+      0,
+      [_tRC, _cRC, _fRC, _fCa],
+      [1, 1, 1, 64 | 0],
+      4
+    ];
+    var ReplicationBackfillResult$ = [
+      3,
+      n05,
+      _RBR,
+      0,
+      [_rN2, _iIm, _st, _fC, _sIFC],
+      [0, () => ImageIdentifier$, 0, 0, 64 | 0],
+      3
+    ];
+    var ReplicationBackfillSummary$ = [
+      3,
+      n05,
+      _RBS,
+      0,
+      [_rBI, _de, _st, _sA, _fC, _pro, _eAn],
+      [0, () => ReplicationDestination$, 0, 4, 0, () => ReplicationBackfillProgress$, 4],
+      4
+    ];
     var ReplicationConfiguration$ = [
       3,
       n05,
@@ -217537,7 +217084,7 @@ var require_dist_cjs17 = __commonJS({
       n05,
       _RR,
       0,
-      [_de, _rF],
+      [_des, _rF],
       [() => ReplicationDestinationList, () => RepositoryFilterList],
       1
     ];
@@ -217692,6 +217239,40 @@ var require_dist_cjs17 = __commonJS({
       0,
       [_rI, _rN2, _lPT, _st],
       [0, 0, 0, 0]
+    ];
+    var StartReplicationBackfillRequest$ = [
+      3,
+      n05,
+      _SRBR,
+      0,
+      [_de, _rI],
+      [() => ReplicationDestination$, 0],
+      1
+    ];
+    var StartReplicationBackfillResponse$ = [
+      3,
+      n05,
+      _SRBRt,
+      0,
+      [_rBI, _rI, _de, _st, _sA],
+      [0, 0, () => ReplicationDestination$, 0, 4]
+    ];
+    var StopReplicationBackfillRequest$ = [
+      3,
+      n05,
+      _SRBRto,
+      0,
+      [_rBI, _rI],
+      [0, 0],
+      1
+    ];
+    var StopReplicationBackfillResponse$ = [
+      3,
+      n05,
+      _SRBRtop,
+      0,
+      [_rI, _rBI, _de, _st, _sA],
+      [0, 0, () => ReplicationDestination$, 0, 4]
     ];
     var SubjectIdentifier$ = [
       3,
@@ -217979,6 +217560,20 @@ var require_dist_cjs17 = __commonJS({
       0,
       () => RegistryScanningRule$
     ];
+    var ReplicationBackfillResultList = [
+      1,
+      n05,
+      _RBRL,
+      0,
+      () => ReplicationBackfillResult$
+    ];
+    var ReplicationBackfillSummaryList = [
+      1,
+      n05,
+      _RBSL,
+      0,
+      () => ReplicationBackfillSummary$
+    ];
     var ReplicationDestinationList = [
       1,
       n05,
@@ -218253,6 +217848,14 @@ var require_dist_cjs17 = __commonJS({
       () => DescribeRegistryRequest$,
       () => DescribeRegistryResponse$
     ];
+    var DescribeReplicationBackfillResults$ = [
+      9,
+      n05,
+      _DRBR,
+      0,
+      () => DescribeReplicationBackfillResultsRequest$,
+      () => DescribeReplicationBackfillResultsResponse$
+    ];
     var DescribeRepositories$ = [
       9,
       n05,
@@ -218373,6 +217976,14 @@ var require_dist_cjs17 = __commonJS({
       () => ListPullTimeUpdateExclusionsRequest$,
       () => ListPullTimeUpdateExclusionsResponse$
     ];
+    var ListReplicationBackfills$ = [
+      9,
+      n05,
+      _LRB,
+      0,
+      () => ListReplicationBackfillsRequest$,
+      () => ListReplicationBackfillsResponse$
+    ];
     var ListTagsForResource$ = [
       9,
       n05,
@@ -218484,6 +218095,22 @@ var require_dist_cjs17 = __commonJS({
       0,
       () => StartLifecyclePolicyPreviewRequest$,
       () => StartLifecyclePolicyPreviewResponse$
+    ];
+    var StartReplicationBackfill$ = [
+      9,
+      n05,
+      _SRB,
+      0,
+      () => StartReplicationBackfillRequest$,
+      () => StartReplicationBackfillResponse$
+    ];
+    var StopReplicationBackfill$ = [
+      9,
+      n05,
+      _SRBt,
+      0,
+      () => StopReplicationBackfillRequest$,
+      () => StopReplicationBackfillResponse$
     ];
     var TagResource$ = [
       9,
@@ -218728,6 +218355,8 @@ var require_dist_cjs17 = __commonJS({
     };
     var DescribeRegistryCommand = class extends command5(_ep05, _mw05, "DescribeRegistry", DescribeRegistry$) {
     };
+    var DescribeReplicationBackfillResultsCommand = class extends command5(_ep05, _mw05, "DescribeReplicationBackfillResults", DescribeReplicationBackfillResults$) {
+    };
     var DescribeRepositoriesCommand = class extends command5(_ep05, _mw05, "DescribeRepositories", DescribeRepositories$) {
     };
     var DescribeRepositoryCreationTemplatesCommand = class extends command5(_ep05, _mw05, "DescribeRepositoryCreationTemplates", DescribeRepositoryCreationTemplates$) {
@@ -218758,6 +218387,8 @@ var require_dist_cjs17 = __commonJS({
     };
     var ListPullTimeUpdateExclusionsCommand = class extends command5(_ep05, _mw05, "ListPullTimeUpdateExclusions", ListPullTimeUpdateExclusions$) {
     };
+    var ListReplicationBackfillsCommand = class extends command5(_ep05, _mw05, "ListReplicationBackfills", ListReplicationBackfills$) {
+    };
     var ListTagsForResourceCommand = class extends command5(_ep05, _mw05, "ListTagsForResource", ListTagsForResource$) {
     };
     var PutAccountSettingCommand = class extends command5(_ep05, _mw05, "PutAccountSetting", PutAccountSetting$) {
@@ -218786,6 +218417,10 @@ var require_dist_cjs17 = __commonJS({
     };
     var StartLifecyclePolicyPreviewCommand = class extends command5(_ep05, _mw05, "StartLifecyclePolicyPreview", StartLifecyclePolicyPreview$) {
     };
+    var StartReplicationBackfillCommand = class extends command5(_ep05, _mw05, "StartReplicationBackfill", StartReplicationBackfill$) {
+    };
+    var StopReplicationBackfillCommand = class extends command5(_ep05, _mw05, "StopReplicationBackfill", StopReplicationBackfill$) {
+    };
     var TagResourceCommand = class extends command5(_ep05, _mw05, "TagResource", TagResource$) {
     };
     var UntagResourceCommand = class extends command5(_ep05, _mw05, "UntagResource", UntagResource$) {
@@ -218803,10 +218438,12 @@ var require_dist_cjs17 = __commonJS({
     var paginateDescribeImageScanFindings = createPaginator2(ECRClient3, DescribeImageScanFindingsCommand, "nextToken", "nextToken", "maxResults");
     var paginateDescribeImages = createPaginator2(ECRClient3, DescribeImagesCommand2, "nextToken", "nextToken", "maxResults");
     var paginateDescribePullThroughCacheRules = createPaginator2(ECRClient3, DescribePullThroughCacheRulesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateDescribeReplicationBackfillResults = createPaginator2(ECRClient3, DescribeReplicationBackfillResultsCommand, "nextToken", "nextToken", "maxResults");
     var paginateDescribeRepositories = createPaginator2(ECRClient3, DescribeRepositoriesCommand, "nextToken", "nextToken", "maxResults");
     var paginateDescribeRepositoryCreationTemplates = createPaginator2(ECRClient3, DescribeRepositoryCreationTemplatesCommand, "nextToken", "nextToken", "maxResults");
     var paginateGetLifecyclePolicyPreview = createPaginator2(ECRClient3, GetLifecyclePolicyPreviewCommand, "nextToken", "nextToken", "maxResults");
     var paginateListImages = createPaginator2(ECRClient3, ListImagesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListReplicationBackfills = createPaginator2(ECRClient3, ListReplicationBackfillsCommand, "nextToken", "nextToken", "maxResults");
     var checkState$1 = async (client, input) => {
       let reason;
       try {
@@ -218904,6 +218541,7 @@ var require_dist_cjs17 = __commonJS({
       DescribeImageSigningStatusCommand,
       DescribePullThroughCacheRulesCommand,
       DescribeRegistryCommand,
+      DescribeReplicationBackfillResultsCommand,
       DescribeRepositoriesCommand,
       DescribeRepositoryCreationTemplatesCommand,
       GetAccountSettingCommand,
@@ -218919,6 +218557,7 @@ var require_dist_cjs17 = __commonJS({
       ListImageReferrersCommand,
       ListImagesCommand,
       ListPullTimeUpdateExclusionsCommand,
+      ListReplicationBackfillsCommand,
       ListTagsForResourceCommand,
       PutAccountSettingCommand,
       PutImageCommand: PutImageCommand2,
@@ -218933,6 +218572,8 @@ var require_dist_cjs17 = __commonJS({
       SetRepositoryPolicyCommand,
       StartImageScanCommand,
       StartLifecyclePolicyPreviewCommand,
+      StartReplicationBackfillCommand,
+      StopReplicationBackfillCommand,
       TagResourceCommand,
       UntagResourceCommand,
       UpdateImageStorageClassCommand,
@@ -218945,10 +218586,12 @@ var require_dist_cjs17 = __commonJS({
       paginateDescribeImages,
       paginateDescribeImageScanFindings,
       paginateDescribePullThroughCacheRules,
+      paginateDescribeReplicationBackfillResults,
       paginateDescribeRepositories,
       paginateDescribeRepositoryCreationTemplates,
       paginateGetLifecyclePolicyPreview,
-      paginateListImages
+      paginateListImages,
+      paginateListReplicationBackfills
     };
     var waiters = {
       waitUntilImageScanComplete,
@@ -219071,6 +218714,18 @@ var require_dist_cjs17 = __commonJS({
     };
     var RepositoryFilterType = {
       PREFIX_MATCH: "PREFIX_MATCH"
+    };
+    var ReplicationBackfillResultStatus = {
+      COMPLETE: "COMPLETE",
+      FAILED: "FAILED"
+    };
+    var ReplicationBackfillStatus = {
+      COMPLETE: "COMPLETE",
+      FAILED: "FAILED",
+      IN_PROGRESS: "IN_PROGRESS",
+      PREPARING: "PREPARING",
+      STOPPED: "STOPPED",
+      STOPPING: "STOPPING"
     };
     var LifecyclePolicyTargetStorageClass = {
       ARCHIVE: "ARCHIVE"
@@ -219207,6 +218862,10 @@ var require_dist_cjs17 = __commonJS({
     exports2.DescribeRegistryCommand = DescribeRegistryCommand;
     exports2.DescribeRegistryRequest$ = DescribeRegistryRequest$;
     exports2.DescribeRegistryResponse$ = DescribeRegistryResponse$;
+    exports2.DescribeReplicationBackfillResults$ = DescribeReplicationBackfillResults$;
+    exports2.DescribeReplicationBackfillResultsCommand = DescribeReplicationBackfillResultsCommand;
+    exports2.DescribeReplicationBackfillResultsRequest$ = DescribeReplicationBackfillResultsRequest$;
+    exports2.DescribeReplicationBackfillResultsResponse$ = DescribeReplicationBackfillResultsResponse$;
     exports2.DescribeRepositories$ = DescribeRepositories$;
     exports2.DescribeRepositoriesCommand = DescribeRepositoriesCommand;
     exports2.DescribeRepositoriesRequest$ = DescribeRepositoriesRequest$;
@@ -219352,6 +219011,10 @@ var require_dist_cjs17 = __commonJS({
     exports2.ListPullTimeUpdateExclusionsCommand = ListPullTimeUpdateExclusionsCommand;
     exports2.ListPullTimeUpdateExclusionsRequest$ = ListPullTimeUpdateExclusionsRequest$;
     exports2.ListPullTimeUpdateExclusionsResponse$ = ListPullTimeUpdateExclusionsResponse$;
+    exports2.ListReplicationBackfills$ = ListReplicationBackfills$;
+    exports2.ListReplicationBackfillsCommand = ListReplicationBackfillsCommand;
+    exports2.ListReplicationBackfillsRequest$ = ListReplicationBackfillsRequest$;
+    exports2.ListReplicationBackfillsResponse$ = ListReplicationBackfillsResponse$;
     exports2.ListTagsForResource$ = ListTagsForResource$;
     exports2.ListTagsForResourceCommand = ListTagsForResourceCommand;
     exports2.ListTagsForResourceRequest$ = ListTagsForResourceRequest$;
@@ -219411,6 +219074,17 @@ var require_dist_cjs17 = __commonJS({
     exports2.RegistryScanningConfiguration$ = RegistryScanningConfiguration$;
     exports2.RegistryScanningRule$ = RegistryScanningRule$;
     exports2.Remediation$ = Remediation$;
+    exports2.ReplicationBackfillInProgressException = ReplicationBackfillInProgressException;
+    exports2.ReplicationBackfillInProgressException$ = ReplicationBackfillInProgressException$;
+    exports2.ReplicationBackfillInvalidStatusException = ReplicationBackfillInvalidStatusException;
+    exports2.ReplicationBackfillInvalidStatusException$ = ReplicationBackfillInvalidStatusException$;
+    exports2.ReplicationBackfillNotFoundException = ReplicationBackfillNotFoundException;
+    exports2.ReplicationBackfillNotFoundException$ = ReplicationBackfillNotFoundException$;
+    exports2.ReplicationBackfillProgress$ = ReplicationBackfillProgress$;
+    exports2.ReplicationBackfillResult$ = ReplicationBackfillResult$;
+    exports2.ReplicationBackfillResultStatus = ReplicationBackfillResultStatus;
+    exports2.ReplicationBackfillStatus = ReplicationBackfillStatus;
+    exports2.ReplicationBackfillSummary$ = ReplicationBackfillSummary$;
     exports2.ReplicationConfiguration$ = ReplicationConfiguration$;
     exports2.ReplicationDestination$ = ReplicationDestination$;
     exports2.ReplicationRule$ = ReplicationRule$;
@@ -219463,6 +219137,14 @@ var require_dist_cjs17 = __commonJS({
     exports2.StartLifecyclePolicyPreviewCommand = StartLifecyclePolicyPreviewCommand;
     exports2.StartLifecyclePolicyPreviewRequest$ = StartLifecyclePolicyPreviewRequest$;
     exports2.StartLifecyclePolicyPreviewResponse$ = StartLifecyclePolicyPreviewResponse$;
+    exports2.StartReplicationBackfill$ = StartReplicationBackfill$;
+    exports2.StartReplicationBackfillCommand = StartReplicationBackfillCommand;
+    exports2.StartReplicationBackfillRequest$ = StartReplicationBackfillRequest$;
+    exports2.StartReplicationBackfillResponse$ = StartReplicationBackfillResponse$;
+    exports2.StopReplicationBackfill$ = StopReplicationBackfill$;
+    exports2.StopReplicationBackfillCommand = StopReplicationBackfillCommand;
+    exports2.StopReplicationBackfillRequest$ = StopReplicationBackfillRequest$;
+    exports2.StopReplicationBackfillResponse$ = StopReplicationBackfillResponse$;
     exports2.SubjectIdentifier$ = SubjectIdentifier$;
     exports2.Tag$ = Tag$2;
     exports2.TagResource$ = TagResource$;
@@ -219526,10 +219208,12 @@ var require_dist_cjs17 = __commonJS({
     exports2.paginateDescribeImageScanFindings = paginateDescribeImageScanFindings;
     exports2.paginateDescribeImages = paginateDescribeImages;
     exports2.paginateDescribePullThroughCacheRules = paginateDescribePullThroughCacheRules;
+    exports2.paginateDescribeReplicationBackfillResults = paginateDescribeReplicationBackfillResults;
     exports2.paginateDescribeRepositories = paginateDescribeRepositories;
     exports2.paginateDescribeRepositoryCreationTemplates = paginateDescribeRepositoryCreationTemplates;
     exports2.paginateGetLifecyclePolicyPreview = paginateGetLifecyclePolicyPreview;
     exports2.paginateListImages = paginateListImages;
+    exports2.paginateListReplicationBackfills = paginateListReplicationBackfills;
     exports2.waitForImageScanComplete = waitForImageScanComplete;
     exports2.waitForLifecyclePolicyPreviewComplete = waitForLifecyclePolicyPreviewComplete;
     exports2.waitUntilImageScanComplete = waitUntilImageScanComplete;
@@ -219609,7 +219293,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1155.0";
+    var version = "3.1160.0";
     var packageInfo = {
       version
     };
@@ -220711,6 +220395,7 @@ var require_dist_cjs18 = __commonJS({
     var _CISDh = "ChainedInvokeStoppedDetails";
     var _CISDha = "ChainedInvokeSucceededDetails";
     var _CITOD = "ChainedInvokeTimedOutDetails";
+    var _CM = "ConsumptionMode";
     var _CN = "CollectionName";
     var _CO = "CallbackOptions";
     var _COo = "ContextOptions";
@@ -223850,8 +223535,8 @@ var require_dist_cjs18 = __commonJS({
       n05,
       _SMKESC,
       0,
-      [_CGI, _SRC],
-      [0, () => KafkaSchemaRegistryConfig$]
+      [_CGI, _SRC, _CM],
+      [0, () => KafkaSchemaRegistryConfig$, 0]
     ];
     var SendDurableExecutionCallbackFailureRequest$ = [
       3,
@@ -225986,6 +225671,10 @@ var require_dist_cjs18 = __commonJS({
     var EndPointType = {
       KAFKA_BOOTSTRAP_SERVERS: "KAFKA_BOOTSTRAP_SERVERS"
     };
+    var KafkaEventSourceMappingConsumptionMode = {
+      Queue: "Queue",
+      Stream: "Stream"
+    };
     var SourceAccessType = {
       BASIC_AUTH: "BASIC_AUTH",
       CLIENT_CERTIFICATE_TLS_AUTH: "CLIENT_CERTIFICATE_TLS_AUTH",
@@ -226547,6 +226236,7 @@ var require_dist_cjs18 = __commonJS({
     exports2.KMSInvalidStateException$ = KMSInvalidStateException$;
     exports2.KMSNotFoundException = KMSNotFoundException;
     exports2.KMSNotFoundException$ = KMSNotFoundException$;
+    exports2.KafkaEventSourceMappingConsumptionMode = KafkaEventSourceMappingConsumptionMode;
     exports2.KafkaSchemaRegistryAccessConfig$ = KafkaSchemaRegistryAccessConfig$;
     exports2.KafkaSchemaRegistryAuthType = KafkaSchemaRegistryAuthType;
     exports2.KafkaSchemaRegistryConfig$ = KafkaSchemaRegistryConfig$;
@@ -227412,8 +227102,8 @@ function legacyEnvironment(environment) {
 }
 
 // src/gcp.js
-var import_secret_manager = __toESM(require_src12());
-var import_run = __toESM(require_src13());
+var import_secret_manager = __toESM(require_src11());
+var import_run = __toESM(require_src12());
 
 // src/aws.js
 var import_client_ecs = __toESM(require_dist_cjs16());
@@ -227607,7 +227297,7 @@ var START_DEADLINE_MS = 15 * 60 * 1e3;
 var POLL_INTERVAL_MS = 15 * 1e3;
 
 // src/v2/gcp.js
-var import_google_auth_library = __toESM(require_src9());
+var import_google_auth_library = __toESM(require_src8());
 
 // src/v2/image-ref.js
 function parseImageRef(ref) {

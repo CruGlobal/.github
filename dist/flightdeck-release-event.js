@@ -19640,11 +19640,24 @@ function info(message) {
 
 // src/v2/attempt-guard.js
 var AUTHORIZED_ATTEMPT_MARKER = "CRU_V2_AUTHORIZED_ATTEMPT";
+var VERIFIED_DEPLOY_RUN_MARKER = "CRU_V2_VERIFIED_DEPLOY_RUN";
 var AttemptNotAuthorized = class extends Error {
 };
+var DEPLOY_PARTS = ["project", "app", "environment", "sha"];
+function deployRunMarkerValue(attempt, deploy) {
+  const parts = DEPLOY_PARTS.map((key) => deploy?.[key]);
+  if (parts.some((part) => typeof part !== "string" || part === "" || part !== part.trim())) return "";
+  return JSON.stringify([attempt, ...parts]);
+}
 function currentRunAttempt(env = process.env) {
   const attempt = String(env.GITHUB_RUN_ATTEMPT ?? "").trim();
   return /^[1-9][0-9]*$/.test(attempt) ? attempt : "";
+}
+function deployRunVerifiedFor(deploy, env = process.env) {
+  const attempt = currentRunAttempt(env);
+  const marker = String(env[VERIFIED_DEPLOY_RUN_MARKER] ?? "");
+  const value = attempt ? deployRunMarkerValue(attempt, deploy) : "";
+  return value !== "" && marker === value;
 }
 function assertAttemptAuthorized(what, env = process.env) {
   const attempt = currentRunAttempt(env);
@@ -19669,6 +19682,7 @@ var DEFAULT_ENDPOINT = "https://flightdeck.cru.org";
 var KINDS = ["deploy", "hotfix", "rollback"];
 var PER_PAGE = 100;
 var MAX_PAGES = 50;
+var RELEASE_EVENTS_PER_PAGE = 20;
 var TIMEOUT_MS = 1e4;
 var NON_PRODUCTION_ENVIRONMENTS = Object.freeze(["staging", "release-candidate", "preview", "lab"]);
 var DISPLAY_FIELDS = Object.freeze({
@@ -19695,12 +19709,21 @@ async function run() {
   }
   const environment = getInput("environment").trim();
   if (!NON_PRODUCTION_ENVIRONMENTS.includes(environment.toLowerCase())) {
-    try {
-      assertAttemptAuthorized(`post a release event for ${environment || "an unnamed environment"}`);
-    } catch (error2) {
-      setFailed(error2.message);
-      setOutput("status", "failed");
-      return;
+    const kind = (getInput("kind") || "deploy").trim();
+    const verifiedDeploy = kind === "deploy" && deployRunVerifiedFor({
+      project,
+      app: getInput("app"),
+      environment: getInput("environment"),
+      sha: getInput("sha")
+    });
+    if (!verifiedDeploy) {
+      try {
+        assertAttemptAuthorized(`post a release event for ${environment || "an unnamed environment"}`);
+      } catch (error2) {
+        setFailed(error2.message);
+        setOutput("status", "failed");
+        return;
+      }
     }
   }
   try {
@@ -19726,6 +19749,17 @@ async function run() {
       warning(`Flightdeck release event not recorded (non-blocking): no project with identifier "${project}" is readable by the token's user at ${endpoint}`);
       setOutput("status", "failed");
       return;
+    }
+    const previousEnvironment = getInput("previous-environment").trim();
+    if (previousEnvironment) {
+      let previous = null;
+      try {
+        previous = previousReleaseEvent(await client.listReleaseEvents(projectId, previousEnvironment), event);
+      } catch (error2) {
+        warning(`Flightdeck: could not read the previous ${previousEnvironment} release event (non-blocking; the event is still posted): ${error2.message}`);
+      }
+      setOutput("previous-sha", previous?.sha ?? "");
+      setOutput("previous-release-tag", previous?.release_tag ?? "");
     }
     const { status, body } = await postReleaseEvent(client, projectId, event, warning);
     const outcome = status === 201 ? "created" : "updated";
@@ -19816,6 +19850,18 @@ function refusedDisplayFields(error2, event) {
   const carried = Object.keys(DISPLAY_FIELDS).filter((key) => key in event);
   return carried.some((key) => named.includes(key)) ? carried : [];
 }
+function previousReleaseEvent(events, event) {
+  const stated = event.deployed_at ? Date.parse(event.deployed_at) : NaN;
+  const before = Number.isNaN(stated) ? Infinity : stated;
+  for (const candidate of Array.isArray(events) ? events : []) {
+    if (typeof candidate?.sha !== "string" || candidate.sha.trim() === "") continue;
+    if (candidate.environment === event.environment && candidate.release_tag === event.release_tag) continue;
+    const at = Date.parse(candidate.deployed_at);
+    if (!(at <= before)) continue;
+    return candidate;
+  }
+  return null;
+}
 function parseReasons(raw) {
   if (!raw || !raw.trim()) return [];
   try {
@@ -19867,6 +19913,13 @@ var FlightdeckClient = class {
   }
   postReleaseEvent(projectId, event) {
     return this.request("POST", `/api/v1/projects/${projectId}/release-events`, { release_event: event });
+  }
+  // The newest release events in one environment, newest first (by
+  // deployed_at). One page is enough to find the release before a new one.
+  async listReleaseEvents(projectId, environment) {
+    const { body } = await this.request("GET", `/api/v1/projects/${projectId}/release-events?environment=${encodeURIComponent(environment)}&per_page=${RELEASE_EVENTS_PER_PAGE}`);
+    if (!Array.isArray(body?.results)) throw new Error("the release events list had no results array");
+    return body.results;
   }
 };
 

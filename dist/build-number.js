@@ -19304,8 +19304,9 @@ var init_MiddlewareStack = __esm({
           const aliases = getAllAliases(name, _aliases);
           if (aliases.length > 0) {
             if (aliases.some((alias) => entriesNameSet.has(alias))) {
-              if (!override)
+              if (!override) {
                 throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
+              }
               for (const alias of aliases) {
                 const toOverrideIndex = absoluteEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
                 if (toOverrideIndex === -1) {
@@ -19333,8 +19334,9 @@ var init_MiddlewareStack = __esm({
           const aliases = getAllAliases(name, _aliases);
           if (aliases.length > 0) {
             if (aliases.some((alias) => entriesNameSet.has(alias))) {
-              if (!override)
+              if (!override) {
                 throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
+              }
               for (const alias of aliases) {
                 const toOverrideIndex = relativeEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
                 if (toOverrideIndex === -1) {
@@ -19358,10 +19360,11 @@ var init_MiddlewareStack = __esm({
           plugin.applyToStack(stack);
         },
         remove: (toRemove) => {
-          if (typeof toRemove === "string")
+          if (typeof toRemove === "string") {
             return removeByName(toRemove);
-          else
+          } else {
             return removeByReference(toRemove);
+          }
         },
         removeByTag: (toRemove) => {
           let isRemoved = false;
@@ -19395,8 +19398,9 @@ var init_MiddlewareStack = __esm({
           });
         },
         identifyOnResolve(toggle) {
-          if (typeof toggle === "boolean")
+          if (typeof toggle === "boolean") {
             identifyOnResolve = toggle;
+          }
           return identifyOnResolve;
         },
         resolve: (handler, context) => {
@@ -19615,8 +19619,9 @@ var init_httpResponse = __esm({
         this.body = options.body;
       }
       static isInstance(response) {
-        if (!response)
+        if (!response) {
           return false;
+        }
         const resp = response;
         return typeof resp.statusCode === "number" && typeof resp.headers === "object";
       }
@@ -19659,8 +19664,9 @@ var normalizeProvider;
 var init_normalizeProvider = __esm({
   "node_modules/@smithy/core/dist-es/submodules/transport/normalizeProvider.js"() {
     normalizeProvider = (input) => {
-      if (typeof input === "function")
+      if (typeof input === "function") {
         return input;
+      }
       const promisified = Promise.resolve(input);
       return () => promisified;
     };
@@ -19732,8 +19738,9 @@ var init_toEndpointV1 = __esm({
           if (endpoint.headers) {
             v1Endpoint.headers = {};
             for (const name in endpoint.headers) {
-              if (!hasOwn(endpoint.headers, name))
+              if (!hasOwn(endpoint.headers, name)) {
                 continue;
+              }
               v1Endpoint.headers[name.toLowerCase()] = endpoint.headers[name].join(", ");
             }
           }
@@ -20892,14 +20899,20 @@ function schemaLogFilter(schema, data) {
     return SENSITIVE_STRING;
   }
   if (ns.isListSchema()) {
-    const isSensitive = !!ns.getValueSchema().getMergedTraits().sensitive;
-    if (isSensitive) {
+    const valueSchema = ns.getValueSchema();
+    if (valueSchema.getMergedTraits().sensitive) {
       return SENSITIVE_STRING;
     }
+    if (Array.isArray(data)) {
+      return data.map((value) => schemaLogFilter(valueSchema, value));
+    }
   } else if (ns.isMapSchema()) {
-    const isSensitive = !!ns.getKeySchema().getMergedTraits().sensitive || !!ns.getValueSchema().getMergedTraits().sensitive;
-    if (isSensitive) {
+    const valueSchema = ns.getValueSchema();
+    if (ns.getKeySchema().getMergedTraits().sensitive || valueSchema.getMergedTraits().sensitive) {
       return SENSITIVE_STRING;
+    }
+    if (typeof data === "object") {
+      return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, schemaLogFilter(valueSchema, value)]));
     }
   } else if (ns.isStructSchema() && typeof data === "object") {
     const object = data;
@@ -21099,8 +21112,9 @@ var init_create_aggregated_client = __esm({
           if (typeof optionsOrCb === "function") {
             this.send(command6, optionsOrCb);
           } else if (typeof cb === "function") {
-            if (typeof optionsOrCb !== "object")
+            if (typeof optionsOrCb !== "object") {
               throw new Error(`Expected http options but got ${typeof optionsOrCb}`);
+            }
             this.send(command6, optionsOrCb || {}, cb);
           } else {
             return this.send(command6, optionsOrCb);
@@ -21158,14 +21172,16 @@ var init_exceptions = __esm({
         this.$metadata = options.$metadata;
       }
       static isInstance(value) {
-        if (!value)
+        if (!value) {
           return false;
+        }
         const candidate = value;
         return _ServiceException.prototype.isPrototypeOf(candidate) || Boolean(candidate.$fault) && Boolean(candidate.$metadata) && (candidate.$fault === "client" || candidate.$fault === "server");
       }
       static [Symbol.hasInstance](instance) {
-        if (!instance)
+        if (!instance) {
           return false;
+        }
         const candidate = instance;
         if (this === _ServiceException) {
           return _ServiceException.isInstance(instance);
@@ -21310,8 +21326,9 @@ var init_checksum = __esm({
     getChecksumConfiguration = (runtimeConfig) => {
       const checksumAlgorithms = [];
       for (const id in import_types3.AlgorithmId) {
-        if (!hasOwn(import_types3.AlgorithmId, id))
+        if (!hasOwn(import_types3.AlgorithmId, id)) {
           continue;
+        }
         const algorithmId = import_types3.AlgorithmId[id];
         if (runtimeConfig[algorithmId] === void 0) {
           continue;
@@ -21411,8 +21428,9 @@ var init_get_value_from_text_node = __esm({
     getValueFromTextNode = (obj) => {
       const textNodeName = "#text";
       for (const key in obj) {
-        if (!hasOwn(obj, key))
+        if (!hasOwn(obj, key)) {
           continue;
+        }
         if (obj[key][textNodeName] !== void 0) {
           obj[key] = obj[key][textNodeName];
         } else if (typeof obj[key] === "object" && obj[key] !== null) {
@@ -21472,8 +21490,9 @@ function map2(arg0, arg1, arg2) {
     }
   }
   for (const key in instructions) {
-    if (!hasOwn(instructions, key))
+    if (!hasOwn(instructions, key)) {
       continue;
+    }
     if (!Array.isArray(instructions[key])) {
       target[key] = instructions[key];
       continue;
@@ -21496,8 +21515,9 @@ var init_object_mapping = __esm({
     take = (source, instructions) => {
       const out = {};
       for (const key in instructions) {
-        if (!hasOwn(instructions, key))
+        if (!hasOwn(instructions, key)) {
           continue;
+        }
         applyInstruction(out, source, instructions, key);
       }
       return out;
@@ -21587,8 +21607,9 @@ var init_serde_json = __esm({
       if (typeof obj === "object") {
         const target = {};
         for (const key in obj) {
-          if (!hasOwn(obj, key))
+          if (!hasOwn(obj, key)) {
             continue;
+          }
           if (obj[key] == null) {
             continue;
           }
@@ -22150,8 +22171,9 @@ var init_parse_utils = __esm({
       const asObject = expectObject(value);
       const setKeys = [];
       for (const k5 in asObject) {
-        if (!hasOwn(asObject, k5))
+        if (!hasOwn(asObject, k5)) {
           continue;
+        }
         if (asObject[k5] != null) {
           setKeys.push(k5);
         }
@@ -23011,12 +23033,15 @@ var booleanSelector;
 var init_booleanSelector = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/util-config-provider/booleanSelector.js"() {
     booleanSelector = (obj, key, type) => {
-      if (!(key in obj))
+      if (!(key in obj)) {
         return void 0;
-      if (obj[key] === "true")
+      }
+      if (obj[key] === "true") {
         return true;
-      if (obj[key] === "false")
+      }
+      if (obj[key] === "false") {
         return false;
+      }
       throw new Error(`Cannot load ${type} "${key}". Expected "true" or "false", got ${obj[key]}.`);
     };
   }
@@ -23027,8 +23052,9 @@ var numberSelector;
 var init_numberSelector = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/util-config-provider/numberSelector.js"() {
     numberSelector = (obj, key, type) => {
-      if (!(key in obj))
+      if (!(key in obj)) {
         return void 0;
+      }
       const numberValue = parseInt(obj[key], 10);
       if (Number.isNaN(numberValue)) {
         throw new TypeError(`Cannot load ${type} '${key}'. Expected number, got '${obj[key]}'.`);
@@ -23064,15 +23090,19 @@ var init_getHomeDir = __esm({
     };
     getHomeDir = () => {
       const { HOME, USERPROFILE, HOMEPATH, HOMEDRIVE = `C:${import_node_path.sep}` } = process.env;
-      if (HOME)
+      if (HOME) {
         return HOME;
-      if (USERPROFILE)
+      }
+      if (USERPROFILE) {
         return USERPROFILE;
-      if (HOMEPATH)
+      }
+      if (HOMEPATH) {
         return `${HOMEDRIVE}${HOMEPATH}`;
+      }
       const homeDirCacheKey = getHomeDirCacheKey();
-      if (!homeDirCache[homeDirCacheKey])
+      if (!homeDirCache[homeDirCacheKey]) {
         homeDirCache[homeDirCacheKey] = (0, import_node_os.homedir)();
+      }
       return homeDirCache[homeDirCacheKey];
     };
   }
@@ -24005,11 +24035,13 @@ var init_getEndpointUrlConfig = __esm({
       environmentVariableSelector: (env2) => {
         const serviceSuffixParts = serviceId.split(" ").map((w) => w.toUpperCase());
         const serviceEndpointUrl = env2[[ENV_ENDPOINT_URL, ...serviceSuffixParts].join("_")];
-        if (serviceEndpointUrl)
+        if (serviceEndpointUrl) {
           return serviceEndpointUrl;
+        }
         const endpointUrl = env2[ENV_ENDPOINT_URL];
-        if (endpointUrl)
+        if (endpointUrl) {
           return endpointUrl;
+        }
         return void 0;
       },
       configFileSelector: (profile, config) => {
@@ -24021,12 +24053,14 @@ var init_getEndpointUrlConfig = __esm({
           const servicesSection = config[servicesSectionKey];
           const servicePrefixParts = serviceId.split(" ").map((w) => w.toLowerCase());
           const endpointUrl2 = servicesSection[[servicePrefixParts.join("_"), CONFIG_ENDPOINT_URL].join(CONFIG_PREFIX_SEPARATOR)];
-          if (endpointUrl2)
+          if (endpointUrl2) {
             return endpointUrl2;
+          }
         }
         const endpointUrl = profile[CONFIG_ENDPOINT_URL];
-        if (endpointUrl)
+        if (endpointUrl) {
           return endpointUrl;
+        }
         return void 0;
       },
       default: void 0
@@ -25160,8 +25194,9 @@ var init_resolveEndpoint = __esm({
       const { parameters, rules } = ruleSetObject;
       options.logger?.debug?.(`${debugId} Initial EndpointParams: ${toDebugString(endpointParams)}`);
       for (const paramKey in parameters) {
-        if (!hasOwn(parameters, paramKey))
+        if (!hasOwn(parameters, paramKey)) {
           continue;
+        }
         const parameter = parameters[paramKey];
         const endpointParam = endpointParams[paramKey];
         if (endpointParam == null && parameter.default != null) {
@@ -26176,6 +26211,15 @@ var init_splitStream = __esm({
   }
 });
 
+// node_modules/@smithy/core/dist-es/submodules/serde/writeKey.js
+function writeKey(obj) {
+  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
+}
+var init_writeKey = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/writeKey.js"() {
+  }
+});
+
 // node_modules/@smithy/core/dist-es/submodules/serde/index.js
 var serde_exports = {};
 __export(serde_exports, {
@@ -26251,7 +26295,8 @@ __export(serde_exports, {
   toHex: () => toHex,
   toUint8Array: () => toUint8Array,
   toUtf8: () => toUtf8,
-  v4: () => v4
+  v4: () => v4,
+  writeKey: () => writeKey
 });
 var import_node_crypto3, Uint8ArrayBlobAdapter, _getRandomValues, v4, generateIdempotencyToken;
 var init_serde = __esm({
@@ -26292,6 +26337,7 @@ var init_serde = __esm({
     init_stream_type_check();
     init_stream_collector();
     init_transport();
+    init_writeKey();
     Uint8ArrayBlobAdapter = class extends bindUint8ArrayBlobAdapter(toUtf8, fromUtf8, toBase64, fromBase64) {
     };
     _getRandomValues = import_node_crypto3.getRandomValues;
@@ -27071,8 +27117,9 @@ function negate(bytes) {
   }
   for (let i5 = 7; i5 > -1; i5--) {
     bytes[i5]++;
-    if (bytes[i5] !== 0)
+    if (bytes[i5] !== 0) {
       break;
+    }
   }
 }
 var Int64;
@@ -27132,8 +27179,9 @@ var init_HeaderMarshaller = __esm({
       format(headers) {
         const chunks = [];
         for (const headerName in headers) {
-          if (!hasOwn(headers, headerName))
+          if (!hasOwn(headers, headerName)) {
             continue;
+          }
           const bytes = this.fromUtf8(headerName);
           if (bytes.byteLength > 255) {
             throw new Error(`@smithy/core/event-streams - header name exceeds 255 bytes: ${bytes.byteLength}`);
@@ -27492,8 +27540,9 @@ var init_SmithyMessageDecoderStream = __esm({
       async *asyncIterator() {
         for await (const message of this.options.messageStream) {
           const deserialized = await this.options.deserializer(message);
-          if (deserialized === void 0)
+          if (deserialized === void 0) {
             continue;
+          }
           yield deserialized;
         }
       }
@@ -27601,8 +27650,9 @@ function getUnmarshalledStream(source, options) {
       for await (const chunk of source) {
         const message = options.eventStreamCodec.decode(chunk);
         const type = await messageUnmarshaller(message);
-        if (type === void 0)
+        if (type === void 0) {
           continue;
+        }
         yield type;
       }
     }
@@ -27630,8 +27680,9 @@ function getMessageUnmarshaller(deserializer, toUtf83) {
         [message.headers[":event-type"].value]: message
       };
       const deserialized = await deserializer(event);
-      if (deserialized.$unknown)
+      if (deserialized.$unknown) {
         return;
+      }
       return deserialized;
     } else {
       throw Error(`Unrecognizable event type: ${message.headers[":event-type"].value}`);
@@ -27742,8 +27793,9 @@ var init_utils2 = __esm({
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done)
+            if (done) {
               return;
+            }
             yield value;
           }
         } finally {
@@ -27835,8 +27887,9 @@ var init_EventStreamSerde = __esm({
           }
           let unionMember = "";
           for (const key in event) {
-            if (!hasOwn(event, key))
+            if (!hasOwn(event, key)) {
               continue;
+            }
             if (key !== "__type") {
               unionMember = key;
               break;
@@ -27864,8 +27917,9 @@ var init_EventStreamSerde = __esm({
         const asyncIterable = marshaller.deserialize(response.body, async (event) => {
           let unionMember = "";
           for (const key in event) {
-            if (!hasOwn(event, key))
+            if (!hasOwn(event, key)) {
               continue;
+            }
             if (key !== "__type") {
               unionMember = key;
               break;
@@ -27933,8 +27987,9 @@ var init_EventStreamSerde = __esm({
             throw new Error("@smithy::core/protocols - initial-response event encountered in event stream but no response schema given.");
           }
           for (const key in firstEvent.value) {
-            if (!hasOwn(firstEvent.value, key))
+            if (!hasOwn(firstEvent.value, key)) {
               continue;
+            }
             initialResponseContainer[key] = firstEvent.value[key];
           }
         }
@@ -28143,8 +28198,9 @@ var init_HttpProtocol = __esm({
           }
           if (endpoint.headers) {
             for (const name in endpoint.headers) {
-              if (!hasOwn(endpoint.headers, name))
+              if (!hasOwn(endpoint.headers, name)) {
                 continue;
+              }
               request.headers[name] = endpoint.headers[name].join(", ");
             }
           }
@@ -28159,8 +28215,9 @@ var init_HttpProtocol = __esm({
           };
           if (endpoint.headers) {
             for (const name in endpoint.headers) {
-              if (!hasOwn(endpoint.headers, name))
+              if (!hasOwn(endpoint.headers, name)) {
                 continue;
+              }
               request.headers[name] = endpoint.headers[name];
             }
           }
@@ -28389,8 +28446,9 @@ var init_HttpBindingProtocol = __esm({
             headers[memberTraits.httpHeader.toLowerCase()] = String(serializer.flush());
           } else if (typeof memberTraits.httpPrefixHeaders === "string") {
             for (const key in inputMemberValue) {
-              if (!hasOwn(inputMemberValue, key))
+              if (!hasOwn(inputMemberValue, key)) {
                 continue;
+              }
               const val = inputMemberValue[key];
               const amalgam = memberTraits.httpPrefixHeaders + key;
               serializer.write([memberNs.getValueSchema(), { httpHeader: amalgam }], val);
@@ -28434,8 +28492,9 @@ var init_HttpBindingProtocol = __esm({
         const traits = ns.getMergedTraits();
         if (traits.httpQueryParams) {
           for (const key in data) {
-            if (!hasOwn(data, key))
+            if (!hasOwn(data, key)) {
               continue;
+            }
             if (!(key in query)) {
               const val = data[key];
               const valueSchema = ns.getValueSchema();
@@ -28478,8 +28537,9 @@ var init_HttpBindingProtocol = __esm({
           throw new Error("@smithy/core/protocols - HTTP Protocol error handler failed to throw.");
         }
         for (const header in response.headers) {
-          if (!hasOwn(response.headers, header))
+          if (!hasOwn(response.headers, header)) {
             continue;
+          }
           const value = response.headers[header];
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
@@ -28558,8 +28618,9 @@ var init_HttpBindingProtocol = __esm({
           } else if (memberTraits.httpPrefixHeaders !== void 0) {
             dataObject[memberName] = {};
             for (const header in response.headers) {
-              if (!hasOwn(response.headers, header))
+              if (!hasOwn(response.headers, header)) {
                 continue;
+              }
               if (header.startsWith(memberTraits.httpPrefixHeaders)) {
                 const value = response.headers[header];
                 const valueSchema = memberSchema.getValueSchema();
@@ -28644,7 +28705,7 @@ var init_RpcProtocol = __esm({
         const deserializer = this.deserializer;
         const ns = NormalizedSchema.of(operationSchema.output);
         const dataObject = {};
-        if (response.statusCode >= 300) {
+        if (this.isErrorResponse(response.statusCode)) {
           const bytes = await collectBody(response.body, context);
           if (bytes.byteLength > 0) {
             Object.assign(dataObject, await deserializer.read(15, bytes));
@@ -28653,8 +28714,9 @@ var init_RpcProtocol = __esm({
           throw new Error("@smithy/core/protocols - RPC Protocol error handler failed to throw.");
         }
         for (const header in response.headers) {
-          if (!hasOwn(response.headers, header))
+          if (!hasOwn(response.headers, header)) {
             continue;
+          }
           const value = response.headers[header];
           delete response.headers[header];
           response.headers[header.toLowerCase()] = value;
@@ -28674,6 +28736,49 @@ var init_RpcProtocol = __esm({
         }
         dataObject.$metadata = this.deserializeMetadata(response);
         return dataObject;
+      }
+      isErrorResponse(statusCode) {
+        return statusCode >= 300;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/protocols/AbstractRpcV2Protocol.js
+var AbstractRpcV2Protocol;
+var init_AbstractRpcV2Protocol = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/protocols/AbstractRpcV2Protocol.js"() {
+    init_schema();
+    init_transport();
+    init_RpcProtocol();
+    AbstractRpcV2Protocol = class extends RpcProtocol {
+      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
+        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
+      }
+      async serializeRequest(operationSchema, input, context) {
+        const request = await super.serializeRequest(operationSchema, input, context);
+        Object.assign(request.headers, {
+          "content-type": this.getDefaultContentType(),
+          "smithy-protocol": this.getSmithyProtocolHeaderValue(),
+          accept: this.getDefaultContentType()
+        });
+        if (deref(operationSchema.input) === "unit") {
+          delete request.body;
+          delete request.headers["content-type"];
+        } else {
+          this.applyEmptyBody(request);
+        }
+        const { service, operation: operation2 } = getSmithyContext(context);
+        const path = `/service/${service}/operation/${operation2}`;
+        if (request.path.endsWith("/")) {
+          request.path += path.slice(1);
+        } else {
+          request.path += path;
+        }
+        return request;
+      }
+      isErrorResponse(statusCode) {
+        return statusCode !== 200;
       }
     };
   }
@@ -29113,6 +29218,9 @@ var init_httpExtensionConfiguration = __esm({
     getHttpHandlerExtensionConfiguration = (runtimeConfig) => {
       if (runtimeConfig.logger && runtimeConfig.logger.constructor?.name !== "NoOpLogger") {
         runtimeConfig.requestHandler?.updateHttpClientConfig?.(/* @__PURE__ */ Symbol.for("logger"), runtimeConfig.logger);
+      }
+      if (runtimeConfig.defaultSocketTimeout) {
+        runtimeConfig.requestHandler?.updateHttpClientConfig?.(/* @__PURE__ */ Symbol.for("@smithy/defaultSocketTimeout"), runtimeConfig.defaultSocketTimeout);
       }
       return {
         setHttpHandler(handler) {
@@ -29578,15 +29686,6 @@ var init_parseJsonBody = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/protocols/writeKey.js
-function writeKey(obj) {
-  Object.defineProperty(obj, "__proto__", { value: void 0, writable: true, enumerable: true, configurable: true });
-}
-var init_writeKey = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/protocols/writeKey.js"() {
-  }
-});
-
 // node_modules/@smithy/core/dist-es/submodules/protocols/json/codec-v2/JsonShapeDeserializer2.js
 var JsonShapeDeserializer2;
 var init_JsonShapeDeserializer2 = __esm({
@@ -29600,7 +29699,6 @@ var init_JsonShapeDeserializer2 = __esm({
     init_jsonReviver();
     init_needsReviver();
     init_parseJsonBody();
-    init_writeKey();
     init_transport();
     JsonShapeDeserializer2 = class extends SerdeContextConfig {
       settings;
@@ -29651,8 +29749,9 @@ var init_JsonShapeDeserializer2 = __esm({
             const map3 = value;
             if (this.needsTransform(mapMember)) {
               for (const k5 in map3) {
-                if (!hasOwn(map3, k5))
+                if (!hasOwn(map3, k5)) {
                   continue;
+                }
                 if (k5 === "__proto__") {
                   writeKey(map3);
                 }
@@ -29723,8 +29822,9 @@ var init_JsonShapeDeserializer2 = __esm({
             } else {
               const doc = value;
               for (const k5 in doc) {
-                if (!hasOwn(doc, k5))
+                if (!hasOwn(doc, k5)) {
                   continue;
+                }
                 if (k5 === "__proto__") {
                   writeKey(doc);
                 }
@@ -29770,8 +29870,9 @@ var init_JsonShapeDeserializer2 = __esm({
           unionSerde.writeUnknown();
         } else if (hasType) {
           for (const k5 in record) {
-            if (!hasOwn(record, k5))
+            if (!hasOwn(record, k5)) {
               continue;
+            }
             const v = record[k5];
             const t = jsonName ? nameMap[k5] ?? k5 : k5;
             if (!(t in out)) {
@@ -30316,8 +30417,9 @@ var init_JsonShapeSerializer2 = __esm({
               const out = [];
               for (let i5 = 0; i5 < value.length; ++i5) {
                 const v = value[i5];
-                if (v == null && !sparse)
+                if (v == null && !sparse) {
                   continue;
+                }
                 if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
                   out.push(String(v));
                 } else {
@@ -30356,8 +30458,9 @@ var init_JsonShapeSerializer2 = __esm({
           if (valueSchema.isStringSchema() || valueSchema.isNumericSchema() || valueSchema.isBooleanSchema()) {
             let modifications;
             for (const k5 in value) {
-              if (!hasOwn(value, k5))
+              if (!hasOwn(value, k5)) {
                 continue;
+              }
               const v = value[k5];
               if (Number.isNaN(v) || v === Infinity || v === -Infinity) {
                 (modifications ??= {})[k5] = v;
@@ -30380,8 +30483,9 @@ var init_JsonShapeSerializer2 = __esm({
         this.json[this.i++] = OPEN_BRACE;
         let first = true;
         for (const k5 in value) {
-          if (!hasOwn(value, k5))
+          if (!hasOwn(value, k5)) {
             continue;
+          }
           const v = value[k5];
           if (isDocument ? v === void 0 : v == null && !sparse) {
             continue;
@@ -30458,12 +30562,11 @@ var init_JsonCodec2 = __esm({
 var SmithyRpcV2JsonProtocol;
 var init_SmithyRpcV2JsonProtocol = __esm({
   "node_modules/@smithy/core/dist-es/submodules/protocols/json/SmithyRpcV2JsonProtocol.js"() {
-    init_RpcProtocol();
+    init_AbstractRpcV2Protocol();
     init_schema();
-    init_transport();
     init_JsonCodec2();
     init_parseJsonBody();
-    SmithyRpcV2JsonProtocol = class extends RpcProtocol {
+    SmithyRpcV2JsonProtocol = class extends AbstractRpcV2Protocol {
       codec = new JsonCodec2({
         timestampFormat: {
           useTrait: false,
@@ -30474,39 +30577,19 @@ var init_SmithyRpcV2JsonProtocol = __esm({
       });
       serializer = this.codec.createSerializer();
       deserializer = this.codec.createDeserializer();
-      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
-        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
-      }
       getShapeId() {
         return "smithy.protocols#rpcv2Json";
       }
       getPayloadCodec() {
         return this.codec;
       }
-      async serializeRequest(operationSchema, input, context) {
-        const request = await super.serializeRequest(operationSchema, input, context);
-        Object.assign(request.headers, {
-          "content-type": this.getDefaultContentType(),
-          "smithy-protocol": "rpc-v2-json",
-          accept: this.getDefaultContentType()
-        });
-        if (deref(operationSchema.input) === "unit") {
-          delete request.body;
-          delete request.headers["content-type"];
-        } else if (!request.body) {
+      getSmithyProtocolHeaderValue() {
+        return "rpc-v2-json";
+      }
+      applyEmptyBody(request) {
+        if (!request.body) {
           request.body = "{}";
         }
-        const { service, operation: operation2 } = getSmithyContext(context);
-        const path = `/service/${service}/operation/${operation2}`;
-        if (request.path.endsWith("/")) {
-          request.path += path.slice(1);
-        } else {
-          request.path += path;
-        }
-        return request;
-      }
-      async deserializeResponse(operationSchema, context, response) {
-        return super.deserializeResponse(operationSchema, context, response);
       }
       async handleError(operationSchema, context, response, dataObject, metadata) {
         const errorName = loadSmithyRpcV2JsonErrorCode(response, dataObject) ?? "Unknown";
@@ -30574,7 +30657,6 @@ var init_JsonShapeDeserializer = __esm({
     init_jsonReviver();
     init_needsReviver();
     init_parseJsonBody();
-    init_writeKey();
     JsonShapeDeserializer = class extends SerdeContextConfig {
       settings;
       constructor(settings) {
@@ -30622,8 +30704,9 @@ var init_JsonShapeDeserializer = __esm({
               unionSerde.writeUnknown();
             } else if (typeof record.__type === "string") {
               for (const k5 in record) {
-                if (!hasOwn(record, k5))
+                if (!hasOwn(record, k5)) {
                   continue;
+                }
                 const v = record[k5];
                 const t = jsonName ? nameMap[k5] ?? k5 : k5;
                 if (!(t in out)) {
@@ -30645,8 +30728,9 @@ var init_JsonShapeDeserializer = __esm({
             const mapMember = ns.getValueSchema();
             const out = {};
             for (const _k in value) {
-              if (!hasOwn(value, _k))
+              if (!hasOwn(value, _k)) {
                 continue;
+              }
               if (_k === "__proto__") {
                 writeKey(out);
               }
@@ -30708,8 +30792,9 @@ var init_JsonShapeDeserializer = __esm({
           if (isObject) {
             const out = Array.isArray(value) ? [] : {};
             for (const k5 in value) {
-              if (!hasOwn(value, k5))
+              if (!hasOwn(value, k5)) {
                 continue;
+              }
               if (k5 === "__proto__") {
                 writeKey(out);
               }
@@ -30793,7 +30878,6 @@ var init_JsonShapeSerializer = __esm({
     init_serde();
     init_ConfigurableSerdeContext();
     init_jsonReplacer();
-    init_writeKey();
     init_transport();
     JsonShapeSerializer = class extends SerdeContextConfig {
       settings;
@@ -30863,8 +30947,9 @@ var init_JsonShapeSerializer = __esm({
               }
             } else if (typeof record.__type === "string") {
               for (const k5 in record) {
-                if (!hasOwn(record, k5))
+                if (!hasOwn(record, k5)) {
                   continue;
+                }
                 const v = record[k5];
                 const targetKey = jsonName ? nameMap[k5] ?? k5 : k5;
                 if (!(targetKey in out)) {
@@ -30890,8 +30975,9 @@ var init_JsonShapeSerializer = __esm({
             const out = {};
             const sparse = !!ns.getMergedTraits().sparse;
             for (const _k in value) {
-              if (!hasOwn(value, _k))
+              if (!hasOwn(value, _k)) {
                 continue;
+              }
               const _v = value[_k];
               if (sparse || _v != null) {
                 if (_k === "__proto__") {
@@ -30964,8 +31050,9 @@ var init_JsonShapeSerializer = __esm({
             }
             const out = Array.isArray(value) ? [] : {};
             for (const k5 in value) {
-              if (!hasOwn(value, k5))
+              if (!hasOwn(value, k5)) {
                 continue;
+              }
               const v = value[k5];
               if (k5 === "__proto__") {
                 writeKey(out);
@@ -31018,6 +31105,7 @@ var init_JsonCodec = __esm({
 // node_modules/@smithy/core/dist-es/submodules/protocols/index.js
 var protocols_exports = {};
 __export(protocols_exports, {
+  AbstractRpcV2Protocol: () => AbstractRpcV2Protocol,
   Field: () => Field,
   Fields: () => Fields,
   FromStringShapeDeserializer: () => FromStringShapeDeserializer,
@@ -31067,6 +31155,7 @@ var init_protocols = __esm({
     init_HttpBindingProtocol();
     init_HttpProtocol();
     init_RpcProtocol();
+    init_AbstractRpcV2Protocol();
     init_requestBuilder();
     init_resolve_path();
     init_FromStringShapeDeserializer();
@@ -31196,8 +31285,9 @@ function parseRetryAfterHeader(response, logger2) {
     return;
   }
   for (const header in response.headers) {
-    if (!hasOwn(response.headers, header))
+    if (!hasOwn(response.headers, header)) {
       continue;
+    }
     const h5 = header.toLowerCase();
     if (h5 === "retry-after") {
       const retryAfter = response.headers[header];
@@ -31248,12 +31338,15 @@ var asSdkError;
 var init_util = __esm({
   "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js"() {
     asSdkError = (error3) => {
-      if (error3 instanceof Error)
+      if (error3 instanceof Error) {
         return error3;
-      if (error3 instanceof Object)
+      }
+      if (error3 instanceof Object) {
         return Object.assign(new Error(), error3);
-      if (typeof error3 === "string")
+      }
+      if (typeof error3 === "string") {
         return new Error(error3);
+      }
       return new Error(`AWS SDK error wrapper for ${error3}`);
     };
   }
@@ -31351,12 +31444,15 @@ var init_retryMiddleware = __esm({
       return errorInfo;
     };
     getRetryErrorType = (error3) => {
-      if (isThrottlingError(error3))
+      if (isThrottlingError(error3)) {
         return "THROTTLING";
-      if (isTransientError(error3))
+      }
+      if (isTransientError(error3)) {
         return "TRANSIENT";
-      if (isServerError(error3))
+      }
+      if (isServerError(error3)) {
         return "SERVER_ERROR";
+      }
       return "CLIENT_ERROR";
     };
     retryMiddlewareOptions = {
@@ -31887,15 +31983,18 @@ var init_StandardRetryStrategy2 = __esm({
       }
     };
     getDelayFromRetryAfterHeader = (response) => {
-      if (!HttpResponse.isInstance(response))
+      if (!HttpResponse.isInstance(response)) {
         return;
+      }
       const retryAfterHeaderName = Object.keys(response.headers).find((key) => key.toLowerCase() === "retry-after");
-      if (!retryAfterHeaderName)
+      if (!retryAfterHeaderName) {
         return;
+      }
       const retryAfter = response.headers[retryAfterHeaderName];
       const retryAfterSeconds = Number(retryAfter);
-      if (!Number.isNaN(retryAfterSeconds))
+      if (!Number.isNaN(retryAfterSeconds)) {
         return Math.min(retryAfterSeconds * 1e3, 2e4);
+      }
       const retryAfterDate = new Date(retryAfter);
       return Math.min(retryAfterDate.getTime() - Date.now(), 2e4);
     };
@@ -31945,8 +32044,9 @@ var init_configurations = __esm({
     NODE_MAX_ATTEMPT_CONFIG_OPTIONS = {
       environmentVariableSelector: (env2) => {
         const value = env2[ENV_MAX_ATTEMPTS];
-        if (!value)
+        if (!value) {
           return void 0;
+        }
         const maxAttempt = parseInt(value);
         if (Number.isNaN(maxAttempt)) {
           throw new Error(`Environment variable ${ENV_MAX_ATTEMPTS} mast be a number, got "${value}"`);
@@ -31955,8 +32055,9 @@ var init_configurations = __esm({
       },
       configFileSelector: (profile) => {
         const value = profile[CONFIG_MAX_ATTEMPTS];
-        if (!value)
+        if (!value) {
           return void 0;
+        }
         const maxAttempt = parseInt(value);
         if (Number.isNaN(maxAttempt)) {
           throw new Error(`Shared config file entry ${CONFIG_MAX_ATTEMPTS} mast be a number, got "${value}"`);
@@ -32141,8 +32242,9 @@ var init_hostHeaderMiddleware = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-host-header/hostHeaderMiddleware.js"() {
     init_protocols();
     hostHeaderMiddleware = (options) => (next) => async (args) => {
-      if (!HttpRequest.isInstance(args.request))
+      if (!HttpRequest.isInstance(args.request)) {
         return next(args);
+      }
       const { request } = args;
       const { handlerProtocol = "" } = options.requestHandler.metadata || {};
       if (handlerProtocol.indexOf("h2") >= 0 && !request.headers[":authority"]) {
@@ -32150,8 +32252,9 @@ var init_hostHeaderMiddleware = __esm({
         request.headers[":authority"] = request.hostname + (request.port ? ":" + request.port : "");
       } else if (!request.headers["host"]) {
         let host = request.hostname;
-        if (request.port != null)
+        if (request.port != null) {
           host += `:${request.port}`;
+        }
         request.headers["host"] = host;
       }
       return next(args);
@@ -32637,8 +32740,9 @@ var normalizeProvider2;
 var init_normalizeProvider2 = __esm({
   "node_modules/@smithy/core/dist-es/normalizeProvider.js"() {
     normalizeProvider2 = (input) => {
-      if (typeof input === "function")
+      if (typeof input === "function") {
         return input;
+      }
       const promisified = Promise.resolve(input);
       return () => promisified;
     };
@@ -32717,8 +32821,9 @@ var init_DefaultIdentityProviderConfig = __esm({
       authSchemes = /* @__PURE__ */ new Map();
       constructor(config) {
         for (const key in config) {
-          if (!hasOwn(config, key))
+          if (!hasOwn(config, key)) {
             continue;
+          }
           const value = config[key];
           if (value !== void 0) {
             this.authSchemes.set(key, value);
@@ -34395,27 +34500,36 @@ var init_defaultUserAgent2 = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/util-user-agent-browser/defaultUserAgent.js"() {
     fallback = {
       os(ua) {
-        if (/iPhone|iPad|iPod/.test(ua))
+        if (/iPhone|iPad|iPod/.test(ua)) {
           return "iOS";
-        if (/Macintosh|Mac OS X/.test(ua))
+        }
+        if (/Macintosh|Mac OS X/.test(ua)) {
           return "macOS";
-        if (/Windows NT/.test(ua))
+        }
+        if (/Windows NT/.test(ua)) {
           return "Windows";
-        if (/Android/.test(ua))
+        }
+        if (/Android/.test(ua)) {
           return "Android";
-        if (/Linux/.test(ua))
+        }
+        if (/Linux/.test(ua)) {
           return "Linux";
+        }
         return void 0;
       },
       browser(ua) {
-        if (/EdgiOS|EdgA|Edg\//.test(ua))
+        if (/EdgiOS|EdgA|Edg\//.test(ua)) {
           return "Microsoft Edge";
-        if (/Firefox\//.test(ua))
+        }
+        if (/Firefox\//.test(ua)) {
           return "Firefox";
-        if (/Chrome\//.test(ua))
+        }
+        if (/Chrome\//.test(ua)) {
           return "Chrome";
-        if (/Safari\//.test(ua))
+        }
+        if (/Safari\//.test(ua)) {
           return "Safari";
+        }
         return void 0;
       }
     };
@@ -34469,11 +34583,13 @@ var init_parseArn = __esm({
     RESOURCE_DELIMITER = "/";
     parseArn = (value) => {
       const segments = value.split(ARN_DELIMITER);
-      if (segments.length < 6)
+      if (segments.length < 6) {
         return null;
+      }
       const [arn, partition2, service, region, accountId, ...resourcePath] = segments;
-      if (arn !== "arn" || partition2 === "" || service === "" || resourcePath.join(ARN_DELIMITER) === "")
+      if (arn !== "arn" || partition2 === "" || service === "" || resourcePath.join(ARN_DELIMITER) === "") {
         return null;
+      }
       const resourceId = resourcePath.map((resource) => resource.split(RESOURCE_DELIMITER)).flat();
       return {
         partition: partition2,
@@ -35266,8 +35382,9 @@ var require_dist_cjs3 = __commonJS({
       const endpoints = endpointCache.get(cacheKey);
       if (endpoints && endpoints.length === 1 && endpoints[0].Address === "") {
         if (options.isDiscoveredEndpointRequired) {
-          if (!requestQueue[cacheKey])
+          if (!requestQueue[cacheKey]) {
             requestQueue[cacheKey] = [];
+          }
           requestQueue[cacheKey].push({ resolve, reject });
         } else {
           resolve();
@@ -35419,8 +35536,7 @@ var init_getUpdatedSystemClockOffset = __esm({
       if (timeRequestSent !== void 0 && timeResponseReceived - timeRequestSent > 9e5) {
         return currentSystemClockOffset;
       }
-      const candidateSkew = timeRequestSent !== void 0 ? serverTime - (timeRequestSent + timeResponseReceived) / 2 : serverTime - timeResponseReceived;
-      return candidateSkew;
+      return serverTime - timeResponseReceived;
     };
   }
 });
@@ -35600,16 +35716,19 @@ var init_NODE_AUTH_SCHEME_PREFERENCE_OPTIONS = __esm({
       environmentVariableSelector: (env2, options) => {
         if (options?.signingName) {
           const bearerTokenKey = getBearerTokenEnvKey(options.signingName);
-          if (bearerTokenKey in env2)
+          if (bearerTokenKey in env2) {
             return ["httpBearerAuth"];
+          }
         }
-        if (!(NODE_AUTH_SCHEME_PREFERENCE_ENV_KEY in env2))
+        if (!(NODE_AUTH_SCHEME_PREFERENCE_ENV_KEY in env2)) {
           return void 0;
+        }
         return getArrayForCommaSeparatedString(env2[NODE_AUTH_SCHEME_PREFERENCE_ENV_KEY]);
       },
       configFileSelector: (profile) => {
-        if (!(NODE_AUTH_SCHEME_PREFERENCE_CONFIG_KEY in profile))
+        if (!(NODE_AUTH_SCHEME_PREFERENCE_CONFIG_KEY in profile)) {
           return void 0;
+        }
         return getArrayForCommaSeparatedString(profile[NODE_AUTH_SCHEME_PREFERENCE_CONFIG_KEY]);
       },
       default: []
@@ -35652,15 +35771,16 @@ var init_resolveAwsSdkSigV4AConfig = __esm({
 // node_modules/@smithy/signature-v4/dist-cjs/index.js
 var require_dist_cjs4 = __commonJS({
   "node_modules/@smithy/signature-v4/dist-cjs/index.js"(exports2) {
-    var { hasOwn: hasOwn2, fromUtf8: fromUtf83, fromHex: fromHex2, toHex: toHex2, toUint8Array: toUint8Array2, isArrayBuffer: isArrayBuffer2 } = (init_serde(), __toCommonJS(serde_exports));
+    var { hasOwn: hasOwn2, fromUtf8: fromUtf83, fromHex: fromHex2, toHex: toHex2, toUint8Array: toUint8Array2, writeKey: writeKey3, isArrayBuffer: isArrayBuffer2 } = (init_serde(), __toCommonJS(serde_exports));
     var { normalizeProvider: normalizeProvider3 } = (init_client2(), __toCommonJS(client_exports));
     var { escapeUri: escapeUri2, HttpRequest: HttpRequest2 } = (init_protocols(), __toCommonJS(protocols_exports));
     var HeaderFormatter = class {
       format(headers) {
         const chunks = [];
         for (const headerName in headers) {
-          if (!hasOwn2(headers, headerName))
+          if (!hasOwn2(headers, headerName)) {
             continue;
+          }
           const bytes = fromUtf83(headerName);
           chunks.push(Uint8Array.from([bytes.byteLength]), bytes, this.formatHeaderValue(headers[headerName]));
         }
@@ -35777,8 +35897,9 @@ var require_dist_cjs4 = __commonJS({
       }
       for (let i5 = 7; i5 > -1; i5--) {
         bytes[i5]++;
-        if (bytes[i5] !== 0)
+        if (bytes[i5] !== 0) {
           break;
+        }
       }
     }
     var ALGORITHM_QUERY_PARAM = "X-Amz-Algorithm";
@@ -35828,8 +35949,9 @@ var require_dist_cjs4 = __commonJS({
       const keys = [];
       const serialized = {};
       for (const key in query) {
-        if (!hasOwn2(query, key))
+        if (!hasOwn2(query, key)) {
           continue;
+        }
         if (key.toLowerCase() === SIGNATURE_HEADER) {
           continue;
         }
@@ -35895,10 +36017,12 @@ ${toHex2(hashedRequest)}`;
         if (this.uriEscapePath) {
           const normalizedPathSegments = [];
           for (const pathSegment of path.split("/")) {
-            if (pathSegment?.length === 0)
+            if (pathSegment?.length === 0) {
               continue;
-            if (pathSegment === ".")
+            }
+            if (pathSegment === ".") {
               continue;
+            }
             if (pathSegment === "..") {
               normalizedPathSegments.pop();
             } else {
@@ -35964,10 +36088,13 @@ ${toHex2(hashedRequest)}`;
           continue;
         }
         const canonicalHeaderName = headerName.toLowerCase();
-        if (canonicalHeaderName in ALWAYS_UNSIGNABLE_HEADERS || unsignableHeaders?.has(canonicalHeaderName) || PROXY_HEADER_PATTERN.test(canonicalHeaderName) || SEC_HEADER_PATTERN.test(canonicalHeaderName)) {
+        if (hasOwn2(ALWAYS_UNSIGNABLE_HEADERS, canonicalHeaderName) || unsignableHeaders?.has(canonicalHeaderName) || PROXY_HEADER_PATTERN.test(canonicalHeaderName) || SEC_HEADER_PATTERN.test(canonicalHeaderName)) {
           if (!signableHeaders || signableHeaders && !signableHeaders.has(canonicalHeaderName)) {
             continue;
           }
+        }
+        if (canonicalHeaderName === "__proto__") {
+          writeKey3(canonical);
         }
         canonical[canonicalHeaderName] = headers[headerName].replace(/[\r\n]/g, " ").replace(/[ \t]+/g, " ").replace(/^ | $/g, "");
       }
@@ -35975,8 +36102,9 @@ ${toHex2(hashedRequest)}`;
     };
     var getPayloadHash = async ({ headers, body }, hashConstructor) => {
       for (const headerName in headers) {
-        if (!hasOwn2(headers, headerName))
+        if (!hasOwn2(headers, headerName)) {
           continue;
+        }
         if (headerName.toLowerCase() === SHA256_HEADER) {
           return headers[headerName];
         }
@@ -35993,8 +36121,9 @@ ${toHex2(hashedRequest)}`;
     var hasHeader = (soughtHeader, headers) => {
       soughtHeader = soughtHeader.toLowerCase();
       for (const headerName in headers) {
-        if (!hasOwn2(headers, headerName))
+        if (!hasOwn2(headers, headerName)) {
           continue;
+        }
         if (soughtHeader === headerName.toLowerCase()) {
           return true;
         }
@@ -36004,8 +36133,9 @@ ${toHex2(hashedRequest)}`;
     var moveHeadersToQuery = (request, options = {}) => {
       const { headers, query = {} } = HttpRequest2.clone(request);
       for (const name in headers) {
-        if (!hasOwn2(headers, name))
+        if (!hasOwn2(headers, name)) {
           continue;
+        }
         const lname = name.toLowerCase();
         if (lname.slice(0, 6) === "x-amz-" && !options.unhoistableHeaders?.has(lname) || options.hoistableHeaders?.has(lname)) {
           query[name] = headers[name];
@@ -36021,8 +36151,9 @@ ${toHex2(hashedRequest)}`;
     var prepareRequest = (request) => {
       request = HttpRequest2.clone(request);
       for (const headerName in request.headers) {
-        if (!hasOwn2(request.headers, headerName))
+        if (!hasOwn2(request.headers, headerName)) {
           continue;
+        }
         if (GENERATED_HEADERS.indexOf(headerName.toLowerCase()) > -1) {
           delete request.headers[headerName];
         }
@@ -36815,8 +36946,9 @@ var require_dist_cjs7 = __commonJS({
     var getTransformedHeaders = (headers) => {
       const transformedHeaders = {};
       for (const name in headers) {
-        if (!hasOwn2(headers, name))
+        if (!hasOwn2(headers, name)) {
           continue;
+        }
         const headerValues = headers[name];
         transformedHeaders[name] = Array.isArray(headerValues) ? headerValues.join(",") : headerValues;
       }
@@ -36898,13 +37030,25 @@ var require_dist_cjs7 = __commonJS({
       }
       return timing.setTimeout(registerListener, deferTimeMs);
     };
+    var resolveDefaultSocketTimeout = (config) => {
+      const value = config?.defaultSocketTimeout;
+      return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
+    };
     var DEFER_EVENT_LISTENER_TIME = 3e3;
-    var setSocketTimeout = (request, reject, timeoutInMs = 0) => {
+    var setSocketTimeout = (request, reject, timeoutInMs = 0, destroyResponseBodyOnTimeout = false) => {
+      let response;
+      if (destroyResponseBodyOnTimeout) {
+        request.once("response", (res) => response = res);
+      }
       const registerTimeout = (offset) => {
         const timeout = timeoutInMs - offset;
         const onTimeout = () => {
+          const error3 = Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (${destroyResponseBodyOnTimeout ? "service default socket timeout" : "configured by client requestHandler"}).`), { name: "TimeoutError" });
+          if (destroyResponseBodyOnTimeout) {
+            response?.destroy(error3);
+          }
           request.destroy();
-          reject(Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (configured by client requestHandler).`), { name: "TimeoutError" }));
+          reject(error3);
         };
         if (request.socket) {
           request.socket.setTimeout(timeout, onTimeout);
@@ -36917,7 +37061,12 @@ var require_dist_cjs7 = __commonJS({
         registerTimeout(0);
         return 0;
       }
-      return timing.setTimeout(registerTimeout.bind(null, timeoutInMs === 0 ? 0 : DEFER_EVENT_LISTENER_TIME), DEFER_EVENT_LISTENER_TIME);
+      const deferralId = timing.setTimeout(registerTimeout.bind(null, timeoutInMs === 0 ? 0 : DEFER_EVENT_LISTENER_TIME), DEFER_EVENT_LISTENER_TIME);
+      if (destroyResponseBodyOnTimeout) {
+        request.once("close", () => timing.clearTimeout(deferralId));
+        return 0;
+      }
+      return deferralId;
     };
     var MIN_WAIT_TIME = 6e3;
     async function writeRequestBody(httpRequest, request, maxContinueTimeoutMs = MIN_WAIT_TIME, externalAgent = false) {
@@ -37002,8 +37151,9 @@ var require_dist_cjs7 = __commonJS({
         }
         if (sockets && requests) {
           for (const origin in sockets) {
-            if (!hasOwn2(sockets, origin))
+            if (!hasOwn2(sockets, origin)) {
               continue;
+            }
             const socketsInUse = sockets[origin]?.length ?? 0;
             const requestsEnqueued = requests[origin]?.length ?? 0;
             if (socketsInUse >= maxSockets && requestsEnqueued >= 2 * maxSockets) {
@@ -37145,7 +37295,12 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
           const effectiveRequestTimeout = requestTimeout ?? config.requestTimeout;
           connectionTimeoutId = setConnectionTimeout(req, reject, config.connectionTimeout);
           requestTimeoutId = setRequestTimeout(req, reject, effectiveRequestTimeout, config.throwOnRequestTimeout, logger2 ?? console);
-          socketTimeoutId = setSocketTimeout(req, reject, config.socketTimeout);
+          const defaultSocketTimeout = config.socketTimeout === void 0 ? resolveDefaultSocketTimeout(config) : void 0;
+          if (defaultSocketTimeout) {
+            socketTimeoutId = setSocketTimeout(req, reject, defaultSocketTimeout, true);
+          } else {
+            socketTimeoutId = setSocketTimeout(req, reject, config.socketTimeout);
+          }
           const httpAgent = nodeHttpsOptions.agent;
           if (typeof httpAgent === "object" && "keepAlive" in httpAgent) {
             keepAliveTimeoutId = setSocketKeepAlive(req, {
@@ -37162,11 +37317,15 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
       updateHttpClientConfig(key, value) {
         this.config = void 0;
         this.configProvider = this.configProvider.then((config) => {
-          if (key === /* @__PURE__ */ Symbol.for("logger")) {
-            return {
-              ...config,
-              logger: config.logger ?? value
-            };
+          switch (key) {
+            case /* @__PURE__ */ Symbol.for("logger"):
+              key = "logger";
+              value = config.logger ?? value;
+              break;
+            case /* @__PURE__ */ Symbol.for("@smithy/defaultSocketTimeout"):
+              key = "defaultSocketTimeout";
+              value = resolveDefaultSocketTimeout(config) ?? value;
+              break;
           }
           return {
             ...config,
@@ -37181,13 +37340,15 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
         const { requestTimeout, connectionTimeout, socketTimeout, socketAcquisitionWarningTimeout, httpAgent, httpsAgent, throwOnRequestTimeout, logger: logger2 } = options || {};
         const keepAlive = true;
         const maxSockets = 50;
+        let httpAgentPromise;
         return {
           connectionTimeout,
           requestTimeout,
           socketTimeout,
+          defaultSocketTimeout: resolveDefaultSocketTimeout(options),
           socketAcquisitionWarningTimeout,
           throwOnRequestTimeout,
-          httpAgentProvider: async () => {
+          httpAgentProvider: () => httpAgentPromise ??= (async () => {
             const node_http = require("node:http");
             const { Agent, request } = node_http.default ?? node_http;
             hRequest = request;
@@ -37197,7 +37358,7 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
               return httpAgent;
             }
             return new hAgent({ keepAlive, maxSockets, ...httpAgent });
-          },
+          })(),
           httpsAgent: (() => {
             if (httpsAgent instanceof node_https.Agent || typeof httpsAgent?.destroy === "function") {
               this.externalAgent = true;
@@ -37462,7 +37623,8 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
       }
       async handle(request, { abortSignal, requestTimeout, isEventStream } = {}) {
         if (!this.config) {
-          this.config = await this.configProvider;
+          const config = await this.configProvider;
+          this.config = { ...config, defaultSocketTimeout: resolveDefaultSocketTimeout(config) };
           const { disableConcurrentStreams: disableConcurrentStreams2, maxConcurrentStreams, nodeHttp2ConnectOptions } = this.config;
           this.connectionManager.setDisableConcurrentStreams(disableConcurrentStreams2 ?? false);
           if (maxConcurrentStreams) {
@@ -37472,9 +37634,10 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
             this.connectionManager.setNodeHttp2ConnectOptions(nodeHttp2ConnectOptions);
           }
         }
-        const { requestTimeout: configRequestTimeout, disableConcurrentStreams } = this.config;
+        const { requestTimeout: configRequestTimeout, disableConcurrentStreams, sessionTimeout } = this.config;
         const useIsolatedSession = disableConcurrentStreams || isEventStream;
         const effectiveRequestTimeout = requestTimeout ?? configRequestTimeout;
+        const defaultSocketTimeout = effectiveRequestTimeout === void 0 && sessionTimeout === void 0 ? this.config.defaultSocketTimeout : void 0;
         return new Promise((_resolve, _reject) => {
           let fulfilled = false;
           let writeRequestBodyPromise = void 0;
@@ -37534,6 +37697,18 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
               timeoutError.name = "TimeoutError";
               rejectWithDestroy(timeoutError);
             });
+          } else if (defaultSocketTimeout) {
+            clientHttp2Stream.setTimeout(defaultSocketTimeout, () => {
+              const timeoutError = new Error(`Stream timed out because of no activity for ${defaultSocketTimeout} ms`);
+              timeoutError.name = "TimeoutError";
+              fulfilled = true;
+              reject(timeoutError);
+              clientHttp2Stream.destroy(timeoutError);
+              if (useIsolatedSession) {
+                ref.destroy();
+              }
+            });
+            clientHttp2Stream.once("response", () => clientHttp2Stream.setTimeout(defaultSocketTimeout));
           }
           if (abortSignal) {
             const onAbort = () => {
@@ -37591,6 +37766,12 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
       updateHttpClientConfig(key, value) {
         this.config = void 0;
         this.configProvider = this.configProvider.then((config) => {
+          switch (key) {
+            case /* @__PURE__ */ Symbol.for("@smithy/defaultSocketTimeout"):
+              key = "defaultSocketTimeout";
+              value = resolveDefaultSocketTimeout(config) ?? value;
+              break;
+          }
           return {
             ...config,
             [key]: value
@@ -37850,7 +38031,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.50",
+      version: "3.997.54",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -37950,12 +38131,12 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.978.5",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.49",
+        "@aws-sdk/core": "^3.979.1",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.51",
         "@aws-sdk/types": "^3.975.0",
-        "@smithy/core": "^3.36.1",
+        "@smithy/core": "^3.38.0",
         "@smithy/fetch-http-handler": "^5.8.0",
-        "@smithy/node-http-handler": "^4.12.1",
+        "@smithy/node-http-handler": "^4.14.0",
         "@smithy/types": "^4.19.0",
         tslib: "^2.6.2"
       },
@@ -38235,8 +38416,9 @@ function writeStruct(ns, value, serdeContext) {
   }
   if (typeof value.__type === "string") {
     for (const k5 in value) {
-      if (!hasOwn(value, k5))
+      if (!hasOwn(value, k5)) {
         continue;
+      }
       if (!memberNames.includes(k5)) {
         writeString(k5);
         writeUntypedValue(value[k5]);
@@ -38298,8 +38480,9 @@ function writeMap(ns, value, isDocument, serdeContext) {
   const valueSchema = ns.getValueSchema();
   const keys = [];
   for (const k5 in value) {
-    if (!hasOwn(value, k5))
+    if (!hasOwn(value, k5)) {
       continue;
+    }
     const v = value[k5];
     if (isDocument ? v !== void 0 : v != null || sparse) {
       keys.push(k5);
@@ -38708,8 +38891,9 @@ function readStruct(ns, count, startPos) {
   if (isUnion) {
     let resultEmpty = true;
     for (const _ in result) {
-      if (!hasOwn(result, _))
+      if (!hasOwn(result, _)) {
         continue;
+      }
       resultEmpty = false;
       break;
     }
@@ -38872,8 +39056,9 @@ function readMapIndefinite(ns) {
         if (isUnion) {
           let resultEmpty = true;
           for (const _ in result) {
-            if (!hasOwn(result, _))
+            if (!hasOwn(result, _)) {
               continue;
+            }
             resultEmpty = false;
             break;
           }
@@ -39169,8 +39354,9 @@ function transformObject(ns, value) {
   if (ns.isMapSchema()) {
     const targetSchema = ns.getValueSchema();
     for (const key in value) {
-      if (!hasOwn(value, key))
+      if (!hasOwn(value, key)) {
         continue;
+      }
       newObject[key] = transformObject(targetSchema, value[key]);
     }
   } else if (ns.isStructSchema()) {
@@ -39179,8 +39365,9 @@ function transformObject(ns, value) {
     if (isUnion) {
       keys = /* @__PURE__ */ new Set();
       for (const k5 in value) {
-        if (!hasOwn(value, k5))
+        if (!hasOwn(value, k5)) {
           continue;
+        }
         if (k5 !== "__type") {
           keys.add(k5);
         }
@@ -39197,8 +39384,9 @@ function transformObject(ns, value) {
     if (isUnion && keys?.size === 1) {
       let newObjectEmpty = true;
       for (const _ in newObject) {
-        if (!hasOwn(newObject, _))
+        if (!hasOwn(newObject, _)) {
           continue;
+        }
         newObjectEmpty = false;
         break;
       }
@@ -39208,8 +39396,9 @@ function transformObject(ns, value) {
       }
     } else if (typeof value.__type === "string") {
       for (const k5 in value) {
-        if (!hasOwn(value, k5))
+        if (!hasOwn(value, k5)) {
           continue;
+        }
         if (!(k5 in newObject)) {
           newObject[k5] = value[k5];
         }
@@ -39283,52 +39472,29 @@ var init_SmithyRpcV2CborProtocol = __esm({
   "node_modules/@smithy/core/dist-es/submodules/cbor/SmithyRpcV2CborProtocol.js"() {
     init_protocols();
     init_schema();
-    init_transport();
     init_CborCodec();
     init_parseCborBody();
-    SmithyRpcV2CborProtocol = class extends RpcProtocol {
+    SmithyRpcV2CborProtocol = class extends AbstractRpcV2Protocol {
       codec = new CborCodec();
       serializer = this.codec.createSerializer();
       deserializer = this.codec.createDeserializer();
-      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 }) {
-        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
-      }
       getShapeId() {
         return "smithy.protocols#rpcv2Cbor";
       }
       getPayloadCodec() {
         return this.codec;
       }
-      async serializeRequest(operationSchema, input, context) {
-        const request = await super.serializeRequest(operationSchema, input, context);
-        Object.assign(request.headers, {
-          "content-type": this.getDefaultContentType(),
-          "smithy-protocol": "rpc-v2-cbor",
-          accept: this.getDefaultContentType()
-        });
-        if (deref(operationSchema.input) === "unit") {
-          delete request.body;
-          delete request.headers["content-type"];
-        } else {
-          if (!request.body) {
-            this.serializer.write(15, {});
-            request.body = this.serializer.flush();
-          }
-          if (request.body instanceof Uint8Array) {
-            request.headers["content-length"] = String(request.body.byteLength);
-          }
-        }
-        const { service, operation: operation2 } = getSmithyContext(context);
-        const path = `/service/${service}/operation/${operation2}`;
-        if (request.path.endsWith("/")) {
-          request.path += path.slice(1);
-        } else {
-          request.path += path;
-        }
-        return request;
+      getSmithyProtocolHeaderValue() {
+        return "rpc-v2-cbor";
       }
-      async deserializeResponse(operationSchema, context, response) {
-        return super.deserializeResponse(operationSchema, context, response);
+      applyEmptyBody(request) {
+        if (!request.body) {
+          this.serializer.write(15, {});
+          request.body = this.serializer.flush();
+        }
+        if (request.body instanceof Uint8Array) {
+          request.headers["content-length"] = String(request.body.byteLength);
+        }
       }
       async handleError(operationSchema, context, response, dataObject, metadata) {
         const errorIdentifier = loadSmithyRpcV2CborErrorCode(response, dataObject) ?? "Unknown";
@@ -39808,6 +39974,64 @@ var init_AwsRestJsonProtocol = __esm({
       }
       getDefaultContentType() {
         return "application/json";
+      }
+    };
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/AwsSmithyRpcV2JsonProtocol.js
+var AwsSmithyRpcV2JsonProtocol;
+var init_AwsSmithyRpcV2JsonProtocol = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/protocols/json/AwsSmithyRpcV2JsonProtocol.js"() {
+    init_protocols();
+    init_schema();
+    init_ProtocolLib();
+    AwsSmithyRpcV2JsonProtocol = class extends SmithyRpcV2JsonProtocol {
+      awsQueryCompatible;
+      mixin;
+      constructor({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5, awsQueryCompatible }) {
+        super({ defaultNamespace, errorTypeRegistries: errorTypeRegistries5 });
+        this.awsQueryCompatible = !!awsQueryCompatible;
+        this.mixin = new ProtocolLib(this.awsQueryCompatible);
+      }
+      async serializeRequest(operationSchema, input, context) {
+        const request = await super.serializeRequest(operationSchema, input, context);
+        if (this.awsQueryCompatible) {
+          request.headers["x-amzn-query-mode"] = "true";
+        }
+        return request;
+      }
+      async handleError(operationSchema, context, response, dataObject, metadata) {
+        if (this.awsQueryCompatible) {
+          this.mixin.setQueryCompatError(dataObject, response);
+        }
+        const errorName = (() => {
+          const compatHeader = response.headers["x-amzn-query-error"];
+          if (compatHeader && this.awsQueryCompatible) {
+            return compatHeader.split(";")[0];
+          }
+          return loadSmithyRpcV2JsonErrorCode(response, dataObject) ?? "Unknown";
+        })();
+        this.mixin.compose(this.compositeErrorRegistry, errorName, this.options.defaultNamespace);
+        const { errorSchema, errorMetadata } = await this.mixin.getErrorSchemaOrThrowBaseException(errorName, this.options.defaultNamespace, response, dataObject, metadata, this.awsQueryCompatible ? this.mixin.findQueryCompatibleError : void 0);
+        const ns = NormalizedSchema.of(errorSchema);
+        const message = dataObject.message ?? dataObject.Message ?? "UnknownError";
+        const ErrorCtor = this.compositeErrorRegistry.getErrorCtor(errorSchema) ?? Error;
+        const exception = new ErrorCtor({});
+        const output = {};
+        const errorDeserializer = this.getPayloadCodec().createDeserializer();
+        for (const [name, member2] of ns.structIterator()) {
+          if (dataObject[name] != null) {
+            output[name] = errorDeserializer.readObject(member2, dataObject[name]);
+          }
+        }
+        if (this.awsQueryCompatible) {
+          this.mixin.queryCompatOutput(dataObject, output);
+        }
+        throw this.mixin.decorateServiceException(Object.assign(exception, errorMetadata, {
+          $fault: ns.getMergedTraits().error,
+          message
+        }, output), dataObject);
       }
     };
   }
@@ -41288,6 +41512,7 @@ __export(protocols_exports2, {
   AwsRestJsonProtocol: () => AwsRestJsonProtocol,
   AwsRestXmlProtocol: () => AwsRestXmlProtocol,
   AwsSmithyRpcV2CborProtocol: () => AwsSmithyRpcV2CborProtocol,
+  AwsSmithyRpcV2JsonProtocol: () => AwsSmithyRpcV2JsonProtocol,
   JsonCodec: () => JsonCodec,
   JsonCodec2: () => JsonCodec2,
   JsonShapeDeserializer: () => JsonShapeDeserializer,
@@ -41317,6 +41542,7 @@ var init_protocols2 = __esm({
     init_AwsJson1_1Protocol();
     init_AwsJsonRpcProtocol();
     init_AwsRestJsonProtocol();
+    init_AwsSmithyRpcV2JsonProtocol();
     init_protocols();
     init_AwsEc2QueryProtocol();
     init_AwsQueryProtocol();
@@ -45440,6 +45666,13 @@ var init_enums2 = __esm({
       CONFLICT: "CONFLICT",
       INSUFFICIENT_PERMISSIONS: "INSUFFICIENT_PERMISSIONS",
       INVALID_REQUEST: "INVALID_REQUEST",
+      OAUTH_INVALID_GRANT: "invalid_grant",
+      OAUTH_INVALID_REQUEST: "invalid_request",
+      OAUTH_INVALID_SCOPE: "invalid_scope",
+      OAUTH_INVALID_TARGET: "invalid_target",
+      OAUTH_RATE_EXCEEDED: "rate_exceeded",
+      OAUTH_SERVICE_UNAVAILABLE: "service_unavailable",
+      OAUTH_UNSUPPORTED_GRANT_TYPE: "unsupported_grant_type",
       RESOURCE_NOT_FOUND: "RESOURCE_NOT_FOUND",
       SERVER_ERROR: "server_error",
       SERVICE_QUOTA_EXCEEDED: "SERVICE_QUOTA_EXCEEDED",
@@ -46410,8 +46643,9 @@ var require_dist_cjs18 = __commonJS({
         let first = true;
         for (const key in av) {
           const val = av[key];
-          if (val == null)
+          if (val == null) {
             continue;
+          }
           if (!first) {
             this.writeAscii(",");
           }
@@ -46431,8 +46665,9 @@ var require_dist_cjs18 = __commonJS({
               {
                 const arr = val;
                 for (let i5 = 0; i5 < arr.length; i5++) {
-                  if (i5 > 0)
+                  if (i5 > 0) {
                     this.writeAscii(",");
+                  }
                   const item = arr[i5];
                   if (item instanceof Uint8Array) {
                     this.writeBase64(item);
@@ -46448,8 +46683,9 @@ var require_dist_cjs18 = __commonJS({
               {
                 const arr = val;
                 for (let i5 = 0; i5 < arr.length; i5++) {
-                  if (i5 > 0)
+                  if (i5 > 0) {
                     this.writeAscii(",");
+                  }
                   if (arr[i5] != null) {
                     this.writeAttributeValue(arr[i5]);
                   } else {
@@ -46465,10 +46701,12 @@ var require_dist_cjs18 = __commonJS({
                 const map3 = val;
                 let mapFirst = true;
                 for (const k5 in map3) {
-                  if (map3[k5] == null)
+                  if (map3[k5] == null) {
                     continue;
-                  if (!mapFirst)
+                  }
+                  if (!mapFirst) {
                     this.writeAscii(",");
+                  }
                   mapFirst = false;
                   this.writeJsonString(k5);
                   this.writeAscii(":");
@@ -46483,8 +46721,9 @@ var require_dist_cjs18 = __commonJS({
               {
                 const arr = val;
                 for (let i5 = 0; i5 < arr.length; i5++) {
-                  if (i5 > 0)
+                  if (i5 > 0) {
                     this.writeAscii(",");
+                  }
                   this.writeJsonString(arr[i5]);
                 }
               }
@@ -51202,7 +51441,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1155.0";
+    var version = "3.1160.0";
     var packageInfo = {
       version
     };
