@@ -554,6 +554,31 @@ describe('publishSourceMaps retries', () => {
 
     expect(result.failures[0].message).toBe('HTTP 400 Bad Request')
   })
+
+  // Followed, fetch would carry the token header to wherever the server
+  // points, plain http included, and a 301, 302 or 303 would turn the POST into
+  // a GET whose 200 counts as uploaded.
+  for (const status of [301, 302, 303, 307, 308]) {
+    it(`does not follow a ${status} with the token, or retry it`, async () => {
+      fetch.mockResolvedValue({
+        ok: false,
+        status,
+        statusText: 'Redirect',
+        headers: new Headers({ location: 'http://elsewhere.example.net/api/1/sourcemap' }),
+        json: async () => null
+      })
+
+      const result = await publish({ oci: oneMap() })
+
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls[0][1].redirect).toBe('manual')
+      expect(result).toMatchObject({ status: 'failed', uploaded: 0, failed: 1 })
+      expect(result.failures).toEqual([{
+        file: 'cru/sourcemaps/a.js.map',
+        message: `HTTP ${status}: redirected to http://elsewhere.example.net/api/1/sourcemap; not followed with the token`
+      }])
+    })
+  }
 })
 
 describe('publishSourceMaps abort on auth failure', () => {
