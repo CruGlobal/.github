@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.16.0](https://github.com/CruGlobal/.github/compare/v2.15.0...v2.16.0) (2026-11-04)
+
+
+### Features
+
+* **v2:** say in Slack when a candidate or a release is a hotfix ([#556](https://github.com/CruGlobal/.github/issues/556)) ([94ca37a](https://github.com/CruGlobal/.github/commit/94ca37a89f792ffdc9635ccac5901843ca0fac81))
+
+
+### Bug Fixes
+
+* **v2:** build a hand-pushed hotfix branch whose cherry-pick changes a workflow file ([#557](https://github.com/CruGlobal/.github/issues/557)) ([12a9cc5](https://github.com/CruGlobal/.github/commit/12a9cc5aea0eb979765447640951d9681ddf60ae))
+* **v2:** give every pipeline v2 job a time limit and announce timeouts ([#554](https://github.com/CruGlobal/.github/issues/554)) ([9019ae9](https://github.com/CruGlobal/.github/commit/9019ae95abaaf61b2513d593d1a6f172979d7b63))
+
 ## [2.15.0](https://github.com/CruGlobal/.github/compare/v2.14.3...v2.15.0) (2026-11-03)
 
 
