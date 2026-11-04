@@ -108,9 +108,11 @@ outputs:
   promotable:
     description: >-
       candidate-kind. Whether promote's hotfix check would take this hotfix
-      now: yes, no (production has moved to a release it does not build on,
-      so promote refuses it as stale_hotfix) or unknown (the ledger or GitHub
-      did not answer). Empty when it is not a hotfix.
+      now: yes, no (production has moved to another release that it does not
+      build on, or that the ledger names no commit for, so promote refuses it
+      as stale_hotfix every time) or unknown (the ledger or GitHub did not
+      answer, which may clear by promote time). Empty when it is not a
+      hotfix.
   production-release:
     description: >-
       candidate-kind. The release the deployment ledger says production

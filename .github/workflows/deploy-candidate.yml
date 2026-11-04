@@ -477,9 +477,10 @@ jobs:
       # A hotfix candidate (the step above says so) gets its own first line,
       # naming the release it fixes, then the line naming its fixes when
       # there is one, and a last line asking for the promote: the next build
-      # of the default branch replaces the hotfix on stage. When promote would
-      # refuse it (production has moved to a release it does not build on),
-      # the last line says that instead. When that is not known, the line
+      # of the default branch replaces the hotfix on stage. When promote is
+      # sure to refuse it (production has moved to another release that it
+      # does not build on, or that the ledger names no commit for), the last
+      # line says that instead. When that is not known, the line
       # still asks for the promote, and promote's own check decides. The
       # fixes line comes escaped from the hotfix action, so a commit subject
       # cannot become a link or a mention. With anything else from that
@@ -885,9 +886,10 @@ jobs:
       # A hotfix candidate (the step above says so) gets its own first line,
       # naming the release it fixes, then the line naming its fixes when
       # there is one, and a last line asking for the promote: the next build
-      # of the default branch replaces the hotfix on stage. When promote would
-      # refuse it (production has moved to a release it does not build on),
-      # the last line says that instead. When that is not known, the line
+      # of the default branch replaces the hotfix on stage. When promote is
+      # sure to refuse it (production has moved to another release that it
+      # does not build on, or that the ledger names no commit for), the last
+      # line says that instead. When that is not known, the line
       # still asks for the promote, and promote's own check decides. The
       # fixes line comes escaped from the hotfix action, so a commit subject
       # cannot become a link or a mention. With anything else from that

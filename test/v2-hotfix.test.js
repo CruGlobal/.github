@@ -905,9 +905,25 @@ describe('candidateKind (deploy-candidate\'s Slack label)', () => {
         .toMatchObject({ promotable: 'yes', productionRelease: NEWER_RELEASE })
     })
 
+    // promote refuses this every time: the ledger names no commit for the
+    // release production runs, so nothing can show the hotfix builds on it.
+    it('is no, naming the release production runs, when the ledger names no commit for that other release', async () => {
+      const api = github()
+      const result = await label(api, fakeLedger([ledgerRow(NEWER_RELEASE, undefined)]))
+      expect(result).toMatchObject({ kind: 'hotfix', promotable: 'no', productionRelease: NEWER_RELEASE, fixes: '' })
+      expect(result.promotableWhy).toMatch(/the deployment ledger names no commit for release-2026-10-22-10150, the release production runs/)
+      // Nothing to compare against: only the default-branch compare ran.
+      expect(api.rest.repos.compareCommitsWithBasehead).toHaveBeenCalledTimes(1)
+    })
+
+    it('is yes when the ledger names no commit for the hotfix\'s own release, as promote lets that through', async () => {
+      expect(await label(github(), fakeLedger([ledgerRow(RELEASE, undefined)])))
+        .toMatchObject({ kind: 'hotfix', promotable: 'yes', productionRelease: RELEASE, fixes: '' })
+    })
+
+    // Each of these could clear by the time someone promotes.
     it.each([
       ['the ledger cannot be read', {}, fakeLedger(new Error('no answer')), ''],
-      ['the ledger names no commit for a newer release', {}, fakeLedger([ledgerRow(NEWER_RELEASE, undefined)]), NEWER_RELEASE],
       ['GitHub does not answer the forward compare', { fromLive: new Error('timeout') }, fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]), NEWER_RELEASE]
     ])('is unknown when %s', async (_why, options, ledger, productionRelease) => {
       expect(await label(github(options), ledger)).toMatchObject({ kind: 'hotfix', promotable: 'unknown', productionRelease })
@@ -924,14 +940,16 @@ describe('candidateKind (deploy-candidate\'s Slack label)', () => {
     })
 
     // One copy of promote's logic: for every case, the label says yes when
-    // promote's check passes and no when promote refuses it as stale.
+    // promote's check passes, no when promote refuses it whatever happens
+    // first, and unknown only when promote's answer could still change.
     it.each([
       ['for the release production runs', {}, [ledgerRow(RELEASE, LIVE_SHA)], 'live', 'yes'],
+      ['for the release production runs, with no commit in the ledger', {}, [ledgerRow(RELEASE, undefined)], 'live', 'yes'],
       ['production moved, not built on', { fromLive: { status: 'diverged' } }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'stale', 'no'],
       ['production moved, behind it', { fromLive: { status: 'behind' } }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'stale', 'no'],
       ['production moved forward along it', { fromLive: { status: 'ahead' } }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'live', 'yes'],
       ['production runs it already', {}, [ledgerRow(NEWER_RELEASE, SHA)], 'live', 'yes'],
-      ['no commit in the ledger', {}, [ledgerRow(NEWER_RELEASE, undefined)], 'unconfirmed', 'unknown'],
+      ['production moved, with no commit in the ledger', {}, [ledgerRow(NEWER_RELEASE, undefined)], 'unconfirmed', 'no'],
       ['no answer to the forward compare', { fromLive: new Error('timeout') }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'unconfirmed', 'unknown'],
       ['no ledger', {}, new Error('no answer'), 'ledger_unavailable', 'unknown']
     ])('agrees with promote when %s', async (_why, options, rows, check, promotable) => {

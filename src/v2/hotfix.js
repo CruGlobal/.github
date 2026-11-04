@@ -935,11 +935,13 @@ export function fixesLine (subjects, count = subjects.length) {
 // GitHub cannot tell in time whether it is a hotfix; the caller then posts
 // the ordinary message.
 //
-// `promotable` is yes when promote's check would pass, no when promote would
-// refuse it as stale (production has moved to a release this hotfix does not
-// build on), and unknown when the ledger or GitHub did not answer, or the
-// ledger names no commit. Only no changes the message, so anything unsure
-// keeps the usual request to promote. '' when it is not a hotfix.
+// `promotable` is yes when promote's check would pass, and no when promote
+// would refuse it whatever happens before the promote: production has moved
+// to another release that this hotfix does not build on, or that the ledger
+// names no commit for. It is unknown when the reason could clear by then:
+// the ledger did not answer, GitHub did not answer the compare, or the
+// deadline ran out. Only no changes the message, so anything unsure keeps
+// the usual request to promote. '' when it is not a hotfix.
 //
 // The fixes are the commits between the commit production runs (from the
 // deployment ledger, the same place build-candidate checked the branch
@@ -970,7 +972,13 @@ export async function candidateKind ({ octokit, repository, sha, project, readLe
   // The same deadline as the rest of the label, not promote's own compare
   // timeout: a label that does not finish in time only keeps the usual line.
   const forward = await forwardCheck({ octokit, repository, commit, kind, live, compareRequest: request })
-  const promotable = { live: 'yes', stale: 'no' }[forward.check] ?? 'unknown'
+  // forwardCheck says unconfirmed for two reasons. With no commit in the
+  // ledger for the release production runs (never this hotfix's own release,
+  // which forwardCheck passes first), promote refuses it every time, so that
+  // is no. A compare GitHub did not answer may work at promote time, so that
+  // stays unknown.
+  const certain = forward.check === 'stale' || (forward.check === 'unconfirmed' && !live.sha)
+  const promotable = forward.check === 'live' ? 'yes' : certain ? 'no' : 'unknown'
   const label = { ...kind, promotable, promotableWhy: forward.checkWhy, productionRelease: live.revision }
   if (normalizeRelease(live.revision) !== kind.release) {
     return { ...label, fixes: '', fixesWhy: `production now runs ${live.revision}, not ${kind.release}, so the fixes are not listed` }
