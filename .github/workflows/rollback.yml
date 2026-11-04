@@ -327,7 +327,22 @@ jobs:
       # write failed is invisible here and the rollback would go ahead. For the
       # same reason, a release with no ledger row is skipped over when finding
       # the release that ran before the current one.
+      #
+      # The ledger read runs inside the lock, so it has a time limit, the same
+      # as promote's stale-promote guard. curl gets 10 seconds to connect and
+      # 20 for each try, tries twice more after a timeout or a server error,
+      # and starts no new try once 50 seconds have gone by (--retry-max-time).
+      # That last flag matters: a server's Retry-After replaces --retry-delay,
+      # and without a ceiling curl waits as long as the server asks. The
+      # slowest the read can be is 50 + 3 + 20 = 73 seconds: a try that starts
+      # just before 50 seconds, after a 3-second wait, and runs its full 20.
+      # Against a local server that sent a 503 asking for a 29-second wait and
+      # then never answered, it took 72 seconds; against one that never
+      # answered at all, 66. Either way the rollback is refused. The step
+      # limit is a backstop past that, and a step it stops fails too, so the
+      # rollback still stops.
       - name: Refuse a stale rollback
+        timeout-minutes: 2
         env:
           EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
           EXPECTED_PREVIOUS_RELEASE: ${{ inputs.expected-previous-release }}
@@ -380,7 +395,7 @@ jobs:
           fi
           # One read serves both checks. It asks for 10 rows, not 2, because a
           # re-run or a re-promote writes the same Revision more than once.
-          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
               "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10"); then
             echo "::error::could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
             exit 1
@@ -873,7 +888,22 @@ jobs:
       # write failed is invisible here and the rollback would go ahead. For the
       # same reason, a release with no ledger row is skipped over when finding
       # the release that ran before the current one.
+      #
+      # The ledger read runs inside the lock, so it has a time limit, the same
+      # as promote's stale-promote guard. curl gets 10 seconds to connect and
+      # 20 for each try, tries twice more after a timeout or a server error,
+      # and starts no new try once 50 seconds have gone by (--retry-max-time).
+      # That last flag matters: a server's Retry-After replaces --retry-delay,
+      # and without a ceiling curl waits as long as the server asks. The
+      # slowest the read can be is 50 + 3 + 20 = 73 seconds: a try that starts
+      # just before 50 seconds, after a 3-second wait, and runs its full 20.
+      # Against a local server that sent a 503 asking for a 29-second wait and
+      # then never answered, it took 72 seconds; against one that never
+      # answered at all, 66. Either way the rollback is refused. The step
+      # limit is a backstop past that, and a step it stops fails too, so the
+      # rollback still stops.
       - name: Refuse a stale rollback
+        timeout-minutes: 2
         env:
           EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
           EXPECTED_PREVIOUS_RELEASE: ${{ inputs.expected-previous-release }}
@@ -926,7 +956,7 @@ jobs:
           fi
           # One read serves both checks. It asks for 10 rows, not 2, because a
           # re-run or a re-promote writes the same Revision more than once.
-          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
               "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10"); then
             echo "::error::could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
             exit 1

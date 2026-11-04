@@ -194,11 +194,27 @@ const curlFlag = (command, name) => {
   return match ? Number(match[1]) : undefined
 }
 
-// The longest a curl command can run: every try out of time, with the wait
-// between tries.
+// The longest a curl command can run. With no retries, that is --max-time.
+// With retries, the wait between tries is not always --retry-delay: a
+// server's Retry-After replaces it, so only --retry-max-time bounds the
+// waits. curl starts no new try once that much time has gone by, and none
+// whose Retry-After would take it past that. So the last try starts no later
+// than --retry-max-time plus one --retry-delay, and runs at most --max-time.
+// A probe against a local server matched this: 50 + 3 + 20 = 73 seconds at
+// most, 72 measured.
 function curlWorstCaseSeconds (command) {
-  const retries = curlFlag(command, 'retry') ?? 0
-  return (retries + 1) * curlFlag(command, 'max-time') + retries * (curlFlag(command, 'retry-delay') ?? 0)
+  const maxTime = curlFlag(command, 'max-time')
+  if (!curlFlag(command, 'retry')) return maxTime
+  return curlFlag(command, 'retry-max-time') + curlFlag(command, 'retry-delay') + maxTime
+}
+
+// A curl that retries must say how long to wait and when to stop: without
+// --retry-delay the waits double from one second, and without
+// --retry-max-time a server's Retry-After sets them.
+function expectBoundedRetries (command, key) {
+  if (!curlFlag(command, 'retry')) return
+  expect(curlFlag(command, 'retry-delay') ?? 0, `${key}: ${command}`).toBeGreaterThan(0)
+  expect(curlFlag(command, 'retry-max-time') ?? 0, `${key}: ${command}`).toBeGreaterThan(0)
 }
 
 // The reads that run inside a deploy lock (the job's concurrency group),
@@ -215,6 +231,10 @@ function curlWorstCaseSeconds (command) {
 describe('reads inside the deploy lock', () => {
   // [workflow, job, step, step limit in minutes, advisory]
   const READS = [
+    ['promote.yml', 'promote-gcp', 'Refuse a stale promote', 2, false],
+    ['promote.yml', 'promote-aws', 'Refuse a stale promote', 2, false],
+    ['rollback.yml', 'rollback-gcp', 'Refuse a stale rollback', 2, false],
+    ['rollback.yml', 'rollback-aws', 'Refuse a stale rollback', 2, false],
     ['promote.yml', 'promote-gcp', 'Fetch production baseline', 1, true],
     ['promote.yml', 'promote-gcp', 'Classify rollback safety', 2, true],
     ['promote.yml', 'promote-aws', 'Resolve candidate from ledger (stage-less)', 2, false],
@@ -253,6 +273,7 @@ describe('reads inside the deploy lock', () => {
     for (const command of curls) {
       expect(curlFlag(command, 'connect-timeout'), `${key}: ${command}`).toBeGreaterThan(0)
       expect(curlFlag(command, 'connect-timeout')).toBeLessThan(curlFlag(command, 'max-time'))
+      expectBoundedRetries(command, key)
       // Room past the slowest the curl can be, for the runner and jq.
       expect(curlWorstCaseSeconds(command) + 30, `${key}: ${command}`).toBeLessThanOrEqual(limit * 60)
     }
@@ -294,10 +315,13 @@ describe('reads inside the deploy lock', () => {
 
   it('caps every read of the deployment ledger', () => {
     const reads = allJobs.flatMap(([file, id, job]) => (job.steps ?? []).flatMap((step) => curlCommands(step.run)
-      .filter((command) => command.includes('https://deploys.cru.org/'))
+      .filter((command) => command.includes('https://deploys.cru.org/deployments'))
       .map((command) => [`${file}:${id}: ${step.name}`, command])))
     expect(reads.length).toBeGreaterThan(0)
-    for (const [key, command] of reads) expect(command, key).toMatch(/--max-time \d+/)
+    for (const [key, command] of reads) {
+      expect(command, key).toMatch(/--max-time \d+/)
+      expectBoundedRetries(command, key)
+    }
   })
 })
 
@@ -365,6 +389,38 @@ describe('reads inside the deploy lock, run', () => {
     })
   })
 
+  // The stale guards' own refusals are pinned in v2-promote-guards; here,
+  // only the time limits on the read and that a timeout is still a refusal.
+  describe.each([
+    ['promote.yml', 'promote-gcp', 'Refuse a stale promote'],
+    ['promote.yml', 'promote-aws', 'Refuse a stale promote'],
+    ['rollback.yml', 'rollback-gcp', 'Refuse a stale rollback'],
+    ['rollback.yml', 'rollback-aws', 'Refuse a stale rollback']
+  ])('%s:%s %s', (file, id, name) => {
+    const guard = (options) => run(file, id, name, {
+      ...options,
+      context: {
+        'inputs.expected-current-release': 'release-2026-10-20-10140',
+        'inputs.expected-previous-release': '',
+        'needs.lookup.outputs.release-tag': 'release-2026-10-19-10130'
+      }
+    })
+
+    it('reads the ledger with a time limit on each try and on the retries', async () => {
+      const result = await guard({ ledger: { Items: [{ Revision: 'release-2026-10-20-10140' }] } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.ledgerCalls).toHaveLength(1)
+      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 /)
+    })
+
+    it('still refuses when the ledger does not answer in time', async () => {
+      const result = await guard({ ledgerTimesOut: true })
+      expect(result.status).toBe(1)
+      expect(lines(result, '::error')).toHaveLength(1)
+      expect(lines(result, '::error')[0]).toMatch(/could not read the deployment ledger for example-app/)
+    })
+  })
+
   describe('promote.yml:promote-aws stage-less candidate', () => {
     const resolve = (options) => run('promote.yml', 'promote-aws', 'Resolve candidate from ledger (stage-less)', options)
 
@@ -373,7 +429,7 @@ describe('reads inside the deploy lock, run', () => {
       expect(result.status, result.stderr).toBe(0)
       expect(result.outputs).toEqual({ revision: 'candidate-2026-10-21-10150', digest: DIGEST })
       expect(result.ledgerCalls).toHaveLength(1)
-      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 /)
+      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 /)
     })
 
     it('refuses the promote, saying the ledger did not answer in time, when the read runs out of time', async () => {

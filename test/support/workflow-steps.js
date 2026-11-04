@@ -55,7 +55,7 @@ args="$*"; url=""; data=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -d|--data) data="$2"; shift 2 ;;
-    -H|-X|--max-time|--connect-timeout|--retry|--retry-delay) shift 2 ;;
+    -H|-X|--max-time|--connect-timeout|--retry|--retry-delay|--retry-max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
