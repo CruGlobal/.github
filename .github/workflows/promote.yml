@@ -1098,6 +1098,10 @@ jobs:
       # named after the project, so an app-info Repository override keeps the
       # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
+      #
+      # A hotfix (the "Tell a hotfix from a deploy" step found one) says so
+      # after the release, naming the release it fixes. Anything else from
+      # that step, an empty output included, keeps the message as it was.
       - name: Notify Slack
         continue-on-error: true
         # A post takes a second, and --max-time ends one that hangs. The step
@@ -1119,6 +1123,8 @@ jobs:
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
+          HOTFIX_KIND: ${{ steps.release-kind.outputs.kind }}
+          HOTFIX_OF: ${{ steps.release-kind.outputs.release }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1145,6 +1151,8 @@ jobs:
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
             --arg repository "$APP_REPO" \
+            --arg hotfixkind "$HOTFIX_KIND" \
+            --arg hotfixof "$HOTFIX_OF" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -1155,8 +1163,11 @@ jobs:
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
-             {channel: $channel,
-              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+             ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | {channel: $channel,
+              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)*"
+                     + (if $hotfix then " (hotfix of `\($hotfixof)`)" else "" end)
+                     + " by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($safety)"
                      + (if $prevsha != ""
                         then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
@@ -1909,6 +1920,10 @@ jobs:
       # named after the project, so an app-info Repository override keeps the
       # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
+      #
+      # A hotfix (the "Tell a hotfix from a deploy" step found one) says so
+      # after the release, naming the release it fixes. Anything else from
+      # that step, an empty output included, keeps the message as it was.
       - name: Notify Slack
         continue-on-error: true
         # A post takes a second, and --max-time ends one that hangs. The step
@@ -1930,6 +1945,8 @@ jobs:
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
+          HOTFIX_KIND: ${{ steps.release-kind.outputs.kind }}
+          HOTFIX_OF: ${{ steps.release-kind.outputs.release }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1956,6 +1973,8 @@ jobs:
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
             --arg repository "$APP_REPO" \
+            --arg hotfixkind "$HOTFIX_KIND" \
+            --arg hotfixof "$HOTFIX_OF" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -1966,8 +1985,11 @@ jobs:
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
-             {channel: $channel,
-              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+             ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | {channel: $channel,
+              text: (":white_check_mark: *\($project) promoted `\($release)` to \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)*"
+                     + (if $hotfix then " (hotfix of `\($hotfixof)`)" else "" end)
+                     + " by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
                      + "\n\($safety)"
                      + (if $prevsha != ""
                         then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"

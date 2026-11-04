@@ -246,8 +246,86 @@ describe('mode release-kind (promote)', () => {
   })
 })
 
+describe('mode candidate-kind (deploy-candidate)', () => {
+  const SHA = 'a'.repeat(40)
+  const LIVE_SHA = 'c'.repeat(40)
+  const TAGS = `candidate-2026-10-21-10151,sha-${SHA}`
+  function github ({ subject = 'Fix the login redirect', getRepo } = {}) {
+    return {
+      rest: {
+        repos: {
+          get: getRepo ?? (async () => ({ data: { default_branch: 'main' } })),
+          getBranch: async () => ({ data: { commit: { sha: 'b'.repeat(40) } } }),
+          compareCommitsWithBasehead: async ({ basehead }) => basehead.startsWith(LIVE_SHA)
+            ? { data: { status: 'ahead', total_commits: 1, commits: [{ commit: { message: `${subject}\n\n(cherry picked from commit ${'d'.repeat(40)})` } }] } }
+            : { data: { status: 'diverged' } }
+        },
+        git: { listMatchingRefs: async () => ({ data: [{ ref: `refs/heads/hotfix/${RELEASE}`, object: { type: 'commit', sha: SHA } }] }) }
+      }
+    }
+  }
+  const labelInputs = (extra = {}) => Object.assign(inputs, { mode: 'candidate-kind', 'github-token': 'tok', repository: 'example-org/example-app', 'project-name': PROJECT, 'image-tags': TAGS, ...extra })
+
+  it('outputs hotfix, the release it fixes and the escaped fixes line, reading the commit from the sha- tag', async () => {
+    octokit.current = github()
+    labelInputs()
+    await run({ readLedger: fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]).readLedger })
+    expect(outputs).toEqual({ kind: 'hotfix', branch: `hotfix/${RELEASE}`, release: RELEASE, 'fixes-mrkdwn': 'The live release plus 1 fix: Fix the login redirect', promotable: 'yes', 'production-release': RELEASE })
+    expect(core.warning).not.toHaveBeenCalled()
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(process.exitCode).toBeUndefined()
+  })
+
+  it('escapes a hostile subject', async () => {
+    octokit.current = github({ subject: '<!channel> urgent: <https://evil.example.test|see fix> & <@U0123>' })
+    labelInputs()
+    await run({ readLedger: fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]).readLedger })
+    expect(outputs['fixes-mrkdwn']).toBe('The live release plus 1 fix: &lt;!channel&gt; urgent: &lt;https://evil.example.test|see fix&gt; &amp; &lt;@U0123&gt;')
+  })
+
+  it('outputs deploy without asking anything, and without a warning, when no token is given', async () => {
+    octokit.current = { rest: {} }
+    const ledger = fakeLedger(new Error('must not be read'))
+    labelInputs({ 'github-token': '' })
+    await run({ readLedger: ledger.readLedger })
+    expect(outputs).toEqual({ kind: 'deploy', branch: '', release: '', 'fixes-mrkdwn': '', promotable: '', 'production-release': '' })
+    expect(core.warning).not.toHaveBeenCalled()
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('no github-token was given'))
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(ledger.calls).toEqual([])
+  })
+
+  it('outputs deploy with a warning, and never fails, when GitHub cannot answer', async () => {
+    octokit.current = github({ getRepo: async () => { throw new Error('Bad credentials') } })
+    labelInputs()
+    await run({ readLedger: fakeLedger(new Error('must not be read')).readLedger })
+    expect(outputs).toEqual({ kind: 'deploy', branch: '', release: '', 'fixes-mrkdwn': '', promotable: '', 'production-release': '' })
+    expect(core.warning).toHaveBeenCalledWith('could not tell whether this candidate is a hotfix (Bad credentials), so the stage message is the ordinary one', { title: 'Hotfix label' })
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(process.exitCode).toBeUndefined()
+  })
+
+  it('outputs deploy without asking GitHub when the image has no sha- tag', async () => {
+    octokit.current = github({ getRepo: async () => { throw new Error('must not be asked') } })
+    labelInputs({ 'image-tags': 'candidate-2026-10-21-10151' })
+    await run({ readLedger: fakeLedger(new Error('must not be read')).readLedger })
+    expect(outputs).toMatchObject({ kind: 'deploy', 'fixes-mrkdwn': '', promotable: '' })
+    expect(core.warning).not.toHaveBeenCalled()
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('the candidate image has no sha- tag naming its commit'))
+  })
+
+  it('outputs promotable no, and the release production runs, for a hotfix promote would refuse', async () => {
+    octokit.current = github()
+    labelInputs()
+    await run({ readLedger: fakeLedger([ledgerRow(NEWER_RELEASE, 'e'.repeat(40))]).readLedger })
+    expect(outputs).toEqual({ kind: 'hotfix', branch: `hotfix/${RELEASE}`, release: RELEASE, 'fixes-mrkdwn': '', promotable: 'no', 'production-release': NEWER_RELEASE })
+    expect(core.warning).not.toHaveBeenCalled()
+    expect(core.setFailed).not.toHaveBeenCalled()
+  })
+})
+
 it('fails on an unknown mode', async () => {
   inputs.mode = 'deploy'
   await run()
-  expect(core.setFailed).toHaveBeenCalledWith("unknown mode 'deploy'; expected one of verify, cut, report, release-kind")
+  expect(core.setFailed).toHaveBeenCalledWith("unknown mode 'deploy'; expected one of verify, cut, report, release-kind, candidate-kind")
 })

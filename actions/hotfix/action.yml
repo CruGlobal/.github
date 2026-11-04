@@ -8,14 +8,15 @@ description: >-
   authorize-actor check earlier in the same job), `report` (say in the run
   summary whether the app's own CI ran on the branch; never fails) and
   `release-kind` (promote: hotfix or deploy, and whether a hotfix is still
-  for the live release; never fails). A refusal's error title is a fixed
-  reason word.
+  for the live release; never fails) and `candidate-kind` (deploy-candidate:
+  the same hotfix or deploy, and the fixes a hotfix adds, for its Slack
+  message; never fails). A refusal's error title is a fixed reason word.
 inputs:
   mode:
-    description: One of verify | cut | report | release-kind.
+    description: One of verify | cut | report | release-kind | candidate-kind.
     required: true
   project-name:
-    description: Project name, the deployment ledger's key. verify, cut and release-kind.
+    description: Project name, the deployment ledger's key. verify, cut, release-kind and candidate-kind.
     required: false
     default: ''
   path:
@@ -50,11 +51,20 @@ inputs:
     required: false
     default: ''
   github-token:
-    description: Token that can read the app repo's branches, commits and workflow runs. report and release-kind.
+    description: >-
+      Token that can read the app repo's branches, commits and workflow runs.
+      report, release-kind and candidate-kind. candidate-kind without one
+      outputs deploy and asks nothing.
     required: false
     default: ''
   repository:
-    description: App repo in owner/name form. report and release-kind.
+    description: App repo in owner/name form. report, release-kind and candidate-kind.
+    required: false
+    default: ''
+  image-tags:
+    description: >-
+      The candidate image's tags, comma-separated, as resolve-image outputs
+      them. Its sha-<commit> tag names the commit. candidate-kind.
     required: false
     default: ''
   branch:
@@ -71,9 +81,9 @@ inputs:
     default: ''
 outputs:
   release:
-    description: cut and release-kind. The release the hotfix is for.
+    description: cut, release-kind and candidate-kind. The release the hotfix is for.
   branch:
-    description: cut and release-kind. The hotfix branch, hotfix/<release>.
+    description: cut, release-kind and candidate-kind. The hotfix branch, hotfix/<release>.
   base-sha:
     description: cut. The commit production runs, where the branch starts.
   commit-sha:
@@ -87,7 +97,27 @@ outputs:
   ci-ran:
     description: report. true, false or unknown.
   kind:
-    description: release-kind. hotfix or deploy.
+    description: release-kind and candidate-kind. hotfix or deploy.
+  fixes-mrkdwn:
+    description: >-
+      candidate-kind. One line naming the fixes a hotfix adds to the release
+      production runs, such as "The live release plus 2 fixes: A; B", with at
+      most 3 commit subjects and then "and N more". Escaped for Slack
+      mrkdwn. Empty when it is not a hotfix, or when the fixes could not be
+      listed.
+  promotable:
+    description: >-
+      candidate-kind. Whether promote's hotfix check would take this hotfix
+      now: yes, no (production has moved to another release that it does not
+      build on, or that the ledger names no commit for, so promote refuses it
+      as stale_hotfix while production runs that release) or unknown (the ledger or GitHub did not
+      answer, which may clear by promote time). Empty when it is not a
+      hotfix.
+  production-release:
+    description: >-
+      candidate-kind. The release the deployment ledger says production
+      runs, for a hotfix. Empty when it is not a hotfix or the ledger was not
+      read.
   check:
     description: >-
       release-kind. live (a hotfix for the release production runs, or one

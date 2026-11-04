@@ -259,6 +259,7 @@ describe('failure notices reach a job that timed out', () => {
       'secrets.datadog-api-key': 'dd-test',
       'needs.lookup.outputs.slack-channel': 'C0000000000',
       'secrets.slack-bot-token': 'xoxb-test',
+      "secrets.slack-bot-token != ''": 'true',
       'inputs.tag': 'candidate-2026-10-21-10150',
       'github.actor': 'example-user',
       'github.triggering_actor': triggering,

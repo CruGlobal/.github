@@ -297,9 +297,12 @@ describe('every use of the hotfix action', () => {
     .flatMap((file) => Object.entries(loadYaml(file).jobs ?? {}).flatMap(([jobId, job]) =>
       (job.steps ?? []).filter((step) => step.uses === HOTFIX_ACTION).map((step) => [`${file}:${jobId}:${step.name}`, step])))
 
-  it('is in build-candidate, both promote jobs and hotfix.yml', () => {
+  it('is in build-candidate, the three deploy-candidate jobs, both promote jobs and hotfix.yml', () => {
     expect(uses.map(([where]) => where)).toEqual([
       '.github/workflows/build-candidate.yml:setup:Assert the hotfix branch holds only cherry-picks of default-branch commits',
+      '.github/workflows/deploy-candidate.yml:deploy-candidate-gcp:Tell a hotfix candidate from an ordinary one',
+      '.github/workflows/deploy-candidate.yml:deploy-candidate-aws:Tell a hotfix candidate from an ordinary one',
+      '.github/workflows/deploy-candidate.yml:verify-candidate-aws:Tell a hotfix candidate from an ordinary one',
       '.github/workflows/hotfix.yml:hotfix:Cut the hotfix branch',
       ".github/workflows/hotfix.yml:hotfix:Report the app's CI on the hotfix branch",
       '.github/workflows/promote.yml:promote-gcp:Tell a hotfix from a deploy',

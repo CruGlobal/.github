@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 // on the default branch first, through a normal pull request and its checks.
 // The hotfix branch only cherry-picks it.
 //
-// Three callers use this module:
+// Four callers use this module:
 //
 //   - hotfix.yml cuts the branch: it checks that production still runs the
 //     release the caller named, cherry-picks the fix onto
@@ -25,6 +25,9 @@ import { spawn } from 'node:child_process'
 //   - promote.yml tells a hotfix promote from an ordinary one, so the release
 //     event says which it was, and refuses a hotfix candidate that is not for
 //     the release production runs now (hotfixPromoteCheck).
+//   - deploy-candidate.yml asks the same question as promote, only to say in
+//     its Slack message that a candidate is a hotfix and which fixes it adds
+//     (candidateKind). It never stops a deploy.
 //
 // What a valid hotfix branch is, in one rule: it is named
 // hotfix/<release tag>, it starts at the commit production ran for that
@@ -808,50 +811,193 @@ export async function hotfixPromoteCheck ({ octokit, repository, sha, project, r
   if (kind.kind !== 'hotfix' && !kind.offBranch) return { ...kind, check: 'skipped', checkWhy: 'not a hotfix' }
 
   const commit = String(sha).trim()
-  const hotfix = kind.kind === 'hotfix'
-  const what = hotfix
-    ? `${short(commit)} is a hotfix for ${kind.release} (from ${kind.branch})`
-    : `${short(commit)} is not on the default branch or on any hotfix branch (its hotfix branch may have been deleted)`
-  const refusal = 'refusing to promote it. Nothing in production was changed'
+  const what = promotedCommit(kind, commit)
 
   let live
   try {
     live = await currentProduction({ readLedger, project, unconfirmed: 'what production runs is unknown', ledgerOptions: { attempts: 2, timeoutMs: 10000 } })
   } catch (error) {
     if (error instanceof HotfixRefusal && error.reason === REASONS.ledgerUnavailable) {
-      return { ...kind, check: 'ledger_unavailable', checkWhy: `${what}, but ${error.message}; ${refusal}. Try again once the deployment ledger answers` }
+      return { ...kind, check: 'ledger_unavailable', checkWhy: `${what}, but ${error.message}; ${PROMOTE_REFUSAL}. Try again once the deployment ledger answers` }
     }
-    return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but ${error.message}; ${refusal}` }
+    return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but ${error.message}; ${PROMOTE_REFUSAL}` }
   }
+  const compareRequest = () => ({ signal: AbortSignal.timeout(compareTimeoutMs) })
+  return { ...kind, ...(await forwardCheck({ octokit, repository, commit, kind, live, compareRequest })) }
+}
+
+const PROMOTE_REFUSAL = 'refusing to promote it. Nothing in production was changed'
+
+// What promote's refusals say the promoted commit is.
+function promotedCommit (kind, commit) {
+  return kind.kind === 'hotfix'
+    ? `${short(commit)} is a hotfix for ${kind.release} (from ${kind.branch})`
+    : `${short(commit)} is not on the default branch or on any hotfix branch (its hotfix branch may have been deleted)`
+}
+
+// The rest of promote's hotfix check, once the ledger has said what
+// production runs (`live`): is `commit` for that release, or does it move
+// production forward from it? deploy-candidate's label asks the same thing,
+// so its stage message can say when promote would refuse the hotfix. One
+// copy keeps the two from ever disagreeing. `compareRequest` gives the
+// compare its signal: its own timeout in promote (see hotfixPromoteCheck),
+// the label's deadline in deploy-candidate. Returns { check, checkWhy,
+// warning }, check being live, stale, unconfirmed or skipped (see
+// hotfixPromoteCheck). Never throws.
+export async function forwardCheck ({ octokit, repository, commit, kind, live, compareRequest }) {
+  const hotfix = kind.kind === 'hotfix'
+  const what = promotedCommit(kind, commit)
   if (hotfix && normalizeRelease(live.revision) === kind.release) {
-    return { ...kind, check: 'live', checkWhy: `${short(commit)} is a hotfix for ${kind.release}, the release production runs` }
+    return { check: 'live', checkWhy: `${short(commit)} is a hotfix for ${kind.release}, the release production runs` }
   }
   if (live.sha === commit) {
-    return { ...kind, check: 'live', checkWhy: `production already runs ${short(commit)}` }
+    return { check: 'live', checkWhy: `production already runs ${short(commit)}` }
   }
   if (!live.sha) {
-    return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but the deployment ledger names no commit for ${live.revision}, the release production runs, so it cannot be checked that this moves production forward; ${refusal}` }
+    return { check: 'unconfirmed', checkWhy: `${what}, but the deployment ledger names no commit for ${live.revision}, the release production runs, so it cannot be checked that this moves production forward; ${PROMOTE_REFUSAL}` }
   }
 
   let status
   try {
     const { owner, repo } = parseRepo(repository)
-    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: { signal: AbortSignal.timeout(compareTimeoutMs) } })
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: compareRequest() })
     status = data?.status
   } catch (error) {
     const unanswered = `GitHub did not answer whether ${short(commit)} builds on ${live.revision}, the release production runs (${error.message})`
     if (hotfix) {
-      return { ...kind, check: 'unconfirmed', checkWhy: `${what}, but ${unanswered}; ${refusal}. Try again`, warning: unanswered }
+      return { check: 'unconfirmed', checkWhy: `${what}, but ${unanswered}; ${PROMOTE_REFUSAL}. Try again`, warning: unanswered }
     }
-    return { ...kind, check: 'skipped', checkWhy: `${unanswered}, so the check is skipped`, warning: `${unanswered}, so this promote goes on without the check` }
+    return { check: 'skipped', checkWhy: `${unanswered}, so the check is skipped`, warning: `${unanswered}, so this promote goes on without the check` }
   }
   if (status === 'ahead' || status === 'identical') {
-    return { ...kind, check: 'live', checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` }
+    return { check: 'live', checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` }
   }
   return {
-    ...kind,
     check: 'stale',
-    checkWhy: `${what}, but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; ${refusal}. Cut a new hotfix against ${live.revision}, the release production runs now`
+    checkWhy: `${what}, but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; ${PROMOTE_REFUSAL}. Cut a new hotfix against ${live.revision}, the release production runs now`
+  }
+}
+
+// --- deploy-candidate's Slack label ------------------------------------------
+
+// How long deploy-candidate's hotfix label may spend asking GitHub, in all.
+// The label only changes a Slack message, so it gives up fast, and the
+// message is then the ordinary one. The ledger read has its own, shorter
+// limit (CANDIDATE_LEDGER_TIMEOUT_MS), so the whole check stays under half a
+// minute.
+export const CANDIDATE_LABEL_DEADLINE_MS = 20000
+export const CANDIDATE_LEDGER_TIMEOUT_MS = 5000
+
+// The stage message names at most this many fixes, then says how many more.
+export const LISTED_FIXES = 3
+const SUBJECT_LENGTH = 100
+
+// Slack reads &, < and > as markup: <url|text> is a link, <@U123> a mention
+// and <!channel> calls everyone in the channel. A commit subject is text that
+// anyone who can merge to the app repo wrote, so all three are always escaped.
+// That leaves nothing in a subject that can start a link or a mention.
+export const escapeMrkdwn = (text) => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// Characters a subject could use to look like more than one line (the
+// control characters, U+0085, U+2028 and U+2029) or to show its text in an
+// order other than the one it is in (the bidi controls). Each becomes a
+// space, so what a reader sees is what the commit says. Matching control
+// characters is the point here, so the lint rule against it is off.
+// eslint-disable-next-line no-control-regex
+const MISLEADING = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g
+
+// A commit message's first line, trimmed and cut to a length that keeps the
+// message short. Cut before escaping, so an escape is never cut in half, and
+// by code points, so an emoji at the cut is never left in half either.
+export function commitSubject (message) {
+  const subject = String(message ?? '').split(/\r?\n|\r/)[0].replace(MISLEADING, ' ').trim()
+  if (!subject) return '(no commit message)'
+  const chars = Array.from(subject)
+  return chars.length > SUBJECT_LENGTH ? `${chars.slice(0, SUBJECT_LENGTH - 3).join('').trimEnd()}...` : subject
+}
+
+// "The live release plus 2 fixes: A; B", naming at most LISTED_FIXES
+// subjects and then "and N more". `count` is how many fixes there are, which
+// can be more than the subjects GitHub sent. Escaped for Slack mrkdwn. ''
+// when there is no fix to name.
+export function fixesLine (subjects, count = subjects.length) {
+  if (!Number.isInteger(count) || count < 1) return ''
+  const listed = subjects.slice(0, Math.min(LISTED_FIXES, count)).map((subject) => escapeMrkdwn(commitSubject(subject)))
+  if (listed.length === 0) return ''
+  const more = count - listed.length
+  return `The live release plus ${count} ${count === 1 ? 'fix' : 'fixes'}: ${listed.join('; ')}${more > 0 ? `; and ${more} more` : ''}`
+}
+
+// deploy-candidate's label for its Slack message: is this candidate a hotfix,
+// which fixes does it add to the live release, and would promote take it?
+// Whether it is a hotfix is releaseKind's answer, and whether promote would
+// take it is forwardCheck's: the same answers promote gets. Throws when
+// GitHub cannot tell in time whether it is a hotfix; the caller then posts
+// the ordinary message.
+//
+// `promotable` is yes when promote's check would pass, and no when promote
+// would refuse it whatever happens before the promote: production has moved
+// to another release that this hotfix does not build on, or that the ledger
+// names no commit for. It is unknown when the reason could clear by then:
+// the ledger did not answer, GitHub did not answer the compare, or the
+// deadline ran out. Only no changes the message, so anything unsure keeps
+// the usual request to promote. '' when it is not a hotfix.
+//
+// The fixes are the commits between the commit production runs (from the
+// deployment ledger, the same place build-candidate checked the branch
+// against) and the candidate. They are listed only while production still
+// runs the release the hotfix is for. When it does not, or anything after the
+// hotfix is confirmed fails, `fixes` is '' and the message still says hotfix,
+// without the list. The default branch is not a stand-in for the base: when
+// production runs an earlier hotfix, the default branch would count that
+// hotfix's fixes as new ones too.
+//
+// Returns { kind, why, branch, release, fixes, fixesWhy, promotable,
+// promotableWhy, productionRelease }. productionRelease is the release the
+// ledger says production runs, '' when the ledger was not read.
+export async function candidateKind ({ octokit, repository, sha, project, readLedger, request = deadlineRequests({ deadlineMs: CANDIDATE_LABEL_DEADLINE_MS }), ledgerTimeoutMs = CANDIDATE_LEDGER_TIMEOUT_MS }) {
+  const notHotfix = { fixes: '', fixesWhy: 'not a hotfix', promotable: '', promotableWhy: 'not a hotfix', productionRelease: '' }
+  const commit = String(sha ?? '').trim()
+  if (!FULL_SHA.test(commit)) {
+    return { kind: 'deploy', why: 'the candidate image has no sha- tag naming its commit, so it cannot be a hotfix build', ...notHotfix }
+  }
+  const kind = await releaseKind({ octokit, repository, sha: commit, request })
+  if (kind.kind !== 'hotfix') return { ...kind, ...notHotfix }
+  let live
+  try {
+    live = await currentProduction({ readLedger, project, unconfirmed: 'the fixes cannot be listed', ledgerOptions: { attempts: 1, timeoutMs: ledgerTimeoutMs } })
+  } catch (error) {
+    return { ...kind, fixes: '', fixesWhy: error.message, promotable: 'unknown', promotableWhy: error.message, productionRelease: '' }
+  }
+  // The same deadline as the rest of the label, not promote's own compare
+  // timeout: a label that does not finish in time only keeps the usual line.
+  const forward = await forwardCheck({ octokit, repository, commit, kind, live, compareRequest: request })
+  // forwardCheck says unconfirmed for two reasons. With no commit in the
+  // ledger for the release production runs (never this hotfix's own release,
+  // which forwardCheck passes first), promote refuses it for as long as
+  // production runs that release, so that is no. A compare GitHub did not answer may work at promote time, so that
+  // stays unknown.
+  const certain = forward.check === 'stale' || (forward.check === 'unconfirmed' && !live.sha)
+  const promotable = forward.check === 'live' ? 'yes' : certain ? 'no' : 'unknown'
+  const label = { ...kind, promotable, promotableWhy: forward.checkWhy, productionRelease: live.revision }
+  if (normalizeRelease(live.revision) !== kind.release) {
+    return { ...label, fixes: '', fixesWhy: `production now runs ${live.revision}, not ${kind.release}, so the fixes are not listed` }
+  }
+  if (!live.sha) {
+    return { ...label, fixes: '', fixesWhy: `the deployment ledger names no commit for ${live.revision}, so the fixes cannot be listed` }
+  }
+  try {
+    const { owner, repo } = parseRepo(repository)
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 100, request: request() })
+    if (data?.status !== 'ahead') {
+      return { ...label, fixes: '', fixesWhy: `${short(commit)} does not build on ${short(live.sha)}, the commit production runs (GitHub says ${data?.status}), so the fixes are not listed` }
+    }
+    const commits = Array.isArray(data.commits) ? data.commits : []
+    const count = Number.isInteger(data.total_commits) ? data.total_commits : commits.length
+    const fixes = fixesLine(commits.map((entry) => entry?.commit?.message), count)
+    return { ...label, fixes, fixesWhy: fixes ? `${count} commit(s) after ${short(live.sha)}` : 'GitHub listed no commits' }
+  } catch (error) {
+    return { ...label, fixes: '', fixesWhy: `GitHub did not list the commits after ${short(live.sha)} (${error.message})` }
   }
 }
 
