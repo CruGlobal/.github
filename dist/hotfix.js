@@ -24364,6 +24364,7 @@ var REASONS = Object.freeze({
   mergeCommit: "merge_commit",
   alreadyInRelease: "already_in_release",
   workflowChange: "workflow_change",
+  mergeDriver: "merge_driver",
   conflict: "cherry_pick_conflict",
   branchNotClean: "branch_not_clean",
   branchMoved: "branch_moved",
@@ -24488,7 +24489,7 @@ function gitIn(cwd) {
         stderr += chunk;
       });
       child.on("error", reject);
-      child.on("close", (code) => resolve({ code, stdout, stderr }));
+      child.on("close", (code, signal) => resolve({ code, signal, stdout, stderr }));
     });
   };
 }
@@ -24540,8 +24541,10 @@ async function treeOf(git, sha) {
 }
 var attrSource = (onto) => `--attr-source=${onto}`;
 function refuseOldGit(result, what) {
-  if (result.code === 129 || /unknown option/i.test(result.stderr)) {
-    throw new Error(`${what} needs git 2.40 or later (for --attr-source and merge-tree --merge-base), and this runner's git refused the command (${result.stderr.trim().split("\n")[0]}); refusing rather than checking with the checkout's .gitattributes`);
+  const killed = result.code === null && Boolean(result.signal);
+  if (result.code === 129 || /unknown option/i.test(result.stderr) || killed) {
+    const happened = killed ? `this runner's git was killed by ${result.signal}` : `this runner's git refused the command (${result.stderr.trim().split("\n")[0]})`;
+    throw new Error(`${what} needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and ${happened}; refusing rather than checking with the checkout's .gitattributes`);
   }
 }
 async function pickTree(git, { parent, commit, onto }) {
@@ -24559,6 +24562,30 @@ async function firstParentHistory(git, ref) {
 async function workflowFilesChanged(git, sha, parent) {
   const result = must(await git(["diff-tree", "-r", "-z", "--no-renames", "--name-only", "--no-commit-id", parent, sha]), `listing the files ${short(sha)} changes`);
   return result.stdout.split("\0").filter((file) => file.startsWith(WORKFLOWS_DIR));
+}
+var OWN_MERGE = /* @__PURE__ */ new Set(["unspecified", "set", "text"]);
+async function mergeDrivers(git, onto, files) {
+  if (files.length === 0) return [];
+  const result = await git([attrSource(onto), "check-attr", "-z", "merge", "--", ...files]);
+  if (result.code !== 0) {
+    refuseOldGit(result, "checking how a workflow file merges");
+    must(result, `reading the merge attribute of ${files.join(", ")} at ${short(onto)}`);
+  }
+  const fields = result.stdout.split("\0");
+  const seen = /* @__PURE__ */ new Set();
+  const drivers = [];
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    seen.add(fields[i]);
+    if (!OWN_MERGE.has(fields[i + 2])) drivers.push({ file: fields[i], driver: fields[i + 2] });
+  }
+  if (files.some((file) => !seen.has(file))) {
+    throw new Error(`git check-attr did not answer for every file (${files.join(", ")}) at ${short(onto)}; refusing rather than guessing how they merge`);
+  }
+  return drivers;
+}
+var describeDrivers = (drivers) => drivers.map(({ file, driver }) => `${file} (merge attribute: ${driver})`).join(", ");
+function ownMergeStep(defaultBranch) {
+  return `land a commit on ${defaultBranch} that gives workflow files git's own merge (for example a \`.github/workflows/** merge\` line after the line that sets the driver)`;
 }
 async function rangeCommits(git, base, head) {
   const result = must(await git(["rev-list", "--reverse", "--topo-order", "--parents", `${base}..${head}`]), `listing the commits after ${short(base)}`);
@@ -24610,13 +24637,17 @@ async function verifyHotfixCommits({ git, base, head, defaultRef }) {
     if (sourceParents.length !== 1) {
       refuse2(`${short(sha)} says it was cherry-picked from ${short(source)}, which is ${sourceParents.length ? "a merge commit" : "a root commit"}`);
     }
-    const workflows = await workflowFilesChanged(git, source, sourceParents[0]);
-    if (workflows.length > 0) {
-      refuse2(`${short(sha)} says it was cherry-picked from ${short(source)}, which changes ${workflows.join(", ")}; a hotfix never changes a workflow file`, REASONS.workflowChange);
-    }
     const tree = await treeOf(git, sha);
     if (tree === await treeOf(git, parents[0])) {
       refuse2(`${short(sha)} says it was cherry-picked from ${short(source)}, but it changes nothing: that change is already in the code it was picked onto`, REASONS.alreadyInRelease);
+    }
+    const workflows = [.../* @__PURE__ */ new Set([
+      ...await workflowFilesChanged(git, source, sourceParents[0]),
+      ...await workflowFilesChanged(git, sha, parents[0])
+    ])];
+    const drivers = await mergeDrivers(git, parents[0], workflows);
+    if (drivers.length > 0) {
+      refuse2(`${short(sha)} says it was cherry-picked from ${short(source)} and changes a workflow file, but the .gitattributes of the commit it was picked onto (${short(parents[0])}) give ${describeDrivers(drivers)}. A workflow file must merge with git's own merge: a merge driver such as union can make a conflicting pick look clean by keeping the lines of both sides, a file no reviewed commit had`, REASONS.mergeDriver);
     }
     const pick = await pickTree(git, { parent: sourceParents[0], commit: source, onto: parents[0] });
     if (!pick.clean || pick.tree !== tree) {
@@ -24755,10 +24786,6 @@ async function cutHotfix({ git, project, commit, expectedRelease, readLedger, pu
   if (fixParents.length === 0) {
     throw new HotfixRefusal(REASONS.invalidInput, `commit ${short(fix)} is the repository's first commit, so it is not a fix to cherry-pick; refusing to cut a hotfix. Nothing was pushed`);
   }
-  const workflows = await workflowFilesChanged(git, fix, fixParents[0]);
-  if (workflows.length > 0) {
-    throw new HotfixRefusal(REASONS.workflowChange, `commit ${short(fix)} changes ${workflows.join(", ")}. A hotfix never changes a workflow file: pushing one needs more access than this workflow's token should have, so a person ships it by hand; refusing to cut a hotfix. Nothing was pushed`);
-  }
   let tip = base;
   let existing = [];
   if (remoteTip) {
@@ -24780,6 +24807,19 @@ async function cutHotfix({ git, project, commit, expectedRelease, readLedger, pu
     }
     if (pick.tree === await treeOf(git, tip)) {
       throw new HotfixRefusal(REASONS.alreadyInRelease, `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes nothing: the code there already has this change. Nothing was pushed`);
+    }
+    const workflows = [.../* @__PURE__ */ new Set([
+      ...await workflowFilesChanged(git, fix, fixParents[0]),
+      ...await workflowFilesChanged(git, pick.tree, tip)
+    ])];
+    if (workflows.length > 0) {
+      const scope = `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes ${workflows.join(", ")}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get.`;
+      const drivers = await mergeDrivers(git, tip, workflows);
+      if (drivers.length > 0) {
+        throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build yet: the .gitattributes on ${remoteTip ? branch : release} give ${describeDrivers(drivers)}, and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, ${ownMergeStep(defaultBranch)}, run this workflow for that commit, then check out ${branch}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, and run the app's ${PIPELINE_WORKFLOW} on ${branch}. Refusing to cut a hotfix. Nothing was pushed`);
+      }
+      const start = remoteTip ? `check out ${branch} (it already exists)` : `create ${branch} at ${base} (the commit production runs for ${release})`;
+      throw new HotfixRefusal(REASONS.workflowChange, `${scope} A person ships it by hand: ${start}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, then run the app's ${PIPELINE_WORKFLOW} on ${branch}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`);
     }
     head = await cherryPick(git, { onto: tip, commit: fix, committer });
     if (!head) {
@@ -24998,8 +25038,12 @@ async function writeSummary(lines) {
   }
 }
 var repoPath = (input) => import_node_path.default.resolve(process.env.GITHUB_WORKSPACE || ".", input || ".");
-function buildRefusal({ ref, defaultBranch, why }) {
-  return `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}. Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`;
+function buildRefusal({ ref, defaultBranch, why, reason = "" }) {
+  const opening = `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}.`;
+  if (reason === REASONS.mergeDriver) {
+    return `${opening} To build it, move the branch back to the commit that pick was made on, ${ownMergeStep(oneLine(defaultBranch))}, cut that commit onto the branch with the hotfix workflow, then cherry-pick the fix onto it again by hand.`;
+  }
+  return `${opening} Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`;
 }
 async function runVerify({ readLedger }) {
   const ref = getInput("ref");
@@ -25016,8 +25060,9 @@ async function runVerify({ readLedger }) {
     const picks = commits.map(({ sha, source }) => `${short(sha)} (from ${short(source)})`).join(", ");
     notice(`${ref.replace(/^refs\/heads\//, "")} starts at ${short(base)}, the commit production ran for ${release}, and every commit after it is a clean cherry-pick of a ${defaultBranch} commit${commits.length ? `: ${picks}` : " (there are none yet)"}`, { title: "Hotfix build" });
   } catch (error2) {
-    const why = error2 instanceof HotfixRefusal ? error2.message : `the check could not finish (${error2.message})`;
-    refuse(buildRefusal({ ref, defaultBranch, why }), "Build Candidate");
+    const refusal = error2 instanceof HotfixRefusal;
+    const why = refusal ? error2.message : `the check could not finish (${error2.message})`;
+    refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error2.reason : "" }), "Build Candidate");
   }
 }
 async function runCut({ env, readLedger }) {
@@ -25044,14 +25089,14 @@ async function runCut({ env, readLedger }) {
     setOutput("pushed", String(result.pushed));
     setOutput("already-applied", String(result.alreadyApplied));
     for (const warning2 of result.warnings) warning(warning2, { title: "Hotfix build may not run" });
-    const what = result.alreadyApplied ? `${result.branch} already has ${short(result.commit)} (as ${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built` : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch`;
+    const what = result.alreadyApplied ? `${result.branch} already has a cherry-pick of ${short(result.commit)} (${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built` : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch`;
     notice(what, { title: "Hotfix branch" });
     await writeSummary([
       `## Hotfix for ${result.release}`,
       "",
       `- Production runs \`${result.release}\`, commit \`${short(result.base)}\`. The hotfix branch starts there, not at the tip of \`${result.defaultBranch}\`.`,
       `- Fix: \`${short(result.commit)}\` from \`${result.defaultBranch}\`, cherry-picked with \`-x\`.`,
-      result.alreadyApplied ? `- \`${result.branch}\` already had this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.` : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`.`,
+      result.alreadyApplied ? `- \`${result.branch}\` already has a cherry-pick of this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.` : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`.`,
       ...result.warnings.map((warning2) => `- :warning: ${warning2}`)
     ]);
   } catch (error2) {
