@@ -43,21 +43,29 @@ function timedOut (error) {
 
 // One GET, its body read with `read`, inside the time `limits` leave for it.
 // `api` and `subject` make up the error, as in "compare API 404 for ...".
+//
+// A read that is stopped says which limit stopped it. Near the end, a read
+// gets only what is left of the overall deadline, so one that never answers
+// can be stopped by the deadline rather than by its own 20 seconds. The
+// reason then says the GitHub reads as a whole ran out of time, which is what
+// a person needs to know: the classifier gave up, not one slow API.
 async function githubGet ({ url, accept, token, limits, api, subject, read }) {
   const { request, deadlineMs } = limits
+  const outOfTime = (when) => `the GitHub reads ran out of their ${deadlineMs / 1000} seconds ${when} the ${api} read ${subject}`
   let signal
   try {
     ({ signal } = request())
   } catch (error) {
-    throw new Error(`gave up on the GitHub reads after ${deadlineMs / 1000} seconds, before the ${api} read ${subject}`, { cause: error })
+    throw new Error(outOfTime('before'), { cause: error })
   }
   try {
     const res = await fetch(url, { headers: ghHeaders(token, accept), signal })
     if (!res.ok) throw new Error(`${api} ${res.status} ${subject}`)
     return await read(res)
   } catch (error) {
-    if (timedOut(error)) throw new Error(`${api} did not answer in time ${subject}`, { cause: error })
-    throw error
+    if (!timedOut(error)) throw error
+    if (request.expired()) throw new Error(outOfTime('during'), { cause: error })
+    throw new Error(`${api} did not answer in time ${subject}`, { cause: error })
   }
 }
 

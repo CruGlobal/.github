@@ -317,8 +317,25 @@ describe('classify-rollback-safety: time limits', () => {
     vi.stubGlobal('fetch', fetchMock)
     await run({ now: () => clock })
     expect(verdict()).toBe('unclassified')
-    expect(reasons()).toEqual(['gave up on the GitHub reads after 90 seconds, before the contents API read for drizzle/0003_c.sql'])
+    expect(reasons()).toEqual(['the GitHub reads ran out of their 90 seconds before the contents API read for drizzle/0003_c.sql'])
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  // The read gets only what is left of the deadline, so it is the deadline
+  // that stops it, and the reason says so rather than blaming the one API.
+  it('a read the overall deadline stops → unclassified, saying the reads ran out of time', async () => {
+    vi.stubGlobal('fetch', vi.fn(neverAnswers))
+    await run({ timeoutMs: 5000, deadlineMs: 30 })
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['the GitHub reads ran out of their 0.03 seconds during the compare API read for CruGlobal/example-app aaaa...bbbb'])
+  })
+
+  it('a migration file read the overall deadline stops names the file', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url, options) =>
+      url.includes('/compare/') ? added('drizzle/0001_init.sql') : neverAnswers(url, options)))
+    await run({ timeoutMs: 5000, deadlineMs: 30 })
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['the GitHub reads ran out of their 0.03 seconds during the contents API read for drizzle/0001_init.sql'])
   })
 
   // A read near the deadline gets only what is left of it.
