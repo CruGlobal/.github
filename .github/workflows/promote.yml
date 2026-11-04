@@ -160,6 +160,11 @@ jobs:
   lookup:
     name: Authorize & look up app info
     runs-on: ubuntu-latest
+    # A backstop. A real lookup takes a minute or two at most. Without a limit,
+    # a call that never answers would hold the run for GitHub's six-hour
+    # default. Nothing here changes production, and when this job stops the
+    # provider jobs after it are skipped, so stopping it early is safe.
+    timeout-minutes: 10
     # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB.
     # contents: read lets it check this repo out for the authz action, which
     # reads permissions with the authz-token PAT.
@@ -849,6 +854,11 @@ jobs:
       # correct end state, so it degrades to a notice instead of a warning.
       - name: Publish GitHub Release on the app repo
         continue-on-error: true
+        # gh api has no time limit of its own, and the ledger write comes
+        # after this step. A call that never answers must not use up the job's
+        # time, or the job would stop before the release reaches the ledger.
+        # It takes seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
@@ -918,6 +928,11 @@ jobs:
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before the release reaches the ledger. It takes
+        # seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -1085,6 +1100,11 @@ jobs:
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too. Without them a post that never
+        # answers would run a good deploy into the job's time limit, and the
+        # job would end cancelled with a notice that it stopped.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -1141,7 +1161,7 @@ jobs:
                      + (if $prevsha != ""
                         then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
                         else "" end))}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
@@ -1162,15 +1182,29 @@ jobs:
       # nothing in production changed. The guard sets PROMOTE_REFUSED to its
       # reason word, and the message then says "refused" with that word, so
       # nobody reading the channel goes looking for a broken production.
+      #
+      # It also runs when the job is cancelled, because that is how a job ends
+      # when it hits its time limit: GitHub cancels it, so failure() is false
+      # and only cancelled() is true. Inside the job a timeout and a person's
+      # cancel look the same, so the message says the promote stopped before
+      # it finished and names both causes rather than guess. A person rarely
+      # cancels a running promote, and production may be part-way changed when
+      # one does, so the line is worth posting. A promote cancelled while it
+      # waits for the production lock never starts, so it posts nothing.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too, so a call that never answers
+        # cannot hold the job until its time limit.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.release.outputs.release || '' }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1182,15 +1216,18 @@ jobs:
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
             --arg refused "${PROMOTE_REFUSED:-}" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) as $what
              | (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
              | {channel: $channel,
                 text: ((if $refused != ""
                         then ":no_entry: *\($project) promote \($what) to production refused* (`\($refused)`) by \($actor)\($rerun); production was not changed"
+                        elif $status == "cancelled"
+                        then ":octagonal_sign: *\($project) promote \($what) to production by \($actor)\($rerun) stopped before it finished*: it was cancelled, or it ran past its time limit"
                         else ":x: *\($project) promote \($what) to production FAILED* by \($actor)\($rerun)" end)
                        + "\n\($runurl)")}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
@@ -1640,6 +1677,11 @@ jobs:
       # correct end state, so it degrades to a notice instead of a warning.
       - name: Publish GitHub Release on the app repo
         continue-on-error: true
+        # gh api has no time limit of its own, and the ledger write comes
+        # after this step. A call that never answers must not use up the job's
+        # time, or the job would stop before the release reaches the ledger.
+        # It takes seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           GH_TOKEN: ${{ secrets.authz-token }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
@@ -1709,6 +1751,11 @@ jobs:
 
       - name: Record deployment event in Datadog
         continue-on-error: true
+        # Its curl has no time limit, and the ledger write comes after this
+        # step. A post that never answers must not use up the job's time, or
+        # the job would stop before the release reaches the ledger. It takes
+        # seconds, so one minute is plenty.
+        timeout-minutes: 1
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
           ACTOR: ${{ github.actor }}
@@ -1864,6 +1911,11 @@ jobs:
       # the deploys.cru.org link exactly as it was.
       - name: Notify Slack
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too. Without them a post that never
+        # answers would run a good deploy into the job's time limit, and the
+        # job would end cancelled with a notice that it stopped.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -1920,7 +1972,7 @@ jobs:
                      + (if $prevsha != ""
                         then "\n<" + changelog($prevsha; $release) + "|what'\''s in this release>"
                         else "" end))}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }
@@ -1941,15 +1993,29 @@ jobs:
       # nothing in production changed. The guard sets PROMOTE_REFUSED to its
       # reason word, and the message then says "refused" with that word, so
       # nobody reading the channel goes looking for a broken production.
+      #
+      # It also runs when the job is cancelled, because that is how a job ends
+      # when it hits its time limit: GitHub cancels it, so failure() is false
+      # and only cancelled() is true. Inside the job a timeout and a person's
+      # cancel look the same, so the message says the promote stopped before
+      # it finished and names both causes rather than guess. A person rarely
+      # cancels a running promote, and production may be part-way changed when
+      # one does, so the line is worth posting. A promote cancelled while it
+      # waits for the production lock never starts, so it posts nothing.
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() || cancelled()
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too, so a call that never answers
+        # cannot hold the job until its time limit.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RELEASE: ${{ steps.release.outputs.release || '' }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1961,15 +2027,18 @@ jobs:
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
             --arg refused "${PROMOTE_REFUSED:-}" \
+            --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '(if $release != "" then "`" + $release + "`" else "the release-candidate image" end) as $what
              | (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
              | {channel: $channel,
                 text: ((if $refused != ""
                         then ":no_entry: *\($project) promote \($what) to production refused* (`\($refused)`) by \($actor)\($rerun); production was not changed"
+                        elif $status == "cancelled"
+                        then ":octagonal_sign: *\($project) promote \($what) to production by \($actor)\($rerun) stopped before it finished*: it was cancelled, or it ran past its time limit"
                         else ":x: *\($project) promote \($what) to production FAILED* by \($actor)\($rerun)" end)
                        + "\n\($runurl)")}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }

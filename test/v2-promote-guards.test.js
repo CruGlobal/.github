@@ -420,9 +420,10 @@ describe('promote guard wiring', () => {
   })
 })
 
-// The failure notice in Slack tells a refusal apart from a failed deploy.
+// The failure notice in Slack tells a refusal apart from a failed deploy, and
+// both apart from a job that was cancelled or ran past its time limit.
 describe.concurrent.each(JOBS)('%s: Notify Slack (failure)', (job) => {
-  const notify = (runnerEnv = {}, release = 'release-2026-10-21-10150') => runShellStep(findStep(workflow, job, 'Notify Slack (failure)'), {
+  const notify = (runnerEnv = {}, release = 'release-2026-10-21-10150', status = 'failure') => runShellStep(findStep(workflow, job, 'Notify Slack (failure)'), {
     context: {
       'inputs.project-name': PROJECT,
       'secrets.datadog-api-key': 'dd-test',
@@ -430,9 +431,16 @@ describe.concurrent.each(JOBS)('%s: Notify Slack (failure)', (job) => {
       'secrets.slack-bot-token': 'xoxb-test',
       'github.actor': 'release-helper[bot]',
       'github.triggering_actor': 'release-helper[bot]',
-      "steps.release.outputs.release || ''": release
+      "steps.release.outputs.release || ''": release,
+      'job.status': status
     },
     runnerEnv
+  })
+
+  it('says the promote stopped, naming both causes, when the job was cancelled', async ({ expect }) => {
+    const result = await notify({}, 'release-2026-10-21-10150', 'cancelled')
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.slack.text).toBe(':octagonal_sign: *example-app promote `release-2026-10-21-10150` to production by release-helper[bot] stopped before it finished*: it was cancelled, or it ran past its time limit\nhttps://github.com/example-org/deploy-wrappers/actions/runs/9001')
   })
 
   it('says FAILED, as before, when no check refused', async ({ expect }) => {

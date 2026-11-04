@@ -100,6 +100,10 @@ jobs:
   lookup:
     name: Look up app info
     runs-on: ubuntu-latest
+    # A backstop. This is the same one-row read the other v2 lookups make,
+    # which takes well under a minute. Without a limit, a call that never
+    # answers would hold the run for GitHub's six-hour default.
+    timeout-minutes: 10
     # OIDC only: the job assumes GitHubDeployECS to read the table and checks
     # nothing out.
     permissions:
@@ -292,6 +296,10 @@ jobs:
       - name: Notify Slack
         if: steps.verify.outputs.verified == 'true'
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too, so a call that never answers
+        # cannot hold the job until its time limit.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ needs.lookup.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -353,7 +361,7 @@ jobs:
                        + (if $compared and ($direction == "ahead" or $direction == "diverged")
                           then "\n<" + changelog($prevsha; $sha) + "|what'\''s in this release>"
                           else "" end))}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }

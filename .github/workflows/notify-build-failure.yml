@@ -34,6 +34,9 @@ jobs:
   notify:
     name: Notify Slack
     runs-on: ubuntu-latest
+    # A backstop. One read and one post take seconds. Without a limit, a call
+    # that never answers would hold the run for GitHub's six-hour default.
+    timeout-minutes: 10
     # OIDC only: the job assumes GitHubDeployECS to read app-info from DynamoDB
     # and checks nothing out.
     permissions:
@@ -72,6 +75,10 @@ jobs:
       # nothing new to go look at, so the run URL is the whole second line.
       - name: Notify Slack
         continue-on-error: true
+        # A post takes a second, and --max-time ends one that hangs. The step
+        # limit covers the rest of the step too, so a call that never answers
+        # cannot hold the job until its time limit.
+        timeout-minutes: 2
         env:
           SLACK_CHANNEL: ${{ steps.app-info.outputs.slack-channel }}
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
@@ -88,7 +95,7 @@ jobs:
             '{channel: $channel,
               text: (":x: *\($project) candidate build FAILED*"
                      + "\n\($runurl)")}')
-          response=$(curl -fsS https://slack.com/api/chat.postMessage \
+          response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             -d "$payload") || { echo "::warning title=Slack notify failed::post failed (non-blocking)"; exit 0; }

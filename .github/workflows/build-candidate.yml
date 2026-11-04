@@ -55,6 +55,12 @@ jobs:
   setup:
     name: Setup
     runs-on: ubuntu-latest
+    # A backstop. Setup takes seconds on the default branch. On a hotfix branch
+    # it also checks out the app's full history and checks every commit, which
+    # takes longer, so the limit leaves room for a large repo. Without a limit,
+    # a step that never finishes would hold the nightly build for GitHub's
+    # six-hour default. Nothing is built or pushed until setup passes.
+    timeout-minutes: 15
     outputs:
       project-name: ${{ steps.info.outputs.project-name }}
       # GitHub Actions environment the runtime build job runs in -- "production"
@@ -1030,12 +1036,30 @@ jobs:
     # fire when `setup` fails: a rejected ref or an unknown `type` is a caller
     # mistake whose error is already the run's output, and the project name would
     # be unknown anyway.
+    #
+    # A build that hits its time limit ends `cancelled`, not `failure`, because
+    # GitHub stops it by cancelling the job. So a cancelled build is announced
+    # too. A person's cancel is not: it cancels the whole run, which makes
+    # cancelled() true here and skips this job. In a job's `if`, cancelled()
+    # is about the run, so one job that ran out of time leaves it false.
+    #
+    # One other cancel looks the same from here: a build still waiting for the
+    # build lock is cancelled on its own when a newer build of the same app
+    # arrives, and it is announced too. That needs a third build while one
+    # runs and one waits, which is rare. An extra notice is the safer mistake:
+    # the other choice is a build that ran out of time with nobody told.
     if: >-
       ${{ !cancelled()
       && (needs.build-cloudrun.result == 'failure'
       || needs.build-ecs.result == 'failure'
-      || needs.build-lambda.result == 'failure') }}
+      || needs.build-lambda.result == 'failure'
+      || needs.build-cloudrun.result == 'cancelled'
+      || needs.build-ecs.result == 'cancelled'
+      || needs.build-lambda.result == 'cancelled') }}
     runs-on: ubuntu-latest
+    # A backstop. This job checks out this repo and sends one dispatch, which
+    # takes well under a minute.
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
