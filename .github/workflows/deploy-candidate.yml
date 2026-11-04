@@ -215,6 +215,9 @@ jobs:
       PROJECT_NAME: ${{ inputs.project-name }}
       ENVIRONMENT: release-candidate
       DD_API_KEY: ${{ secrets.datadog-api-key }}
+      # "true" or "false". A step's `if:` cannot read secrets, so the hotfix
+      # label reads this to skip itself when no message can be posted.
+      HAS_SLACK_TOKEN: ${{ secrets.slack-bot-token != '' }}
     steps:
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v7
@@ -435,10 +438,12 @@ jobs:
       # the github-token secret. No token, an error, or no answer in time
       # leaves the ordinary message. It runs after the ledger write so it can
       # never hold that up, and it never fails the job: its own deadlines end
-      # it in about 25 seconds, and the step limit is a backstop.
+      # it in about 25 seconds, and the step limit is a backstop. With no
+      # Slack channel or no Slack token there is no message to label, so it
+      # does not run, and the token is not used for nothing.
       - name: Tell a hotfix candidate from an ordinary one
         id: hotfix-label
-        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != '' && env.HAS_SLACK_TOKEN == 'true'
         continue-on-error: true
         timeout-minutes: 1
         uses: ./cru-github-actions/actions/hotfix
@@ -472,10 +477,13 @@ jobs:
       # A hotfix candidate (the step above says so) gets its own first line,
       # naming the release it fixes, then the line naming its fixes when
       # there is one, and a last line asking for the promote: the next build
-      # of the default branch replaces the hotfix on stage. The fixes line
-      # comes escaped from the hotfix action, so a commit subject cannot
-      # become a link or a mention. With anything else from that step, an
-      # empty output included, the message is the ordinary one.
+      # of the default branch replaces the hotfix on stage. When promote would
+      # refuse it (production has moved to a release it does not build on),
+      # the last line says that instead. When that is not known, the line
+      # still asks for the promote, and promote's own check decides. The
+      # fixes line comes escaped from the hotfix action, so a commit subject
+      # cannot become a link or a mention. With anything else from that
+      # step, an empty output included, the message is the ordinary one.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -496,6 +504,8 @@ jobs:
           HOTFIX_KIND: ${{ steps.hotfix-label.outputs.kind }}
           HOTFIX_OF: ${{ steps.hotfix-label.outputs.release }}
           HOTFIX_FIXES: ${{ steps.hotfix-label.outputs.fixes-mrkdwn }}
+          HOTFIX_PROMOTABLE: ${{ steps.hotfix-label.outputs.promotable }}
+          HOTFIX_PRODUCTION: ${{ steps.hotfix-label.outputs.production-release }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -514,6 +524,8 @@ jobs:
             --arg hotfixkind "$HOTFIX_KIND" \
             --arg hotfixof "$HOTFIX_OF" \
             --arg fixes "$HOTFIX_FIXES" \
+            --arg promotable "$HOTFIX_PROMOTABLE" \
+            --arg production "$HOTFIX_PRODUCTION" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -526,6 +538,9 @@ jobs:
                  end;
              ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
              | (if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end) as $stage
+             | (if $promotable == "no"
+                then "Production now runs " + (if ($production | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z")) then "`\($production)`" else "another release" end) + ", so promote will refuse this hotfix."
+                else "Promote it before the next build of the default branch replaces it on stage." end) as $last
              | {channel: $channel,
               text: ((if $hotfix
                       then ":adhesive_bandage: *\($project) `\($tag)` is on \($stage): a hotfix of `\($hotfixof)`*"
@@ -535,7 +550,7 @@ jobs:
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end)
-                     + (if $hotfix then "\nPromote it before the next build of the default branch replaces it on stage." else "" end))}')
+                     + (if $hotfix then "\n" + $last else "" end))}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -615,6 +630,9 @@ jobs:
       PROJECT_NAME: ${{ inputs.project-name }}
       ENVIRONMENT: release-candidate
       DD_API_KEY: ${{ secrets.datadog-api-key }}
+      # "true" or "false". A step's `if:` cannot read secrets, so the hotfix
+      # label reads this to skip itself when no message can be posted.
+      HAS_SLACK_TOKEN: ${{ secrets.slack-bot-token != '' }}
     steps:
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v7
@@ -828,10 +846,12 @@ jobs:
       # the github-token secret. No token, an error, or no answer in time
       # leaves the ordinary message. It runs after the ledger write so it can
       # never hold that up, and it never fails the job: its own deadlines end
-      # it in about 25 seconds, and the step limit is a backstop.
+      # it in about 25 seconds, and the step limit is a backstop. With no
+      # Slack channel or no Slack token there is no message to label, so it
+      # does not run, and the token is not used for nothing.
       - name: Tell a hotfix candidate from an ordinary one
         id: hotfix-label
-        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != '' && env.HAS_SLACK_TOKEN == 'true'
         continue-on-error: true
         timeout-minutes: 1
         uses: ./cru-github-actions/actions/hotfix
@@ -865,10 +885,13 @@ jobs:
       # A hotfix candidate (the step above says so) gets its own first line,
       # naming the release it fixes, then the line naming its fixes when
       # there is one, and a last line asking for the promote: the next build
-      # of the default branch replaces the hotfix on stage. The fixes line
-      # comes escaped from the hotfix action, so a commit subject cannot
-      # become a link or a mention. With anything else from that step, an
-      # empty output included, the message is the ordinary one.
+      # of the default branch replaces the hotfix on stage. When promote would
+      # refuse it (production has moved to a release it does not build on),
+      # the last line says that instead. When that is not known, the line
+      # still asks for the promote, and promote's own check decides. The
+      # fixes line comes escaped from the hotfix action, so a commit subject
+      # cannot become a link or a mention. With anything else from that
+      # step, an empty output included, the message is the ordinary one.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -889,6 +912,8 @@ jobs:
           HOTFIX_KIND: ${{ steps.hotfix-label.outputs.kind }}
           HOTFIX_OF: ${{ steps.hotfix-label.outputs.release }}
           HOTFIX_FIXES: ${{ steps.hotfix-label.outputs.fixes-mrkdwn }}
+          HOTFIX_PROMOTABLE: ${{ steps.hotfix-label.outputs.promotable }}
+          HOTFIX_PRODUCTION: ${{ steps.hotfix-label.outputs.production-release }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -907,6 +932,8 @@ jobs:
             --arg hotfixkind "$HOTFIX_KIND" \
             --arg hotfixof "$HOTFIX_OF" \
             --arg fixes "$HOTFIX_FIXES" \
+            --arg promotable "$HOTFIX_PROMOTABLE" \
+            --arg production "$HOTFIX_PRODUCTION" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -919,6 +946,9 @@ jobs:
                  end;
              ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
              | (if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end) as $stage
+             | (if $promotable == "no"
+                then "Production now runs " + (if ($production | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z")) then "`\($production)`" else "another release" end) + ", so promote will refuse this hotfix."
+                else "Promote it before the next build of the default branch replaces it on stage." end) as $last
              | {channel: $channel,
               text: ((if $hotfix
                       then ":adhesive_bandage: *\($project) `\($tag)` is on \($stage): a hotfix of `\($hotfixof)`*"
@@ -928,7 +958,7 @@ jobs:
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end)
-                     + (if $hotfix then "\nPromote it before the next build of the default branch replaces it on stage." else "" end))}')
+                     + (if $hotfix then "\n" + $last else "" end))}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -1024,6 +1054,9 @@ jobs:
       PROJECT_NAME: ${{ inputs.project-name }}
       ENVIRONMENT: release-candidate
       DD_API_KEY: ${{ secrets.datadog-api-key }}
+      # "true" or "false". A step's `if:` cannot read secrets, so the hotfix
+      # label reads this to skip itself when no message can be posted.
+      HAS_SLACK_TOKEN: ${{ secrets.slack-bot-token != '' }}
     steps:
       - name: Checkout Cru Actions & Workflows
         uses: actions/checkout@v7
@@ -1286,10 +1319,12 @@ jobs:
       # the github-token secret. No token, an error, or no answer in time
       # leaves the ordinary message. It runs after the ledger write so it can
       # never hold that up, and it never fails the job: its own deadlines end
-      # it in about 25 seconds, and the step limit is a backstop.
+      # it in about 25 seconds, and the step limit is a backstop. With no
+      # Slack channel or no Slack token there is no message to label, so it
+      # does not run, and the token is not used for nothing.
       - name: Tell a hotfix candidate from an ordinary one
         id: hotfix-label
-        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != '' && env.HAS_SLACK_TOKEN == 'true'
         continue-on-error: true
         timeout-minutes: 1
         uses: ./cru-github-actions/actions/hotfix
@@ -1339,6 +1374,8 @@ jobs:
           HOTFIX_KIND: ${{ steps.hotfix-label.outputs.kind }}
           HOTFIX_OF: ${{ steps.hotfix-label.outputs.release }}
           HOTFIX_FIXES: ${{ steps.hotfix-label.outputs.fixes-mrkdwn }}
+          HOTFIX_PROMOTABLE: ${{ steps.hotfix-label.outputs.promotable }}
+          HOTFIX_PRODUCTION: ${{ steps.hotfix-label.outputs.production-release }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1356,6 +1393,8 @@ jobs:
             --arg hotfixkind "$HOTFIX_KIND" \
             --arg hotfixof "$HOTFIX_OF" \
             --arg fixes "$HOTFIX_FIXES" \
+            --arg promotable "$HOTFIX_PROMOTABLE" \
+            --arg production "$HOTFIX_PRODUCTION" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -1367,6 +1406,9 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | (if $promotable == "no"
+                then "Production now runs " + (if ($production | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z")) then "`\($production)`" else "another release" end) + ", so promote will refuse this hotfix."
+                else "Promote it before the next build of the default branch replaces it as the release candidate." end) as $last
              | {channel: $channel,
               text: ((if $hotfix
                       then ":adhesive_bandage: *\($project) `\($tag)` verified (stage-less) on release-candidate: a hotfix of `\($hotfixof)`*"
@@ -1376,7 +1418,7 @@ jobs:
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end)
-                     + (if $hotfix then "\nPromote it before the next build of the default branch replaces it as the release candidate." else "" end))}')
+                     + (if $hotfix then "\n" + $last else "" end))}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

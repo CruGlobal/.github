@@ -83,6 +83,7 @@ function baseContext (site) {
     'needs.lookup.outputs.slack-channel': 'C0TESTCHANNEL',
     'needs.lookup.outputs.app-url': 'https://shop.example.test',
     'secrets.slack-bot-token': 'xoxb-test',
+    "secrets.slack-bot-token != ''": 'true',
     'secrets.datadog-api-key': 'dd-test',
     'secrets.authz-token': 'gh-test',
     'github.actor': 'first-starter',
@@ -98,7 +99,9 @@ function baseContext (site) {
     'steps.release-kind.outputs.release': '',
     'steps.hotfix-label.outputs.kind': 'deploy',
     'steps.hotfix-label.outputs.release': '',
-    'steps.hotfix-label.outputs.fixes-mrkdwn': ''
+    'steps.hotfix-label.outputs.fixes-mrkdwn': '',
+    'steps.hotfix-label.outputs.promotable': '',
+    'steps.hotfix-label.outputs.production-release': ''
   }
 }
 

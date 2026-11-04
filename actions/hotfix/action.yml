@@ -105,6 +105,17 @@ outputs:
       most 3 commit subjects and then "and N more". Escaped for Slack
       mrkdwn. Empty when it is not a hotfix, or when the fixes could not be
       listed.
+  promotable:
+    description: >-
+      candidate-kind. Whether promote's hotfix check would take this hotfix
+      now: yes, no (production has moved to a release it does not build on,
+      so promote refuses it as stale_hotfix) or unknown (the ledger or GitHub
+      did not answer). Empty when it is not a hotfix.
+  production-release:
+    description: >-
+      candidate-kind. The release the deployment ledger says production
+      runs, for a hotfix. Empty when it is not a hotfix or the ledger was not
+      read.
   check:
     description: >-
       release-kind. live (a hotfix for the release production runs, or one

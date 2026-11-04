@@ -42,6 +42,8 @@ function context ({ actor, triggeringActor }) {
     'inputs.project-name': 'shop-web',
     'inputs.tag': 'candidate-2026-09-04-10123',
     'secrets.datadog-api-key': 'dd-test',
+    // deploy-candidate's jobs say whether a Slack token is set.
+    "secrets.slack-bot-token != ''": 'true',
     'github.actor': actor,
     'github.triggering_actor': triggeringActor,
     'needs.lookup.outputs.type': 'ecs',

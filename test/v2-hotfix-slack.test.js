@@ -22,6 +22,8 @@ const PROJECT = 'example-app'
 const TAG = 'candidate-2026-11-04-10161'
 const RELEASE = 'release-2026-11-04-10161'
 const HOTFIX_OF = 'release-2026-11-01-10150'
+// What production runs once it has moved on from the release a hotfix fixes.
+const MOVED_ON = 'release-2026-11-03-10160'
 const PROD_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
 const APP_URL = 'https://example-app.example.test'
 const PROMOTE_LINK = 'Promote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>'
@@ -63,10 +65,13 @@ function candidateContext (label) {
     'needs.lookup.outputs.slack-channel': 'C0000000000',
     'needs.lookup.outputs.app-url': APP_URL,
     'secrets.slack-bot-token': 'xoxb-test',
+    "secrets.slack-bot-token != ''": 'true',
     'secrets.datadog-api-key': 'dd-test',
     'steps.hotfix-label.outputs.kind': label.kind ?? '',
     'steps.hotfix-label.outputs.release': label.release ?? '',
-    'steps.hotfix-label.outputs.fixes-mrkdwn': label.fixes ?? ''
+    'steps.hotfix-label.outputs.fixes-mrkdwn': label.fixes ?? '',
+    'steps.hotfix-label.outputs.promotable': label.promotable ?? '',
+    'steps.hotfix-label.outputs.production-release': label.production ?? ''
   }
 }
 
@@ -83,7 +88,11 @@ async function stageMessage (expect, jobId, label = {}, extra = {}) {
 }
 
 const lines = (...parts) => parts.join('\n')
-const hotfix = (fixes = ONE_FIX) => ({ kind: 'hotfix', release: HOTFIX_OF, fixes })
+// A hotfix for the release production runs, as the hotfix step reports one.
+const hotfix = (fixes = ONE_FIX, extra = {}) => ({ kind: 'hotfix', release: HOTFIX_OF, fixes, promotable: 'yes', production: HOTFIX_OF, ...extra })
+// A hotfix of a release production has moved on from: promote will refuse it.
+const stale = (extra = {}) => hotfix('', { promotable: 'no', production: MOVED_ON, ...extra })
+const REFUSED = `Production now runs \`${MOVED_ON}\`, so promote will refuse this hotfix.`
 
 describe('deploy-candidate wiring', () => {
   const { secrets } = deployCandidate.on.workflow_call
@@ -111,7 +120,7 @@ describe('deploy-candidate wiring', () => {
     it('can never fail or hold up the job, and asks only when there is a message to post', () => {
       expect(label).toMatchObject({
         id: 'hotfix-label',
-        if: "steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''",
+        if: "steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != '' && env.HAS_SLACK_TOKEN == 'true'",
         'continue-on-error': true,
         'timeout-minutes': 1,
         uses: './cru-github-actions/actions/hotfix'
@@ -123,6 +132,10 @@ describe('deploy-candidate wiring', () => {
         'project-name': '${{ inputs.project-name }}',
         'image-tags': '${{ steps.resolve.outputs.tags }}'
       })
+      // An `if:` cannot read secrets, so the job says whether the Slack
+      // token is set. With none, the token is not spent on a message that
+      // will never post.
+      expect(job.env.HAS_SLACK_TOKEN).toBe("${{ secrets.slack-bot-token != '' }}")
     })
 
     it('feeds the Slack post, and nothing else', () => {
@@ -130,7 +143,9 @@ describe('deploy-candidate wiring', () => {
       expect(step.env).toMatchObject({
         HOTFIX_KIND: '${{ steps.hotfix-label.outputs.kind }}',
         HOTFIX_OF: '${{ steps.hotfix-label.outputs.release }}',
-        HOTFIX_FIXES: '${{ steps.hotfix-label.outputs.fixes-mrkdwn }}'
+        HOTFIX_FIXES: '${{ steps.hotfix-label.outputs.fixes-mrkdwn }}',
+        HOTFIX_PROMOTABLE: '${{ steps.hotfix-label.outputs.promotable }}',
+        HOTFIX_PRODUCTION: '${{ steps.hotfix-label.outputs.production-release }}'
       })
       const readers = job.steps.filter((step) => JSON.stringify(step).includes('steps.hotfix-label.')).map((step) => step.name)
       expect(readers).toEqual(['Notify Slack'])
@@ -178,11 +193,43 @@ describe.concurrent.each(CANDIDATE_JOBS)('%s stage message', (jobId) => {
 
   it.for([
     ['a release that is not a release tag', { kind: 'hotfix', release: 'release-x', fixes: ONE_FIX }],
+    ['a release with something before the tag', { kind: 'hotfix', release: `x${HOTFIX_OF}`, fixes: ONE_FIX }],
+    ['a release with something after the tag', { kind: 'hotfix', release: `${HOTFIX_OF}x`, fixes: ONE_FIX }],
     ['a release with markup in it', { kind: 'hotfix', release: `${HOTFIX_OF}> <!channel`, fixes: ONE_FIX }],
     ['no release', { kind: 'hotfix', release: '', fixes: ONE_FIX }],
     ['a kind it does not know', { kind: 'Hotfix', release: HOTFIX_OF, fixes: ONE_FIX }]
   ])('is the ordinary message for %s', async ([, label], { expect }) => {
     expect(await stageMessage(expect, jobId, label)).toBe(normal)
+  })
+
+  it('says promote will refuse a hotfix of a release production has moved on from', async ({ expect }) => {
+    expect(await stageMessage(expect, jobId, stale())).toBe(lines(wording.hotfix, PROMOTE_LINK, CANDIDATE_CHANGES, REFUSED))
+  })
+
+  // promote lets a hotfix through when production moved forward along the
+  // same line (production already runs it, or it builds on what production
+  // runs), so the hotfix step says yes, and the message asks for the promote.
+  it('asks for the promote when promote would take it, even after production moved', async ({ expect }) => {
+    expect(await stageMessage(expect, jobId, hotfix('', { production: MOVED_ON }))).toBe(lines(wording.hotfix, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+  })
+
+  // Not knowing keeps the usual line: promote's own check decides.
+  it.for([
+    ['unknown', { promotable: 'unknown', production: MOVED_ON }],
+    ['empty (an older action bundle)', { promotable: '', production: '' }],
+    ['a value it does not know', { promotable: 'No', production: MOVED_ON }]
+  ])('asks for the promote when whether promote would take it is %s', async ([, extra], { expect }) => {
+    expect(await stageMessage(expect, jobId, hotfix(ONE_FIX, extra))).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+  })
+
+  it.for([
+    ['not a release tag', 'release-x'],
+    ['something before the tag', `x${MOVED_ON}`],
+    ['something after the tag', `${MOVED_ON}x`],
+    ['markup in it', `${MOVED_ON}> <!channel`],
+    ['nothing', '']
+  ])('does not name the release production runs when the step gave %s', async ([, production], { expect }) => {
+    expect((await stageMessage(expect, jobId, stale({ production }))).split('\n').at(-1)).toBe('Production now runs another release, so promote will refuse this hotfix.')
   })
 
   it('never lets a hostile commit subject become a link, a mention or a channel call', async ({ expect }) => {
@@ -264,6 +311,8 @@ describe.concurrent.each(['promote-gcp', 'promote-aws'])('%s promote message', (
 
   it.for([
     ['a release that is not a release tag', { kind: 'hotfix', release: 'release-x' }],
+    ['a release with something before the tag', { kind: 'hotfix', release: `x${HOTFIX_OF}` }],
+    ['a release with something after the tag', { kind: 'hotfix', release: `${HOTFIX_OF}x` }],
     ['a release with markup in it', { kind: 'hotfix', release: `${HOTFIX_OF}> <!channel` }],
     ['no release', { kind: 'hotfix', release: '' }],
     ['a deploy that names a release', { kind: 'deploy', release: HOTFIX_OF }]

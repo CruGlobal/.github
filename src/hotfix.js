@@ -215,8 +215,9 @@ async function runReleaseKind ({ readLedger, request }) {
 async function runCandidateKind ({ readLedger, request }) {
   const token = core.getInput('github-token')
   let result
+  const unchecked = { fixes: '', fixesWhy: 'not checked', promotable: '', promotableWhy: 'not checked', productionRelease: '' }
   if (!token) {
-    result = { kind: 'deploy', why: 'no github-token was given, so the candidate was not checked', fixes: '', fixesWhy: 'not checked' }
+    result = { kind: 'deploy', why: 'no github-token was given, so the candidate was not checked', ...unchecked }
   } else {
     try {
       result = await candidateKind({
@@ -229,7 +230,7 @@ async function runCandidateKind ({ readLedger, request }) {
       })
     } catch (error) {
       const why = `could not tell whether this candidate is a hotfix (${oneLine(error.message)})`
-      result = { kind: 'deploy', why, fixes: '', fixesWhy: 'not checked' }
+      result = { kind: 'deploy', why, ...unchecked }
       core.warning(`${why}, so the stage message is the ordinary one`, { title: 'Hotfix label' })
     }
   }
@@ -237,7 +238,9 @@ async function runCandidateKind ({ readLedger, request }) {
   core.setOutput('branch', result.branch ?? '')
   core.setOutput('release', result.release ?? '')
   core.setOutput('fixes-mrkdwn', oneLine(result.fixes))
-  core.info(`candidate kind ${result.kind}: ${oneLine(result.why)}; fixes: ${oneLine(result.fixesWhy)}`)
+  core.setOutput('promotable', result.promotable)
+  core.setOutput('production-release', oneLine(result.productionRelease))
+  core.info(`candidate kind ${result.kind}: ${oneLine(result.why)}; fixes: ${oneLine(result.fixesWhy)}; promotable ${result.promotable || 'n/a'}: ${oneLine(result.promotableWhy)}`)
 }
 
 export async function run ({ env = process.env, readLedger = readProductionLedger, sleep, request } = {}) {

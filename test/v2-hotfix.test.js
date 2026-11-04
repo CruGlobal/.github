@@ -739,6 +739,31 @@ describe('the stage message\'s fixes line', () => {
     expect(cut.endsWith('...')).toBe(true)
   })
 
+  it('cuts by code points, so an emoji at the cut is kept whole', () => {
+    // 106 code points; a cut by UTF-16 units would split the first emoji.
+    const cut = commitSubject(`${'x'.repeat(96)}${'\u{1F600}'.repeat(10)}`)
+    expect(cut).toBe(`${'x'.repeat(96)}\u{1F600}...`)
+    expect(cut.isWellFormed()).toBe(true)
+    expect(Array.from(cut)).toHaveLength(100)
+    // A subject that fits is never cut, whatever its length in UTF-16 units.
+    const fits = `${'x'.repeat(90)}${'\u{1F600}'.repeat(10)}`
+    expect(commitSubject(fits)).toBe(fits)
+  })
+
+  it.each([
+    ['NEL', '\u0085'], ['LINE SEPARATOR', '\u2028'], ['PARAGRAPH SEPARATOR', '\u2029'],
+    ['LRE', '\u202a'], ['RLE', '\u202b'], ['PDF', '\u202c'], ['LRO', '\u202d'], ['RLO', '\u202e'],
+    ['LRI', '\u2066'], ['RLI', '\u2067'], ['FSI', '\u2068'], ['PDI', '\u2069'],
+    ['LRM', '\u200e'], ['RLM', '\u200f'], ['ALM', '\u061c'],
+    ['NUL', '\u0000'], ['TAB', '\t'], ['ESC', '\u001b'], ['DEL', '\u007f']
+  ])('turns %s into a space, so a subject cannot fake a line break or reorder its text', (_name, char) => {
+    expect(commitSubject(`Fix A${char}Fix B`)).toBe('Fix A Fix B')
+  })
+
+  it('keeps an emoji joined with a zero-width joiner whole', () => {
+    expect(commitSubject('\u{1F469}‍\u{1F4BB} Fix the build')).toBe('\u{1F469}‍\u{1F4BB} Fix the build')
+  })
+
   it.each([
     [['Fix A'], 1, 'The live release plus 1 fix: Fix A'],
     [['Fix A', 'Fix B'], 2, 'The live release plus 2 fixes: Fix A; Fix B'],
@@ -765,6 +790,8 @@ describe('the stage message\'s fixes line', () => {
     const long = fixesLine([`${'x'.repeat(95)}<!here>`])
     expect(long).not.toMatch(/[<>]/)
     expect(long).toMatch(/x{95}&lt;!\.\.\.$/)
+    // A line separator cannot push markup onto a line of its own.
+    expect(fixesLine(['Fix A\u2028<!here>'])).toBe('The live release plus 1 fix: Fix A &lt;!here&gt;')
   })
 })
 
@@ -847,5 +874,70 @@ describe('candidateKind (deploy-candidate\'s Slack label)', () => {
   it('escapes a hostile subject', async () => {
     const result = await label(github({ fromLive: { status: 'ahead', total_commits: 1, commits: [commit('<!channel> <https://evil.example.test|fix>')] } }), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
     expect(result.fixes).toBe('The live release plus 1 fix: &lt;!channel&gt; &lt;https://evil.example.test|fix&gt;')
+  })
+
+  it('says deploy in its own words, without asking GitHub, when the image names no commit', async () => {
+    const api = github()
+    const result = await label(api, fakeLedger(new Error('must not be read')), { sha: '' })
+    expect(result).toMatchObject({ kind: 'deploy', why: 'the candidate image has no sha- tag naming its commit, so it cannot be a hotfix build', promotable: '' })
+    expect(api.rest.repos.get).not.toHaveBeenCalled()
+  })
+
+  describe('whether promote would take it', () => {
+    it('is yes for a hotfix of the release production runs, without another compare', async () => {
+      const api = github()
+      const result = await label(api, fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+      expect(result).toMatchObject({ promotable: 'yes', productionRelease: RELEASE })
+      // The default-branch compare, then the one that lists the fixes.
+      expect(api.rest.repos.compareCommitsWithBasehead).toHaveBeenCalledTimes(2)
+    })
+
+    it('is no, naming the release production runs, when production moved to one it does not build on', async () => {
+      const result = await label(github({ fromLive: { status: 'diverged' } }), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]))
+      expect(result).toMatchObject({ kind: 'hotfix', promotable: 'no', productionRelease: NEWER_RELEASE, fixes: '' })
+      expect(result.promotableWhy).toMatch(/production now runs release-2026-10-22-10150, which it does not build on/)
+    })
+
+    it('is yes when production moved forward along the same line', async () => {
+      expect(await label(github({ fromLive: { status: 'ahead' } }), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)])))
+        .toMatchObject({ promotable: 'yes', productionRelease: NEWER_RELEASE })
+      expect(await label(github(), fakeLedger([ledgerRow(NEWER_RELEASE, SHA)])))
+        .toMatchObject({ promotable: 'yes', productionRelease: NEWER_RELEASE })
+    })
+
+    it.each([
+      ['the ledger cannot be read', {}, fakeLedger(new Error('no answer')), ''],
+      ['the ledger names no commit for a newer release', {}, fakeLedger([ledgerRow(NEWER_RELEASE, undefined)]), NEWER_RELEASE],
+      ['GitHub does not answer the forward compare', { fromLive: new Error('timeout') }, fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]), NEWER_RELEASE]
+    ])('is unknown when %s', async (_why, options, ledger, productionRelease) => {
+      expect(await label(github(options), ledger)).toMatchObject({ kind: 'hotfix', promotable: 'unknown', productionRelease })
+    })
+
+    it('runs out with the label\'s deadline, and is then unknown, not no', async () => {
+      // The default-branch reads use up the deadline; the forward compare
+      // starts after it.
+      let clock = 0
+      const now = () => { clock += 4000; return clock }
+      const result = await label(github({ fromLive: { status: 'diverged' } }), fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]), { request: deadlineRequests({ deadlineMs: 20000, now }) })
+      expect(result).toMatchObject({ kind: 'hotfix', promotable: 'unknown' })
+      expect(result.promotableWhy).toMatch(/gave up after 20 seconds/)
+    })
+
+    // One copy of promote's logic: for every case, the label says yes when
+    // promote's check passes and no when promote refuses it as stale.
+    it.each([
+      ['for the release production runs', {}, [ledgerRow(RELEASE, LIVE_SHA)], 'live', 'yes'],
+      ['production moved, not built on', { fromLive: { status: 'diverged' } }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'stale', 'no'],
+      ['production moved, behind it', { fromLive: { status: 'behind' } }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'stale', 'no'],
+      ['production moved forward along it', { fromLive: { status: 'ahead' } }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'live', 'yes'],
+      ['production runs it already', {}, [ledgerRow(NEWER_RELEASE, SHA)], 'live', 'yes'],
+      ['no commit in the ledger', {}, [ledgerRow(NEWER_RELEASE, undefined)], 'unconfirmed', 'unknown'],
+      ['no answer to the forward compare', { fromLive: new Error('timeout') }, [ledgerRow(NEWER_RELEASE, LIVE_SHA)], 'unconfirmed', 'unknown'],
+      ['no ledger', {}, new Error('no answer'), 'ledger_unavailable', 'unknown']
+    ])('agrees with promote when %s', async (_why, options, rows, check, promotable) => {
+      const promote = await hotfixPromoteCheck({ octokit: github(options), repository, sha: SHA, project: PROJECT, readLedger: fakeLedger(rows).readLedger })
+      expect(promote.check).toBe(check)
+      expect((await label(github(options), fakeLedger(rows))).promotable).toBe(promotable)
+    })
   })
 })
