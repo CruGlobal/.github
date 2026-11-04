@@ -974,8 +974,8 @@ export async function candidateKind ({ octokit, repository, sha, project, readLe
   const forward = await forwardCheck({ octokit, repository, commit, kind, live, compareRequest: request })
   // forwardCheck says unconfirmed for two reasons. With no commit in the
   // ledger for the release production runs (never this hotfix's own release,
-  // which forwardCheck passes first), promote refuses it every time, so that
-  // is no. A compare GitHub did not answer may work at promote time, so that
+  // which forwardCheck passes first), promote refuses it for as long as
+  // production runs that release, so that is no. A compare GitHub did not answer may work at promote time, so that
   // stays unknown.
   const certain = forward.check === 'stale' || (forward.check === 'unconfirmed' && !live.sha)
   const promotable = forward.check === 'live' ? 'yes' : certain ? 'no' : 'unknown'

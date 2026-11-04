@@ -761,7 +761,7 @@ describe('the stage message\'s fixes line', () => {
   })
 
   it('keeps an emoji joined with a zero-width joiner whole', () => {
-    expect(commitSubject('\u{1F469}‍\u{1F4BB} Fix the build')).toBe('\u{1F469}‍\u{1F4BB} Fix the build')
+    expect(commitSubject('\u{1F469}\u200D\u{1F4BB} Fix the build')).toBe('\u{1F469}\u200D\u{1F4BB} Fix the build')
   })
 
   it.each([
