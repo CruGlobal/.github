@@ -241,7 +241,9 @@ describe('promote', () => {
     it('checks for a stale hotfix inside the lock, after the baseline and before production changes', () => {
       const kind = names.indexOf(KIND)
       const refuse = names.indexOf(REFUSE)
-      expect(kind).toBeGreaterThan(names.indexOf('Fetch production baseline'))
+      // The step that sets head-sha, which the kind step reads.
+      expect(names.indexOf('Pick the commits to compare')).toBeGreaterThanOrEqual(0)
+      expect(kind).toBeGreaterThan(names.indexOf('Pick the commits to compare'))
       expect(refuse).toBe(kind + 1)
       expect(refuse).toBeLessThan(names.indexOf('Deploy to production'))
       expect(refuse).toBeLessThan(names.indexOf('Classify rollback safety'))
