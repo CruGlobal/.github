@@ -91,7 +91,14 @@ function baseContext (site) {
     'steps.resolve.outputs.digest': 'sha256:' + 'd'.repeat(64),
     'steps.rollback-safety.outputs.verdict': 'safe',
     'steps.rollback-safety.outputs.reasons': '["no migration changes in this release"]',
-    'steps.rollback-safety.outputs.slack': ''
+    'steps.rollback-safety.outputs.slack': '',
+    // Not a hotfix: these tests are about the ordinary message's link. The
+    // hotfix wording is pinned in v2-hotfix-slack.test.js.
+    'steps.release-kind.outputs.kind': 'deploy',
+    'steps.release-kind.outputs.release': '',
+    'steps.hotfix-label.outputs.kind': 'deploy',
+    'steps.hotfix-label.outputs.release': '',
+    'steps.hotfix-label.outputs.fixes-mrkdwn': ''
   }
 }
 

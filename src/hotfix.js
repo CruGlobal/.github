@@ -2,10 +2,12 @@ import * as core from '@actions/core'
 import { getOctokit } from '@actions/github'
 import path from 'node:path'
 import { AttemptNotAuthorized, assertAttemptAuthorized } from './v2/attempt-guard.js'
+import { shaFromTags } from './flightdeck-release-event.js'
 import {
   HotfixRefusal,
   PIPELINE_WORKFLOW,
   appWorkflowRuns,
+  candidateKind,
   cutHotfix,
   gitIn,
   hotfixPromoteCheck,
@@ -15,7 +17,7 @@ import {
   verifyHotfixRef
 } from './v2/hotfix.js'
 
-// hotfix: the pipeline v2 hotfix steps, one action with four modes. The logic
+// hotfix: the pipeline v2 hotfix steps, one action with five modes. The logic
 // and the reasons behind it are in src/v2/hotfix.js.
 //
 //   verify        build-candidate.yml, on a hotfix ref: refuse the build
@@ -34,11 +36,17 @@ import {
 //                 (`check`), which promote's next step reads. Never fails
 //                 the step; anything GitHub cannot answer in 30 seconds is
 //                 an ordinary deploy.
+//   candidate-kind
+//                 deploy-candidate.yml, after the deploy: the same "hotfix"
+//                 or "deploy" for the candidate, plus a line naming the fixes
+//                 it adds to the live release, for the stage Slack message.
+//                 Never fails the step; no token, an error or no answer in
+//                 about 25 seconds leaves the ordinary message.
 //
 // The entry point is src/entry/hotfix.js, which always runs the action. This
 // module never runs anything on import, so tests can load it.
 
-export const MODES = ['verify', 'cut', 'report', 'release-kind']
+export const MODES = ['verify', 'cut', 'report', 'release-kind', 'candidate-kind']
 
 // Fail the step with an error titled `title`, the way core.setFailed does
 // plus the title, so automation can read a fixed reason word.
@@ -201,6 +209,37 @@ async function runReleaseKind ({ readLedger, request }) {
   core.info(`release kind ${result.kind}: ${oneLine(result.why)}; hotfix check ${result.check}: ${oneLine(result.checkWhy)}`)
 }
 
+// Never fails the step, and never warns about a missing token: a caller that
+// passes none is an older wrapper, and its message stays the ordinary one.
+// The outputs only change deploy-candidate's Slack message.
+async function runCandidateKind ({ readLedger, request }) {
+  const token = core.getInput('github-token')
+  let result
+  if (!token) {
+    result = { kind: 'deploy', why: 'no github-token was given, so the candidate was not checked', fixes: '', fixesWhy: 'not checked' }
+  } else {
+    try {
+      result = await candidateKind({
+        octokit: getOctokit(token),
+        repository: core.getInput('repository'),
+        sha: shaFromTags(core.getInput('image-tags')),
+        project: core.getInput('project-name'),
+        readLedger,
+        request
+      })
+    } catch (error) {
+      const why = `could not tell whether this candidate is a hotfix (${oneLine(error.message)})`
+      result = { kind: 'deploy', why, fixes: '', fixesWhy: 'not checked' }
+      core.warning(`${why}, so the stage message is the ordinary one`, { title: 'Hotfix label' })
+    }
+  }
+  core.setOutput('kind', result.kind)
+  core.setOutput('branch', result.branch ?? '')
+  core.setOutput('release', result.release ?? '')
+  core.setOutput('fixes-mrkdwn', oneLine(result.fixes))
+  core.info(`candidate kind ${result.kind}: ${oneLine(result.why)}; fixes: ${oneLine(result.fixesWhy)}`)
+}
+
 export async function run ({ env = process.env, readLedger = readProductionLedger, sleep, request } = {}) {
   const mode = core.getInput('mode').trim()
   try {
@@ -209,6 +248,7 @@ export async function run ({ env = process.env, readLedger = readProductionLedge
       case 'cut': return await runCut({ env, readLedger })
       case 'report': return await runReport({ sleep })
       case 'release-kind': return await runReleaseKind({ readLedger, request })
+      case 'candidate-kind': return await runCandidateKind({ readLedger, request })
       default: core.setFailed(`unknown mode '${oneLine(mode)}'; expected one of ${MODES.join(', ')}`)
     }
   } catch (error) {

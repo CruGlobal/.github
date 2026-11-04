@@ -69,6 +69,14 @@ on:
       flightdeck-token:
         required: false
         description: Flightdeck PAT of the CruDeploy service user, for release-timeline events; unset disables posting.
+      # Optional, so a caller that does not pass it keeps working: the stage
+      # message is then the ordinary one, as it was before the label existed.
+      github-token:
+        required: false
+        description: >-
+          GitHub token that can read the app repository's branches and
+          commits. It is used only to say in the stage Slack message that a
+          candidate is a hotfix; unset leaves the ordinary message.
 
 jobs:
   # app-info: per-app metadata, read straight from the CruApplicationInfo
@@ -421,6 +429,26 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME $TAG -> release-candidate"
 
+      # Is this candidate a hotfix? Only the Slack message below reads the
+      # answer. It is the question promote asks before it deploys, answered
+      # the same way (the hotfix action's candidate-kind mode), and read with
+      # the github-token secret. No token, an error, or no answer in time
+      # leaves the ordinary message. It runs after the ledger write so it can
+      # never hold that up, and it never fails the job: its own deadlines end
+      # it in about 25 seconds, and the step limit is a backstop.
+      - name: Tell a hotfix candidate from an ordinary one
+        id: hotfix-label
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: candidate-kind
+          github-token: ${{ secrets.github-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          project-name: ${{ inputs.project-name }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
+
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's SlackChannel from app-info (channel #name/C… or
       # user U…); no-ops silently when the channel OR the bot token is unset.
@@ -440,6 +468,14 @@ jobs:
       # named after the project, so an app-info Repository override keeps the
       # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
+      #
+      # A hotfix candidate (the step above says so) gets its own first line,
+      # naming the release it fixes, then the line naming its fixes when
+      # there is one, and a last line asking for the promote: the next build
+      # of the default branch replaces the hotfix on stage. The fixes line
+      # comes escaped from the hotfix action, so a commit subject cannot
+      # become a link or a mention. With anything else from that step, an
+      # empty output included, the message is the ordinary one.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -457,6 +493,9 @@ jobs:
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
           TAG: ${{ inputs.tag }}
+          HOTFIX_KIND: ${{ steps.hotfix-label.outputs.kind }}
+          HOTFIX_OF: ${{ steps.hotfix-label.outputs.release }}
+          HOTFIX_FIXES: ${{ steps.hotfix-label.outputs.fixes-mrkdwn }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -472,6 +511,9 @@ jobs:
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
             --arg repository "$APP_REPO" \
+            --arg hotfixkind "$HOTFIX_KIND" \
+            --arg hotfixof "$HOTFIX_OF" \
+            --arg fixes "$HOTFIX_FIXES" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -482,12 +524,18 @@ jobs:
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
-             {channel: $channel,
-              text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
+             ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | (if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end) as $stage
+             | {channel: $channel,
+              text: ((if $hotfix
+                      then ":adhesive_bandage: *\($project) `\($tag)` is on \($stage): a hotfix of `\($hotfixof)`*"
+                           + (if $fixes != "" then "\n" + ($fixes | gsub("[\r\n]+"; " ")) else "" end)
+                      else ":package: *\($project) `\($tag)` is on \($stage)*" end)
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
-                        else "" end))}')
+                        else "" end)
+                     + (if $hotfix then "\nPromote it before the next build of the default branch replaces it on stage." else "" end))}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -774,6 +822,26 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: echo "::notice title=Candidate Deployed::$PROJECT_NAME $TAG -> release-candidate"
 
+      # Is this candidate a hotfix? Only the Slack message below reads the
+      # answer. It is the question promote asks before it deploys, answered
+      # the same way (the hotfix action's candidate-kind mode), and read with
+      # the github-token secret. No token, an error, or no answer in time
+      # leaves the ordinary message. It runs after the ledger write so it can
+      # never hold that up, and it never fails the job: its own deadlines end
+      # it in about 25 seconds, and the step limit is a backstop.
+      - name: Tell a hotfix candidate from an ordinary one
+        id: hotfix-label
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: candidate-kind
+          github-token: ${{ secrets.github-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          project-name: ${{ inputs.project-name }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
+
       # Notify Slack (success only; NEVER fails the deploy -- telemetry policy).
       # Destination = the app's SlackChannel from app-info (channel #name/C… or
       # user U…); no-ops silently when the channel OR the bot token is unset.
@@ -793,6 +861,14 @@ jobs:
       # named after the project, so an app-info Repository override keeps the
       # old link). Every value in that link is URL-encoded. Anything else keeps
       # the deploys.cru.org link exactly as it was.
+      #
+      # A hotfix candidate (the step above says so) gets its own first line,
+      # naming the release it fixes, then the line naming its fixes when
+      # there is one, and a last line asking for the promote: the next build
+      # of the default branch replaces the hotfix on stage. The fixes line
+      # comes escaped from the hotfix action, so a commit subject cannot
+      # become a link or a mention. With anything else from that step, an
+      # empty output included, the message is the ordinary one.
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -810,6 +886,9 @@ jobs:
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
           TAG: ${{ inputs.tag }}
+          HOTFIX_KIND: ${{ steps.hotfix-label.outputs.kind }}
+          HOTFIX_OF: ${{ steps.hotfix-label.outputs.release }}
+          HOTFIX_FIXES: ${{ steps.hotfix-label.outputs.fixes-mrkdwn }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -825,6 +904,9 @@ jobs:
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
             --arg repository "$APP_REPO" \
+            --arg hotfixkind "$HOTFIX_KIND" \
+            --arg hotfixof "$HOTFIX_OF" \
+            --arg fixes "$HOTFIX_FIXES" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -835,12 +917,18 @@ jobs:
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
-             {channel: $channel,
-              text: (":package: *\($project) `\($tag)` is on \(if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end)*"
+             ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | (if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end) as $stage
+             | {channel: $channel,
+              text: ((if $hotfix
+                      then ":adhesive_bandage: *\($project) `\($tag)` is on \($stage): a hotfix of `\($hotfixof)`*"
+                           + (if $fixes != "" then "\n" + ($fixes | gsub("[\r\n]+"; " ")) else "" end)
+                      else ":package: *\($project) `\($tag)` is on \($stage)*" end)
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
-                        else "" end))}')
+                        else "" end)
+                     + (if $hotfix then "\nPromote it before the next build of the default branch replaces it on stage." else "" end))}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -1192,6 +1280,26 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: echo "::notice title=Candidate Verified::$PROJECT_NAME $TAG verified (stage-less) -> release-candidate"
 
+      # Is this candidate a hotfix? Only the Slack message below reads the
+      # answer. It is the question promote asks before it deploys, answered
+      # the same way (the hotfix action's candidate-kind mode), and read with
+      # the github-token secret. No token, an error, or no answer in time
+      # leaves the ordinary message. It runs after the ledger write so it can
+      # never hold that up, and it never fails the job: its own deadlines end
+      # it in about 25 seconds, and the step limit is a backstop.
+      - name: Tell a hotfix candidate from an ordinary one
+        id: hotfix-label
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.slack-channel != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./cru-github-actions/actions/hotfix
+        with:
+          mode: candidate-kind
+          github-token: ${{ secrets.github-token }}
+          repository: ${{ needs.lookup.outputs.repository }}
+          project-name: ${{ inputs.project-name }}
+          image-tags: ${{ steps.resolve.outputs.tags }}
+
       # Notify Slack (success) — the stage-deploy message's variant, same
       # :package: emoji (this is still "a new candidate is ready"), same
       # promote-dispatch and changelog follow-on lines, same never-fails policy.
@@ -1209,6 +1317,9 @@ jobs:
       # FlightdeckProject are both there and the app has no Repository
       # override, every value URL-encoded, otherwise the deploys.cru.org link
       # exactly as it was.
+      #
+      # A hotfix candidate gets the lines the stage message gives one, with
+      # "as the release candidate" where that one says "on stage".
       - name: Notify Slack
         if: steps.noop.outputs.skip != 'true'
         continue-on-error: true
@@ -1225,6 +1336,9 @@ jobs:
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
           APP_REPO: ${{ needs.lookup.outputs.repository }}
           TAG: ${{ inputs.tag }}
+          HOTFIX_KIND: ${{ steps.hotfix-label.outputs.kind }}
+          HOTFIX_OF: ${{ steps.hotfix-label.outputs.release }}
+          HOTFIX_FIXES: ${{ steps.hotfix-label.outputs.fixes-mrkdwn }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
             exit 0
@@ -1239,6 +1353,9 @@ jobs:
             --arg workspace "$FLIGHTDECK_WORKSPACE" \
             --arg fdproject "$FLIGHTDECK_PROJECT" \
             --arg repository "$APP_REPO" \
+            --arg hotfixkind "$HOTFIX_KIND" \
+            --arg hotfixof "$HOTFIX_OF" \
+            --arg fixes "$HOTFIX_FIXES" \
             'def changelog($from; $to):
                ($fdurl | sub("/+\\z"; "")) as $base
                | if ($fdproject | test("\\A[A-Z][A-Z0-9]{0,9}\\z"))
@@ -1249,12 +1366,17 @@ jobs:
                       + "/changelog?from=" + ($from | @uri) + "&to=" + ($to | @uri) + "&app=" + ($project | @uri)
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
-             {channel: $channel,
-              text: (":package: *\($project) `\($tag)` verified (stage-less) on release-candidate* — promote when ready"
+             ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | {channel: $channel,
+              text: ((if $hotfix
+                      then ":adhesive_bandage: *\($project) `\($tag)` verified (stage-less) on release-candidate: a hotfix of `\($hotfixof)`*"
+                           + (if $fixes != "" then "\n" + ($fixes | gsub("[\r\n]+"; " ")) else "" end)
+                      else ":package: *\($project) `\($tag)` verified (stage-less) on release-candidate* — promote when ready" end)
                      + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
-                        else "" end))}')
+                        else "" end)
+                     + (if $hotfix then "\nPromote it before the next build of the default branch replaces it as the release candidate." else "" end))}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \

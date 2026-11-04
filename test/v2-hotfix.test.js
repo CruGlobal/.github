@@ -3,14 +3,19 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+  CANDIDATE_LEDGER_TIMEOUT_MS,
   COMMITTER,
   REASONS,
   HotfixRefusal,
   appWorkflowRuns,
+  candidateKind,
   cherryPickSource,
+  commitSubject,
   currentProduction,
   cutHotfix,
   deadlineRequests,
+  escapeMrkdwn,
+  fixesLine,
   gitIn,
   hotfixBranch,
   hotfixPromoteCheck,
@@ -714,5 +719,133 @@ describe('appWorkflowRuns (the hotfix run\'s CI report)', () => {
     const none = vi.fn(async () => ({ data: { workflow_runs: [run('.github/workflows/pipeline-v2.yml', 'Pipeline v2')] } }))
     expect(await appWorkflowRuns({ octokit: { rest: { actions: { listWorkflowRunsForRepo: none } } }, repository: 'example-org/example-app', sha: 'a'.repeat(40), attempts: 3, sleep })).toEqual([])
     expect(none).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('the stage message\'s fixes line', () => {
+  it('escapes the three characters Slack reads as markup, & first', () => {
+    expect(escapeMrkdwn('a & b < c > d')).toBe('a &amp; b &lt; c &gt; d')
+    expect(escapeMrkdwn('&lt;')).toBe('&amp;lt;')
+    expect(escapeMrkdwn(undefined)).toBe('')
+  })
+
+  it('takes the first line of a commit message, trimmed, and cuts a long one', () => {
+    expect(commitSubject('  Fix the login redirect  \n\nLonger body\n(cherry picked from commit abc)')).toBe('Fix the login redirect')
+    expect(commitSubject('Windows line end\r\nbody')).toBe('Windows line end')
+    expect(commitSubject('')).toBe('(no commit message)')
+    expect(commitSubject(null)).toBe('(no commit message)')
+    const cut = commitSubject('x'.repeat(250))
+    expect(cut).toHaveLength(100)
+    expect(cut.endsWith('...')).toBe(true)
+  })
+
+  it.each([
+    [['Fix A'], 1, 'The live release plus 1 fix: Fix A'],
+    [['Fix A', 'Fix B'], 2, 'The live release plus 2 fixes: Fix A; Fix B'],
+    [['Fix A', 'Fix B', 'Fix C'], 3, 'The live release plus 3 fixes: Fix A; Fix B; Fix C'],
+    [['Fix A', 'Fix B', 'Fix C', 'Fix D'], 4, 'The live release plus 4 fixes: Fix A; Fix B; Fix C; and 1 more'],
+    [['Fix A', 'Fix B', 'Fix C', 'Fix D', 'Fix E'], 5, 'The live release plus 5 fixes: Fix A; Fix B; Fix C; and 2 more'],
+    // GitHub sends at most one page of commits; the count is the total.
+    [['Fix A', 'Fix B', 'Fix C'], 120, 'The live release plus 120 fixes: Fix A; Fix B; Fix C; and 117 more']
+  ])('names up to three fixes, then how many more (%j, %i)', (subjects, count, line) => {
+    expect(fixesLine(subjects, count)).toBe(line)
+  })
+
+  it('is empty when there is no fix to name', () => {
+    expect(fixesLine([], 0)).toBe('')
+    expect(fixesLine([])).toBe('')
+    expect(fixesLine(['Fix A'], Number.NaN)).toBe('')
+  })
+
+  it('leaves nothing in a hostile subject that Slack would read as a link, a mention or a channel call', () => {
+    const line = fixesLine(['<!channel> look <https://evil.example.test|the fix> & <@U0123> <#C0123>'])
+    expect(line).toBe('The live release plus 1 fix: &lt;!channel&gt; look &lt;https://evil.example.test|the fix&gt; &amp; &lt;@U0123&gt; &lt;#C0123&gt;')
+    expect(line).not.toMatch(/[<>]/)
+    // A subject cut to length never ends in half an escape.
+    const long = fixesLine([`${'x'.repeat(95)}<!here>`])
+    expect(long).not.toMatch(/[<>]/)
+    expect(long).toMatch(/x{95}&lt;!\.\.\.$/)
+  })
+})
+
+describe('candidateKind (deploy-candidate\'s Slack label)', () => {
+  const SHA = 'a'.repeat(40)
+  const MAIN_TIP = 'b'.repeat(40)
+  const LIVE_SHA = 'c'.repeat(40)
+  const repository = 'example-org/example-app'
+  const commit = (message) => ({ commit: { message } })
+
+  // GitHub: the candidate's commit is on hotfix/<release> and not on main,
+  // unless `onMain`. `fromLive` is the compare from production's commit.
+  function github ({ onMain = false, fromLive = { status: 'ahead', total_commits: 1, commits: [commit('Fix the login redirect\n\n(cherry picked from commit 1234)')] }, fails = false } = {}) {
+    return {
+      rest: {
+        repos: {
+          get: vi.fn(async () => { if (fails) throw new Error('Bad credentials'); return { data: { default_branch: 'main' } } }),
+          getBranch: vi.fn(async () => ({ data: { commit: { sha: MAIN_TIP } } })),
+          compareCommitsWithBasehead: vi.fn(async ({ basehead }) => {
+            if (basehead === `${MAIN_TIP}...${SHA}`) return { data: { status: onMain ? 'behind' : 'diverged' } }
+            if (basehead === `${LIVE_SHA}...${SHA}`) {
+              if (fromLive instanceof Error) throw fromLive
+              return { data: fromLive }
+            }
+            throw new Error(`unexpected compare ${basehead}`)
+          })
+        },
+        git: { listMatchingRefs: vi.fn(async () => ({ data: [{ ref: `refs/heads/${BRANCH}`, object: { type: 'commit', sha: SHA } }] })) }
+      }
+    }
+  }
+  const label = (octokit, ledger, options = {}) => candidateKind({ octokit, repository, sha: SHA, project: PROJECT, readLedger: ledger.readLedger, ...options })
+
+  it('names a hotfix, the release it fixes, and the fix it adds to the live release', async () => {
+    const api = github()
+    const ledger = fakeLedger([ledgerRow(RELEASE, LIVE_SHA)])
+    const result = await label(api, ledger)
+    expect(result).toMatchObject({ kind: 'hotfix', branch: BRANCH, release: RELEASE, fixes: 'The live release plus 1 fix: Fix the login redirect' })
+    // One quick ledger read, never the three tries promote's guards make.
+    expect(ledger.calls).toEqual([{ project: PROJECT, limit: 1, attempts: 1, timeoutMs: CANDIDATE_LEDGER_TIMEOUT_MS }])
+    expect(api.rest.repos.compareCommitsWithBasehead).toHaveBeenCalledWith(expect.objectContaining({ basehead: `${LIVE_SHA}...${SHA}`, per_page: 100 }))
+  })
+
+  it('counts every fix and lists the first three, oldest first as GitHub sends them', async () => {
+    const commits = ['Fix A', 'Fix B', 'Fix C', 'Fix D'].map(commit)
+    const result = await label(github({ fromLive: { status: 'ahead', total_commits: 4, commits } }), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+    expect(result.fixes).toBe('The live release plus 4 fixes: Fix A; Fix B; Fix C; and 1 more')
+  })
+
+  it('is deploy for a commit on the default branch, without reading the ledger', async () => {
+    const ledger = fakeLedger(new Error('must not be read'))
+    expect(await label(github({ onMain: true }), ledger)).toMatchObject({ kind: 'deploy', fixes: '' })
+    expect(ledger.calls).toEqual([])
+  })
+
+  it('throws when GitHub cannot tell, for the caller to post the ordinary message', async () => {
+    await expect(label(github({ fails: true }), fakeLedger(new Error('must not be read')))).rejects.toThrow(/Bad credentials/)
+  })
+
+  it('gives up at its own deadline, so a slow GitHub cannot hold the deploy job', async () => {
+    let clock = 0
+    const now = () => { clock += 15000; return clock }
+    await expect(label(github(), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]), { request: deadlineRequests({ deadlineMs: 20000, now }) })).rejects.toThrow(/gave up after 20 seconds/)
+  })
+
+  // Once GitHub has said hotfix, the message says hotfix. What can still go
+  // wrong only costs the line naming the fixes.
+  it.each([
+    ['the ledger cannot be read', {}, fakeLedger(new Error('the deployment ledger answered HTTP 503')), /could not read the deployment ledger/],
+    ['production runs another release', {}, fakeLedger([ledgerRow(NEWER_RELEASE, LIVE_SHA)]), /production now runs release-2026-10-22-10150, not release-2026-10-20-10140/],
+    ['the ledger names no commit', {}, fakeLedger([ledgerRow(RELEASE, undefined)]), /names no commit/],
+    ['the candidate does not build on production', { fromLive: { status: 'diverged', total_commits: 2, commits: [] } }, fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]), /GitHub says diverged/],
+    ['GitHub does not list the commits', { fromLive: new Error('timeout') }, fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]), /did not list the commits after cccccccccccc \(timeout\)/]
+  ])('still says hotfix, without the fixes, when %s', async (_why, options, ledger, fixesWhy) => {
+    const result = await label(github(options), ledger)
+    expect(result).toMatchObject({ kind: 'hotfix', release: RELEASE, fixes: '' })
+    expect(result.fixesWhy).toMatch(fixesWhy)
+  })
+
+  it('escapes a hostile subject', async () => {
+    const result = await label(github({ fromLive: { status: 'ahead', total_commits: 1, commits: [commit('<!channel> <https://evil.example.test|fix>')] } }), fakeLedger([ledgerRow(RELEASE, LIVE_SHA)]))
+    expect(result.fixes).toBe('The live release plus 1 fix: &lt;!channel&gt; &lt;https://evil.example.test|fix&gt;')
   })
 })

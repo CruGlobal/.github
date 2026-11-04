@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 // on the default branch first, through a normal pull request and its checks.
 // The hotfix branch only cherry-picks it.
 //
-// Three callers use this module:
+// Four callers use this module:
 //
 //   - hotfix.yml cuts the branch: it checks that production still runs the
 //     release the caller named, cherry-picks the fix onto
@@ -25,6 +25,9 @@ import { spawn } from 'node:child_process'
 //   - promote.yml tells a hotfix promote from an ordinary one, so the release
 //     event says which it was, and refuses a hotfix candidate that is not for
 //     the release production runs now (hotfixPromoteCheck).
+//   - deploy-candidate.yml asks the same question as promote, only to say in
+//     its Slack message that a candidate is a hotfix and which fixes it adds
+//     (candidateKind). It never stops a deploy.
 //
 // What a valid hotfix branch is, in one rule: it is named
 // hotfix/<release tag>, it starts at the commit production ran for that
@@ -852,6 +855,92 @@ export async function hotfixPromoteCheck ({ octokit, repository, sha, project, r
     ...kind,
     check: 'stale',
     checkWhy: `${what}, but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; ${refusal}. Cut a new hotfix against ${live.revision}, the release production runs now`
+  }
+}
+
+// --- deploy-candidate's Slack label ------------------------------------------
+
+// How long deploy-candidate's hotfix label may spend asking GitHub, in all.
+// The label only changes a Slack message, so it gives up fast, and the
+// message is then the ordinary one. The ledger read has its own, shorter
+// limit (CANDIDATE_LEDGER_TIMEOUT_MS), so the whole check stays under half a
+// minute.
+export const CANDIDATE_LABEL_DEADLINE_MS = 20000
+export const CANDIDATE_LEDGER_TIMEOUT_MS = 5000
+
+// The stage message names at most this many fixes, then says how many more.
+export const LISTED_FIXES = 3
+const SUBJECT_LENGTH = 100
+
+// Slack reads &, < and > as markup: <url|text> is a link, <@U123> a mention
+// and <!channel> calls everyone in the channel. A commit subject is text that
+// anyone who can merge to the app repo wrote, so all three are always escaped.
+// That leaves nothing in a subject that can start a link or a mention.
+export const escapeMrkdwn = (text) => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// A commit message's first line, trimmed and cut to a length that keeps the
+// message short. Cut before escaping, so an escape is never cut in half.
+export function commitSubject (message) {
+  const subject = String(message ?? '').split(/\r?\n|\r/)[0].trim()
+  if (!subject) return '(no commit message)'
+  return subject.length > SUBJECT_LENGTH ? `${subject.slice(0, SUBJECT_LENGTH - 3).trimEnd()}...` : subject
+}
+
+// "The live release plus 2 fixes: A; B", naming at most LISTED_FIXES
+// subjects and then "and N more". `count` is how many fixes there are, which
+// can be more than the subjects GitHub sent. Escaped for Slack mrkdwn. ''
+// when there is no fix to name.
+export function fixesLine (subjects, count = subjects.length) {
+  if (!Number.isInteger(count) || count < 1) return ''
+  const listed = subjects.slice(0, Math.min(LISTED_FIXES, count)).map((subject) => escapeMrkdwn(commitSubject(subject)))
+  if (listed.length === 0) return ''
+  const more = count - listed.length
+  return `The live release plus ${count} ${count === 1 ? 'fix' : 'fixes'}: ${listed.join('; ')}${more > 0 ? `; and ${more} more` : ''}`
+}
+
+// deploy-candidate's label for its Slack message: is this candidate a hotfix,
+// and which fixes does it add to the live release? Whether it is a hotfix is
+// releaseKind's answer, the same one promote uses. Throws when GitHub cannot
+// tell in time; the caller then posts the ordinary message.
+//
+// The fixes are the commits between the commit production runs (from the
+// deployment ledger, the same place build-candidate checked the branch
+// against) and the candidate. They are listed only while production still
+// runs the release the hotfix is for. When it does not, or anything after the
+// hotfix is confirmed fails, `fixes` is '' and the message still says hotfix,
+// without the list. The default branch is not a stand-in for the base: when
+// production runs an earlier hotfix, the default branch would count that
+// hotfix's fixes as new ones too.
+//
+// Returns { kind, why, branch, release, fixes, fixesWhy }.
+export async function candidateKind ({ octokit, repository, sha, project, readLedger, request = deadlineRequests({ deadlineMs: CANDIDATE_LABEL_DEADLINE_MS }), ledgerTimeoutMs = CANDIDATE_LEDGER_TIMEOUT_MS }) {
+  const kind = await releaseKind({ octokit, repository, sha, request })
+  if (kind.kind !== 'hotfix') return { ...kind, fixes: '', fixesWhy: 'not a hotfix' }
+  const commit = String(sha).trim()
+  let live
+  try {
+    live = await currentProduction({ readLedger, project, unconfirmed: 'the fixes cannot be listed', ledgerOptions: { attempts: 1, timeoutMs: ledgerTimeoutMs } })
+  } catch (error) {
+    return { ...kind, fixes: '', fixesWhy: error.message }
+  }
+  if (normalizeRelease(live.revision) !== kind.release) {
+    return { ...kind, fixes: '', fixesWhy: `production now runs ${live.revision}, not ${kind.release}, so the fixes are not listed` }
+  }
+  if (!live.sha) {
+    return { ...kind, fixes: '', fixesWhy: `the deployment ledger names no commit for ${live.revision}, so the fixes cannot be listed` }
+  }
+  try {
+    const { owner, repo } = parseRepo(repository)
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 100, request: request() })
+    if (data?.status !== 'ahead') {
+      return { ...kind, fixes: '', fixesWhy: `${short(commit)} does not build on ${short(live.sha)}, the commit production runs (GitHub says ${data?.status}), so the fixes are not listed` }
+    }
+    const commits = Array.isArray(data.commits) ? data.commits : []
+    const count = Number.isInteger(data.total_commits) ? data.total_commits : commits.length
+    const fixes = fixesLine(commits.map((entry) => entry?.commit?.message), count)
+    return { ...kind, fixes, fixesWhy: fixes ? `${count} commit(s) after ${short(live.sha)}` : 'GitHub listed no commits' }
+  } catch (error) {
+    return { ...kind, fixes: '', fixesWhy: `GitHub did not list the commits after ${short(live.sha)} (${error.message})` }
   }
 }
 
