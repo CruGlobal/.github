@@ -483,10 +483,10 @@ jobs:
       # rollback, often in the middle of an incident, must not wait on an
       # advisory read, and neither must the promotes and rollbacks queued
       # behind it. curl gives up after 20 seconds, and the step limit is a
-      # backstop past that. A read that fails or runs out of time says so and
-      # the rollback goes on, with no changelog link and no migration warning
-      # in Slack. A step stopped by the backstop leaves those outputs empty
-      # too, and continue-on-error lets the rollback go on.
+      # backstop past that. A read that fails or runs out of time says so, in
+      # the log and in Slack, and the rollback goes on with no changelog link.
+      # A step stopped by the backstop leaves both outputs empty, so Slack
+      # then gets neither line, and continue-on-error lets the rollback go on.
       - name: Rollback-safety advisory
         id: rollback-safety
         continue-on-error: true
@@ -514,9 +514,12 @@ jobs:
             echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
             echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
           elif [ "$ledger_read" = failed ]; then
-            # Not the all-clear below: nothing was checked.
-            echo "::warning title=Rollback safety::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema"
-            echo "slack=" >> "$GITHUB_OUTPUT"
+            # Not the all-clear below: nothing was checked. Its own title,
+            # because "Rollback safety" means destructive migrations shipped,
+            # and Slack says so too, so whoever is mid-incident knows to check
+            # by hand.
+            echo "::warning title=Rollback safety not checked::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema"
+            echo "slack=:grey_question: could not check the release being rolled back from for destructive migrations (the deployment ledger could not be read); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
           else
             echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
             echo "slack=" >> "$GITHUB_OUTPUT"
@@ -1037,10 +1040,10 @@ jobs:
       # rollback, often in the middle of an incident, must not wait on an
       # advisory read, and neither must the promotes and rollbacks queued
       # behind it. curl gives up after 20 seconds, and the step limit is a
-      # backstop past that. A read that fails or runs out of time says so and
-      # the rollback goes on, with no changelog link and no migration warning
-      # in Slack. A step stopped by the backstop leaves those outputs empty
-      # too, and continue-on-error lets the rollback go on.
+      # backstop past that. A read that fails or runs out of time says so, in
+      # the log and in Slack, and the rollback goes on with no changelog link.
+      # A step stopped by the backstop leaves both outputs empty, so Slack
+      # then gets neither line, and continue-on-error lets the rollback go on.
       - name: Rollback-safety advisory
         id: rollback-safety
         continue-on-error: true
@@ -1068,9 +1071,12 @@ jobs:
             echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
             echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
           elif [ "$ledger_read" = failed ]; then
-            # Not the all-clear below: nothing was checked.
-            echo "::warning title=Rollback safety::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema"
-            echo "slack=" >> "$GITHUB_OUTPUT"
+            # Not the all-clear below: nothing was checked. Its own title,
+            # because "Rollback safety" means destructive migrations shipped,
+            # and Slack says so too, so whoever is mid-incident knows to check
+            # by hand.
+            echo "::warning title=Rollback safety not checked::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema"
+            echo "slack=:grey_question: could not check the release being rolled back from for destructive migrations (the deployment ledger could not be read); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
           else
             echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
             echo "slack=" >> "$GITHUB_OUTPUT"

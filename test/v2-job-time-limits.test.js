@@ -437,11 +437,40 @@ describe('reads inside the deploy lock, run', () => {
     ])('goes on, and says nothing was checked, when the read %s', async (_how, options) => {
       const result = await advisory(options)
       expect(result.status, result.stderr).toBe(0)
-      expect(result.outputs).toEqual({ 'previous-revision': '', slack: '' })
+      expect(result.outputs).toEqual({
+        'previous-revision': '',
+        slack: ':grey_question: could not check the release being rolled back from for destructive migrations (the deployment ledger could not be read); this rollback does NOT revert the schema'
+      })
       expect(lines(result, '::notice')).toEqual([])
+      // Not the title a destructive migration gets.
       expect(lines(result, '::warning')).toEqual([
-        '::warning title=Rollback safety::could not read the deployment ledger for example-app (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema'
+        '::warning title=Rollback safety not checked::could not read the deployment ledger for example-app (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema'
       ])
+    })
+
+    // The Slack post shows the line under the rollback message.
+    it('puts the could-not-check line in the Slack post', async () => {
+      const failed = await advisory({ ledgerTimesOut: true })
+      const result = await runShellStep(findStep(workflows['rollback.yml'], id, 'Notify Slack'), {
+        context: {
+          ...context,
+          'needs.lookup.outputs.slack-channel': 'C0000000000',
+          'secrets.slack-bot-token': 'xoxb-test',
+          'needs.lookup.outputs.app-url': 'https://example-app.example.test',
+          'needs.lookup.outputs.release-tag': 'release-2026-10-20-10140',
+          'steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag': 'release-2026-10-20-10140',
+          'steps.rollback-safety.outputs.previous-revision': failed.outputs['previous-revision'],
+          'steps.rollback-safety.outputs.slack': failed.outputs.slack,
+          'needs.lookup.outputs.repository': 'example-org/example-app',
+          'needs.lookup.outputs.flightdeck-project': '',
+          'inputs.flightdeck-url': '',
+          'vars.FLIGHTDECK_WORKSPACE': '',
+          'github.actor': 'example-user',
+          'github.triggering_actor': 'example-user'
+        }
+      })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.slack.text).toContain('\n:grey_question: could not check the release being rolled back from for destructive migrations')
     })
   })
 
