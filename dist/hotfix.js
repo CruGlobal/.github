@@ -13601,7 +13601,7 @@ var require_fetch = __commonJS({
     function handleFetchDone(response) {
       finalizeAndReportTiming(response, "fetch");
     }
-    function fetch2(input, init = void 0) {
+    function fetch3(input, init = void 0) {
       webidl.argumentLengthCheck(arguments, 1, "globalThis.fetch");
       let p = createDeferredPromise();
       let requestObject;
@@ -14556,7 +14556,7 @@ var require_fetch = __commonJS({
       }
     }
     module2.exports = {
-      fetch: fetch2,
+      fetch: fetch3,
       Fetch,
       fetching,
       finalizeAndReportTiming
@@ -19094,7 +19094,7 @@ var require_undici = __commonJS({
     module2.exports.setGlobalDispatcher = setGlobalDispatcher;
     module2.exports.getGlobalDispatcher = getGlobalDispatcher;
     var fetchImpl = require_fetch().fetch;
-    module2.exports.fetch = async function fetch2(init, options = void 0) {
+    module2.exports.fetch = async function fetch3(init, options = void 0) {
       try {
         return await fetchImpl(init, options);
       } catch (err) {
@@ -21258,8 +21258,8 @@ function isPlainObject2(value) {
 }
 var noop = () => "";
 async function fetchWrapper(requestOptions) {
-  const fetch2 = requestOptions.request?.fetch || globalThis.fetch;
-  if (!fetch2) {
+  const fetch3 = requestOptions.request?.fetch || globalThis.fetch;
+  if (!fetch3) {
     throw new Error(
       "fetch is not set. Please pass a fetch implementation as new Octokit({ request: { fetch }}). Learn more at https://github.com/octokit/octokit.js/#fetch-missing"
     );
@@ -21275,7 +21275,7 @@ async function fetchWrapper(requestOptions) {
   );
   let fetchResponse;
   try {
-    fetchResponse = await fetch2(requestOptions.url, {
+    fetchResponse = await fetch3(requestOptions.url, {
       method: requestOptions.method,
       body,
       redirect: requestOptions.request?.redirect,
@@ -24319,6 +24319,30 @@ function assertAttemptAuthorized(what, env = process.env) {
   }
 }
 
+// src/flightdeck-release-event.js
+var NON_PRODUCTION_ENVIRONMENTS = Object.freeze(["staging", "release-candidate", "preview", "lab"]);
+var DISPLAY_FIELDS = Object.freeze({
+  actor: {
+    format: /^(?=[A-Za-z0-9-]{1,39}(?:\[bot\])?$)[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?$/,
+    rule: "a GitHub login (1-39 letters, digits or hyphens, starting with a letter or digit, optionally followed by [bot])"
+  },
+  run_url: {
+    format: /^https:\/\/github\.com\/(?=[A-Za-z0-9-]{1,39}\/)[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?\/)[A-Za-z0-9._-]{1,100}\/actions\/runs\/[0-9]{1,20}(?:\/attempts\/[0-9]{1,20})?$/,
+    rule: "a GitHub Actions run URL (https://github.com/<owner>/<repo>/actions/runs/<id>, optionally followed by /attempts/<n>)"
+  },
+  image_digest: {
+    format: /^sha256:[0-9a-f]{64}$/,
+    rule: "sha256: followed by 64 lowercase hex characters"
+  }
+});
+function shaFromTags(imageTags) {
+  for (const tag of (imageTags || "").split(",")) {
+    const match = /^sha-([0-9a-f]{40})$/.exec(tag.trim());
+    if (match) return match[1];
+  }
+  return "";
+}
+
 // src/v2/hotfix.js
 var import_node_child_process = require("node:child_process");
 var LEDGER_URL = "https://deploys.cru.org/deployments";
@@ -24844,47 +24868,111 @@ async function hotfixPromoteCheck({ octokit, repository, sha, project, readLedge
   }
   if (kind.kind !== "hotfix" && !kind.offBranch) return { ...kind, check: "skipped", checkWhy: "not a hotfix" };
   const commit = String(sha).trim();
-  const hotfix = kind.kind === "hotfix";
-  const what = hotfix ? `${short(commit)} is a hotfix for ${kind.release} (from ${kind.branch})` : `${short(commit)} is not on the default branch or on any hotfix branch (its hotfix branch may have been deleted)`;
-  const refusal = "refusing to promote it. Nothing in production was changed";
+  const what = promotedCommit(kind, commit);
   let live;
   try {
     live = await currentProduction({ readLedger, project, unconfirmed: "what production runs is unknown", ledgerOptions: { attempts: 2, timeoutMs: 1e4 } });
   } catch (error2) {
     if (error2 instanceof HotfixRefusal && error2.reason === REASONS.ledgerUnavailable) {
-      return { ...kind, check: "ledger_unavailable", checkWhy: `${what}, but ${error2.message}; ${refusal}. Try again once the deployment ledger answers` };
+      return { ...kind, check: "ledger_unavailable", checkWhy: `${what}, but ${error2.message}; ${PROMOTE_REFUSAL}. Try again once the deployment ledger answers` };
     }
-    return { ...kind, check: "unconfirmed", checkWhy: `${what}, but ${error2.message}; ${refusal}` };
+    return { ...kind, check: "unconfirmed", checkWhy: `${what}, but ${error2.message}; ${PROMOTE_REFUSAL}` };
   }
+  const compareRequest = () => ({ signal: AbortSignal.timeout(compareTimeoutMs) });
+  return { ...kind, ...await forwardCheck({ octokit, repository, commit, kind, live, compareRequest }) };
+}
+var PROMOTE_REFUSAL = "refusing to promote it. Nothing in production was changed";
+function promotedCommit(kind, commit) {
+  return kind.kind === "hotfix" ? `${short(commit)} is a hotfix for ${kind.release} (from ${kind.branch})` : `${short(commit)} is not on the default branch or on any hotfix branch (its hotfix branch may have been deleted)`;
+}
+async function forwardCheck({ octokit, repository, commit, kind, live, compareRequest }) {
+  const hotfix = kind.kind === "hotfix";
+  const what = promotedCommit(kind, commit);
   if (hotfix && normalizeRelease(live.revision) === kind.release) {
-    return { ...kind, check: "live", checkWhy: `${short(commit)} is a hotfix for ${kind.release}, the release production runs` };
+    return { check: "live", checkWhy: `${short(commit)} is a hotfix for ${kind.release}, the release production runs` };
   }
   if (live.sha === commit) {
-    return { ...kind, check: "live", checkWhy: `production already runs ${short(commit)}` };
+    return { check: "live", checkWhy: `production already runs ${short(commit)}` };
   }
   if (!live.sha) {
-    return { ...kind, check: "unconfirmed", checkWhy: `${what}, but the deployment ledger names no commit for ${live.revision}, the release production runs, so it cannot be checked that this moves production forward; ${refusal}` };
+    return { check: "unconfirmed", checkWhy: `${what}, but the deployment ledger names no commit for ${live.revision}, the release production runs, so it cannot be checked that this moves production forward; ${PROMOTE_REFUSAL}` };
   }
   let status;
   try {
     const { owner, repo } = parseRepo(repository);
-    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: { signal: AbortSignal.timeout(compareTimeoutMs) } });
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 1, request: compareRequest() });
     status = data?.status;
   } catch (error2) {
     const unanswered = `GitHub did not answer whether ${short(commit)} builds on ${live.revision}, the release production runs (${error2.message})`;
     if (hotfix) {
-      return { ...kind, check: "unconfirmed", checkWhy: `${what}, but ${unanswered}; ${refusal}. Try again`, warning: unanswered };
+      return { check: "unconfirmed", checkWhy: `${what}, but ${unanswered}; ${PROMOTE_REFUSAL}. Try again`, warning: unanswered };
     }
-    return { ...kind, check: "skipped", checkWhy: `${unanswered}, so the check is skipped`, warning: `${unanswered}, so this promote goes on without the check` };
+    return { check: "skipped", checkWhy: `${unanswered}, so the check is skipped`, warning: `${unanswered}, so this promote goes on without the check` };
   }
   if (status === "ahead" || status === "identical") {
-    return { ...kind, check: "live", checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` };
+    return { check: "live", checkWhy: `${short(commit)} builds on ${live.revision}, the release production runs, so promoting it moves production forward` };
   }
   return {
-    ...kind,
     check: "stale",
-    checkWhy: `${what}, but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; ${refusal}. Cut a new hotfix against ${live.revision}, the release production runs now`
+    checkWhy: `${what}, but production now runs ${live.revision}, which it does not build on. Promoting it would take production backwards, and the rollback-safety check would not see what that undoes; ${PROMOTE_REFUSAL}. Cut a new hotfix against ${live.revision}, the release production runs now`
   };
+}
+var CANDIDATE_LABEL_DEADLINE_MS = 2e4;
+var CANDIDATE_LEDGER_TIMEOUT_MS = 5e3;
+var LISTED_FIXES = 3;
+var SUBJECT_LENGTH = 100;
+var escapeMrkdwn = (text) => String(text ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+var MISLEADING = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
+function commitSubject(message) {
+  const subject = String(message ?? "").split(/\r?\n|\r/)[0].replace(MISLEADING, " ").trim();
+  if (!subject) return "(no commit message)";
+  const chars = Array.from(subject);
+  return chars.length > SUBJECT_LENGTH ? `${chars.slice(0, SUBJECT_LENGTH - 3).join("").trimEnd()}...` : subject;
+}
+function fixesLine(subjects, count = subjects.length) {
+  if (!Number.isInteger(count) || count < 1) return "";
+  const listed = subjects.slice(0, Math.min(LISTED_FIXES, count)).map((subject) => escapeMrkdwn(commitSubject(subject)));
+  if (listed.length === 0) return "";
+  const more = count - listed.length;
+  return `The live release plus ${count} ${count === 1 ? "fix" : "fixes"}: ${listed.join("; ")}${more > 0 ? `; and ${more} more` : ""}`;
+}
+async function candidateKind({ octokit, repository, sha, project, readLedger, request: request2 = deadlineRequests({ deadlineMs: CANDIDATE_LABEL_DEADLINE_MS }), ledgerTimeoutMs = CANDIDATE_LEDGER_TIMEOUT_MS }) {
+  const notHotfix = { fixes: "", fixesWhy: "not a hotfix", promotable: "", promotableWhy: "not a hotfix", productionRelease: "" };
+  const commit = String(sha ?? "").trim();
+  if (!FULL_SHA.test(commit)) {
+    return { kind: "deploy", why: "the candidate image has no sha- tag naming its commit, so it cannot be a hotfix build", ...notHotfix };
+  }
+  const kind = await releaseKind({ octokit, repository, sha: commit, request: request2 });
+  if (kind.kind !== "hotfix") return { ...kind, ...notHotfix };
+  let live;
+  try {
+    live = await currentProduction({ readLedger, project, unconfirmed: "the fixes cannot be listed", ledgerOptions: { attempts: 1, timeoutMs: ledgerTimeoutMs } });
+  } catch (error2) {
+    return { ...kind, fixes: "", fixesWhy: error2.message, promotable: "unknown", promotableWhy: error2.message, productionRelease: "" };
+  }
+  const forward = await forwardCheck({ octokit, repository, commit, kind, live, compareRequest: request2 });
+  const certain = forward.check === "stale" || forward.check === "unconfirmed" && !live.sha;
+  const promotable = forward.check === "live" ? "yes" : certain ? "no" : "unknown";
+  const label = { ...kind, promotable, promotableWhy: forward.checkWhy, productionRelease: live.revision };
+  if (normalizeRelease(live.revision) !== kind.release) {
+    return { ...label, fixes: "", fixesWhy: `production now runs ${live.revision}, not ${kind.release}, so the fixes are not listed` };
+  }
+  if (!live.sha) {
+    return { ...label, fixes: "", fixesWhy: `the deployment ledger names no commit for ${live.revision}, so the fixes cannot be listed` };
+  }
+  try {
+    const { owner, repo } = parseRepo(repository);
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${live.sha}...${commit}`, per_page: 100, request: request2() });
+    if (data?.status !== "ahead") {
+      return { ...label, fixes: "", fixesWhy: `${short(commit)} does not build on ${short(live.sha)}, the commit production runs (GitHub says ${data?.status}), so the fixes are not listed` };
+    }
+    const commits = Array.isArray(data.commits) ? data.commits : [];
+    const count = Number.isInteger(data.total_commits) ? data.total_commits : commits.length;
+    const fixes = fixesLine(commits.map((entry) => entry?.commit?.message), count);
+    return { ...label, fixes, fixesWhy: fixes ? `${count} commit(s) after ${short(live.sha)}` : "GitHub listed no commits" };
+  } catch (error2) {
+    return { ...label, fixes: "", fixesWhy: `GitHub did not list the commits after ${short(live.sha)} (${error2.message})` };
+  }
 }
 async function appWorkflowRuns({ octokit, repository, sha, attempts = 1, delayMs = 15e3, sleep = sleepFor, timeoutMs = 1e4 }) {
   const { owner, repo } = parseRepo(repository);
@@ -24897,7 +24985,7 @@ async function appWorkflowRuns({ octokit, repository, sha, attempts = 1, delayMs
 }
 
 // src/hotfix.js
-var MODES = ["verify", "cut", "report", "release-kind"];
+var MODES = ["verify", "cut", "report", "release-kind", "candidate-kind"];
 function refuse(message, title) {
   process.exitCode = ExitCode.Failure;
   error(oneLine(message), { title });
@@ -25034,6 +25122,36 @@ async function runReleaseKind({ readLedger, request: request2 }) {
   if (result.warning) warning(oneLine(result.warning));
   info(`release kind ${result.kind}: ${oneLine(result.why)}; hotfix check ${result.check}: ${oneLine(result.checkWhy)}`);
 }
+async function runCandidateKind({ readLedger, request: request2 }) {
+  const token = getInput("github-token");
+  let result;
+  const unchecked = { fixes: "", fixesWhy: "not checked", promotable: "", promotableWhy: "not checked", productionRelease: "" };
+  if (!token) {
+    result = { kind: "deploy", why: "no github-token was given, so the candidate was not checked", ...unchecked };
+  } else {
+    try {
+      result = await candidateKind({
+        octokit: getOctokit(token),
+        repository: getInput("repository"),
+        sha: shaFromTags(getInput("image-tags")),
+        project: getInput("project-name"),
+        readLedger,
+        request: request2
+      });
+    } catch (error2) {
+      const why = `could not tell whether this candidate is a hotfix (${oneLine(error2.message)})`;
+      result = { kind: "deploy", why, ...unchecked };
+      warning(`${why}, so the stage message is the ordinary one`, { title: "Hotfix label" });
+    }
+  }
+  setOutput("kind", result.kind);
+  setOutput("branch", result.branch ?? "");
+  setOutput("release", result.release ?? "");
+  setOutput("fixes-mrkdwn", oneLine(result.fixes));
+  setOutput("promotable", result.promotable);
+  setOutput("production-release", oneLine(result.productionRelease));
+  info(`candidate kind ${result.kind}: ${oneLine(result.why)}; fixes: ${oneLine(result.fixesWhy)}; promotable ${result.promotable || "n/a"}: ${oneLine(result.promotableWhy)}`);
+}
 async function run({ env = process.env, readLedger = readProductionLedger, sleep, request: request2 } = {}) {
   const mode = getInput("mode").trim();
   try {
@@ -25046,6 +25164,8 @@ async function run({ env = process.env, readLedger = readProductionLedger, sleep
         return await runReport({ sleep });
       case "release-kind":
         return await runReleaseKind({ readLedger, request: request2 });
+      case "candidate-kind":
+        return await runCandidateKind({ readLedger, request: request2 });
       default:
         setFailed(`unknown mode '${oneLine(mode)}'; expected one of ${MODES.join(", ")}`);
     }
