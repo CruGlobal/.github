@@ -15,7 +15,6 @@ import {
   commitSubject,
   currentProduction,
   cutHotfix,
-  deadlineRequests,
   escapeMrkdwn,
   fixesLine,
   gitIn,
@@ -28,6 +27,7 @@ import {
   releaseKind,
   verifyHotfixRef
 } from '../src/v2/hotfix.js'
+import { deadlineRequests } from '../src/v2/deadline.js'
 import { GitFixture, NEWER_RELEASE, PIPELINE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
 
 // The hotfix logic against real git repositories (see support/git-fixture.js):

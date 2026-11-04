@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import { classifyMigrationFiles } from './v2/rollback-safety'
-import { deadlineRequests } from './v2/hotfix'
+import { deadlineRequests } from './v2/deadline'
 
 // classify-rollback-safety: advisory EXPAND/CONTRACT classification of the
 // migrations added between the release currently in production (base-sha) and
@@ -169,8 +169,7 @@ export async function run ({ timeoutMs = REQUEST_TIMEOUT_MS, deadlineMs = DEADLI
     if (!baseSha) return finish('unclassified', ['no production baseline'])
     if (!headSha) return finish('unclassified', ['no candidate sha to classify'])
 
-    // One deadline for every GitHub read below, the same helper the hotfix
-    // checks use.
+    // One deadline for every GitHub read below.
     const limits = { request: deadlineRequests({ deadlineMs, timeoutMs, now }), deadlineMs }
     const { verdict, reasons } = await classify({ token, repository, baseSha, headSha, migrationsPath, limits })
     return finish(verdict, reasons)
