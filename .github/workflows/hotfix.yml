@@ -18,25 +18,25 @@ name: Hotfix
 #      promote's stale-promote guard does, and refuse unless it is
 #      expected-release.
 #   3. Check the fix's commit is on the default branch's first-parent history
-#      (a commit the default branch itself was at), is not a merge commit and
-#      changes no file under .github/workflows (see src/v2/hotfix.js for why
-#      each of these is refused).
+#      (a commit the default branch itself was at) and is not a merge commit
+#      (see src/v2/hotfix.js for why each of these is refused).
 #   4. Cut hotfix/<release tag> from the commit the ledger records for that
 #      release, or add to the branch when it already exists (an earlier fix
 #      for the same release that has not been promoted yet). The commit comes
 #      from the ledger, not from the release's git tag: promote's GitHub
 #      Release makes that tag, but only best effort, so some releases have
 #      none.
-#   5. Cherry-pick the fix with -x. A conflict stops the run and nothing is
-#      pushed.
+#   5. Cherry-pick the fix with -x. A conflict stops the run, and so does a
+#      pick that changes a file under .github/workflows (see below); nothing
+#      is pushed.
 #   6. Read the ledger again, then push the branch with authz-token. A plain
 #      push, never forced, and only to hotfix/<release tag>. This workflow
 #      never pushes to the default branch and never deletes a branch.
 #   7. Dispatch the app's .github/workflows/pipeline-v2.yml on the branch. It
 #      builds a candidate with build-candidate.yml, whose hotfix check accepts
-#      only a branch this workflow could have cut, and sends it to
-#      release-candidate. It is promoted from there like any candidate, and
-#      its release event says hotfix.
+#      only the live release plus clean cherry-picks of default-branch
+#      commits, and sends it to release-candidate. It is promoted from there
+#      like any candidate, and its release event says hotfix.
 #   8. Say in the run summary whether the app's own CI ran on the branch.
 #      Most apps run CI only on pull requests and the default branch, which is
 #      accepted for now: the fix passed its checks on the default branch.
@@ -63,6 +63,52 @@ name: Hotfix
 # for any other release, and promote refuses (stale_hotfix) a hotfix
 # candidate that was built before production moved. Cut a new hotfix for the
 # new release instead.
+#
+# A fix that changes a workflow file ships by hand. This workflow refuses it
+# (workflow_change), because pushing it needs the workflow scope and
+# authz-token does not get that scope. That includes a fix whose change the
+# merge lands on a workflow file through a rename. It refuses only once it
+# knows the pick applies, so the refusal gives the by-hand steps below, or
+# says the pick conflicts (cherry_pick_conflict), or says a merge driver is in
+# the way (see below). build-candidate does not refuse a workflow fix: it
+# builds a branch a person pushed when every other rule holds, that is, the
+# branch starts at the release's commit and each commit after it is a clean
+# `git cherry-pick -x` of a commit on the default branch. A fix to the app's
+# pipeline-v2.yml can only ship this way, because the hotfix branch builds
+# with the release's own copy of that file. By hand:
+#
+#   1. Create hotfix/<release tag> at the commit production runs for that
+#      release, or check the branch out when it already exists. The
+#      workflow_change refusal names the commit. It is the one the deployment
+#      ledger records for the release, not the release's git tag.
+#   2. git cherry-pick -x each fix from the default branch, in the order they
+#      landed there. Each pick must apply cleanly: a conflict resolved by hand
+#      is not the fix's change, and build-candidate refuses it.
+#   3. Push the branch with a token that has the workflow scope.
+#   4. Run the app's pipeline-v2.yml on the branch, e.g.
+#      gh workflow run pipeline-v2.yml --ref hotfix/<release tag>
+#
+# A workflow file must also merge with git's own merge. When .gitattributes
+# name a merge driver for it (such as union, which keeps the lines of both
+# sides of a conflict), build-candidate refuses the pick, saying the
+# .gitattributes "give" the file a merge attribute and that "a workflow file
+# must merge with git's own merge". This workflow's refusal says the same
+# before anyone picks by hand. The way out: land a commit on the default
+# branch that gives workflow files git's own merge (for example a
+# `.github/workflows/** merge` line after the line that sets the driver),
+# cut that commit onto the hotfix branch with this workflow (it changes no
+# workflow file), then pick the workflow fix on top by hand. If the refused
+# pick is already on the branch, first move the branch back to the commit
+# that pick was made on.
+#
+# The order in step 2 is advice, not a rule: build-candidate checks each pick
+# on its own, so it does not notice picks out of order, a fix picked again
+# after its revert, or a fix the default branch has reverted since.
+#
+# After that, this workflow can add later fixes that change no workflow file
+# to the same branch. Its push carries only its own pick. A run for a fix that
+# already has a cherry-pick on the branch pushes nothing and dispatches the
+# build again, as any re-run does.
 
 on:
   workflow_call:
@@ -108,7 +154,7 @@ on:
           hotfix branch (contents: write) and dispatches the app's
           pipeline-v2.yml (actions: write). It never needs the workflow
           scope: a fix that changes a workflow file is refused before any
-          push.
+          push, and a person ships it by hand (see the top of this file).
     outputs:
       branch:
         description: The hotfix branch, hotfix/<release tag>.
@@ -117,7 +163,7 @@ on:
         description: The hotfix branch's head, the commit the dispatched build builds.
         value: ${{ jobs.hotfix.outputs.head-sha }}
       pushed:
-        description: true when this run pushed the branch, false when the branch already had the fix.
+        description: true when this run pushed the branch, false when the branch already had a cherry-pick of the fix.
         value: ${{ jobs.hotfix.outputs.pushed }}
 
 jobs:
@@ -217,8 +263,9 @@ jobs:
 
       # The app's own pipeline-v2.yml, as it is on the hotfix branch, builds the
       # candidate and sends it to release-candidate. It is dispatched even when
-      # the branch already had the fix: an earlier run may have pushed and then
-      # failed here, and a build of a commit already built reuses its candidate.
+      # the branch already had a cherry-pick of the fix: an earlier run may
+      # have pushed and then failed here, and a build of a commit already built
+      # reuses its candidate.
       # The dispatch action falls back to main when it is given no ref, so an
       # empty branch output must never reach it.
       - name: Build the hotfix branch

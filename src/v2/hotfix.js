@@ -14,14 +14,15 @@ import { spawn } from 'node:child_process'
 //   - hotfix.yml cuts the branch: it checks that production still runs the
 //     release the caller named, cherry-picks the fix onto
 //     hotfix/<release tag>, and pushes the branch (cutHotfix).
-//   - build-candidate.yml refuses to build a hotfix/* branch unless it is one
-//     this pipeline could have cut, for the release production runs now
-//     (verifyHotfixRef). It is defense in depth for the hotfix path, not a
-//     boundary: anyone with write access on an app repo can already build an
-//     image from a workflow of their own on any branch, because the build
-//     identity trusts every ref of the repo. What it stops is the pipeline's
-//     own hotfix path building anything but a live release plus reviewed
-//     fixes, by mistake or by a hand-pushed branch.
+//   - build-candidate.yml refuses to build a hotfix/* branch unless it holds
+//     the release production runs now plus clean cherry-picks of
+//     default-branch commits, the branch hotfix.yml cuts or a person cuts the
+//     same way by hand (verifyHotfixRef). It is defense in depth for the
+//     hotfix path, not a boundary: anyone with write access on an app repo
+//     can already build an image from a workflow of their own on any branch,
+//     because the build identity trusts every ref of the repo. What it stops
+//     is the pipeline's own hotfix path building anything but a live release
+//     plus reviewed fixes, by mistake or by a hand-pushed branch.
 //   - promote.yml tells a hotfix promote from an ordinary one, so the release
 //     event says which it was, and refuses a hotfix candidate that is not for
 //     the release production runs now (hotfixPromoteCheck).
@@ -31,7 +32,8 @@ import { spawn } from 'node:child_process'
 // release (from the deployment ledger, never from a git tag, which anyone
 // with push access can create), and every commit after that one is a clean
 // cherry-pick of a single-parent commit on the default branch's first-parent
-// history that is not in the release already and changes no workflow file.
+// history that is not in the release already. (The cut also refuses a fix
+// that changes a workflow file; build-candidate does not. See the last note.)
 // "Clean cherry-pick" is checked on content, not on the "(cherry picked from
 // commit X)" line, which is only text: applying X's change to the commit's
 // parent must give exactly the commit's tree. That is the same three-way
@@ -57,10 +59,54 @@ import { spawn } from 'node:child_process'
 // of the commits it brought in ships a state nobody reviewed. A hotfix takes
 // the pull request's squash commit.
 //
-// A fix that changes a file under .github/workflows is refused before any
-// push. Pushing one needs the token's workflow scope, and the token is a
-// person's, able to write to every app repo; workflow changes are a person's
-// to ship by hand.
+// The cut refuses a fix that changes a file under .github/workflows, before
+// any push, whether the fix names the file or the merge lands it there
+// through a rename. Pushing one needs the token's workflow scope, and the
+// token is a person's, able to write to every app repo, so it does not get
+// that scope.
+// Such a fix is a person's to ship by hand, and build-candidate's check
+// builds the branch they push: it holds a workflow-changing pick to the same
+// rules as any other (a single-parent commit on the default branch's
+// first-parent history, not in the release, and exactly that commit's
+// change), so a workflow change in a hotfix build is still one a pull request
+// merged. A fix to the app's pipeline workflow itself can only ship this way,
+// because a hotfix branch builds with the release's own copy of that file.
+// By hand, with a token that has the workflow scope:
+//
+//   git switch -c hotfix/<release tag> <the release's commit>
+//       (or check the branch out, when it already exists)
+//   git cherry-pick -x <each fix's commit on the default branch>
+//   git push origin hotfix/<release tag>
+//   then run the app's pipeline-v2.yml on hotfix/<release tag>
+//
+// The release's commit is the one the deployment ledger records for it (the
+// cut's workflow_change refusal names it), not the release's git tag. A pick
+// must apply cleanly: a conflict resolved by hand is not the fix's change,
+// and the check refuses it. A workflow pick must also merge with git's own
+// merge: when the commit it is picked onto names a merge driver for the file
+// in .gitattributes (union, say, which keeps the lines of both sides of a
+// conflict), the check refuses it (merge_driver). The way out is to land a
+// commit on the default branch that gives workflow files git's own merge (a
+// `.github/workflows/** merge` line after the line that sets the driver; a
+// later line wins), cut that commit onto the branch with the hotfix workflow
+// (it changes no workflow file), then pick the workflow fix on top by hand.
+// The cut checks all of this before it gives the by-hand steps, so its
+// workflow_change refusal names whichever applies: the steps, a conflict, or
+// the merge driver and its way out. Once the branch is pushed, the cut can
+// add later fixes to it that change no workflow file; its push carries only
+// its own pick.
+//
+// What the check does not judge: the order of the picks, a source picked
+// again after its revert was picked, or a source the default branch has
+// reverted since. Each pick is checked on its own, so picking in the order
+// the fixes landed is advice to the person, not a rule.
+//
+// A known gap, left alone on purpose: the merge-driver rule covers workflow
+// files only. A merge driver on any other file (a composite action, a script,
+// the app's own code) can still make a conflicting pick look clean. That was
+// true before workflow picks were allowed, and widening the rule would change
+// what every app's hotfix builds accept, which is for the maintainers to
+// decide.
 
 export const LEDGER_URL = 'https://deploys.cru.org/deployments'
 export const PIPELINE_WORKFLOW = 'pipeline-v2.yml'
@@ -91,6 +137,7 @@ export const REASONS = Object.freeze({
   mergeCommit: 'merge_commit',
   alreadyInRelease: 'already_in_release',
   workflowChange: 'workflow_change',
+  mergeDriver: 'merge_driver',
   conflict: 'cherry_pick_conflict',
   branchNotClean: 'branch_not_clean',
   branchMoved: 'branch_moved',
@@ -256,7 +303,7 @@ export function gitIn (cwd) {
       child.stdout.on('data', (chunk) => { stdout += chunk })
       child.stderr.on('data', (chunk) => { stderr += chunk })
       child.on('error', reject)
-      child.on('close', (code) => resolve({ code, stdout, stderr }))
+      child.on('close', (code, signal) => resolve({ code, signal, stdout, stderr }))
     })
   }
 }
@@ -327,15 +374,23 @@ async function treeOf (git, sha) {
 // out: the branch head in build-candidate, the default branch in the hotfix
 // run. Pinning the attributes to the commit being picked onto makes the cut's
 // pre-check, its cherry-pick and build-candidate's check all merge the same
-// way. --attr-source needs git 2.40, the same as merge-tree --merge-base. The
-// newer attr.tree setting is not used as a fallback: a git too old for
-// --attr-source ignores an unknown setting silently, which would leave the
-// attributes unpinned without saying so.
+// way. This needs git 2.43 or later: git 2.40 and older refuse --attr-source
+// (exit 129), and 2.41 and 2.42 accept it but crash in merge-tree with it
+// (measured on builds of each). The newer attr.tree setting is not used as a
+// fallback: a git too old for --attr-source ignores an unknown setting
+// silently, which would leave the attributes unpinned without saying so.
 export const attrSource = (onto) => `--attr-source=${onto}`
 
+// A git that refused --attr-source, or was killed while using it, is too old
+// for the check. Either way the check refuses rather than merging with the
+// checkout's .gitattributes.
 function refuseOldGit (result, what) {
-  if (result.code === 129 || /unknown option/i.test(result.stderr)) {
-    throw new Error(`${what} needs git 2.40 or later (for --attr-source and merge-tree --merge-base), and this runner's git refused the command (${result.stderr.trim().split('\n')[0]}); refusing rather than checking with the checkout's .gitattributes`)
+  const killed = result.code === null && Boolean(result.signal)
+  if (result.code === 129 || /unknown option/i.test(result.stderr) || killed) {
+    const happened = killed
+      ? `this runner's git was killed by ${result.signal}`
+      : `this runner's git refused the command (${result.stderr.trim().split('\n')[0]})`
+    throw new Error(`${what} needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and ${happened}; refusing rather than checking with the checkout's .gitattributes`)
   }
 }
 
@@ -367,6 +422,48 @@ async function workflowFilesChanged (git, sha, parent) {
   return result.stdout.split('\0').filter((file) => file.startsWith(WORKFLOWS_DIR))
 }
 
+// The merge attribute values that mean git's own three-way merge: none at
+// all, `merge` alone, or `merge=text`.
+const OWN_MERGE = new Set(['unspecified', 'set', 'text'])
+
+// The files among `files` whose merge attribute at `onto` names anything but
+// git's own merge, each as { file, driver }. A merge driver changes what a
+// "clean" cherry-pick is: with union, a pick that would conflict keeps the
+// lines of both sides instead, which makes a file no reviewed commit ever
+// had. The attributes are read the way pickTree's merge reads them
+// (--attr-source, from the commit picked onto), so the two always agree.
+// Fails closed: an answer that does not cover every file throws.
+async function mergeDrivers (git, onto, files) {
+  if (files.length === 0) return []
+  const result = await git([attrSource(onto), 'check-attr', '-z', 'merge', '--', ...files])
+  if (result.code !== 0) {
+    refuseOldGit(result, 'checking how a workflow file merges')
+    must(result, `reading the merge attribute of ${files.join(', ')} at ${short(onto)}`)
+  }
+  const fields = result.stdout.split('\0')
+  const seen = new Set()
+  const drivers = []
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    seen.add(fields[i])
+    if (!OWN_MERGE.has(fields[i + 2])) drivers.push({ file: fields[i], driver: fields[i + 2] })
+  }
+  if (files.some((file) => !seen.has(file))) {
+    throw new Error(`git check-attr did not answer for every file (${files.join(', ')}) at ${short(onto)}; refusing rather than guessing how they merge`)
+  }
+  return drivers
+}
+
+const describeDrivers = (drivers) => drivers.map(({ file, driver }) => `${file} (merge attribute: ${driver})`).join(', ')
+
+// The first step out of a merge-driver refusal, shared by the cut's refusal
+// and build-candidate's. A later line in .gitattributes wins, so a
+// `.github/workflows/** merge` line after the one that sets the driver gives
+// every workflow file git's own merge again. Nothing in it changes a workflow
+// file, so the hotfix workflow can cut it.
+export function ownMergeStep (defaultBranch) {
+  return `land a commit on ${defaultBranch} that gives workflow files git's own merge (for example a \`.github/workflows/** merge\` line after the line that sets the driver)`
+}
+
 // The commits in base..head, oldest first, each with its parents.
 async function rangeCommits (git, base, head) {
   const result = must(await git(['rev-list', '--reverse', '--topo-order', '--parents', `${base}..${head}`]), `listing the commits after ${short(base)}`)
@@ -393,11 +490,14 @@ async function remoteBranchTip (git, branch) {
 }
 
 // Check every commit after `base` up to `head` is a clean cherry-pick of a
-// single-parent commit on the default branch's first-parent history, not
-// already in `base`, and changing no workflow file (see the note at the top
-// of the file). Returns [{ sha, source }], oldest first. Throws a
-// HotfixRefusal naming the first commit that is not: already_in_release or
-// workflow_change for those two, branch_not_clean for the rest.
+// single-parent commit on the default branch's first-parent history and not
+// already in `base` (see the note at the top of the file). A pick that
+// changes a workflow file is held to these rules too, and also refused when
+// the commit it was picked onto names a merge driver for that file: only the
+// cut refuses a workflow-changing fix outright, because of what its token may
+// push. Returns [{ sha, source }], oldest first. Throws a HotfixRefusal
+// naming the first commit that is not: already_in_release or merge_driver for
+// those two, branch_not_clean for the rest.
 export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
   const refuse = (message, reason = REASONS.branchNotClean) => { throw new HotfixRefusal(reason, message) }
   if (!(await isAncestor(git, base, head))) {
@@ -427,16 +527,23 @@ export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
     if (sourceParents.length !== 1) {
       refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which is ${sourceParents.length ? 'a merge commit' : 'a root commit'}`)
     }
-    const workflows = await workflowFilesChanged(git, source, sourceParents[0])
-    if (workflows.length > 0) {
-      refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, which changes ${workflows.join(', ')}; a hotfix never changes a workflow file`, REASONS.workflowChange)
-    }
     // A commit that changes nothing ships nothing new. The cut never makes
     // one (it refuses a pick that changes nothing), and the tree check below
     // would pass it when the source's change is already in the code.
     const tree = await treeOf(git, sha)
     if (tree === await treeOf(git, parents[0])) {
       refuse(`${short(sha)} says it was cherry-picked from ${short(source)}, but it changes nothing: that change is already in the code it was picked onto`, REASONS.alreadyInRelease)
+    }
+    // A workflow pick is allowed, so the merge that judges it must be git's
+    // own (see mergeDrivers). Both diffs are read: a rename the merge follows
+    // can land the source's change on a workflow path the source never named.
+    const workflows = [...new Set([
+      ...await workflowFilesChanged(git, source, sourceParents[0]),
+      ...await workflowFilesChanged(git, sha, parents[0])
+    ])]
+    const drivers = await mergeDrivers(git, parents[0], workflows)
+    if (drivers.length > 0) {
+      refuse(`${short(sha)} says it was cherry-picked from ${short(source)} and changes a workflow file, but the .gitattributes of the commit it was picked onto (${short(parents[0])}) give ${describeDrivers(drivers)}. A workflow file must merge with git's own merge: a merge driver such as union can make a conflicting pick look clean by keeping the lines of both sides, a file no reviewed commit had`, REASONS.mergeDriver)
     }
     const pick = await pickTree(git, { parent: sourceParents[0], commit: source, onto: parents[0] })
     if (!pick.clean || pick.tree !== tree) {
@@ -562,8 +669,10 @@ async function pushHotfixBranch (git, { head, branch, defaultBranch }) {
 // in between is caught too.
 //
 // Returns { release, branch, base, commit, head, pushed, alreadyApplied,
-// warnings }. A run whose fix is already on the branch (a re-run, or a second
-// run for the same fix) pushes nothing and returns alreadyApplied.
+// warnings }. A run whose fix already has a cherry-pick on the branch (a
+// re-run, or a second run for the same fix) pushes nothing and returns
+// alreadyApplied. That says the pick is there, not that its change still is:
+// a later pick of a revert can undo it.
 export async function cutHotfix ({ git, project, commit, expectedRelease, readLedger, push = true, committer = COMMITTER }) {
   const expected = normalizeRelease(expectedRelease)
   if (!expected) {
@@ -612,15 +721,17 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
   if (fixParents.length === 0) {
     throw new HotfixRefusal(REASONS.invalidInput, `commit ${short(fix)} is the repository's first commit, so it is not a fix to cherry-pick; refusing to cut a hotfix. Nothing was pushed`)
   }
-  const workflows = await workflowFilesChanged(git, fix, fixParents[0])
-  if (workflows.length > 0) {
-    throw new HotfixRefusal(REASONS.workflowChange, `commit ${short(fix)} changes ${workflows.join(', ')}. A hotfix never changes a workflow file: pushing one needs more access than this workflow's token should have, so a person ships it by hand; refusing to cut a hotfix. Nothing was pushed`)
-  }
-
   // An existing branch is an earlier fix for the same release that has not
-  // been promoted yet. It is only added to when it is still exactly what this
-  // workflow would have cut: someone else's extra commit stops the run, and
-  // the branch is left for a person to look at.
+  // been promoted yet. It is only added to when build-candidate would build
+  // it: someone else's extra commit stops the run, and the branch is left for
+  // a person to look at. A person's clean cherry-pick passes, a
+  // workflow-changing one included; the push below carries only this run's
+  // pick, which changes no workflow file (checked below). This comes before
+  // the workflow check, so a branch that needs a person first says so,
+  // rather than giving by-hand steps that build-candidate would then refuse.
+  // A fix that already has a cherry-pick on the branch is not picked again:
+  // like any re-run, nothing is pushed and the build is dispatched again,
+  // whether or not the fix changes a workflow file.
   let tip = base
   let existing = []
   if (remoteTip) {
@@ -634,6 +745,7 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
   }
 
   const already = existing.find((entry) => entry.source === fix)
+
   let head = tip
   if (!already) {
     const pick = await pickTree(git, { parent: fixParents[0], commit: fix, onto: tip })
@@ -643,6 +755,30 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
     }
     if (pick.tree === await treeOf(git, tip)) {
       throw new HotfixRefusal(REASONS.alreadyInRelease, `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes nothing: the code there already has this change. Nothing was pushed`)
+    }
+    // This workflow's token never gets the workflow scope, so it never pushes
+    // a workflow change. Both diffs are read, as build-candidate reads them: a
+    // rename the merge follows can land a fix that names no workflow file on
+    // a workflow path of the release. The refusal comes only once the pick is
+    // known to apply, and says how a person ships the fix by hand, or, when
+    // the .gitattributes here name a merge driver for the file (which
+    // build-candidate would refuse), what has to land first.
+    const workflows = [...new Set([
+      ...await workflowFilesChanged(git, fix, fixParents[0]),
+      ...await workflowFilesChanged(git, pick.tree, tip)
+    ])]
+    if (workflows.length > 0) {
+      // "Cherry-picking X changes" rather than "X changes": after a rename,
+      // the files the pick changes are not the ones X names.
+      const scope = `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes ${workflows.join(', ')}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get.`
+      const drivers = await mergeDrivers(git, tip, workflows)
+      if (drivers.length > 0) {
+        throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build yet: the .gitattributes on ${remoteTip ? branch : release} give ${describeDrivers(drivers)}, and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, ${ownMergeStep(defaultBranch)}, run this workflow for that commit, then check out ${branch}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, and run the app's ${PIPELINE_WORKFLOW} on ${branch}. Refusing to cut a hotfix. Nothing was pushed`)
+      }
+      const start = remoteTip
+        ? `check out ${branch} (it already exists)`
+        : `create ${branch} at ${base} (the commit production runs for ${release})`
+      throw new HotfixRefusal(REASONS.workflowChange, `${scope} A person ships it by hand: ${start}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, then run the app's ${PIPELINE_WORKFLOW} on ${branch}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`)
     }
     head = await cherryPick(git, { onto: tip, commit: fix, committer })
     if (!head) {

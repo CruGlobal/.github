@@ -83,7 +83,7 @@ outputs:
   pushed:
     description: cut. true when this run pushed the branch.
   already-applied:
-    description: cut. true when the branch already had the fix, so nothing was pushed.
+    description: cut. true when the branch already had a cherry-pick of the fix, so nothing was pushed.
   ci-ran:
     description: report. true, false or unknown.
   kind:

@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   COMMITTER,
+  PIPELINE_PATH,
   REASONS,
   HotfixRefusal,
   appWorkflowRuns,
@@ -15,12 +17,13 @@ import {
   hotfixBranch,
   hotfixPromoteCheck,
   normalizeRelease,
+  pickTree,
   readProductionLedger,
   releaseFromRef,
   releaseKind,
   verifyHotfixRef
 } from '../src/v2/hotfix.js'
-import { NEWER_RELEASE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
+import { GitFixture, NEWER_RELEASE, PIPELINE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
 
 // The hotfix logic against real git repositories (see support/git-fixture.js):
 // cutting the branch the way hotfix.yml does, and the helpers promote and the
@@ -73,6 +76,17 @@ function verify (fx, { ref = BRANCH_REF, sha, rows } = {}) {
 const show = (fx, rev, file) => fx.originGit(['show', `${rev}:${file}`])
 const filesAt = (fx, rev) => fx.originGit(['ls-tree', '-r', '--name-only', rev]).split('\n')
 
+// A repository with no history yet, for the cases standardApp cannot make.
+function emptyApp () {
+  const fx = new GitFixture()
+  fixtures.push(fx)
+  return fx
+}
+
+// Ten numbered lines, with some replaced: { 5: 'main five' }.
+const tenLines = (changes = {}) => Array.from({ length: 10 }, (_, i) => changes[i + 1] ?? `line ${i + 1}`).join('\n') + '\n'
+const CI = '.github/workflows/ci.yml'
+
 describe('release and ref helpers', () => {
   it.each([
     ['release-2026-10-20-10140', 'release-2026-10-20-10140'],
@@ -116,6 +130,32 @@ describe('release and ref helpers', () => {
     await expect(read(new Error('HTTP 503'))).rejects.toMatchObject({ reason: REASONS.ledgerUnavailable, message: 'could not read the deployment ledger for example-app (HTTP 503), so cannot tell' })
     await expect(read([])).rejects.toMatchObject({ reason: REASONS.productionMoved })
     await expect(read([{ Sha: sha }])).rejects.toMatchObject({ reason: REASONS.productionMoved })
+  })
+})
+
+describe('a git too old for --attr-source', () => {
+  const pick = (git) => pickTree(git, { parent: 'a'.repeat(40), commit: 'b'.repeat(40), onto: 'c'.repeat(40) })
+
+  // git 2.40 and older refuse the option outright.
+  it('refuses when git does not know --attr-source', async () => {
+    const git = async () => ({ code: 129, signal: null, stdout: '', stderr: 'unknown option: --attr-source=cccccccc\nusage: git [-v | --version]' })
+    await expect(pick(git)).rejects.toThrow("checking a cherry-pick needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and this runner's git refused the command (unknown option: --attr-source=cccccccc); refusing rather than checking with the checkout's .gitattributes")
+  })
+
+  // git 2.41 and 2.42 take the option, and merge-tree then crashes. A real
+  // git process stands in for one, killed the way a crash ends it.
+  it('refuses when git is killed while using it, and says which signal', async () => {
+    const bin = mkdtempSync(path.join(tmpdir(), 'crashing-git-'))
+    writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nkill -KILL $$\n')
+    chmodSync(path.join(bin, 'git'), 0o755)
+    const pathBefore = process.env.PATH
+    process.env.PATH = `${bin}${path.delimiter}${pathBefore}`
+    try {
+      await expect(pick(gitIn(bin))).rejects.toThrow("checking a cherry-pick needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and this runner's git was killed by SIGKILL; refusing rather than checking with the checkout's .gitattributes")
+    } finally {
+      process.env.PATH = pathBefore
+      rmSync(bin, { recursive: true, force: true })
+    }
   })
 })
 
@@ -336,15 +376,153 @@ describe('cutHotfix', () => {
     expect(fx.refs()).toEqual(before)
   })
 
-  it('refuses a fix that changes a workflow file, before anything is pushed', async () => {
+  it('refuses a fix that changes a workflow file, before anything is pushed, and says how to ship it by hand', async () => {
     const fx = app()
     const ci = fx.commit('fix: ci and line 11', { '.github/workflows/ci.yml': 'on: push\n', 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 66', 8: 'const line8 = 8 + 1', 11: 'const line11 = 0' }) })
     fx.push('main')
     const before = fx.refs()
     const error = await refusal(cut(fx, { commit: ci }))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toMatch(/changes \.github\/workflows\/ci\.yml\. A hotfix never changes a workflow file.*a person ships it by hand/)
+    expect(error.message).toBe(`cherry-picking ${ci.slice(0, 12)} onto ${RELEASE} changes .github/workflows/ci.yml. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get. A person ships it by hand: create ${BRANCH} at ${fx.release} (the commit production runs for ${RELEASE}), run git cherry-pick -x ${ci}, push the branch with a token that has the workflow scope, then run the app's pipeline-v2.yml on ${BRANCH}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`)
     expect(fx.refs()).toEqual(before)
+  })
+
+  it('refuses a workflow-changing fix onto an existing branch too, and says to add it there', async () => {
+    const fx = app()
+    await cut(fx)
+    const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
+    fx.push('main')
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { commit: ci }))
+    expect(error.reason).toBe(REASONS.workflowChange)
+    expect(error.message).toContain(`A person ships it by hand: check out ${BRANCH} (it already exists), run git cherry-pick -x ${ci},`)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('adds a fix to a hotfix branch that holds a workflow-changing cherry-pick a person pushed by hand', async () => {
+    const fx = app()
+    // The person's fix to the app's own pipeline workflow, which this
+    // workflow refuses to push, cherry-picked and pushed by hand.
+    const gated = show(fx, fx.release, '.github/workflows/pipeline-v2.yml').replace('jobs:', 'permissions:\n  contents: read\njobs:') + '\n'
+    const gate = fx.commit('ci: let the build gate pass a hotfix branch', { '.github/workflows/pipeline-v2.yml': gated })
+    fx.push('main')
+    fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
+    fx.git(['cherry-pick', '-x', gate])
+    const handPick = fx.git(['rev-parse', 'HEAD'])
+    fx.push(`hand:${BRANCH_REF}`)
+
+    const { result } = await cut(fx)
+    expect(result).toMatchObject({ pushed: true, alreadyApplied: false, warnings: [] })
+    expect(fx.originGit(['rev-parse', `${result.head}^`])).toBe(handPick)
+    // What this run pushed changes no workflow file, so its token still
+    // needs no workflow scope.
+    expect(fx.originGit(['diff-tree', '-r', '--name-only', '--no-commit-id', handPick, result.head])).toBe('app.js')
+    expect((await verify(fx)).commits.map((c) => c.source)).toEqual([gate, fx.fix])
+  })
+
+  it('says a branch that needs a person is not clean before giving by-hand steps for a workflow-changing fix', async () => {
+    const fx = app()
+    // Following the by-hand steps on this branch would only add to a branch
+    // build-candidate refuses, so the run says what is wrong with it instead.
+    fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
+    fx.commit('quick tweak', { 'app.js': fx.appWith({ 3: 'const line3 = 33', 12: 'const line12 = 0' }) })
+    fx.push(`hand:${BRANCH_REF}`)
+    fx.git(['checkout', '--quiet', 'main'])
+    const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
+    fx.push('main')
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { commit: ci }))
+    expect(error.reason).toBe(REASONS.branchNotClean)
+    expect(error.message).toMatch(/already exists and is not a branch this workflow would cut: .* is not a cherry-pick/)
+    expect(error.message).not.toMatch(/ships it by hand/)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('refuses a fix whose change a rename lands on a workflow file, though the fix names none', async () => {
+    const fx = emptyApp()
+    const WORKFLOW = '.github/workflows/x.yml'
+    // main moved x.yml out of workflows after the release, then fixed it
+    // there. Picked onto the release, the merge follows the move back, so the
+    // pick changes the release's workflow file.
+    fx.commit('initial', { 'app.js': 'a\n', [PIPELINE_PATH]: PIPELINE, [WORKFLOW]: tenLines() })
+    fx.release = fx.commit('feature: line 2', { [WORKFLOW]: tenLines({ 2: 'release two' }) })
+    fx.remove(WORKFLOW)
+    fx.commit('move x out of workflows', { 'old/x.yml': tenLines({ 2: 'release two' }) })
+    const fix = fx.commit('fix: x line 8', { 'old/x.yml': tenLines({ 2: 'release two', 8: 'main eight' }) })
+    fx.push('main')
+    expect(fx.git(['diff-tree', '-r', '--name-only', '--no-commit-id', `${fix}^`, fix])).toBe('old/x.yml')
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { commit: fix }))
+    expect(error.reason).toBe(REASONS.workflowChange)
+    expect(error.message).toMatch(new RegExp(`^cherry-picking ${fix.slice(0, 12)} onto ${RELEASE} changes \\.github/workflows/x\\.yml\\. This workflow never pushes a change to a workflow file`))
+    expect(error.message).toContain('A person ships it by hand: ')
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('says a workflow-changing fix conflicts, rather than giving by-hand steps that would fail', async () => {
+    const fx = app()
+    // main moves the pipeline's build-candidate line twice; the release still
+    // has the first value, so the second move conflicts there.
+    const pin = (ref) => show(fx, fx.release, PIPELINE_PATH).replace('build-candidate.yml@v2', `build-candidate.yml@${ref}`) + '\n'
+    fx.commit('ci: pin build-candidate to v2.15', { [PIPELINE_PATH]: pin('v2.15') })
+    const repin = fx.commit('ci: pin build-candidate to v2.16', { [PIPELINE_PATH]: pin('v2.16') })
+    fx.push('main')
+    const before = fx.refs()
+    const error = await refusal(cut(fx, { commit: repin }))
+    expect(error.reason).toBe(REASONS.conflict)
+    expect(error.message).toMatch(/conflicts in \.github\/workflows\/pipeline-v2\.yml/)
+    expect(error.message).not.toMatch(/by hand/)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  // The release's .gitattributes merge every file with union, so
+  // build-candidate would refuse the workflow fix however it was picked.
+  function unionApp () {
+    const fx = emptyApp()
+    fx.commit('initial', { 'app.js': 'a\n', [PIPELINE_PATH]: PIPELINE, [CI]: tenLines(), '.gitattributes': '* merge=union\n' })
+    fx.release = fx.commit('feature', { 'app.js': 'b\n' })
+    fx.fix = fx.commit('ci: line 9', { [CI]: tenLines({ 9: 'main nine' }) })
+    fx.push('main')
+    return fx
+  }
+
+  it('names the merge driver and the way past it, instead of by-hand steps build-candidate would refuse', async () => {
+    const fx = unionApp()
+    const before = fx.refs()
+    const error = await refusal(cut(fx))
+    expect(error.reason).toBe(REASONS.workflowChange)
+    expect(error.message).toBe(`cherry-picking ${fx.fix.slice(0, 12)} onto ${RELEASE} changes ${CI}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get. Shipping it by hand would not build yet: the .gitattributes on ${RELEASE} give ${CI} (merge attribute: union), and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, land a commit on main that gives workflow files git's own merge (for example a \`.github/workflows/** merge\` line after the line that sets the driver), run this workflow for that commit, then check out ${BRANCH}, run git cherry-pick -x ${fx.fix}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on ${BRANCH}. Refusing to cut a hotfix. Nothing was pushed`)
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('builds once the way past a merge driver is followed', async () => {
+    const fx = unionApp()
+    // The commit the refusal asks for, cut with this workflow...
+    const attributes = fx.commit('chore: workflow files merge with git\'s own merge', { '.gitattributes': '* merge=union\n.github/workflows/** merge\n' })
+    fx.push('main')
+    expect((await cut(fx, { commit: attributes })).result.pushed).toBe(true)
+    // ...then the workflow fix picked on top by hand.
+    fx.git(['fetch', '--quiet', 'origin'])
+    fx.git(['checkout', '--quiet', '-b', 'hand', `origin/${BRANCH}`])
+    fx.git(['cherry-pick', '-x', fx.fix])
+    fx.push(`hand:${BRANCH_REF}`)
+    expect((await verify(fx)).commits.map((c) => c.source)).toEqual([attributes, fx.fix])
+  })
+
+  it('pushes nothing on a run for a workflow-changing fix a person already put on the branch, as on any re-run', async () => {
+    const fx = app()
+    const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
+    fx.push('main')
+    fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
+    fx.git(['cherry-pick', '-x', ci])
+    const handPick = fx.git(['rev-parse', 'HEAD'])
+    fx.push(`hand:${BRANCH_REF}`)
+    const before = fx.refs()
+    const { result, calls } = await cut(fx, { commit: ci })
+    // hotfix.yml dispatches the build again; nothing new is pushed.
+    expect(result).toMatchObject({ branch: BRANCH, commit: ci, head: handPick, pushed: false, alreadyApplied: true, appliedAs: handPick })
+    expect(fx.refs()).toEqual(before)
+    expect(calls).toHaveLength(1)
   })
 
   it('checks the pick with the release\'s .gitattributes, not the checkout\'s', async () => {
