@@ -16,7 +16,7 @@ vi.mock('@actions/core', () => ({
   warning: warningMock
 }))
 
-import { run } from '../src/classify-rollback-safety.js'
+import { run, REQUEST_TIMEOUT_MS, DEADLINE_MS } from '../src/classify-rollback-safety.js'
 
 const output = (name) => setOutputMock.mock.calls.find((c) => c[0] === name)?.[1]
 const verdict = () => output('verdict')
@@ -250,5 +250,91 @@ describe('classify-rollback-safety — classification', () => {
     expect(reasons()[0]).toMatch(/compare API 404/)
     expect(noticeMock).toHaveBeenCalled()
     expect(warningMock).not.toHaveBeenCalled()
+  })
+})
+
+// Promote runs the classifier inside the production lock, so a GitHub read
+// that never answers must end, and end as unclassified, like any other error.
+describe('classify-rollback-safety: time limits', () => {
+  // A request that never answers, until its signal gives up on it.
+  const neverAnswers = (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+  const added = (...names) => compareFiles(names.map((filename) => ({ filename, status: 'added' })))
+
+  it('gives each read a signal, 20 seconds by default', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      const fetchMock = vi.fn(async (url) =>
+        url.includes('/compare/') ? added('drizzle/0001_init.sql') : rawContent('CREATE TABLE users (id int);'))
+      vi.stubGlobal('fetch', fetchMock)
+      await run()
+      expect(verdict()).toBe('safe')
+      expect(REQUEST_TIMEOUT_MS).toBe(20 * 1000)
+      expect(DEADLINE_MS).toBe(90 * 1000)
+      expect(timeout.mock.calls).toEqual([[REQUEST_TIMEOUT_MS], [REQUEST_TIMEOUT_MS]])
+      for (const [, options] of fetchMock.mock.calls) expect(options.signal).toBeInstanceOf(AbortSignal)
+    } finally {
+      timeout.mockRestore()
+    }
+  })
+
+  it('a compare that never answers → unclassified, saying so', async () => {
+    vi.stubGlobal('fetch', vi.fn(neverAnswers))
+    await run({ timeoutMs: 20 })
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['compare API did not answer in time for CruGlobal/example-app aaaa...bbbb'])
+    expect(noticeMock).toHaveBeenCalled()
+    expect(warningMock).not.toHaveBeenCalled()
+  })
+
+  it('a compare whose body never arrives → unclassified', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url, { signal }) => ({ ok: true, status: 200, json: () => neverAnswers(url, { signal }) })))
+    await run({ timeoutMs: 20 })
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['compare API did not answer in time for CruGlobal/example-app aaaa...bbbb'])
+  })
+
+  it('a migration file read that never answers → unclassified, naming the file', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url, options) =>
+      url.includes('/compare/') ? added('drizzle/0001_init.sql') : neverAnswers(url, options)))
+    await run({ timeoutMs: 20 })
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['contents API did not answer in time for drizzle/0001_init.sql'])
+  })
+
+  // Each read answers inside its own limit, but together they take longer
+  // than the deadline. The clock moves 40 seconds a read: the compare and two
+  // files fit in 90 seconds, the third file does not, and is never asked for.
+  it('reads that together pass the deadline → unclassified, with no read after it', async () => {
+    let clock = 0
+    const fetchMock = vi.fn(async (url) => {
+      clock += 40 * 1000
+      return url.includes('/compare/')
+        ? added('drizzle/0001_a.sql', 'drizzle/0002_b.sql', 'drizzle/0003_c.sql')
+        : rawContent('CREATE TABLE users (id int);')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    await run({ now: () => clock })
+    expect(verdict()).toBe('unclassified')
+    expect(reasons()).toEqual(['gave up on the GitHub reads after 90 seconds, before the contents API read for drizzle/0003_c.sql'])
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  // A read near the deadline gets only what is left of it.
+  it('gives a read no more than what is left of the deadline', async () => {
+    let clock = 0
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      vi.stubGlobal('fetch', vi.fn(async (url) => {
+        clock += 80 * 1000
+        return url.includes('/compare/') ? added('drizzle/0001_init.sql') : rawContent('CREATE TABLE users (id int);')
+      }))
+      await run({ now: () => clock })
+      expect(verdict()).toBe('safe')
+      expect(timeout.mock.calls).toEqual([[20 * 1000], [10 * 1000]])
+    } finally {
+      timeout.mockRestore()
+    }
   })
 })

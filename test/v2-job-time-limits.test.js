@@ -3,6 +3,7 @@ import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { root, loadYaml, findStep, runShellStep, removeFakes } from './support/workflow-steps.js'
 import { STEP_CAP_MS } from '../src/v2/rollout-budget.js'
+import { DEADLINE_MS, REQUEST_TIMEOUT_MS } from '../src/classify-rollback-safety.js'
 
 // Every job in the pipeline v2 reusable workflows has a time limit of its
 // own. Without one a job gets GitHub's six-hour default, so a step that hangs
@@ -67,6 +68,10 @@ const allJobs = Object.entries(workflows).flatMap(([file, workflow]) => Object.e
 // The jobs that change an environment: each holds the production lock or the
 // release-candidate lock while it deploys.
 const deployJobs = allJobs.filter(([, , job]) => /^(production|release-candidate)-/.test(job.concurrency?.group ?? ''))
+
+// The step in a deploy job that changes the environment, or for a stage-less
+// candidate, the step that verifies it.
+const changesTheEnvironment = (step) => /^Deploy to /.test(step.name ?? '') || step.name === 'Verify the candidate image'
 
 function isReusable (workflow) {
   // js-yaml reads the `on:` key as a string, but a YAML 1.1 reader makes it
@@ -135,7 +140,6 @@ describe('job time limits', () => {
 // written: a release in production that the ledger does not show.
 describe('steps before the ledger write', () => {
   const LEDGER = 'Record deployment in ledger'
-  const changesTheEnvironment = (step) => /^Deploy to /.test(step.name ?? '') || step.name === 'Verify the candidate image'
 
   // Steps on this list may run without a limit of their own, so the job's
   // limit is their backstop. Neither is allowed to fail, so when either one
@@ -173,6 +177,294 @@ describe('steps before the ledger write', () => {
     // step starts, so the steps before it are not in the sum, and neither are
     // the listed steps, which have no limit. Those took seconds in real runs.
     expect(STEP_CAP_MS + limits * 60 * 1000).toBeLessThan(job['timeout-minutes'] * 60 * 1000)
+  })
+})
+
+// Each curl command in a step's script, with its continued lines joined into
+// one and comments left out. A line that only mentions curl in its text (an
+// error message, say) is not a command.
+function curlCommands (script) {
+  return (script ?? '').replace(/\\\n\s*/g, ' ').split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .filter((line) => /\bcurl\s+-/.test(line))
+}
+
+const curlFlag = (command, name) => {
+  const match = command.match(new RegExp(`--${name} (\\d+)`))
+  return match ? Number(match[1]) : undefined
+}
+
+// The longest a curl command can run: every try out of time, with the wait
+// between tries.
+function curlWorstCaseSeconds (command) {
+  const retries = curlFlag(command, 'retry') ?? 0
+  return (retries + 1) * curlFlag(command, 'max-time') + retries * (curlFlag(command, 'retry-delay') ?? 0)
+}
+
+// The reads that run inside a deploy lock (the job's concurrency group),
+// before the step that changes the environment. Without a limit, a read that
+// never answers holds the lock until the job's own limit, and every promote,
+// rollback or candidate deploy of the app waits behind it. Each read keeps the
+// way it failed before it had a limit: an advisory read lets the job go on,
+// and the stage-less candidate read refuses the promote.
+//
+// A step stopped by its timeout-minutes fails. With continue-on-error the job
+// goes on and failure() stays false, and the outputs it wrote before it was
+// stopped may or may not be there. So an advisory read needs
+// continue-on-error, or its backstop would turn a hang into a failed job.
+describe('reads inside the deploy lock', () => {
+  // [workflow, job, step, step limit in minutes, advisory]
+  const READS = [
+    ['promote.yml', 'promote-gcp', 'Fetch production baseline', 1, true],
+    ['promote.yml', 'promote-gcp', 'Classify rollback safety', 2, true],
+    ['promote.yml', 'promote-aws', 'Resolve candidate from ledger (stage-less)', 2, false],
+    ['promote.yml', 'promote-aws', 'Fetch production baseline', 1, true],
+    ['promote.yml', 'promote-aws', 'Classify rollback safety', 2, true],
+    ['rollback.yml', 'rollback-gcp', 'Rollback-safety advisory', 1, true],
+    ['rollback.yml', 'rollback-aws', 'Rollback-safety advisory', 1, true],
+    ['deploy-candidate.yml', 'deploy-candidate-gcp', 'Check image currently on release-candidate', 5, true],
+    ['deploy-candidate.yml', 'deploy-candidate-aws', 'Check image currently on release-candidate', 5, true],
+    ['deploy-candidate.yml', 'verify-candidate-aws', 'Check digest already verified', 1, true]
+  ]
+  const cases = READS.map(([file, id, name, limit, advisory]) => [`${file}:${id}: ${name}`, file, id, name, limit, advisory])
+
+  it.each(cases)('%s runs inside the lock, before the environment changes', (_key, file, id, name) => {
+    const job = workflows[file].jobs[id]
+    expect(deployJobs.map(([, , deployJob]) => deployJob)).toContain(job)
+    const at = job.steps.findIndex((step) => step.name === name)
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(at).toBeLessThan(job.steps.findIndex(changesTheEnvironment))
+  })
+
+  it.each(cases)('%s has its limit and keeps its failure direction', (key, file, id, name, limit, advisory) => {
+    const { step } = findStep(workflows[file], id, name)
+    expect(step['timeout-minutes'], key).toBe(limit)
+    if (advisory) {
+      expect(step['continue-on-error'], `${key} is advisory, so its limit must not fail the job`).toBe(true)
+    } else {
+      expect(step['continue-on-error'], `${key} must stop the job when it cannot answer`).toBeUndefined()
+    }
+  })
+
+  it.each(cases.filter(([, file, id, name]) => findStep(workflows[file], id, name).step.run))('%s caps each curl inside its step limit', (key, file, id, name, limit) => {
+    const { step } = findStep(workflows[file], id, name)
+    const curls = curlCommands(step.run)
+    expect(curls.length, key).toBeGreaterThan(0)
+    for (const command of curls) {
+      expect(curlFlag(command, 'connect-timeout'), `${key}: ${command}`).toBeGreaterThan(0)
+      expect(curlFlag(command, 'connect-timeout')).toBeLessThan(curlFlag(command, 'max-time'))
+      // Room past the slowest the curl can be, for the runner and jq.
+      expect(curlWorstCaseSeconds(command) + 30, `${key}: ${command}`).toBeLessThanOrEqual(limit * 60)
+    }
+  })
+
+  // The classifier ends its own GitHub reads (src/classify-rollback-safety.js).
+  // Its step limit is only a backstop, so it must sit past the action's
+  // deadline, with room for the read in flight when the deadline comes.
+  it.each(['promote-gcp', 'promote-aws'])('promote.yml:%s gives the classifier more time than its own deadline', (id) => {
+    const { step } = findStep(workflows['promote.yml'], id, 'Classify rollback safety')
+    expect(DEADLINE_MS + REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(step['timeout-minutes'] * 60 * 1000)
+  })
+
+  // The candidate's sha feeds the hotfix check, the classifier and the
+  // GitHub Release. It comes from a step with no network call, kept apart
+  // from the baseline read, so a baseline read cut short by its limit can
+  // only lose the baseline.
+  it.each(['promote-gcp', 'promote-aws'])('promote.yml:%s reads the candidate\'s sha in a step that cannot hang', (id) => {
+    const job = workflows['promote.yml'].jobs[id]
+    const names = job.steps.map((step) => step.name)
+    const pick = findStep(workflows['promote.yml'], id, 'Pick the commits to compare').step
+    expect(pick.id).toBe('baseline')
+    expect(pick.run).not.toMatch(/\b(curl|gh|aws|gcloud)\s/)
+    expect(pick.env.PREV_SHA).toBe('${{ steps.production-baseline.outputs.sha }}')
+    expect(findStep(workflows['promote.yml'], id, 'Fetch production baseline').step.id).toBe('production-baseline')
+    expect(names.indexOf('Pick the commits to compare')).toBe(names.indexOf('Fetch production baseline') + 1)
+    expect(names.indexOf('Pick the commits to compare')).toBeLessThan(names.indexOf('Tell a hotfix from a deploy'))
+  })
+
+  // Wider than the list above: no curl in a deploy job runs without a time
+  // limit before the environment changes, and no read of the deployment
+  // ledger runs without one anywhere in these workflows.
+  it.each(deployJobs.map(([file, id, job]) => [`${file}:${id}`, job]))('%s caps every curl before the environment changes', (key, job) => {
+    const before = job.steps.slice(0, job.steps.findIndex(changesTheEnvironment))
+    for (const step of before) {
+      for (const command of curlCommands(step.run)) expect(command, `${key}: "${step.name}"`).toMatch(/--max-time \d+/)
+    }
+  })
+
+  it('caps every read of the deployment ledger', () => {
+    const reads = allJobs.flatMap(([file, id, job]) => (job.steps ?? []).flatMap((step) => curlCommands(step.run)
+      .filter((command) => command.includes('https://deploys.cru.org/'))
+      .map((command) => [`${file}:${id}: ${step.name}`, command])))
+    expect(reads.length).toBeGreaterThan(0)
+    for (const [key, command] of reads) expect(command, key).toMatch(/--max-time \d+/)
+  })
+})
+
+describe('reads inside the deploy lock, run', () => {
+  const ROW_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+  const HEAD_SHA = 'c0ffee0000000000000000000000000000000001'
+  const DIGEST = 'sha256:' + '0'.repeat(64)
+  const context = {
+    'inputs.project-name': 'example-app',
+    'secrets.datadog-api-key': 'dd-test',
+    "secrets.slack-bot-token != ''": 'true'
+  }
+  const run = (file, id, name, options = {}) => runShellStep(findStep(workflows[file], id, name), { ...options, context: { ...context, ...options.context } })
+  const lines = (result, prefix) => result.stdout.split('\n').filter((line) => line.startsWith(prefix))
+
+  describe.each(['promote-gcp', 'promote-aws'])('promote.yml:%s', (id) => {
+    const baseline = (options) => run('promote.yml', id, 'Fetch production baseline', options)
+    const pick = (prevSha) => run('promote.yml', id, 'Pick the commits to compare', {
+      context: {
+        'steps.resolve.outputs.tags': `candidate-2026-10-21-10150,sha-${HEAD_SHA}`,
+        'steps.production-baseline.outputs.sha': prevSha
+      }
+    })
+
+    it('reads the baseline with a time limit', async () => {
+      const result = await baseline({ ledger: { Items: [{ Sha: ROW_SHA }] } })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ sha: ROW_SHA })
+      expect(lines(result, '::warning')).toEqual([])
+      expect(result.ledgerCalls).toHaveLength(1)
+      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 /)
+    })
+
+    it('leaves the baseline empty, quietly, when production has no row yet', async () => {
+      const result = await baseline({ ledger: { Items: [] } })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ sha: '' })
+      expect(lines(result, '::warning')).toEqual([])
+    })
+
+    it.each([
+      ['runs out of time', { ledgerTimesOut: true }],
+      ['fails', { ledgerFails: true }],
+      ['gets something that is not JSON', { ledger: '<html>bad gateway</html>' }]
+    ])('goes on with an empty baseline, and says why, when the read %s', async (_how, options) => {
+      const result = await baseline(options)
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ sha: '' })
+      expect(lines(result, '::warning')).toEqual([
+        '::warning title=Production baseline::could not read the deployment ledger for example-app (it failed or did not answer within 20 seconds), so the rollback-safety verdict will be unclassified'
+      ])
+    })
+
+    it('passes on the baseline and reads the candidate\'s sha from its tags', async () => {
+      const result = await pick(ROW_SHA)
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ 'prev-sha': ROW_SHA, 'head-sha': HEAD_SHA })
+    })
+
+    // What a baseline step stopped by its limit leaves behind.
+    it('still reads the candidate\'s sha when the baseline step left nothing', async () => {
+      const result = await pick('')
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ 'prev-sha': '', 'head-sha': HEAD_SHA })
+    })
+  })
+
+  describe('promote.yml:promote-aws stage-less candidate', () => {
+    const resolve = (options) => run('promote.yml', 'promote-aws', 'Resolve candidate from ledger (stage-less)', options)
+
+    it('resolves the newest row with a digest, with a time limit on each try', async () => {
+      const result = await resolve({ ledger: { Items: [{ Revision: 'candidate-2026-10-21-10151' }, { Revision: 'candidate-2026-10-21-10150', Digest: DIGEST }] } })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ revision: 'candidate-2026-10-21-10150', digest: DIGEST })
+      expect(result.ledgerCalls).toHaveLength(1)
+      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 /)
+    })
+
+    it('refuses the promote, saying the ledger did not answer in time, when the read runs out of time', async () => {
+      const result = await resolve({ ledgerTimesOut: true })
+      expect(result.status).toBe(1)
+      expect(result.outputs).toEqual({})
+      expect(lines(result, '::error')).toEqual([
+        '::error::the deployment ledger (deploys.cru.org) did not answer in time for example-app. The app is stage-less, so the ledger is the only record of its release candidate; refusing to promote. Nothing in production was changed. Try again once the ledger answers.'
+      ])
+    })
+
+    it('refuses the promote when the read fails', async () => {
+      const result = await resolve({ ledgerFails: true })
+      expect(result.status).toBe(1)
+      expect(result.outputs).toEqual({})
+      expect(lines(result, '::error')).toEqual([
+        '::error::could not read the deployment ledger (deploys.cru.org) for example-app (curl exit 22); the app is stage-less, so the ledger is the only record of its release candidate.'
+      ])
+    })
+
+    it('refuses the promote when the ledger answers with something that is not JSON', async () => {
+      const result = await resolve({ ledger: '<html>bad gateway</html>' })
+      expect(result.status).toBe(1)
+      expect(result.outputs).toEqual({})
+      expect(lines(result, '::error')[0]).toMatch(/returned an unexpected response \(not JSON\)/)
+    })
+
+    it('refuses the promote when no row carries a digest', async () => {
+      const result = await resolve({ ledger: { Items: [{ Revision: 'candidate-2026-10-21-10151' }] } })
+      expect(result.status).toBe(1)
+      expect(result.outputs).toEqual({})
+      expect(lines(result, '::error')[0]).toMatch(/no release-candidate ledger row with a digest for example-app/)
+    })
+  })
+
+  describe.each(['rollback-gcp', 'rollback-aws'])('rollback.yml:%s', (id) => {
+    const advisory = (options) => run('rollback.yml', id, 'Rollback-safety advisory', options)
+
+    it('warns about a release with destructive migrations, read with a time limit', async () => {
+      const result = await advisory({ ledger: { Items: [{ Revision: 'release-2026-10-21-10150', RollbackSafe: 'false', RollbackSafeReasons: '["drizzle/0002_drop.sql: DROP TABLE"]' }] } })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({
+        'previous-revision': 'release-2026-10-21-10150',
+        slack: ':warning: rolling back FROM a release with destructive migrations (drizzle/0002_drop.sql: DROP TABLE); this rollback does NOT revert the schema'
+      })
+      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 /)
+    })
+
+    it('gives the all-clear when the ledger answered and found nothing', async () => {
+      const result = await advisory({ ledger: { Items: [{ Revision: 'release-2026-10-21-10150', RollbackSafe: 'true' }] } })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ 'previous-revision': 'release-2026-10-21-10150', slack: '' })
+      expect(lines(result, '::warning')).toEqual([])
+      expect(lines(result, '::notice')).toEqual(['::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from'])
+    })
+
+    it.each([
+      ['runs out of time', { ledgerTimesOut: true }],
+      ['fails', { ledgerFails: true }],
+      ['gets something that is not JSON', { ledger: '<html>bad gateway</html>' }]
+    ])('goes on, and says nothing was checked, when the read %s', async (_how, options) => {
+      const result = await advisory(options)
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ 'previous-revision': '', slack: '' })
+      expect(lines(result, '::notice')).toEqual([])
+      expect(lines(result, '::warning')).toEqual([
+        '::warning title=Rollback safety::could not read the deployment ledger for example-app (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema'
+      ])
+    })
+  })
+
+  describe('deploy-candidate.yml:verify-candidate-aws', () => {
+    const check = (options) => run('deploy-candidate.yml', 'verify-candidate-aws', 'Check digest already verified', options)
+
+    it('reads the verified digest with a time limit', async () => {
+      const result = await check({ ledger: { Items: [{ Digest: DIGEST }] } })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ digest: DIGEST })
+      expect(result.ledgerCalls[0]).toMatch(/--connect-timeout 10 --max-time 20 /)
+    })
+
+    // An empty digest means "not verified yet": the candidate is verified
+    // again, the safe way round.
+    it.each([
+      ['runs out of time', { ledgerTimesOut: true }],
+      ['fails', { ledgerFails: true }]
+    ])('leaves the digest empty when the read %s', async (_how, options) => {
+      const result = await check(options)
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ digest: '' })
+    })
   })
 })
 
