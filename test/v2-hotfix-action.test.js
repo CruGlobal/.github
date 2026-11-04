@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest'
-import { NEWER_RELEASE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
+import { GitFixture, NEWER_RELEASE, PIPELINE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
 
 // The hotfix action's four modes, through run(): which inputs each reads,
 // what it outputs, and how it fails. @actions/core and @actions/github are
@@ -74,6 +74,20 @@ describe('mode verify (build-candidate)', () => {
     expect(core.notice).toHaveBeenCalledWith(expect.stringContaining('every commit after it is a clean cherry-pick of a main commit'), { title: 'Hotfix build' })
   })
 
+  it('passes a branch a person pushed by hand whose cherry-pick changes a workflow file', async () => {
+    const fx = app()
+    const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
+    fx.push('main')
+    fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
+    fx.git(['cherry-pick', '-x', ci])
+    fx.push(`hand:refs/heads/hotfix/${RELEASE}`)
+    Object.assign(inputs, { mode: 'verify', 'project-name': PROJECT, path: fx.clone(), ref: `refs/heads/hotfix/${RELEASE}`, sha: fx.originGit(['rev-parse', `hotfix/${RELEASE}`]), 'default-branch': 'main' })
+    await run({ readLedger: fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger })
+    expect(errors()).toEqual([])
+    expect(process.exitCode).toBeUndefined()
+    expect(core.notice).toHaveBeenCalledWith(expect.stringContaining(`(from ${ci.slice(0, 12)})`), { title: 'Hotfix build' })
+  })
+
   it('refuses a hand-pushed branch with today\'s default-branch refusal, plus the reason', async () => {
     const fx = app()
     fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
@@ -92,6 +106,33 @@ describe('mode verify (build-candidate)', () => {
     await run({ readLedger: fakeLedger([ledgerRow(RELEASE, 'b'.repeat(40))]).readLedger })
     expect(process.exitCode).toBe(1)
     expect(errors()[0]).toMatchObject({ title: 'Build Candidate', message: expect.stringMatching(/^candidates build from the default branch only -- .*the check could not finish/) })
+  })
+
+  it('ends a merge-driver refusal with the way past it, not the usual advice', async () => {
+    // The release merges every file with union, and a person picked a
+    // workflow fix onto it by hand.
+    const fx = new GitFixture()
+    fixtures.push(fx)
+    const CI = '.github/workflows/ci.yml'
+    fx.commit('initial', { 'app.js': 'a\n', '.github/workflows/pipeline-v2.yml': PIPELINE, [CI]: 'on: pull_request\n', '.gitattributes': '* merge=union\n' })
+    fx.release = fx.commit('feature', { 'app.js': 'b\n' })
+    const ci = fx.commit('ci: run on push', { [CI]: 'on: push\n' })
+    fx.push('main')
+    fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
+    fx.git(['cherry-pick', '-x', ci])
+    fx.push(`hand:refs/heads/hotfix/${RELEASE}`)
+    Object.assign(inputs, { mode: 'verify', 'project-name': PROJECT, path: fx.clone(), ref: `refs/heads/hotfix/${RELEASE}`, sha: fx.originGit(['rev-parse', `hotfix/${RELEASE}`]), 'default-branch': 'main' })
+    await run({ readLedger: fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger })
+    expect(process.exitCode).toBe(1)
+    const [error] = errors()
+    expect(error.title).toBe('Build Candidate')
+    expect(error.message).toMatch(new RegExp(`^candidates build from the default branch only -- refs/heads/hotfix/${RELEASE} is not refs/heads/main, and it is not a hotfix branch this pipeline can build: [0-9a-f]{12} says it was cherry-picked from ${ci.slice(0, 12)} and changes a workflow file, but the \\.gitattributes of the commit it was picked onto \\([0-9a-f]{12}\\) give \\.github/workflows/ci\\.yml \\(merge attribute: union\\)\\. `))
+    expect(error.message.endsWith("To build it, move the branch back to the commit that pick was made on, land a commit on main that gives workflow files git's own merge (for example a `.github/workflows/** merge` line after the line that sets the driver), cut that commit onto the branch with the hotfix workflow, then cherry-pick the fix onto it again by hand.")).toBe(true)
+    expect(error.message).not.toContain('or cut the hotfix branch with the hotfix workflow')
+  })
+
+  it('keeps the usual advice on every other refusal', () => {
+    expect(buildRefusal({ ref: 'refs/heads/hotfix/release-1', defaultBranch: 'main', why: 'x', reason: 'branch_not_clean' })).toMatch(/\. Merge the change to main, then dispatch, or cut the hotfix branch with the hotfix workflow\.$/)
   })
 
   it('keeps the refusal on one line whatever the ref holds', () => {
@@ -127,6 +168,22 @@ describe('mode cut (hotfix.yml)', () => {
     })
     expect(summary.text).toContain(`## Hotfix for ${RELEASE}`)
     expect(summary.text).toContain(`Pushed \`hotfix/${RELEASE}\` at \`${head.slice(0, 12)}\``)
+  })
+
+  it('says a re-run found a cherry-pick of the fix on the branch, not that the fix is still there', async () => {
+    const fx = app()
+    const readLedger = fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger
+    Object.assign(inputs, { mode: 'cut', 'project-name': PROJECT, path: fx.clone(), commit: fx.fix, 'expected-release': RELEASE })
+    await run({ env: authorized, readLedger })
+    const head = fx.originGit(['rev-parse', `hotfix/${RELEASE}`])
+    summary.text = ''
+    core.notice.mockReset()
+    Object.assign(inputs, { path: fx.clone() })
+    await run({ env: authorized, readLedger })
+    expect(errors()).toEqual([])
+    expect(outputs).toMatchObject({ pushed: 'false', 'already-applied': 'true' })
+    expect(core.notice).toHaveBeenCalledWith(`hotfix/${RELEASE} already has a cherry-pick of ${fx.fix.slice(0, 12)} (${head.slice(0, 12)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built`, { title: 'Hotfix branch' })
+    expect(summary.text).toContain(`- \`hotfix/${RELEASE}\` already has a cherry-pick of this fix (\`${head.slice(0, 12)}\`). Nothing new was pushed.`)
   })
 
   it('titles a refusal with its reason word and sets no outputs', async () => {

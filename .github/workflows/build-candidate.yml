@@ -79,10 +79,12 @@ jobs:
       #
       # The one other ref a candidate builds from is a hotfix branch,
       # refs/heads/hotfix/<release tag>, which cru-deploy's hotfix workflow
-      # cuts from the release production runs. Only a ref of exactly that
-      # shape gets past this step, and then only to the stricter check further
-      # down, which refuses with this same message unless the branch is one
-      # that workflow could have cut.
+      # cuts from the release production runs, or a person cuts the same way
+      # by hand for a fix that changes a workflow file. Only a ref of exactly
+      # that shape gets past this step, and then only to the stricter check
+      # further down, which refuses with this same message unless the branch
+      # holds the live release plus clean cherry-picks of default-branch
+      # commits.
       #
       # Both comparisons are made in bash, exactly, and not in an `if:`:
       # expression comparisons ignore case and git refs do not. With an `if:`,
@@ -146,9 +148,17 @@ jobs:
       #     one), and holds at least one fix;
       #   - every commit after it has one parent and names its source X with a
       #     "(cherry picked from commit X)" line; X is on the default branch's
-      #     first-parent history, is not in the release already and changes
-      #     no workflow file; and applying X's change to the commit's parent
-      #     (with the parent's .gitattributes) gives exactly the commit's tree.
+      #     first-parent history and is not in the release already; and
+      #     applying X's change to the commit's parent (with the parent's
+      #     .gitattributes) gives exactly the commit's tree.
+      #
+      # X may change a workflow file. The hotfix workflow refuses to push such
+      # a fix (its token has no workflow scope), so a person cuts that branch
+      # by hand, and it builds when it holds to these same rules, plus one: the
+      # parent's .gitattributes may name no merge driver (such as union) for
+      # the workflow file, so the merge that judges it is git's own. A fix to
+      # the app's pipeline-v2.yml can only ship that way: a hotfix branch
+      # builds with the release's own copy of it.
       #
       # It checks github.sha, the commit the build jobs below check out, not
       # the branch's current tip. Anything that fails is refused with the

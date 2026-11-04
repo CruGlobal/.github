@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { REASONS, HotfixRefusal, gitIn, verifyHotfixRef } from '../src/v2/hotfix.js'
-import { NEWER_RELEASE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
+import { PIPELINE_PATH, REASONS, HotfixRefusal, gitIn, verifyHotfixRef } from '../src/v2/hotfix.js'
+import { GitFixture, NEWER_RELEASE, PIPELINE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
 
 // build-candidate's check of a hotfix ref, against real git repositories
 // (see support/git-fixture.js): a branch this pipeline could have cut, for
@@ -49,6 +49,25 @@ function handBranch (fx, build) {
   fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
   build()
   fx.push(`hand:${BRANCH_REF}`)
+}
+
+// A repository with no history yet, for the cases standardApp cannot make.
+function emptyApp () {
+  const fx = new GitFixture()
+  fixtures.push(fx)
+  return fx
+}
+
+// Ten numbered lines, with some replaced: { 5: 'main five' }.
+const tenLines = (changes = {}) => Array.from({ length: 10 }, (_, i) => changes[i + 1] ?? `line ${i + 1}`).join('\n') + '\n'
+
+// A cherry-pick of `source` onto `onto`, made exactly the way the check
+// judges one (git's merge with the .gitattributes of the commit it goes onto)
+// and committed with a -x line. Throws when that merge conflicts.
+function judgedPick (fx, onto, source) {
+  const tree = fx.git([`--attr-source=${onto}`, 'merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${source}^`, onto, source]).split('\n')[0]
+  const message = fx.git(['log', '-1', '--format=%B', source])
+  return fx.git(['commit-tree', tree, '-p', onto, '-m', `${message}\n\n(cherry picked from commit ${source})`])
 }
 
 describe('verifyHotfixRef (build-candidate\'s check)', () => {
@@ -157,14 +176,141 @@ describe('verifyHotfixRef (build-candidate\'s check)', () => {
     expect(error.message).toMatch(/but it changes nothing: that change is already in the code it was picked onto/)
   })
 
-  it('refuses a cherry-pick that changes a workflow file', async () => {
-    const fx = app()
-    const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
-    fx.push('main')
-    handBranch(fx, () => fx.git(['cherry-pick', '-x', ci]))
-    const error = await refusal(verify(fx))
-    expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toMatch(/changes \.github\/workflows\/ci\.yml; a hotfix never changes a workflow file/)
+  // The hotfix workflow refuses to push a fix that changes a workflow file
+  // (its token has no workflow scope), so a person pushes that branch by hand.
+  // build-candidate holds such a pick to every other rule, and builds it.
+  describe('a cherry-pick that changes a workflow file, pushed by hand', () => {
+    // The app's pipeline workflow with one more line, the kind of change a
+    // gate fix makes.
+    const show = (fx, rev, file) => fx.originGit(['show', `${rev}:${file}`]) + '\n'
+    const gated = (fx) => show(fx, fx.release, PIPELINE_PATH).replace('jobs:', 'permissions:\n  contents: read\njobs:')
+
+    it('accepts it when it is exactly a default-branch commit\'s change', async () => {
+      const fx = app()
+      const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
+      fx.push('main')
+      handBranch(fx, () => fx.git(['cherry-pick', '-x', ci]))
+      const head = fx.originGit(['rev-parse', BRANCH_REF])
+      expect(await verify(fx)).toEqual({ release: RELEASE, base: fx.release, commits: [{ sha: head, source: ci }] })
+    })
+
+    it('accepts a fix to the app\'s own pipeline workflow, with a code fix picked after it', async () => {
+      const fx = app()
+      const gate = fx.commit('ci: let the build gate pass a hotfix branch', { [PIPELINE_PATH]: gated(fx) })
+      const code = fx.commit('fix: line 11', { 'app.js': fx.appWith({ 3: 'const line3 = 33', 6: 'const line6 = 66', 8: 'const line8 = 8 + 1', 11: 'const line11 = 0' }) })
+      fx.push('main')
+      handBranch(fx, () => {
+        fx.git(['cherry-pick', '-x', gate])
+        fx.git(['cherry-pick', '-x', code])
+      })
+      const verified = await verify(fx)
+      expect(verified.commits.map((c) => c.source)).toEqual([gate, code])
+      // The branch builds with the gate fix in its copy of the pipeline.
+      expect(show(fx, BRANCH_REF, PIPELINE_PATH)).toContain('permissions:\n  contents: read\n')
+    })
+
+    it('refuses one that names a reviewed workflow change but makes a different one', async () => {
+      const fx = app()
+      const gate = fx.commit('ci: let the build gate pass a hotfix branch', { [PIPELINE_PATH]: gated(fx) })
+      fx.push('main')
+      // The message names the reviewed commit; the change also drops the
+      // build-candidate call.
+      handBranch(fx, () => fx.commit(`ci: let the build gate pass a hotfix branch\n\n(cherry picked from commit ${gate})`, {
+        [PIPELINE_PATH]: gated(fx).replace(/ {4}uses: .*\n/, '    runs-on: ubuntu-latest\n')
+      }))
+      const error = await refusal(verify(fx))
+      expect(error.reason).toBe(REASONS.branchNotClean)
+      expect(error.message).toMatch(/but its change is not exactly .*'s change/)
+    })
+
+    it('refuses one picked from a commit that is not on the default branch', async () => {
+      const fx = app()
+      fx.git(['checkout', '--quiet', '-b', 'feature', fx.release])
+      const unreviewed = fx.commit('ci: unreviewed', { '.github/workflows/ci.yml': 'on: push\n' })
+      fx.push('feature')
+      handBranch(fx, () => fx.git(['cherry-pick', '-x', unreviewed]))
+      const error = await refusal(verify(fx))
+      expect(error.reason).toBe(REASONS.branchNotClean)
+      expect(error.message).toMatch(/which is not on the default branch's first-parent history/)
+    })
+
+    it('refuses one that only applies through a union merge driver an earlier pick brought in', async () => {
+      const fx = app()
+      // main moves the pipeline's build-candidate line, turns on union merges,
+      // then moves the same line again. On the release that last change
+      // conflicts; with union it "applies" by keeping both lines.
+      const pin = (ref) => show(fx, fx.release, PIPELINE_PATH).replace('build-candidate.yml@v2', `build-candidate.yml@${ref}`)
+      fx.commit('ci: pin build-candidate to v2.15', { [PIPELINE_PATH]: pin('v2.15') })
+      const union = fx.commit('chore: merge everything with union', { '.gitattributes': '* merge=union\n' })
+      const repin = fx.commit('ci: pin build-candidate to v2.16', { [PIPELINE_PATH]: pin('v2.16') })
+      fx.push('main')
+      handBranch(fx, () => {
+        fx.git(['cherry-pick', '-x', union])
+        fx.git(['cherry-pick', '-x', repin])
+      })
+      // The pipeline on the branch is one no reviewed commit ever had.
+      expect(show(fx, BRANCH_REF, PIPELINE_PATH)).toMatch(/@v2\n[\s\S]*@v2\.16\n|@v2\.16\n[\s\S]*@v2\n/)
+      const error = await refusal(verify(fx))
+      expect(error.reason).toBe(REASONS.mergeDriver)
+      expect(error.message).toMatch(/and changes a workflow file, but the \.gitattributes of the commit it was picked onto \([0-9a-f]{12}\) give \.github\/workflows\/pipeline-v2\.yml \(merge attribute: union\)\. A workflow file must merge with git's own merge/)
+    })
+
+    it('accepts one when .gitattributes name git\'s own merge for the workflow file, whatever they say about other files', async () => {
+      const fx = app()
+      const attributes = fx.commit('chore: union merges, except workflows', { '.gitattributes': '* merge=union\n.github/workflows/*.yml merge\n' })
+      const ci = fx.commit('ci: tweak', { '.github/workflows/ci.yml': 'on: push\n' })
+      fx.push('main')
+      handBranch(fx, () => {
+        fx.git(['cherry-pick', '-x', attributes])
+        fx.git(['cherry-pick', '-x', ci])
+      })
+      expect((await verify(fx)).commits.map((c) => c.source)).toEqual([attributes, ci])
+    })
+
+    it('refuses a merge-driver pick even when its source names no workflow file, because a rename lands it on one', async () => {
+      const fx = emptyApp()
+      const WORKFLOW = '.github/workflows/x.yml'
+      // The release has x.yml under workflows, with union merges for workflow
+      // files. main moved x.yml out of workflows and then fixed it there. The
+      // merge follows the move back onto the release's workflow path, and
+      // union makes the conflict on line 5 "apply".
+      const initial = fx.commit('initial', { 'app.js': 'a\n', [PIPELINE_PATH]: PIPELINE, [WORKFLOW]: tenLines(), '.gitattributes': '.github/workflows/* merge=union\n' })
+      fx.git(['checkout', '--quiet', '-b', 'released', initial])
+      fx.release = fx.commit('feature: line 5', { [WORKFLOW]: tenLines({ 5: 'release five' }) })
+      fx.git(['checkout', '--quiet', 'main'])
+      fx.remove(WORKFLOW)
+      fx.commit('move x out of workflows', { 'old/x.yml': tenLines() })
+      const fix = fx.commit('fix: x line 5', { 'old/x.yml': tenLines({ 5: 'main five' }) })
+      fx.push('main', 'released')
+      expect(fx.git(['diff-tree', '-r', '--name-only', '--no-commit-id', `${fix}^`, fix])).toBe('old/x.yml')
+      fx.push(`${judgedPick(fx, fx.release, fix)}:${BRANCH_REF}`)
+      expect(show(fx, BRANCH_REF, WORKFLOW)).toMatch(/release five\nmain five\n|main five\nrelease five\n/)
+      const error = await refusal(verify(fx))
+      expect(error.reason).toBe(REASONS.mergeDriver)
+      expect(error.message).toContain(`give ${WORKFLOW} (merge attribute: union)`)
+    })
+
+    it('reads the merge attribute from the commit a pick was made on, not from the checkout', async () => {
+      const fx = emptyApp()
+      const CI = '.github/workflows/ci.yml'
+      // Pick 1 turns union on, pick 2 is a workflow fix that applies only
+      // through union, pick 3 turns union off again. The branch's head, and
+      // the checkout, have no union; the commit pick 2 was made on does.
+      fx.commit('initial', { 'app.js': 'a\n', [PIPELINE_PATH]: PIPELINE, [CI]: tenLines() })
+      fx.release = fx.commit('feature', { 'app.js': 'b\n' })
+      fx.commit('ci: line 5 A', { [CI]: tenLines({ 5: 'main five A' }) })
+      const on = fx.commit('chore: union merges', { '.gitattributes': '* merge=union\n' })
+      const b = fx.commit('ci: line 5 B', { [CI]: tenLines({ 5: 'main five B' }) })
+      fx.remove('.gitattributes')
+      const off = fx.commit('Revert "chore: union merges"')
+      fx.push('main')
+      const pick3 = judgedPick(fx, judgedPick(fx, judgedPick(fx, fx.release, on), b), off)
+      fx.push(`${pick3}:${BRANCH_REF}`)
+      expect(fx.originGit(['ls-tree', '--name-only', pick3])).not.toContain('.gitattributes')
+      const error = await refusal(verify(fx))
+      expect(error.reason).toBe(REASONS.mergeDriver)
+      expect(error.message).toContain(`give ${CI} (merge attribute: union)`)
+    })
   })
 
   it('merges with the parent commit\'s .gitattributes, not the checkout\'s', async () => {

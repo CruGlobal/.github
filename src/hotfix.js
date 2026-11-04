@@ -6,12 +6,14 @@ import { shaFromTags } from './flightdeck-release-event.js'
 import {
   HotfixRefusal,
   PIPELINE_WORKFLOW,
+  REASONS,
   appWorkflowRuns,
   candidateKind,
   cutHotfix,
   gitIn,
   hotfixPromoteCheck,
   oneLine,
+  ownMergeStep,
   readProductionLedger,
   short,
   verifyHotfixRef
@@ -21,8 +23,9 @@ import {
 // and the reasons behind it are in src/v2/hotfix.js.
 //
 //   verify        build-candidate.yml, on a hotfix ref: refuse the build
-//                 unless the branch is one this pipeline could have cut, for
-//                 the release production runs now.
+//                 unless the branch holds the release production runs now
+//                 plus clean cherry-picks of default-branch commits, whether
+//                 the cut made them or a person did by hand.
 //   cut           hotfix.yml: cut or extend hotfix/<release>, cherry-pick the
 //                 fix and push the branch. Refuses unless the authorize-actor
 //                 check passed earlier in the same job, because the push is
@@ -66,9 +69,16 @@ async function writeSummary (lines) {
 const repoPath = (input) => path.resolve(process.env.GITHUB_WORKSPACE || '.', input || '.')
 
 // build-candidate's refusal for every ref but the default branch, kept word
-// for word, with the reason this hotfix branch does not pass added.
-export function buildRefusal ({ ref, defaultBranch, why }) {
-  return `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}. Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`
+// for word, with the reason this hotfix branch does not pass added. A
+// merge-driver refusal ends with its own way out instead of the usual advice:
+// the hotfix workflow refuses a workflow fix, so "cut the hotfix branch with
+// the hotfix workflow" would send the person in a circle.
+export function buildRefusal ({ ref, defaultBranch, why, reason = '' }) {
+  const opening = `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}.`
+  if (reason === REASONS.mergeDriver) {
+    return `${opening} To build it, move the branch back to the commit that pick was made on, ${ownMergeStep(oneLine(defaultBranch))}, cut that commit onto the branch with the hotfix workflow, then cherry-pick the fix onto it again by hand.`
+  }
+  return `${opening} Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`
 }
 
 async function runVerify ({ readLedger }) {
@@ -86,8 +96,9 @@ async function runVerify ({ readLedger }) {
     const picks = commits.map(({ sha, source }) => `${short(sha)} (from ${short(source)})`).join(', ')
     core.notice(`${ref.replace(/^refs\/heads\//, '')} starts at ${short(base)}, the commit production ran for ${release}, and every commit after it is a clean cherry-pick of a ${defaultBranch} commit${commits.length ? `: ${picks}` : ' (there are none yet)'}`, { title: 'Hotfix build' })
   } catch (error) {
-    const why = error instanceof HotfixRefusal ? error.message : `the check could not finish (${error.message})`
-    refuse(buildRefusal({ ref, defaultBranch, why }), 'Build Candidate')
+    const refusal = error instanceof HotfixRefusal
+    const why = refusal ? error.message : `the check could not finish (${error.message})`
+    refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error.reason : '' }), 'Build Candidate')
   }
 }
 
@@ -116,8 +127,10 @@ async function runCut ({ env, readLedger }) {
     core.setOutput('already-applied', String(result.alreadyApplied))
     for (const warning of result.warnings) core.warning(warning, { title: 'Hotfix build may not run' })
 
+    // "Already has a cherry-pick of" is what the run knows: the pick is on
+    // the branch. A later pick of a revert could have undone its change.
     const what = result.alreadyApplied
-      ? `${result.branch} already has ${short(result.commit)} (as ${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built`
+      ? `${result.branch} already has a cherry-pick of ${short(result.commit)} (${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built`
       : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch`
     core.notice(what, { title: 'Hotfix branch' })
     await writeSummary([
@@ -126,7 +139,7 @@ async function runCut ({ env, readLedger }) {
       `- Production runs \`${result.release}\`, commit \`${short(result.base)}\`. The hotfix branch starts there, not at the tip of \`${result.defaultBranch}\`.`,
       `- Fix: \`${short(result.commit)}\` from \`${result.defaultBranch}\`, cherry-picked with \`-x\`.`,
       result.alreadyApplied
-        ? `- \`${result.branch}\` already had this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.`
+        ? `- \`${result.branch}\` already has a cherry-pick of this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.`
         : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`.`,
       ...result.warnings.map((warning) => `- :warning: ${warning}`)
     ])
