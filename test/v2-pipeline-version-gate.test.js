@@ -21,7 +21,10 @@ const SITES = [
 ]
 
 const lookupOf = (site) => findStep(loadYaml(`.github/workflows/${site.file}`), site.job, site.step)
-const lookup = (site, item) => runShellStep(lookupOf(site), { context: { 'inputs.project-name': 'example-app' }, aws: { Item: item } })
+// The production step of promote compares its row with the release-candidate
+// step's Bucket and DistributionId, which are empty for a non-static app.
+const CONTEXT = { 'inputs.project-name': 'example-app', 'steps.app-info-rc.outputs.bucket': '', 'steps.app-info-rc.outputs.distribution-id': '' }
+const lookup = (site, item) => runShellStep(lookupOf(site), { context: CONTEXT, aws: { Item: item } })
 
 const staticRow = { Provider: { S: 'aws' }, Type: { S: 'static' }, FlightdeckProject: { S: 'EXAMPLE' }, SlackChannel: { S: 'C0TESTCHANNEL' } }
 const amplifyRow = { ...staticRow, Type: { S: 'amplify' } }
@@ -90,7 +93,7 @@ describe.each([
 
 describe('promote with no release-candidate row', () => {
   it('says the app may be one that deploys itself, not only that the row is missing', async () => {
-    const result = await runShellStep(lookupOf(SITES[0]), { context: { 'inputs.project-name': 'example-app' }, aws: {} })
+    const result = await runShellStep(lookupOf(SITES[0]), { context: CONTEXT, aws: {} })
     expect(result.status).not.toBe(0)
     expect(result.stdout).toContain("no CruApplicationInfo row for project 'example-app' environment 'staging'")
     expect(result.stdout).toContain('An app with no app module deploys itself and cannot be promoted here.')

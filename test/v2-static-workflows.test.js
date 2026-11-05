@@ -156,3 +156,120 @@ describe('build-candidate', () => {
     expect(jobs['notify-failure'].needs).toContain('build-ecs')
   })
 })
+
+// The lookups that route on type refuse a gcp row typed anything but
+// cloudrun, so a static row with the wrong provider fails loudly instead of
+// being deployed as a Cloud Run service. The Cloud Run module always writes
+// Type "cloudrun", so its rows pass as before.
+describe('a gcp row must be typed cloudrun', () => {
+  const LOOKUPS = [
+    ['deploy-candidate.yml', 'lookup', 'Look up app info', 'staging'],
+    ['promote.yml', 'lookup', 'Look up app info (release-candidate)', 'staging'],
+    ['rollback.yml', 'lookup', 'Look up app info (production)', 'production']
+  ]
+  const gcpRow = type => ({
+    Provider: { S: 'gcp' }, Type: { S: type }, PipelineVersion: { S: '2' }, ProjectId: { S: 'example-app-stage-0000' }, FlightdeckProject: { S: 'EXAMPLE' }
+  })
+  const run = (file, job, name, item) => runShellStep(findStep(workflows[file], job, name), {
+    context: { 'inputs.project-name': 'example-app' },
+    aws: { Item: item }
+  })
+
+  describe.each(LOOKUPS)('%s %s', (file, job, name, legacy) => {
+    it.each(['static', 'ecs', ''])('refuses a gcp row of type %j, before anything else', async (type) => {
+      const result = await run(file, job, name, gcpRow(type))
+      expect(result.status).not.toBe(0)
+      expect(result.stdout).toContain(
+        `::error::example-app's CruApplicationInfo row for '${legacy}' has provider 'gcp' and type '${type}', but pipeline v2 deploys only type 'cloudrun' on gcp. Nothing was changed.`
+      )
+      expect(result.outputs).toEqual({})
+    })
+
+    it('lets a Cloud Run row through, as before', async () => {
+      const result = await run(file, job, name, gcpRow('cloudrun'))
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs.provider).toBe('gcp')
+    })
+
+    it('lets an aws static row through', async () => {
+      const result = await run(file, job, name, { ...gcpRow('static'), Provider: { S: 'aws' } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+    })
+  })
+})
+
+// A static site's release candidate and production must be two sites: with one
+// bucket, every stage deploy would change production, and promote would read
+// production's own release as the candidate.
+describe('one bucket for stage and production', () => {
+  const site = (bucket, distribution) => ({
+    Provider: { S: 'aws' }, Type: { S: 'static' }, PipelineVersion: { S: '2' }, ProjectId: { S: '' },
+    Bucket: { S: bucket }, DistributionId: { S: distribution }
+  })
+
+  describe('promote', () => {
+    const production = (item, rc) => runShellStep(findStep(workflows['promote.yml'], 'lookup', 'Look up app info (production)'), {
+      context: {
+        'inputs.project-name': 'example-app',
+        'steps.app-info-rc.outputs.bucket': rc.bucket,
+        'steps.app-info-rc.outputs.distribution-id': rc.distribution
+      },
+      aws: { Item: item }
+    })
+
+    it('passes the release-candidate row\'s bucket and distribution on, on one line each', async () => {
+      const result = await runShellStep(findStep(workflows['promote.yml'], 'lookup', 'Look up app info (release-candidate)'), {
+        context: { 'inputs.project-name': 'example-app' },
+        aws: { Item: site('example-site-stage\n::notice::x', 'E000STAGE000') }
+      })
+      expect(result.status, result.stdout).toBe(0)
+      expect(result.outputs.bucket).toBe('example-site-stage ::notice::x')
+      expect(result.outputs['distribution-id']).toBe('E000STAGE000')
+    })
+
+    it.each([
+      ['Bucket', site('example-site', 'E000PROD000'), { bucket: 'example-site', distribution: 'E000STAGE000' }],
+      ['DistributionId', site('example-site-prod', 'E000SHARED00'), { bucket: 'example-site-stage', distribution: 'E000SHARED00' }]
+    ])('refuses rows that share a %s, before anything changes', async (attribute, item, rc) => {
+      const result = await production(item, rc)
+      expect(result.status).not.toBe(0)
+      expect(result.stdout).toContain(`::error::example-app's CruApplicationInfo rows for 'staging' and 'production' both name ${attribute} '`)
+      expect(result.stdout).toContain('must be separate sites')
+      expect(result.outputs).toEqual({})
+    })
+
+    it.each([
+      ['two sites', site('example-site-prod', 'E000PROD000'), { bucket: 'example-site-stage', distribution: 'E000STAGE000' }],
+      ['an app that is not a static site', { ...site('', ''), Type: { S: 'ecs' } }, { bucket: '', distribution: '' }]
+    ])('lets %s through', async (_label, item, rc) => {
+      const result = await production(item, rc)
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+    })
+  })
+
+  describe('deploy-candidate', () => {
+    const lookup = awsByEnvironment => runShellStep(findStep(workflows['deploy-candidate.yml'], 'lookup', 'Look up app info'), {
+      context: { 'inputs.project-name': 'example-app' },
+      awsByEnvironment
+    })
+
+    it.each([
+      ['Bucket', site('example-site', 'E000STAGE000'), site('example-site', 'E000PROD000')],
+      ['DistributionId', site('example-site-stage', 'E000SHARED00'), site('example-site-prod', 'E000SHARED00')]
+    ])('refuses a static site whose production row shares its %s', async (attribute, staging, production) => {
+      const result = await lookup({ staging: { Item: staging }, production: { Item: production } })
+      expect(result.status).not.toBe(0)
+      expect(result.stdout).toContain(`both name ${attribute} '`)
+      expect(result.outputs).toEqual({})
+    })
+
+    it.each([
+      ['two sites', { Item: site('example-site-prod', 'E000PROD000') }],
+      ['no production row yet (a pre-release site)', {}]
+    ])('lets a static site with %s through', async (_label, production) => {
+      const result = await lookup({ staging: { Item: site('example-site-stage', 'E000STAGE000') }, production })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs.type).toBe('static')
+    })
+  })
+})

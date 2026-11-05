@@ -170,6 +170,14 @@ jobs:
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
           esac
+          # The gcp jobs deploy Cloud Run and nothing else, so a gcp row typed
+          # anything but cloudrun (a static site, say) stops here instead of
+          # being deployed as a Cloud Run service. The Cloud Run app module
+          # always writes Type "cloudrun", so its rows pass.
+          if [ "$provider" = gcp ] && [ "$type" != cloudrun ]; then
+            echo "::error::$PROJECT_NAME's CruApplicationInfo row for '$legacy_env' has provider 'gcp' and type '${type//[$'\r\n']/ }', but pipeline v2 deploys only type 'cloudrun' on gcp. Nothing was changed."
+            exit 1
+          fi
           # Validate the RC gate here, in the one job that reads app-info, so a
           # misconfigured app fails before any credential is assumed rather than
           # silently falling through to "no job matched" (a green, no-op run).
@@ -194,6 +202,30 @@ jobs:
               ;;
             *) echo "::error::unsupported RcMode '$rc_mode' for $PROJECT_NAME (expected deploy or verify)"; exit 1 ;;
           esac
+          # A static site's stage and production must be two sites. If both
+          # rows name one bucket, or one CloudFront distribution, every stage
+          # deploy would change production, and promote would read production's
+          # own release as the candidate. Refused before anything changes.
+          same_site() {
+            echo "::error::$PROJECT_NAME's CruApplicationInfo rows for 'staging' and 'production' both name $1 '${2//[$'\r\n']/ }'. A static site's release candidate and production must be separate sites, so each needs its own bucket and distribution. Nothing was changed."
+            exit 1
+          }
+          # Only a static row names a bucket, so only a static site reads the
+          # production row here: one more read, and no production row (a
+          # pre-release site) is fine.
+          if [ "$type" = static ]; then
+            prod_item=$(aws dynamodb get-item --region us-east-1 --output json \
+              --table-name CruApplicationInfo \
+              --key "$(jq -n --arg project "$PROJECT_NAME" '{Project: {S: $project}, Environment: {S: "production"}}')" \
+              | jq -c '.Item // empty')
+            if [ -n "$prod_item" ]; then
+              for attribute in Bucket DistributionId; do
+                ours=$(echo "$item" | jq -r --arg a "$attribute" '.[$a].S // empty')
+                theirs=$(echo "$prod_item" | jq -r --arg a "$attribute" '.[$a].S // empty')
+                if [ -n "$ours" ] && [ "$ours" = "$theirs" ]; then same_site "$attribute" "$ours"; fi
+              done
+            fi
+          fi
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"

@@ -191,6 +191,14 @@ jobs:
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
           esac
+          # The gcp jobs deploy Cloud Run and nothing else, so a gcp row typed
+          # anything but cloudrun (a static site, say) stops here instead of
+          # being deployed as a Cloud Run service. The Cloud Run app module
+          # always writes Type "cloudrun", so its rows pass.
+          if [ "$provider" = gcp ] && [ "$type" != cloudrun ]; then
+            echo "::error::$PROJECT_NAME's CruApplicationInfo row for '$legacy_env' has provider 'gcp' and type '${type//[$'\r\n']/ }', but pipeline v2 deploys only type 'cloudrun' on gcp. Nothing was changed."
+            exit 1
+          fi
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"

@@ -71,6 +71,8 @@ esac
 const FAKE_AWS = `#!/bin/bash
 # Fake aws: records the table and item a dynamodb put-item writes (the ledger
 # row), and answers every other call (the app-info get-item) with FAKE_AWS.
+# With FAKE_AWS_BY_ENVIRONMENT set, a get-item is answered by the Environment
+# in its --key instead, so a step that reads two rows gets two answers.
 if [ "$1" = dynamodb ] && [ "$2" = put-item ]; then
   shift 2
   while [ $# -gt 0 ]; do
@@ -80,6 +82,18 @@ if [ "$1" = dynamodb ] && [ "$2" = put-item ]; then
       *) shift ;;
     esac
   done
+  exit 0
+fi
+if [ "$1" = dynamodb ] && [ "$2" = get-item ] && [ -n "$FAKE_AWS_BY_ENVIRONMENT" ]; then
+  key=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --key) key="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  environment=$(printf '%s' "$key" | jq -r '.Environment.S')
+  printf '%s' "$FAKE_AWS_BY_ENVIRONMENT" | jq -c --arg e "$environment" '.[$e] // {}'
   exit 0
 fi
 printf '%s' "$FAKE_AWS"
@@ -160,13 +174,15 @@ function readOutputs (file) {
 // the step env and the script. `ledger` is what a deploys.cru.org read
 // answers (an object is sent as JSON, a string as it is), `ledgerFails` makes
 // that read fail the way curl -f does on an HTTP error, and `aws` is what an
-// aws call prints. `ghCompare` is what a `gh api .../compare/...` read
+// aws call prints. `awsByEnvironment`, when given, answers each app-info
+// get-item by its key's Environment instead (a missing one answers {}).
+// `ghCompare` is what a `gh api .../compare/...` read
 // answers, and `ghCompareFails` makes it fail. Resolves to the exit status,
 // the output, the step's outputs, the variables it set for later steps
 // ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API, the
 // path a comparison asked for, and the table and item a DynamoDB put-item
 // wrote (each null when nothing was).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, aws = {}, ghCompare = {}, ghCompareFails = false, runnerEnv = {} }) {
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, aws = {}, awsByEnvironment = null, ghCompare = {}, ghCompareFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -191,6 +207,7 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       FAKE_LEDGER: typeof ledger === 'string' ? ledger : JSON.stringify(ledger),
       FAKE_LEDGER_FAILS: ledgerFails ? '1' : '',
       FAKE_AWS: JSON.stringify(aws),
+      FAKE_AWS_BY_ENVIRONMENT: awsByEnvironment ? JSON.stringify(awsByEnvironment) : '',
       FAKE_GH_COMPARE: JSON.stringify(ghCompare),
       FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : ''
     }

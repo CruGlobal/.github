@@ -267,6 +267,14 @@ jobs:
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
           esac
+          # The gcp jobs deploy Cloud Run and nothing else, so a gcp row typed
+          # anything but cloudrun (a static site, say) stops here instead of
+          # being deployed as a Cloud Run service. The Cloud Run app module
+          # always writes Type "cloudrun", so its rows pass.
+          if [ "$provider" = gcp ] && [ "$type" != cloudrun ]; then
+            echo "::error::$PROJECT_NAME's CruApplicationInfo row for '$legacy_env' has provider 'gcp' and type '${type//[$'\r\n']/ }', but pipeline v2 deploys only type 'cloudrun' on gcp. Nothing was changed."
+            exit 1
+          fi
           # Validate the gate here, in the one job that reads app-info and the
           # one that always runs, so a misconfigured app fails before anything
           # touches production — same placement and reasoning as
@@ -291,6 +299,10 @@ jobs:
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
+          # For the production step, which refuses a static site whose two rows
+          # name one site. One line each, whatever the row holds.
+          echo "bucket=$(echo "$item" | jq -r '.Bucket.S // empty | gsub("[\r\n]"; " ")')" >> "$GITHUB_OUTPUT"
+          echo "distribution-id=$(echo "$item" | jq -r '.DistributionId.S // empty | gsub("[\r\n]"; " ")')" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       - name: Look up app info (production)
@@ -298,6 +310,8 @@ jobs:
         env:
           PROJECT_NAME: ${{ inputs.project-name }}
           V2_ENV: production
+          RC_BUCKET: ${{ steps.app-info-rc.outputs.bucket }}
+          RC_DISTRIBUTION_ID: ${{ steps.app-info-rc.outputs.distribution-id }}
         run: |
           case "$V2_ENV" in
             release-candidate) legacy_env=staging ;;
@@ -326,6 +340,18 @@ jobs:
             echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so there is nothing to promote into. Nothing was changed."
             exit 1
           fi
+          # A static site's stage and production must be two sites. If both
+          # rows name one bucket, or one CloudFront distribution, every stage
+          # deploy would change production, and promote would read production's
+          # own release as the candidate. Refused before anything changes.
+          same_site() {
+            echo "::error::$PROJECT_NAME's CruApplicationInfo rows for 'staging' and 'production' both name $1 '${2//[$'\r\n']/ }'. A static site's release candidate and production must be separate sites, so each needs its own bucket and distribution. Nothing was changed."
+            exit 1
+          }
+          bucket=$(echo "$item" | jq -r '.Bucket.S // empty | gsub("[\r\n]"; " ")')
+          distribution_id=$(echo "$item" | jq -r '.DistributionId.S // empty | gsub("[\r\n]"; " ")')
+          if [ -n "$bucket" ] && [ "$bucket" = "$RC_BUCKET" ]; then same_site Bucket "$bucket"; fi
+          if [ -n "$distribution_id" ] && [ "$distribution_id" = "$RC_DISTRIBUTION_ID" ]; then same_site DistributionId "$distribution_id"; fi
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
           migrations_path=$(echo "$item" | jq -r '.MigrationsPath.S // empty')
@@ -1442,6 +1468,10 @@ jobs:
       # different images, or a service still on the scratch placeholder beside
       # ones that serve the app image) this step fails and the promote stops
       # here.
+      #
+      # A static site's release-candidate image is the digest its stage
+      # bucket's index.html names, read here with GitHubDeployStatic. So the
+      # stage bucket's policy must grant that role too, not only production's.
       - name: Resolve release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
