@@ -49,12 +49,13 @@ export function resolveExpressions (value, context) {
 }
 
 const FAKE_CURL = `#!/bin/bash
-# Fake curl: records the Slack payload, answers ledger reads from FAKE_LEDGER.
-url=""; data=""
+# Fake curl: records the Slack payload, answers ledger reads from FAKE_LEDGER,
+# and records the flags each ledger read was given.
+args="$*"; url=""; data=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -d|--data) data="$2"; shift 2 ;;
-    -H|-X|--max-time|--retry|--retry-delay) shift 2 ;;
+    -H|-X|--max-time|--connect-timeout|--retry|--retry-delay|--retry-max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
@@ -62,6 +63,8 @@ done
 case "$url" in
   https://slack.com/*) printf '%s' "$data" > "$FAKE_OUT/slack.json"; echo '{"ok":true}' ;;
   https://deploys.cru.org/deployments*)
+    printf '%s\\n' "$args" >> "$FAKE_OUT/ledger-calls"
+    if [ -n "$FAKE_LEDGER_TIMES_OUT" ]; then echo "curl: (28) Operation timed out after 20000 milliseconds with 0 bytes received" >&2; exit 28; fi
     if [ -n "$FAKE_LEDGER_FAILS" ]; then echo "curl: (22) The requested URL returned error: 503" >&2; exit 22; fi
     printf '%s' "$FAKE_LEDGER" ;;
   *) echo "fake curl: unexpected url $url" >&2; exit 22 ;;
@@ -159,14 +162,16 @@ function readOutputs (file) {
 // Run one `run:` step. `context` resolves every expression in the job env,
 // the step env and the script. `ledger` is what a deploys.cru.org read
 // answers (an object is sent as JSON, a string as it is), `ledgerFails` makes
-// that read fail the way curl -f does on an HTTP error, and `aws` is what an
-// aws call prints. `ghCompare` is what a `gh api .../compare/...` read
-// answers, and `ghCompareFails` makes it fail. Resolves to the exit status,
-// the output, the step's outputs, the variables it set for later steps
-// ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API, the
-// path a comparison asked for, and the table and item a DynamoDB put-item
-// wrote (each null when nothing was).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, aws = {}, ghCompare = {}, ghCompareFails = false, runnerEnv = {} }) {
+// that read fail the way curl -f does on an HTTP error, `ledgerTimesOut`
+// makes it fail the way curl does when it runs out of time (exit 28), and
+// `aws` is what an aws call prints. `ghCompare` is what a
+// `gh api .../compare/...` read answers, and `ghCompareFails` makes it fail.
+// Resolves to the exit status, the output, the step's outputs, the variables
+// it set for later steps ($GITHUB_ENV), what was sent to Slack and to the
+// GitHub releases API, the path a comparison asked for, the table and item a
+// DynamoDB put-item wrote (each null when nothing was), and the arguments of
+// each ledger read (`ledgerCalls`, one string per read).
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, ghCompare = {}, ghCompareFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -190,6 +195,7 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       FAKE_OUT: out,
       FAKE_LEDGER: typeof ledger === 'string' ? ledger : JSON.stringify(ledger),
       FAKE_LEDGER_FAILS: ledgerFails ? '1' : '',
+      FAKE_LEDGER_TIMES_OUT: ledgerTimesOut ? '1' : '',
       FAKE_AWS: JSON.stringify(aws),
       FAKE_GH_COMPARE: JSON.stringify(ghCompare),
       FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : ''
@@ -204,7 +210,8 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       slack: readJson(path.join(out, 'slack.json')),
       release: readJson(path.join(out, 'release.json')),
       comparePath: existsSync(path.join(out, 'gh-compare-path')) ? readFileSync(path.join(out, 'gh-compare-path'), 'utf8') : null,
-      putItem: readPutItem(out)
+      putItem: readPutItem(out),
+      ledgerCalls: existsSync(path.join(out, 'ledger-calls')) ? readFileSync(path.join(out, 'ledger-calls'), 'utf8').split('\n').filter(Boolean) : []
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })

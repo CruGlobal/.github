@@ -487,7 +487,22 @@ jobs:
       # Known, accepted gap, the same as rollback's guard: ledger writes are
       # best-effort (continue-on-error), so a production change whose ledger
       # write failed is invisible here.
+      #
+      # The ledger read runs inside the lock, so it has a time limit. curl
+      # gets 10 seconds to connect and 20 for each try, tries twice more after
+      # a timeout or a server error, and starts no new try once 50 seconds
+      # have gone by (--retry-max-time). That last flag matters: a server's
+      # Retry-After replaces --retry-delay, and without a ceiling curl waits
+      # as long as the server asks. The slowest the read can be is 50 + 3 +
+      # 20 = 73 seconds: a try that starts just before 50 seconds, after a
+      # 3-second wait, and runs its full 20. Against a local server that sent
+      # a 503 asking for a 29-second wait and then never answered, it took 72
+      # seconds; against one that never answered at all, 66. Either way the
+      # promote is refused. The step limit is a backstop past that. A step it
+      # stops fails too, but sets no reason word, so the failure notice says
+      # FAILED rather than refused.
       - name: Refuse a stale promote
+        timeout-minutes: 2
         env:
           EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
         run: |
@@ -522,7 +537,7 @@ jobs:
           # Fail closed from here on: without a trustworthy answer to "what is
           # production running", refuse rather than guess.
           unconfirmed="cannot confirm production is still running release-$expected; refusing to promote. Nothing in production was changed"
-          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
               "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1"); then
             refuse "could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
           fi
@@ -556,9 +571,19 @@ jobs:
       # cannot be promoted. When there is no single serving image (no ready
       # revision, services serving different images, or split traffic) this
       # step fails and the promote stops here.
+      #
+      # Inside the production lock. Not every call under this step has a
+      # request timeout of its own yet (the Artifact Registry REST calls have
+      # none), so the step limit is a backstop against one that never
+      # answers. In recent runs the step took a few seconds, 11 at most, and
+      # five minutes leaves room for the clients' own retries. No
+      # continue-on-error: if the limit ends this step, the promote stops, as
+      # it does on any failure to resolve. Request timeouts in the clients are
+      # a separate follow-up.
       - name: Resolve running release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: cloudrun
           project-name: ${{ inputs.project-name }}
@@ -646,17 +671,44 @@ jobs:
       # --- Rollback-safety classification (advisory unless required) --------
       # The git sha currently in production, from the deployments ledger -- the
       # baseline the candidate's migrations are diffed against. Empty on ANY
-      # failure (|| true), which the classifier treats as `unclassified` (e.g.
-      # the very first promote, before any production baseline exists).
+      # failure, which the classifier treats as `unclassified` (e.g. the very
+      # first promote, before any production baseline exists).
+      #
+      # This read runs inside the production lock, so it has a time limit: a
+      # ledger that never answers would otherwise hold the lock, and every
+      # other promote and rollback of this app, until the job's own limit.
+      # curl gives up after 20 seconds, and the step limit is a backstop past
+      # that. A read that fails or runs out of time leaves the baseline empty
+      # and the promote goes on, as before. continue-on-error keeps the
+      # backstop from failing the promote too: a step stopped by its limit
+      # fails. The read has a step of its own so that a step cut short can
+      # lose the baseline and nothing else.
       - name: Fetch production baseline
+        id: production-baseline
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1") \
+              || ! sha=$(printf '%s' "$body" | jq -r '.Items[0].Sha // empty' 2>/dev/null); then
+            sha=""
+            # Say so, or the unclassified verdict that follows reads like an
+            # app's first promote.
+            echo "::warning title=Production baseline::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the rollback-safety verdict will be unclassified"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The two ends of the rollback-safety diff, for the steps below. No
+      # network call, so it cannot hang. The candidate's git sha is the
+      # sha-<gitsha> tag on the resolved digest (the head of the
+      # classification diff). Empty -> unclassified. The hotfix check and the
+      # GitHub Release read it too, which is why it is not in the step above.
+      - name: Pick the commits to compare
         id: baseline
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
+          PREV_SHA: ${{ steps.production-baseline.outputs.sha }}
         run: |
-          prev_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
-          echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
-          # The candidate's git sha is the sha-<gitsha> tag on the resolved
-          # digest (the head of the classification diff). Empty -> unclassified.
+          echo "prev-sha=$PREV_SHA" >> "$GITHUB_OUTPUT"
           head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
 
@@ -732,9 +784,16 @@ jobs:
       # without any diff at all -- that declaration is the only thing that
       # distinguishes "has no migrations" from "has migrations we can't see".
       # The action NEVER fails; continue-on-error is a belt on top of that.
+      #
+      # Its GitHub reads run inside the production lock, so the action gives
+      # each one 20 seconds and all of them 90, and says unclassified when
+      # they run out. The step limit is a backstop past that. A step stopped
+      # by it leaves no verdict, which the next step treats as it does any
+      # failed classifier: advisory, or a refusal under require-rollback-safe.
       - name: Classify rollback safety
         id: rollback-safety
         continue-on-error: true
+        timeout-minutes: 2
         uses: ./cru-github-actions/actions/classify-rollback-safety
         with:
           github-token: ${{ secrets.authz-token }}
@@ -1283,8 +1342,10 @@ jobs:
           refusal-title: actor_not_allowed
 
       # --- Stale-promote guard (inside the production lock) -----------------
-      # Same check as in promote-gcp; see the comment there.
+      # Same check, and same time limits, as in promote-gcp; see the comment
+      # there.
       - name: Refuse a stale promote
+        timeout-minutes: 2
         env:
           EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
         run: |
@@ -1319,7 +1380,7 @@ jobs:
           # Fail closed from here on: without a trustworthy answer to "what is
           # production running", refuse rather than guess.
           unconfirmed="cannot confirm production is still running release-$expected; refusing to promote. Nothing in production was changed"
-          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
               "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1"); then
             refuse "could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
           fi
@@ -1381,12 +1442,36 @@ jobs:
       # direct dynamodb:Query would not depend on the API at all, matching the
       # app-info reads above, but the deploy roles hold only PutItem on the
       # ledger; worth revisiting together if this read proves flaky.)
+      #
+      # It runs inside the production lock, so it has a time limit: a ledger
+      # that never answers must not hold the lock, and every other promote and
+      # rollback of this app, until the job's own limit. curl uses the same
+      # limits as the stale-promote guard (see the comment in promote-gcp for
+      # why --retry-max-time matters): 10 seconds to connect, 20 for each try,
+      # two more tries, and no new try after 50 seconds. A ledger that does
+      # not answer is then a refusal in at most about 73 seconds, with an
+      # error that says so. No continue-on-error, on purpose: if the step
+      # limit, a backstop past curl's, ever stops this step, the promote still
+      # stops.
       - name: Resolve candidate from ledger (stage-less)
         id: ledger-candidate
         if: needs.lookup.outputs.rc-mode == 'verify'
+        timeout-minutes: 2
         run: |
-          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=release-candidate&limit=10" | jq -c '.Items // []') || {
-            echo "::error::could not read the deployment ledger (deploys.cru.org) for $PROJECT_NAME; the app is stage-less, so the ledger is the only record of its release candidate."
+          status=0
+          body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
+            "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=release-candidate&limit=10") || status=$?
+          # curl exits 28 when it ran out of time.
+          if [ "$status" -eq 28 ]; then
+            echo "::error::the deployment ledger (deploys.cru.org) did not answer in time for $PROJECT_NAME. The app is stage-less, so the ledger is the only record of its release candidate; refusing to promote. Nothing in production was changed. Try again once the ledger answers."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::error::could not read the deployment ledger (deploys.cru.org) for $PROJECT_NAME (curl exit $status); the app is stage-less, so the ledger is the only record of its release candidate."
+            exit 1
+          fi
+          items=$(printf '%s' "$body" | jq -c '.Items // []' 2>/dev/null) || {
+            echo "::error::the deployment ledger (deploys.cru.org) for $PROJECT_NAME returned an unexpected response (not JSON); the app is stage-less, so the ledger is the only record of its release candidate."
             exit 1
           }
           head=$(echo "$items" | jq -c 'map(select(.Digest != null)) | .[0] // empty')
@@ -1425,9 +1510,18 @@ jobs:
       # different images, or a service still on the scratch placeholder beside
       # ones that serve the app image) this step fails and the promote stops
       # here.
+      #
+      # Inside the production lock. The AWS SDK calls under this step have no
+      # request timeout of their own yet (the SDK's default is none), so the
+      # step limit is a backstop against one that never answers. In recent
+      # runs the step took 2 to 4 seconds, and five minutes leaves room
+      # for the SDK's own retries. No continue-on-error: if the limit ends this
+      # step, the promote stops, as it does on any failure to resolve. Request
+      # timeouts in the clients are a separate follow-up.
       - name: Resolve release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}
@@ -1525,17 +1619,44 @@ jobs:
       # --- Rollback-safety classification (advisory unless required) --------
       # The git sha currently in production, from the deployments ledger -- the
       # baseline the candidate's migrations are diffed against. Empty on ANY
-      # failure (|| true), which the classifier treats as `unclassified` (e.g.
-      # the very first promote, before any production baseline exists).
+      # failure, which the classifier treats as `unclassified` (e.g. the very
+      # first promote, before any production baseline exists).
+      #
+      # This read runs inside the production lock, so it has a time limit: a
+      # ledger that never answers would otherwise hold the lock, and every
+      # other promote and rollback of this app, until the job's own limit.
+      # curl gives up after 20 seconds, and the step limit is a backstop past
+      # that. A read that fails or runs out of time leaves the baseline empty
+      # and the promote goes on, as before. continue-on-error keeps the
+      # backstop from failing the promote too: a step stopped by its limit
+      # fails. The read has a step of its own so that a step cut short can
+      # lose the baseline and nothing else.
       - name: Fetch production baseline
+        id: production-baseline
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1") \
+              || ! sha=$(printf '%s' "$body" | jq -r '.Items[0].Sha // empty' 2>/dev/null); then
+            sha=""
+            # Say so, or the unclassified verdict that follows reads like an
+            # app's first promote.
+            echo "::warning title=Production baseline::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the rollback-safety verdict will be unclassified"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The two ends of the rollback-safety diff, for the steps below. No
+      # network call, so it cannot hang. The candidate's git sha is the
+      # sha-<gitsha> tag on the resolved digest (the head of the
+      # classification diff). Empty -> unclassified. The hotfix check and the
+      # GitHub Release read it too, which is why it is not in the step above.
+      - name: Pick the commits to compare
         id: baseline
         env:
           TAGS: ${{ steps.resolve.outputs.tags }}
+          PREV_SHA: ${{ steps.production-baseline.outputs.sha }}
         run: |
-          prev_sha=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=1" | jq -r '.Items[0].Sha // empty') || true
-          echo "prev-sha=$prev_sha" >> "$GITHUB_OUTPUT"
-          # The candidate's git sha is the sha-<gitsha> tag on the resolved
-          # digest (the head of the classification diff). Empty -> unclassified.
+          echo "prev-sha=$PREV_SHA" >> "$GITHUB_OUTPUT"
           head_sha=$(echo "$TAGS" | tr ',' '\n' | grep -E '^sha-' | head -n1 | sed 's/^sha-//' || true)
           echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
 
@@ -1582,9 +1703,16 @@ jobs:
       # without any diff at all -- that declaration is the only thing that
       # distinguishes "has no migrations" from "has migrations we can't see".
       # The action NEVER fails; continue-on-error is a belt on top of that.
+      #
+      # Its GitHub reads run inside the production lock, so the action gives
+      # each one 20 seconds and all of them 90, and says unclassified when
+      # they run out. The step limit is a backstop past that. A step stopped
+      # by it leaves no verdict, which the next step treats as it does any
+      # failed classifier: advisory, or a refusal under require-rollback-safe.
       - name: Classify rollback safety
         id: rollback-safety
         continue-on-error: true
+        timeout-minutes: 2
         uses: ./cru-github-actions/actions/classify-rollback-safety
         with:
           github-token: ${{ secrets.authz-token }}

@@ -327,7 +327,22 @@ jobs:
       # write failed is invisible here and the rollback would go ahead. For the
       # same reason, a release with no ledger row is skipped over when finding
       # the release that ran before the current one.
+      #
+      # The ledger read runs inside the lock, so it has a time limit, the same
+      # as promote's stale-promote guard. curl gets 10 seconds to connect and
+      # 20 for each try, tries twice more after a timeout or a server error,
+      # and starts no new try once 50 seconds have gone by (--retry-max-time).
+      # That last flag matters: a server's Retry-After replaces --retry-delay,
+      # and without a ceiling curl waits as long as the server asks. The
+      # slowest the read can be is 50 + 3 + 20 = 73 seconds: a try that starts
+      # just before 50 seconds, after a 3-second wait, and runs its full 20.
+      # Against a local server that sent a 503 asking for a 29-second wait and
+      # then never answered, it took 72 seconds; against one that never
+      # answered at all, 66. Either way the rollback is refused. The step
+      # limit is a backstop past that, and a step it stops fails too, so the
+      # rollback still stops.
       - name: Refuse a stale rollback
+        timeout-minutes: 2
         env:
           EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
           EXPECTED_PREVIOUS_RELEASE: ${{ inputs.expected-previous-release }}
@@ -380,7 +395,7 @@ jobs:
           fi
           # One read serves both checks. It asks for 10 rows, not 2, because a
           # re-run or a re-promote writes the same Revision more than once.
-          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
               "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10"); then
             echo "::error::could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
             exit 1
@@ -449,9 +464,17 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: cru-deploy@${{ needs.lookup.outputs.project-id }}.iam.gserviceaccount.com
 
+      # Inside the production lock. The Artifact Registry REST calls under
+      # this step have no request timeout of their own yet, so the step limit
+      # is a backstop against one that never answers. In recent runs the step
+      # took about a second, and five minutes leaves room for the clients' own
+      # retries. No continue-on-error: if the limit ends this step, the
+      # rollback stops, as it does on any failure to resolve the release.
+      # Request timeouts in the clients are a separate follow-up.
       - name: Resolve release image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: cloudrun
           project-name: ${{ inputs.project-name }}
@@ -478,11 +501,27 @@ jobs:
       # loudly if it was classified unsafe. Public GET; never fails the rollback.
       # The same fetch also yields what production runs RIGHT NOW (the newest
       # event) for the Slack changelog link -- one ledger round trip, two uses.
+      #
+      # It runs inside the production lock, so the read has a time limit: a
+      # rollback, often in the middle of an incident, must not wait on an
+      # advisory read, and neither must the promotes and rollbacks queued
+      # behind it. curl gives up after 20 seconds, and the step limit is a
+      # backstop past that. A read that fails or runs out of time says so, in
+      # the log and in Slack, and the rollback goes on with no changelog link.
+      # A step stopped by the backstop leaves both outputs empty, so Slack
+      # then gets neither line, and continue-on-error lets the rollback go on.
       - name: Rollback-safety advisory
         id: rollback-safety
         continue-on-error: true
+        timeout-minutes: 1
         run: |
-          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          if body=$(curl -fsS --connect-timeout 10 --max-time 20 "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10") \
+              && items=$(printf '%s' "$body" | jq -c '.Items // []' 2>/dev/null); then
+            ledger_read=ok
+          else
+            ledger_read=failed
+            items='[]'
+          fi
           # The release this rollback takes production OFF -- the `to` end of the
           # changelog link (revision name preferred, Sha for rows that predate
           # named revisions). Empty -> the Slack message has no changelog line.
@@ -497,6 +536,13 @@ jobs:
           if [ "$safe" = "false" ]; then
             echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
             echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
+          elif [ "$ledger_read" = failed ]; then
+            # Not the all-clear below: nothing was checked. Its own title,
+            # because "Rollback safety" means destructive migrations shipped,
+            # and Slack says so too, so whoever is mid-incident knows to check
+            # by hand.
+            echo "::warning title=Rollback safety not checked::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema"
+            echo "slack=:grey_question: could not check the release being rolled back from for destructive migrations (the deployment ledger could not be read); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
           else
             echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
             echo "slack=" >> "$GITHUB_OUTPUT"
@@ -850,7 +896,22 @@ jobs:
       # write failed is invisible here and the rollback would go ahead. For the
       # same reason, a release with no ledger row is skipped over when finding
       # the release that ran before the current one.
+      #
+      # The ledger read runs inside the lock, so it has a time limit, the same
+      # as promote's stale-promote guard. curl gets 10 seconds to connect and
+      # 20 for each try, tries twice more after a timeout or a server error,
+      # and starts no new try once 50 seconds have gone by (--retry-max-time).
+      # That last flag matters: a server's Retry-After replaces --retry-delay,
+      # and without a ceiling curl waits as long as the server asks. The
+      # slowest the read can be is 50 + 3 + 20 = 73 seconds: a try that starts
+      # just before 50 seconds, after a 3-second wait, and runs its full 20.
+      # Against a local server that sent a 503 asking for a 29-second wait and
+      # then never answered, it took 72 seconds; against one that never
+      # answered at all, 66. Either way the rollback is refused. The step
+      # limit is a backstop past that, and a step it stops fails too, so the
+      # rollback still stops.
       - name: Refuse a stale rollback
+        timeout-minutes: 2
         env:
           EXPECTED_CURRENT_RELEASE: ${{ inputs.expected-current-release }}
           EXPECTED_PREVIOUS_RELEASE: ${{ inputs.expected-previous-release }}
@@ -903,7 +964,7 @@ jobs:
           fi
           # One read serves both checks. It asks for 10 rows, not 2, because a
           # re-run or a re-promote writes the same Revision more than once.
-          if ! body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 3 \
+          if ! body=$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 3 --retry-max-time 50 \
               "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10"); then
             echo "::error::could not read the deployment ledger for $PROJECT_NAME, so $unconfirmed"
             exit 1
@@ -983,9 +1044,17 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
+      # Inside the production lock. The AWS SDK calls under this step have no
+      # request timeout of their own yet (the SDK's default is none), so the
+      # step limit is a backstop against one that never answers. In recent
+      # runs the step took about a second, and five minutes leaves room for
+      # the SDK's own retries. No continue-on-error: if the limit ends this
+      # step, the rollback stops, as it does on any failure to resolve the
+      # release. Request timeouts in the clients are a separate follow-up.
       - name: Resolve release image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}
@@ -1012,11 +1081,27 @@ jobs:
       # loudly if it was classified unsafe. Public GET; never fails the rollback.
       # The same fetch also yields what production runs RIGHT NOW (the newest
       # event) for the Slack changelog link -- one ledger round trip, two uses.
+      #
+      # It runs inside the production lock, so the read has a time limit: a
+      # rollback, often in the middle of an incident, must not wait on an
+      # advisory read, and neither must the promotes and rollbacks queued
+      # behind it. curl gives up after 20 seconds, and the step limit is a
+      # backstop past that. A read that fails or runs out of time says so, in
+      # the log and in Slack, and the rollback goes on with no changelog link.
+      # A step stopped by the backstop leaves both outputs empty, so Slack
+      # then gets neither line, and continue-on-error lets the rollback go on.
       - name: Rollback-safety advisory
         id: rollback-safety
         continue-on-error: true
+        timeout-minutes: 1
         run: |
-          items=$(curl -fsS "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10" | jq -c '.Items // []') || items='[]'
+          if body=$(curl -fsS --connect-timeout 10 --max-time 20 "https://deploys.cru.org/deployments?project=$PROJECT_NAME&environment=production&limit=10") \
+              && items=$(printf '%s' "$body" | jq -c '.Items // []' 2>/dev/null); then
+            ledger_read=ok
+          else
+            ledger_read=failed
+            items='[]'
+          fi
           # The release this rollback takes production OFF -- the `to` end of the
           # changelog link (revision name preferred, Sha for rows that predate
           # named revisions). Empty -> the Slack message has no changelog line.
@@ -1031,6 +1116,13 @@ jobs:
           if [ "$safe" = "false" ]; then
             echo "::warning title=Rollback safety::the release being rolled back FROM shipped destructive migrations ($reasons) -- the image swap will NOT revert the schema; verify the target image tolerates the current schema"
             echo "slack=:warning: rolling back FROM a release with destructive migrations ($reasons); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
+          elif [ "$ledger_read" = failed ]; then
+            # Not the all-clear below: nothing was checked. Its own title,
+            # because "Rollback safety" means destructive migrations shipped,
+            # and Slack says so too, so whoever is mid-incident knows to check
+            # by hand.
+            echo "::warning title=Rollback safety not checked::could not read the deployment ledger for $PROJECT_NAME (it failed or did not answer within 20 seconds), so the release being rolled back from was not checked for destructive migrations; the rollback goes on. The image swap will NOT revert the schema"
+            echo "slack=:grey_question: could not check the release being rolled back from for destructive migrations (the deployment ledger could not be read); this rollback does NOT revert the schema" >> "$GITHUB_OUTPUT"
           else
             echo "::notice title=Rollback safety::no destructive-migration warning on the release being rolled back from"
             echo "slack=" >> "$GITHUB_OUTPUT"
