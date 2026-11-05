@@ -43,8 +43,9 @@ vi.mock('@aws-sdk/client-dynamodb', () => ({
 }))
 
 import {
+  S3_PUT_CALL_TIMEOUT_MS,
   STATIC_CONNECTION_TIMEOUT_MS,
-  STATIC_REQUEST_TIMEOUT_MS,
+  STATIC_SOCKET_TIMEOUT_MS,
   appInfoItem,
   cloudfrontCreateInvalidation,
   cloudfrontInvalidationStatus,
@@ -91,14 +92,31 @@ describe('s3PutObject', () => {
     expect('Metadata' in s3Send.mock.calls[0][0].input).toBe(false)
   })
 
-  it('turns access denied into a message that names the bucket and the grant it needs', async () => {
+  it('turns access denied into a message that names the bucket and the grant it needs, and keeps AWS\'s words', async () => {
     s3Send.mockRejectedValue(awsError('AccessDenied', 403, 'Access Denied'))
     const error = await s3PutObject(BUCKET, 'assets/app.js', Buffer.from('x')).catch(e => e)
     expect(error.message).toBe(
-      `S3 refused s3:PutObject on s3://${BUCKET}/assets/app.js (access denied). The policy of bucket ${BUCKET} must ` +
-      'grant the GitHubDeployStatic role s3:PutObject, s3:GetObject, s3:ListBucket.'
+      `S3 refused s3:PutObject on s3://${BUCKET}/assets/app.js (AccessDenied: Access Denied). The policy of bucket ` +
+      `${BUCKET} must grant the GitHubDeployStatic role s3:PutObject, s3:GetObject, s3:ListBucket. Every environment's bucket needs that grant, the release-candidate one included: promote reads that bucket's index.html with this role.`
     )
     expect(error.cause.name).toBe('AccessDenied')
+  })
+
+  it('keeps AWS\'s words for a refusal no grant here would fix, such as an organization policy', async () => {
+    s3Send.mockRejectedValue(awsError('AccessDenied', 403,
+      'User is not authorized to perform: s3:PutObject with an explicit deny in a service control policy'))
+    await expect(s3PutObject(BUCKET, 'a.js', Buffer.from('x'))).rejects.toThrow(
+      '(AccessDenied: User is not authorized to perform: s3:PutObject with an explicit deny in a service control policy)'
+    )
+  })
+
+  it('sends the whole-call limit it is given, never more than its own', async () => {
+    s3Send.mockResolvedValue({})
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    await s3PutObject(BUCKET, 'a.js', Buffer.from('x'), { timeoutMs: 1234 })
+    await s3PutObject(BUCKET, 'b.js', Buffer.from('x'), { timeoutMs: 24 * 60 * 60 * 1000 })
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([1234, S3_PUT_CALL_TIMEOUT_MS])
+    timeout.mockRestore()
   })
 
   it('names the object on any other failure', async () => {
@@ -132,8 +150,8 @@ describe('s3HeadObject', () => {
   it('names the bucket and the grant it needs on a 403, which S3 also sends for a missing object without ListBucket', async () => {
     s3Send.mockRejectedValue(awsError('403', 403, 'UnknownError'))
     await expect(s3HeadObject(BUCKET, 'index.html')).rejects.toThrow(
-      `S3 refused s3:GetObject (HeadObject) on s3://${BUCKET}/index.html (access denied). The policy of bucket ${BUCKET} ` +
-      'must grant the GitHubDeployStatic role s3:PutObject, s3:GetObject, s3:ListBucket.'
+      `S3 refused s3:GetObject (HeadObject) on s3://${BUCKET}/index.html (403: UnknownError). The policy of bucket ` +
+      `${BUCKET} must grant the GitHubDeployStatic role s3:PutObject, s3:GetObject, s3:ListBucket. Every environment's bucket needs that grant, the release-candidate one included: promote reads that bucket's index.html with this role.`
     )
   })
 })
@@ -163,8 +181,9 @@ describe('CloudFront', () => {
   ])('turns access denied on %s into a message that names the distribution and the grant', async (action, call) => {
     cloudfrontSend.mockRejectedValue(awsError('AccessDenied', 403, 'User is not authorized'))
     await expect(call()).rejects.toThrow(
-      `CloudFront refused cloudfront:${action} on distribution ${DISTRIBUTION} (access denied). The GitHubDeployStatic ` +
-      `role's policy must allow cloudfront:CreateInvalidation and cloudfront:GetInvalidation on distribution ${DISTRIBUTION}.`
+      `CloudFront refused cloudfront:${action} on distribution ${DISTRIBUTION} (AccessDenied: User is not authorized). ` +
+      `The GitHubDeployStatic role's policy must allow cloudfront:CreateInvalidation and cloudfront:GetInvalidation on ` +
+      `distribution ${DISTRIBUTION}.`
     )
   })
 
@@ -177,7 +196,7 @@ describe('CloudFront', () => {
 })
 
 describe('client time limits', () => {
-  it('gives the S3 and CloudFront clients per-request time limits on top of the retries', async () => {
+  it('gives the S3 and CloudFront clients idle and connect limits per attempt, on top of the retries', async () => {
     s3Send.mockResolvedValue({})
     cloudfrontSend.mockResolvedValue({ Invalidation: { Id: 'I' } })
     await s3PutObject(BUCKET, 'a.js', Buffer.from('x'))
@@ -186,8 +205,11 @@ describe('client time limits', () => {
       expect(config).toMatchObject({
         region: 'us-east-1',
         maxAttempts: 5,
-        requestHandler: { connectionTimeout: STATIC_CONNECTION_TIMEOUT_MS, requestTimeout: STATIC_REQUEST_TIMEOUT_MS }
+        requestHandler: { connectionTimeout: STATIC_CONNECTION_TIMEOUT_MS, socketTimeout: STATIC_SOCKET_TIMEOUT_MS }
       })
+      // A total-time requestTimeout only logs unless told to throw, and one
+      // that threw would cut off a large upload that is still sending.
+      expect('requestTimeout' in config.requestHandler).toBe(false)
     }
     expect(s3Configs.at(-1).followRegionRedirects).toBe(true)
   })
@@ -216,11 +238,19 @@ describe('appInfoItem', () => {
     expect(await appInfoItem('example-app', 'production')).toBeNull()
   })
 
-  it('names the row it could not read', async () => {
+  it('names the row it could not read and the grant, when DynamoDB refuses', async () => {
     dynamoSend.mockRejectedValue(awsError('AccessDeniedException', 400, 'not authorized to perform: dynamodb:GetItem'))
     await expect(appInfoItem('example-app', 'production')).rejects.toThrow(
-      'Could not read the CruApplicationInfo row for example-app (production): not authorized to perform: dynamodb:GetItem'
+      'Could not read the CruApplicationInfo row for example-app (production) (AccessDeniedException: not authorized ' +
+      "to perform: dynamodb:GetItem). The GitHubDeployStatic role's policy must allow dynamodb:GetItem on the " +
+      'CruApplicationInfo table.'
     )
+  })
+
+  it('names the row on any other failure, without blaming a grant', async () => {
+    dynamoSend.mockRejectedValue(awsError('ProvisionedThroughputExceededException', 400, 'slow down'))
+    const error = await appInfoItem('example-app', 'production').catch(e => e)
+    expect(error.message).toBe('Could not read the CruApplicationInfo row for example-app (production): slow down')
   })
 })
 
