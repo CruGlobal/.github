@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -149,10 +149,12 @@ describe('a git too old for --attr-source', () => {
 
   // A git on the PATH that runs the real one, except that it sends itself
   // `signal` when its arguments include `when` (every time, by default).
-  async function withSignalledGit (signal, when, run) {
+  // With `version`, `git version` answers with it instead.
+  async function withSignalledGit (signal, when, run, { version = '' } = {}) {
     const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
     const bin = mkdtempSync(path.join(tmpdir(), 'signalled-git-'))
-    writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do if [ -z "${when}" ] || [ "$a" = "${when}" ]; then kill -${signal} $$; fi; done\n[ -z "${when}" ] && kill -${signal} $$\nexec "${real}" "$@"\n`)
+    const answer = version ? `if [ "$1" = "version" ]; then echo "git version ${version}"; exit 0; fi\n` : ''
+    writeFileSync(path.join(bin, 'git'), `#!/bin/sh\n${answer}for a in "$@"; do if [ -z "${when}" ] || [ "$a" = "${when}" ]; then kill -${signal} $$; fi; done\n[ -z "${when}" ] && kill -${signal} $$\nexec "${real}" "$@"\n`)
     chmodSync(path.join(bin, 'git'), 0o755)
     const pathBefore = process.env.PATH
     process.env.PATH = `${bin}${path.delimiter}${pathBefore}`
@@ -166,9 +168,22 @@ describe('a git too old for --attr-source', () => {
 
   // git 2.41 and 2.42 take the option, and merge-tree then segfaults. A real
   // git process stands in for one, ended the way a crash ends it.
-  it.each(['SEGV', 'ABRT'])('refuses when git crashes with SIG%s while using it, and says which signal', async (signal) => {
+  it.each(['SEGV', 'ABRT'])('refuses as too old a git older than 2.43 that crashes with SIG%s, and says which', async (signal) => {
     await withSignalledGit(signal, '', async (bin) => {
-      await expect(pick(gitIn(bin))).rejects.toThrow(`checking a cherry-pick needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and this runner's git crashed with SIG${signal}; refusing rather than checking with the checkout's .gitattributes`)
+      await expect(pick(gitIn(bin))).rejects.toThrow(`checking a cherry-pick needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and this runner's git 2.42.0 crashed with SIG${signal}; refusing rather than checking with the checkout's .gitattributes`)
+    }, { version: '2.42.0' })
+  })
+
+  it('does not call a git of 2.43 or later too old when it crashes', async () => {
+    await withSignalledGit('SEGV', '', async (bin) => {
+      const error = await pick(gitIn(bin)).catch((e) => e)
+      expect(error.message).toBe("checking a cherry-pick did not finish: this runner's git 2.54.0 crashed with SIGSEGV. It is not too old for the check (that needs 2.43 or later), so the crash has another cause; refusing rather than checking with the checkout's .gitattributes")
+    }, { version: '2.54.0' })
+  })
+
+  it('says so when a crashed git cannot say its version either', async () => {
+    await withSignalledGit('SEGV', '', async (bin) => {
+      await expect(pick(gitIn(bin))).rejects.toThrow("checking a cherry-pick needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and this runner's git crashed with SIGSEGV, and its version could not be read; refusing rather than checking with the checkout's .gitattributes")
     })
   })
 
@@ -513,8 +528,9 @@ describe('cutHotfix', () => {
     const before = fx.refs()
     const error = await refusal(cut(fx, { commit: fix }))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toMatch(new RegExp(`^cherry-picking ${fix.slice(0, 12)} onto ${RELEASE} changes old/x\\.yml, but ${fix.slice(0, 12)} changes \\.github/workflows/x\\.yml on main\\. This workflow never cuts a fix that changes a workflow file, wherever its pick lands: `))
-    expect(error.message).toContain('A person ships it by hand: ')
+    expect(error.message).toBe(`cherry-picking ${fix.slice(0, 12)} onto ${RELEASE} changes old/x.yml, but ${fix.slice(0, 12)} changes .github/workflows/x.yml on main. This workflow leaves every fix that changes a workflow file to a person, even one whose pick lands outside .github/workflows. A person ships it by hand: create ${BRANCH} at ${fx.release} (the commit production runs for ${RELEASE}), run git cherry-pick -x ${fix}, push the branch, then run the app's pipeline-v2.yml on ${BRANCH}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`)
+    // The pick changes no workflow file, so its push needs no workflow scope.
+    expect(error.message).not.toContain('workflow scope')
     expect(fx.refs()).toEqual(before)
   })
 
@@ -550,7 +566,7 @@ describe('cutHotfix', () => {
     const before = fx.refs()
     const error = await refusal(cut(fx))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toBe(`cherry-picking ${fx.fix.slice(0, 12)} onto ${RELEASE} changes ${CI}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get. Shipping it by hand would not build yet: the .gitattributes on ${RELEASE} give ${CI} (merge attribute: union), and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, land a commit on main that gives workflow files git's own merge. The driver is set in .gitattributes, so add a \`.github/workflows/** merge\` line there, after the line that sets it. Then run this workflow for that commit, check out ${BRANCH}, run git cherry-pick -x ${fx.fix}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on ${BRANCH}. Refusing to cut a hotfix. Nothing was pushed`)
+    expect(error.message).toBe(`cherry-picking ${fx.fix.slice(0, 12)} onto ${RELEASE} changes ${CI}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get. Shipping it by hand would not build yet: the .gitattributes on ${RELEASE} give ${CI} (merge attribute: union), and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, land a commit on main that gives workflow files git's own merge. The driver is set in .gitattributes, so add a \`.github/workflows/** merge\` line at the end of .gitattributes. Then run this workflow for that commit, check out ${BRANCH}, run git cherry-pick -x ${fx.fix}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on ${BRANCH}. Refusing to cut a hotfix. Nothing was pushed`)
     expect(fx.refs()).toEqual(before)
   })
 
@@ -565,28 +581,55 @@ describe('cutHotfix', () => {
     return fx
   }
 
-  // Add `line` to `file` on main, right after the line that sets the driver,
-  // as a person following the refusal would.
-  function addAfterDriver (fx, file, line) {
-    const text = show(fx, 'main', file).split('\n')
-    text.splice(text.findIndex((entry) => /merge=union/.test(entry)) + 1, 0, line)
-    return fx.commit('chore: workflow files merge with git\'s own merge', { [file]: `${text.join('\n')}\n` })
+  // Add `line` at the end of `file` on main, as a person following the
+  // refusal would.
+  function addAtEnd (fx, file, line) {
+    return fx.commit('chore: workflow files merge with git\'s own merge', { [file]: `${show(fx, 'main', file)}\n${line}\n` })
+  }
+
+  // The way out's attributes commit cut with this workflow, then the fix
+  // picked on top by hand, and build-candidate's check of the result.
+  async function cutThenPick (fx, attributes, fix = fx.fix) {
+    expect((await cut(fx, { commit: attributes })).result.pushed).toBe(true)
+    fx.git(['fetch', '--quiet', 'origin'])
+    fx.git(['checkout', '--quiet', '-b', 'hand', `origin/${BRANCH}`])
+    fx.git(['cherry-pick', '-x', fix])
+    fx.push(`hand:${BRANCH_REF}`)
+    return (await verify(fx)).commits.map((c) => c.source)
   }
 
   it('names .github/.gitattributes, with a line written for that folder, when the driver is set there', async () => {
     const fx = driverApp({ '.github/.gitattributes': 'workflows/*.yml merge=union\n' })
     const error = await refusal(cut(fx))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toContain("To ship it, land a commit on main that gives workflow files git's own merge. The driver is set in .github/.gitattributes, so add a `workflows/** merge` line there, after the line that sets it. Then run this workflow for that commit, check out ")
+    expect(error.message).toContain("To ship it, land a commit on main that gives workflow files git's own merge. The driver is set in .github/.gitattributes, so add a `workflows/** merge` line at the end of .github/.gitattributes. Then run this workflow for that commit, check out ")
     // Following it, word for word, builds.
-    const attributes = addAfterDriver(fx, '.github/.gitattributes', 'workflows/** merge')
+    const attributes = addAtEnd(fx, '.github/.gitattributes', 'workflows/** merge')
     fx.push('main')
-    expect((await cut(fx, { commit: attributes })).result.pushed).toBe(true)
-    fx.git(['fetch', '--quiet', 'origin'])
-    fx.git(['checkout', '--quiet', '-b', 'hand', `origin/${BRANCH}`])
-    fx.git(['cherry-pick', '-x', fx.fix])
-    fx.push(`hand:${BRANCH_REF}`)
-    expect((await verify(fx)).commits.map((c) => c.source)).toEqual([attributes, fx.fix])
+    expect(await cutThenPick(fx, attributes)).toEqual([attributes, fx.fix])
+  })
+
+  it('names the top-level .gitattributes when it sets the driver, not a deeper one that sets something else', async () => {
+    // A line in .github/workflows/.gitattributes would work too, being
+    // deeper, but that file does not set the driver, and changing it would
+    // be a workflow change the hotfix workflow cannot cut.
+    const fx = driverApp({ '.gitattributes': '* merge=union\n', '.github/workflows/.gitattributes': '*.yml text eol=lf\n' })
+    const error = await refusal(cut(fx))
+    expect(error.reason).toBe(REASONS.workflowChange)
+    expect(error.message).toContain('The driver is set in .gitattributes, so add a `.github/workflows/** merge` line at the end of .gitattributes. Then run this workflow for that commit,')
+    const attributes = addAtEnd(fx, '.gitattributes', '.github/workflows/** merge')
+    fx.push('main')
+    expect(await cutThenPick(fx, attributes)).toEqual([attributes, fx.fix])
+  })
+
+  it('puts the line at the end of the file, past a later line that sets the driver again', async () => {
+    const fx = driverApp({ '.gitattributes': '* merge=union\n*.md text\n*.yml merge=union\n' })
+    const error = await refusal(cut(fx))
+    expect(error.message).toContain('so add a `.github/workflows/** merge` line at the end of .gitattributes.')
+    expect(error.message).not.toContain('after the line that sets')
+    const attributes = addAtEnd(fx, '.gitattributes', '.github/workflows/** merge')
+    fx.push('main')
+    expect(await cutThenPick(fx, attributes)).toEqual([attributes, fx.fix])
   })
 
   it('says a driver set in .github/workflows/.gitattributes means that commit ships by hand too', async () => {
@@ -594,11 +637,11 @@ describe('cutHotfix', () => {
     const before = fx.refs()
     const error = await refusal(cut(fx))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toContain(`To ship it, land a commit on main that gives workflow files git's own merge. The driver is set in .github/workflows/.gitattributes, so add a \`* merge\` line there, after the line that sets it. That commit changes a file under .github/workflows as well, so it ships by hand too, before the fix: create ${BRANCH} at ${fx.release} (the commit production runs for ${RELEASE}), run git cherry-pick -x <that commit>, then git cherry-pick -x ${fx.fix}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on ${BRANCH}. Refusing`)
+    expect(error.message).toContain(`To ship it, land a commit on main that gives workflow files git's own merge. The driver is set in .github/workflows/.gitattributes, so add a \`* merge\` line at the end of .github/workflows/.gitattributes. That commit changes a file under .github/workflows as well, so it ships by hand too, before the fix: create ${BRANCH} at ${fx.release} (the commit production runs for ${RELEASE}), run git cherry-pick -x <that commit>, then git cherry-pick -x ${fx.fix}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on ${BRANCH}. Refusing`)
     expect(error.message).not.toContain('run this workflow for that commit')
     expect(fx.refs()).toEqual(before)
     // Following it, word for word, builds.
-    const attributes = addAfterDriver(fx, '.github/workflows/.gitattributes', '* merge')
+    const attributes = addAtEnd(fx, '.github/workflows/.gitattributes', '* merge')
     fx.push('main')
     fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
     fx.git(['cherry-pick', '-x', attributes])
@@ -607,16 +650,16 @@ describe('cutHotfix', () => {
     expect((await verify(fx)).commits.map((c) => c.source)).toEqual([attributes, fx.fix])
   })
 
-  it('gives no steps when the .gitattributes file that sets the driver is given that driver too', async () => {
-    // The driver is set under .github/workflows, and that .gitattributes file
-    // is itself merged with union, so build-candidate would refuse a pick
-    // that changes it as well.
-    const fx = driverApp({ '.github/workflows/.gitattributes': '* merge=union\n' })
+  it('gives no steps when the .gitattributes file that sets the driver is given a driver too', async () => {
+    // The driver is set under .github/workflows, and the top level gives
+    // that .gitattributes file union as well, so build-candidate would
+    // refuse a pick that changes it, as things stand.
+    const fx = driverApp({ '.gitattributes': '* merge=union\n', '.github/workflows/.gitattributes': '*.yml merge=union\n' })
     const before = fx.refs()
     const error = await refusal(cut(fx))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toContain('Shipping it by hand would not build: ')
-    expect(error.message).toContain("Changing that is a workflow change too: the driver is set in .github/workflows/.gitattributes, which is under .github/workflows too, and the same .gitattributes give .github/workflows/.gitattributes (merge attribute: union), so build-candidate would refuse a pick that changes it for the same reason. A person needs to look at it. Refusing to cut a hotfix. Nothing was pushed")
+    expect(error.message).toContain('Shipping it by hand would not build as it stands: ')
+    expect(error.message).toContain("Changing that is a workflow change too: the driver is set in .github/workflows/.gitattributes, which is under .github/workflows too, and the .gitattributes there give it a driver as well (merge attribute: union), so build-candidate would refuse a pick that changes it for the same reason. A person needs to look at it. Refusing to cut a hotfix. Nothing was pushed")
     expect(error.message).not.toMatch(/To ship it|cherry-pick -x/)
     expect(fx.refs()).toEqual(before)
   })
@@ -632,25 +675,66 @@ describe('cutHotfix', () => {
     const error = await refusal(cutHotfix({ git: gitIn(runner), project: PROJECT, commit: fx.fix, expectedRelease: RELEASE, readLedger: fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger }))
     expect(error.reason).toBe(REASONS.workflowChange)
     expect(error.message).toContain(`give ${CI} (merge attribute: union)`)
-    expect(error.message).toContain("To ship it, land a commit on main that gives workflow files git's own merge. That takes a `merge` line for them in the .gitattributes file that sets the driver, after the line that sets it, with its pattern written from that file's folder (in the top-level .gitattributes, `.github/workflows/** merge`). Then run this workflow")
+    expect(error.message).toContain("To ship it, land a commit on main that gives workflow files git's own merge. That takes a `merge` line for them at the end of the .gitattributes file that sets the driver, with its pattern written from that file's folder (in the top-level .gitattributes, `.github/workflows/** merge`). Then run this workflow")
     expect(error.message).not.toContain('The driver is set in')
   })
 
-  it('refuses as a conflict a workflow fix that only a merge driver lets apply, rather than offering a way out that conflicts', async () => {
-    // main changes line 5 twice. Onto the release the second change
-    // conflicts with git's own merge; union only hides that by keeping both
-    // lines, and the way out would give the file git's own merge again.
+  it('leaves no shared index file behind in a clone that splits its index', async () => {
+    const fx = driverApp({ '.github/.gitattributes': 'workflows/*.yml merge=union\n' })
+    const runner = fx.clone()
+    execFileSync('git', ['config', 'core.splitIndex', 'true'], { cwd: runner })
+    execFileSync('git', ['update-index', '--split-index'], { cwd: runner })
+    const shared = () => readdirSync(path.join(runner, '.git')).filter((file) => file.startsWith('sharedindex.')).sort()
+    const before = shared()
+    const error = await refusal(cutHotfix({ git: gitIn(runner), project: PROJECT, commit: fx.fix, expectedRelease: RELEASE, readLedger: fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger }))
+    expect(error.message).toContain('The driver is set in .github/.gitattributes')
+    expect(shared()).toEqual(before)
+  })
+
+  // A union release, and a fix that changes line 5 of `workflow` a second
+  // time on main, which conflicts with git's own merge on the release.
+  function hiddenConflictApp (workflow, { app = false } = {}) {
     const fx = emptyApp()
-    fx.commit('initial', { 'app.js': 'a\n', [PIPELINE_PATH]: PIPELINE, [CI]: tenLines(), '.gitattributes': '* merge=union\n' })
-    fx.release = fx.commit('feature', { 'app.js': 'b\n' })
-    fx.commit('ci: line 5 A', { [CI]: tenLines({ 5: 'main five A' }) })
-    const fix = fx.commit('ci: line 5 B', { [CI]: tenLines({ 5: 'main five B' }) })
+    fx.commit('initial', { 'app.js': tenLines(), [PIPELINE_PATH]: PIPELINE, [workflow]: tenLines(), '.gitattributes': '* merge=union\n' })
+    fx.release = fx.commit('feature', { 'app.js': tenLines({ 3: 'release three' }) })
+    fx.commit('line 5 A', { [workflow]: tenLines({ 5: 'main five A' }), ...(app ? { 'app.js': tenLines({ 3: 'main three' }) } : {}) })
+    fx.fix = fx.commit('line 5 B', { [workflow]: tenLines({ 5: 'main five B' }), ...(app ? { 'app.js': tenLines({ 3: 'main three again' }) } : {}) })
     fx.push('main')
+    return fx
+  }
+
+  it('refuses as a conflict a workflow fix that only a merge driver lets apply, rather than offering a way out that conflicts', async () => {
+    // Onto the release the second change conflicts with git's own merge;
+    // union only hides that by keeping both lines, and the way out would give
+    // the file git's own merge again.
+    const fx = hiddenConflictApp(CI)
     const before = fx.refs()
-    const error = await refusal(cut(fx, { commit: fix }))
+    const error = await refusal(cut(fx))
     expect(error.reason).toBe(REASONS.conflict)
-    expect(error.message).toBe(`cherry-picking ${fix.slice(0, 12)} onto ${RELEASE} conflicts in ${CI} with git's own merge. The .gitattributes on ${RELEASE} give ${CI} (merge attribute: union), which hides that conflict, but build-candidate builds a workflow change only when it merges with git's own merge. The fix needs a version that applies to ${RELEASE}: land one on main and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`)
+    expect(error.message).toBe(`cherry-picking ${fx.fix.slice(0, 12)} onto ${RELEASE} conflicts in ${CI} with git's own merge. The .gitattributes on ${RELEASE} give ${CI} (merge attribute: union), which hides that conflict, but build-candidate builds a workflow change only when it merges with git's own merge. The fix needs a version that applies to ${RELEASE}: land one on main and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`)
     expect(fx.refs()).toEqual(before)
+  })
+
+  it('sees that conflict in a workflow file whose name git would quote', async () => {
+    // Without -z, git prints this name quoted and escaped, and the quoted
+    // name does not start with .github/workflows/.
+    const WORKFLOW = '.github/workflows/café.yml'
+    const fx = hiddenConflictApp(WORKFLOW)
+    const before = fx.refs()
+    const error = await refusal(cut(fx))
+    expect(error.reason).toBe(REASONS.conflict)
+    expect(error.message).toMatch(new RegExp(`^cherry-picking ${fx.fix.slice(0, 12)} onto ${RELEASE} conflicts in \\.github/workflows/café\\.yml with git's own merge\\. `))
+    expect(fx.refs()).toEqual(before)
+  })
+
+  it('names only the workflow files in that conflict, not the files the way out leaves alone', async () => {
+    // app.js conflicts with git's own merge too, but keeps union after the
+    // way out, so it is not part of what stops the fix.
+    const fx = hiddenConflictApp(CI, { app: true })
+    const error = await refusal(cut(fx))
+    expect(error.reason).toBe(REASONS.conflict)
+    expect(error.message).toContain(`conflicts in ${CI} with git's own merge. `)
+    expect(error.message).not.toContain('app.js')
   })
 
   it('still offers the way out when only a file the way out leaves alone conflicts with git\'s own merge', async () => {
@@ -665,15 +749,10 @@ describe('cutHotfix', () => {
     fx.push('main')
     const error = await refusal(cut(fx, { commit: fix }))
     expect(error.reason).toBe(REASONS.workflowChange)
-    expect(error.message).toContain('The driver is set in .gitattributes, so add a `.github/workflows/** merge` line there')
-    const attributes = addAfterDriver(fx, '.gitattributes', '.github/workflows/** merge')
+    expect(error.message).toContain('The driver is set in .gitattributes, so add a `.github/workflows/** merge` line at the end of .gitattributes.')
+    const attributes = addAtEnd(fx, '.gitattributes', '.github/workflows/** merge')
     fx.push('main')
-    expect((await cut(fx, { commit: attributes })).result.pushed).toBe(true)
-    fx.git(['fetch', '--quiet', 'origin'])
-    fx.git(['checkout', '--quiet', '-b', 'hand', `origin/${BRANCH}`])
-    fx.git(['cherry-pick', '-x', fix])
-    fx.push(`hand:${BRANCH_REF}`)
-    expect((await verify(fx)).commits.map((c) => c.source)).toEqual([attributes, fix])
+    expect(await cutThenPick(fx, attributes, fix)).toEqual([attributes, fix])
   })
 
   it('gives a branch build-candidate refuses for a merge driver the same way out build-candidate gives', async () => {
@@ -690,8 +769,22 @@ describe('cutHotfix', () => {
     const error = await refusal(cut(fx, { commit: code }))
     expect(error.reason).toBe(REASONS.branchNotClean)
     expect(error.message).toMatch(/A person needs to look at it; build-candidate refuses to build it as it is\. To build it, /)
-    expect(error.message.endsWith(`To build it, move the branch back to ${fx.release.slice(0, 12)}, the commit that pick was made on. That takes a force push, and it also drops every pick made after that one. Then land a commit on main that gives workflow files git's own merge. The driver is set in .gitattributes, so add a \`.github/workflows/** merge\` line there, after the line that sets it. Cut that commit onto the branch with the hotfix workflow, then run git cherry-pick -x ${fx.fix} on the branch by hand, and pick again any later fixes the force push dropped.`)).toBe(true)
+    expect(error.message.endsWith(`To build it, move the branch back to ${fx.release.slice(0, 12)}, the commit that pick was made on. That takes a force push, and it also drops every pick made after that one. Then land a commit on main that gives workflow files git's own merge. The driver is set in .gitattributes, so add a \`.github/workflows/** merge\` line at the end of .gitattributes. Cut that commit onto the branch with the hotfix workflow, then check out the branch, run git cherry-pick -x ${fx.fix}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on it. Pick again any later fixes the force push dropped. Once the branch builds, run this workflow again for ${code.slice(0, 12)}.`)).toBe(true)
     expect(fx.refs()).toEqual(before)
+  })
+
+  it('says a person needs to look at a branch once, when the way out does not work as it stands', async () => {
+    const fx = driverApp({ '.gitattributes': '* merge=union\n', '.github/workflows/.gitattributes': '*.yml merge=union\n' })
+    fx.git(['checkout', '--quiet', '-b', 'hand', fx.release])
+    fx.git(['cherry-pick', '-x', fx.fix])
+    fx.push(`hand:${BRANCH_REF}`)
+    fx.git(['checkout', '--quiet', 'main'])
+    const code = fx.commit('fix: app', { 'app.js': 'c\n' })
+    fx.push('main')
+    const error = await refusal(cut(fx, { commit: code }))
+    expect(error.reason).toBe(REASONS.branchNotClean)
+    expect(error.message.match(/A person needs to look at it/g)).toHaveLength(1)
+    expect(error.message).toContain('build-candidate refuses to build it as it is. The way past a merge driver is to move the branch back to before that pick and give workflow files git\'s own merge first, but as it stands that does not work: the driver is set in .github/workflows/.gitattributes, which is under .github/workflows too, and the .gitattributes there give it a driver as well (merge attribute: union), so build-candidate would refuse a pick that changes it for the same reason.')
   })
 
   it('builds once the way past a merge driver is followed', async () => {

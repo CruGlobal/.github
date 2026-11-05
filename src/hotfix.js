@@ -74,10 +74,13 @@ const repoPath = (input) => path.resolve(process.env.GITHUB_WORKSPACE || '.', in
 // the hotfix workflow refuses a workflow fix, so "cut the hotfix branch with
 // the hotfix workflow" would send the person in a circle. `wayOut` is what
 // that refusal found (see pickedWayOut); without it the way out stays general.
+// When the way out does not work as it stands, the refusal ends by saying a
+// person needs to look at the branch.
 export function buildRefusal ({ ref, defaultBranch, why, reason = '', wayOut = {} }) {
   const opening = `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}.`
   if (reason === REASONS.mergeDriver) {
-    return `${opening} ${oneLine(pickedWayOut({ ...wayOut, defaultBranch: oneLine(defaultBranch) }))}`
+    const person = wayOut?.blocked?.length > 0 ? ' A person needs to look at it.' : ''
+    return `${opening} ${oneLine(pickedWayOut({ ...wayOut, defaultBranch: oneLine(defaultBranch) }))}${person}`
   }
   return `${opening} Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`
 }

@@ -108,14 +108,14 @@ describe('mode verify (build-candidate)', () => {
     expect(errors()[0]).toMatchObject({ title: 'Build Candidate', message: expect.stringMatching(/^candidates build from the default branch only -- .*the check could not finish/) })
   })
 
-  // A release whose .gitattributes file `attributes` gives workflow files the
-  // union driver, and a workflow fix a person picked onto it by hand, run
-  // through build-candidate's check.
-  async function verifyUnionPick (attributes, line) {
+  // A release whose .gitattributes files (`attributes`, path to content) give
+  // workflow files the union driver, and a workflow fix a person picked onto
+  // it by hand, run through build-candidate's check.
+  async function verifyUnionPick (attributes) {
     const fx = new GitFixture()
     fixtures.push(fx)
     const CI = '.github/workflows/ci.yml'
-    fx.commit('initial', { 'app.js': 'a\n', '.github/workflows/pipeline-v2.yml': PIPELINE, [CI]: 'on: pull_request\n', [attributes]: `${line}\n` })
+    fx.commit('initial', { 'app.js': 'a\n', '.github/workflows/pipeline-v2.yml': PIPELINE, [CI]: 'on: pull_request\n', ...attributes })
     fx.release = fx.commit('feature', { 'app.js': 'b\n' })
     const ci = fx.commit('ci: run on push', { [CI]: 'on: push\n' })
     fx.push('main')
@@ -133,16 +133,24 @@ describe('mode verify (build-candidate)', () => {
   }
 
   it('ends a merge-driver refusal with the way past it, not the usual advice', async () => {
-    const { fx, ci, message } = await verifyUnionPick('.gitattributes', '* merge=union')
+    const { fx, ci, message } = await verifyUnionPick({ '.gitattributes': '* merge=union\n' })
     // Moving the branch back is a force push, and it drops the picks after
     // the refused one, so the message says both.
-    expect(message.endsWith(`To build it, move the branch back to ${fx.release.slice(0, 12)}, the commit that pick was made on. That takes a force push, and it also drops every pick made after that one. Then land a commit on main that gives workflow files git's own merge. The driver is set in .gitattributes, so add a \`.github/workflows/** merge\` line there, after the line that sets it. Cut that commit onto the branch with the hotfix workflow, then run git cherry-pick -x ${ci} on the branch by hand, and pick again any later fixes the force push dropped.`)).toBe(true)
+    expect(message.endsWith(`To build it, move the branch back to ${fx.release.slice(0, 12)}, the commit that pick was made on. That takes a force push, and it also drops every pick made after that one. Then land a commit on main that gives workflow files git's own merge. The driver is set in .gitattributes, so add a \`.github/workflows/** merge\` line at the end of .gitattributes. Cut that commit onto the branch with the hotfix workflow, then check out the branch, run git cherry-pick -x ${ci}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on it. Pick again any later fixes the force push dropped.`)).toBe(true)
   })
 
-  it('says a driver set under .github/workflows needs its own commit picked by hand too', async () => {
-    const { message } = await verifyUnionPick('.github/workflows/.gitattributes', '*.yml merge=union')
-    expect(message).toContain("Then land a commit on main that gives workflow files git's own merge. The driver is set in .github/workflows/.gitattributes, so add a `* merge` line there, after the line that sets it. Cherry-pick that commit onto the branch by hand (it changes a file under .github/workflows, so the hotfix workflow refuses it too), then run git cherry-pick -x ")
+  it('says a driver set under .github/workflows needs its own commit picked by hand too, with -x, and pushed', async () => {
+    const { ci, message } = await verifyUnionPick({ '.github/workflows/.gitattributes': '*.yml merge=union\n' })
+    // A pick without -x is refused as not a cherry-pick, and that commit
+    // changes a workflow file, so the push needs the workflow scope.
+    expect(message).toContain(`Then land a commit on main that gives workflow files git's own merge. The driver is set in .github/workflows/.gitattributes, so add a \`* merge\` line at the end of .github/workflows/.gitattributes. That commit changes a file under .github/workflows too, so the hotfix workflow refuses it as well: check out the branch, run git cherry-pick -x <that commit>, then git cherry-pick -x ${ci}, push the branch with a token that has the workflow scope, and run the app's pipeline-v2.yml on it. Pick again any later fixes the force push dropped.`)
     expect(message).not.toContain('with the hotfix workflow,')
+  })
+
+  it('explains the usual way out before saying it does not work, and asks for a person once', async () => {
+    const { message } = await verifyUnionPick({ '.gitattributes': '* merge=union\n', '.github/workflows/.gitattributes': '*.yml merge=union\n' })
+    expect(message.endsWith("The way past a merge driver is to move the branch back to before that pick and give workflow files git's own merge first, but as it stands that does not work: the driver is set in .github/workflows/.gitattributes, which is under .github/workflows too, and the .gitattributes there give it a driver as well (merge attribute: union), so build-candidate would refuse a pick that changes it for the same reason. A person needs to look at it.")).toBe(true)
+    expect(message.match(/A person needs to look at it/g)).toHaveLength(1)
   })
 
   it('keeps the usual advice on every other refusal', () => {

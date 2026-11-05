@@ -303,7 +303,7 @@ describe('verifyHotfixRef (build-candidate\'s check)', () => {
       handBranch(fx, () => fx.git(['cherry-pick', '-x', ci]))
       const error = await refusal(verify(fx))
       expect(error.reason).toBe(REASONS.mergeDriver)
-      expect(error.wayOut).toEqual({ onto: fx.release, source: ci, sources: [{ file: '.github/.gitattributes', line: 'workflows/** merge' }], blocked: [] })
+      expect(error.wayOut).toEqual({ onto: fx.release, source: ci, pickChangesWorkflows: true, sources: [{ file: '.github/.gitattributes', line: 'workflows/** merge' }], blocked: [] })
     })
 
     it('reads the merge attribute from the commit a pick was made on, not from the checkout', async () => {
