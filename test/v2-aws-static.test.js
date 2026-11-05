@@ -51,7 +51,8 @@ import {
   cloudfrontInvalidationStatus,
   isAccessDenied,
   s3HeadObject,
-  s3PutObject
+  s3PutObject,
+  staticClientConfig
 } from '../src/v2/aws.js'
 
 const BUCKET = 'example-site-stage'
@@ -215,6 +216,14 @@ describe('client time limits', () => {
       expect('requestTimeout' in config.requestHandler).toBe(false)
     }
     expect(s3Configs.at(-1).followRegionRedirects).toBe(true)
+  })
+
+  it('pins the limits themselves: an idle attempt ends after a minute, a connect after ten seconds', () => {
+    // Zero would switch either limit off, which is what a requestTimeout
+    // that only warned amounted to.
+    expect(STATIC_SOCKET_TIMEOUT_MS).toBe(60 * 1000)
+    expect(STATIC_CONNECTION_TIMEOUT_MS).toBe(10 * 1000)
+    expect(staticClientConfig().requestHandler).toEqual({ connectionTimeout: 10 * 1000, socketTimeout: 60 * 1000 })
   })
 
   it('shares one client across uploads', async () => {

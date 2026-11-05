@@ -547,6 +547,27 @@ describe('deployStatic: the step\'s time limit', () => {
     expect(putOf('index.html').map(([, , body]) => body.toString())).toEqual(['<html>old</html>'])
   })
 
+  it('says the step has reached its cap, not that it is within 0s of it, when the put-back runs out of time', async () => {
+    stubs()
+    const put = aws.s3PutObject.getMockImplementation()
+    aws.s3PutObject.mockImplementation(async (bucket, key, ...rest) => {
+      if (key === 'about/index.html' && openImage.mock.calls.length === 1) throw new Error('S3 s3:PutObject failed: timed out')
+      return put(bucket, key, ...rest)
+    })
+    // Reading the old release's image takes the step to its cap.
+    const open = openImage.getMockImplementation()
+    openImage.mockImplementation(async ref => {
+      if (ref === OLD_IMAGE) await clock.sleep(STEP_CAP_MS - clock.now())
+      return open(ref)
+    })
+    const error = await deploy().catch(e => e)
+    expect(error.message).toContain(
+      'Putting back release-2026-10-01-10090 (' + OLD + ') failed as well: The deploy step has reached its 50m 0s cap, so ' +
+      'no more uploads were started; 0 of 1 in this phase were.'
+    )
+    expect(error.message).not.toContain('within 0s')
+  })
+
   it('gives each upload only the time left before the step\'s cap', async () => {
     stubs()
     clock.stepStartedAt = -40 * 60 * 1000
@@ -606,9 +627,19 @@ describe('deployStatic: a stage deploy that did not finish', () => {
     expect(error.message).not.toContain('force')
   })
 
-  it('logs the advice once index.html is written, for a step stopped from outside', async () => {
+  it('notes in the log, calmly, that index.html now names the release, for a step stopped from outside', async () => {
     stubs()
     await deploy({ environment: 'release-candidate' })
-    expect(core.info).toHaveBeenCalledWith(`index.html now names this release. If this step stops before it finishes, ${FORCE}`)
+    expect(core.info).toHaveBeenCalledWith('index.html now names this release, so deploying it to release-candidate again takes force')
+    // A deploy that works says nothing about a deploy left unfinished.
+    const logged = [...core.info.mock.calls, ...core.warning.mock.calls].map(([line]) => line).join('\n')
+    expect(logged).not.toContain('Already deployed')
+    expect(logged).not.toContain('unfinished')
+  })
+
+  it('notes nothing of the kind on a promote', async () => {
+    stubs()
+    await deploy({ environment: 'production' })
+    expect(core.info.mock.calls.map(([line]) => line).join('\n')).not.toContain('takes force')
   })
 })

@@ -89,8 +89,10 @@ function octal (block, spec) {
  * The format is a sequence of `"<len> <key>=<value>\n"` chunks where `<len>` is
  * the byte length of the whole chunk, its own digits included. Values are UTF-8.
  *
- * Only `path` is acted on by this module, and it is the reason PAX is parsed at
- * all: when an entry's name does not fit the ustar header (>100 bytes, or >255
+ * Only `path` and `linkpath` are acted on by this module. `linkpath` is the
+ * same thing for a link's target, which a hard link in a static site needs.
+ * `path` is the reason PAX is parsed at all: when an entry's name does not fit
+ * the ustar header (>100 bytes, or >255
  * split across `prefix`), or contains non-ASCII bytes, buildkit stores the real
  * name here and leaves a truncated placeholder in the header. For one fixed
  * 22-character path that never happened. For an enumerated directory of

@@ -146,9 +146,9 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
     await uploadFiles(bucket, site.html, state, limits)
     await uploadFiles(bucket, [{ ...site.index, metadata, isIndex: true }], state, limits)
     if (environment === 'release-candidate') {
-      // In the log, for a step that is stopped from outside from here on and
-      // so never reaches its own error message.
-      core.info(`${INDEX_KEY} now names this release. If this step stops before it finishes, ${FORCE_ADVICE}`)
+      // A plain fact in the log, for the rare step that is stopped from
+      // outside from here on and so never reaches its own error message.
+      core.info(`${INDEX_KEY} now names this release, so deploying it to release-candidate again takes force`)
     }
 
     invalidation = await cloudfrontCreateInvalidation(distributionId, INVALIDATION_PATHS, callerReference())
@@ -247,9 +247,11 @@ async function uploadFiles (bucket, files, state, { step, reserveMs = 0 }) {
     while (failure === null && next < files.length) {
       const left = step.remaining(reserveMs)
       if (left <= 0) {
+        const where = reserveMs > 0
+          ? `is within ${formatDuration(reserveMs)} of its ${formatDuration(STEP_CAP_MS)} cap`
+          : `has reached its ${formatDuration(STEP_CAP_MS)} cap`
         failure = new Error(
-          `The deploy step is within ${formatDuration(reserveMs)} of its ${formatDuration(STEP_CAP_MS)} cap, so ` +
-          `no more uploads were started; ${next} of ${files.length} in this phase were.`
+          `The deploy step ${where}, so no more uploads were started; ${next} of ${files.length} in this phase were.`
         )
         break
       }

@@ -296,12 +296,13 @@ function registrationPayload (taskDefinition, tags) {
 // So when S3, CloudFront or DynamoDB says no, the message names the bucket,
 // distribution or table and what must grant the role (for a distribution, the
 // tag), because the fix is in that app's Terraform or the role's, not here.
+// AWS's own words go on the end, so a refusal that no grant here would fix (an
+// organization policy, a KMS key policy, an explicit deny) is not mistaken for
+// a missing grant.
 //
 // The role needs no ecr:GetAuthorizationToken: it reads images through the ECR
 // SDK calls in ./oci.js, never through a registry login. The one deploy-role
-// job that logs in to ECR is stage-less verify, which refuses a static site. AWS's own words go on the end, so a refusal that no grant
-// here would fix (an organization policy, a KMS key policy, an explicit deny)
-// is not mistaken for a missing grant.
+// job that logs in to ECR is stage-less verify, which refuses a static site.
 export const STATIC_DEPLOY_ROLE = 'GitHubDeployStatic'
 
 // The S3 actions a site's bucket policy must grant STATIC_DEPLOY_ROLE.
