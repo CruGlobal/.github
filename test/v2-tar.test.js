@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findInTar, listInTar, MAX_ENTRY_BYTES, normalizeTarPath, parsePaxRecords } from '../src/v2/tar.js'
+import { findInTar, listInTar, listTreeInTar, MAX_ENTRY_BYTES, normalizeTarPath, parsePaxRecords } from '../src/v2/tar.js'
 import { paxEntry, paxRecord, tarArchive, tarEntry } from './support/tar-fixture.js'
 
 const PAGE = '<!DOCTYPE html><title>Sign in</title>'
@@ -265,5 +265,35 @@ describe('listInTar', () => {
   it('lists the whole archive for an empty prefix', () => {
     const archive = tarArchive(tarEntry('a.js.map', MAP_A), tarEntry('b/c.js.map', MAP_B))
     expect(listInTar(archive, '').map(file => file.name)).toEqual(['a.js.map', 'b/c.js.map'])
+  })
+})
+
+// A static site has to be copied whole, so the links listInTar quietly skips
+// are reported instead of lost.
+describe('listTreeInTar', () => {
+  it('returns the same files as listInTar, plus the links it skips', () => {
+    const archive = tarArchive(
+      tarEntry('site/', '', { type: '5' }),
+      tarEntry('site/index.html', '<html>'),
+      tarEntry('site/latest.js', '', { type: '2' }),
+      tarEntry('site/copy.js', '', { type: '1' }),
+      tarEntry('other/link', '', { type: '2' })
+    )
+    const tree = listTreeInTar(archive, '/site')
+    expect(tree.files).toEqual(listInTar(archive, '/site'))
+    expect(tree.files.map(file => file.name)).toEqual(['index.html'])
+    expect(tree.links).toEqual([
+      { path: 'site/latest.js', name: 'latest.js', type: '2' },
+      { path: 'site/copy.js', name: 'copy.js', type: '1' }
+    ])
+  })
+
+  it('passes maxBytes through', () => {
+    const archive = tarArchive(tarEntry('site/big.mp4', Buffer.alloc(2048, 0x61)))
+    expect(listTreeInTar(archive, '/site', { maxBytes: 1024 }).files[0]).toMatchObject({ size: 2048, contents: null })
+  })
+
+  it('is empty when nothing lives under the prefix', () => {
+    expect(listTreeInTar(tarArchive(tarEntry('app/x', 'x')), '/site')).toEqual({ files: [], links: [] })
   })
 })
