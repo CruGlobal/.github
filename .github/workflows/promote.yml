@@ -575,8 +575,8 @@ jobs:
       # Inside the production lock. Not every call under this step has a
       # request timeout of its own yet (the Artifact Registry REST calls have
       # none), so the step limit is a backstop against one that never
-      # answers. In recent runs the step took 4 seconds at most, and five
-      # minutes leaves room for the clients' own retries. No
+      # answers. In recent runs the step took a few seconds, 11 at most, and
+      # five minutes leaves room for the clients' own retries. No
       # continue-on-error: if the limit ends this step, the promote stops, as
       # it does on any failure to resolve. Request timeouts in the clients are
       # a separate follow-up.
@@ -1514,7 +1514,7 @@ jobs:
       # Inside the production lock. The AWS SDK calls under this step have no
       # request timeout of their own yet (the SDK's default is none), so the
       # step limit is a backstop against one that never answers. In recent
-      # runs the step took 4 seconds at most, and five minutes leaves room
+      # runs the step took 2 to 4 seconds, and five minutes leaves room
       # for the SDK's own retries. No continue-on-error: if the limit ends this
       # step, the promote stops, as it does on any failure to resolve. Request
       # timeouts in the clients are a separate follow-up.

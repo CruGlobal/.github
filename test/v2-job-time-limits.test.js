@@ -235,7 +235,8 @@ describe('reads inside the deploy lock', () => {
   // [workflow, job, step, step limit in minutes, advisory]
   const READS = [
     // Must succeed. Their clients have no request timeout of their own yet,
-    // so the step limit is the backstop; in recent runs each took seconds.
+    // so the step limit is the backstop; in recent runs each took a few
+    // seconds, 21 at most.
     ['deploy-candidate.yml', 'deploy-candidate-gcp', 'Resolve candidate image', 5, false],
     ['deploy-candidate.yml', 'deploy-candidate-aws', 'Resolve candidate image', 5, false],
     ['deploy-candidate.yml', 'verify-candidate-aws', 'Resolve candidate image', 5, false],

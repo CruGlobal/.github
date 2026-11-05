@@ -233,14 +233,13 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: cru-deploy@${{ needs.lookup.outputs.project-id }}.iam.gserviceaccount.com
 
-      # Inside the release-candidate lock. Not every call under this step has
-      # a request timeout of its own yet (the AWS SDK's default is none, and
-      # so are the Artifact Registry REST calls), so the step limit is a
-      # backstop against one that never answers. In recent runs the step took
-      # 4 seconds at most, and five minutes leaves room for the clients' own
-      # retries. No continue-on-error: a step it stops fails the run, as any
-      # failure to resolve the candidate does. Request timeouts in the
-      # clients are a separate follow-up.
+      # Inside the release-candidate lock. The Artifact Registry REST calls
+      # under this step have no request timeout of their own yet, so the step
+      # limit is a backstop against one that never answers. In recent runs the
+      # step took a few seconds, 21 at most, and five minutes leaves room for
+      # the clients' own retries. No continue-on-error: a step it stops fails
+      # the run, as any failure to resolve the candidate does. Request
+      # timeouts in the clients are a separate follow-up.
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
@@ -265,8 +264,9 @@ jobs:
       #
       # It runs inside the release-candidate lock, and not every call under it
       # has a time limit of its own, so the step has one. A working read takes
-      # seconds. A read that runs out of time fails like any other here:
-      # nothing is resolved and the deploy goes ahead.
+      # a few seconds, 12 at most in recent runs. A read that runs out of time
+      # fails like any other here: nothing is resolved and the deploy goes
+      # ahead.
       - name: Check image currently on release-candidate
         uses: ./cru-github-actions/actions/resolve-image
         id: current
@@ -677,14 +677,13 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
-      # Inside the release-candidate lock. Not every call under this step has
-      # a request timeout of its own yet (the AWS SDK's default is none, and
-      # so are the Artifact Registry REST calls), so the step limit is a
-      # backstop against one that never answers. In recent runs the step took
-      # 4 seconds at most, and five minutes leaves room for the clients' own
-      # retries. No continue-on-error: a step it stops fails the run, as any
-      # failure to resolve the candidate does. Request timeouts in the
-      # clients are a separate follow-up.
+      # Inside the release-candidate lock. The AWS SDK calls under this step
+      # have no request timeout of their own yet (the SDK's default is none),
+      # so the step limit is a backstop against one that never answers. In
+      # recent runs the step took 2 to 4 seconds, and five minutes leaves room
+      # for the SDK's own retries. No continue-on-error: a step it stops fails
+      # the run, as any failure to resolve the candidate does. Request
+      # timeouts in the clients are a separate follow-up.
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
@@ -704,7 +703,7 @@ jobs:
       #
       # It runs inside the release-candidate lock, and not every call under it
       # has a time limit of its own, so the step has one. A working read takes
-      # seconds. A read that runs out of time fails like any other here:
+      # a few seconds. A read that runs out of time fails like any other here:
       # nothing is resolved and the deploy goes ahead.
       - name: Check image currently on release-candidate
         uses: ./cru-github-actions/actions/resolve-image
@@ -1119,14 +1118,13 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
-      # Inside the release-candidate lock. Not every call under this step has
-      # a request timeout of its own yet (the AWS SDK's default is none, and
-      # so are the Artifact Registry REST calls), so the step limit is a
-      # backstop against one that never answers. In recent runs the step took
-      # 4 seconds at most, and five minutes leaves room for the clients' own
-      # retries. No continue-on-error: a step it stops fails the run, as any
-      # failure to resolve the candidate does. Request timeouts in the
-      # clients are a separate follow-up.
+      # Inside the release-candidate lock. The AWS SDK calls under this step
+      # have no request timeout of their own yet (the SDK's default is none),
+      # so the step limit is a backstop against one that never answers. In
+      # recent runs the step took 2 to 4 seconds, and five minutes leaves room
+      # for the SDK's own retries. No continue-on-error: a step it stops fails
+      # the run, as any failure to resolve the candidate does. Request
+      # timeouts in the clients are a separate follow-up.
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
