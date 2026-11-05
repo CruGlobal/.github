@@ -15,7 +15,6 @@ import {
   commitSubject,
   currentProduction,
   cutHotfix,
-  deadlineRequests,
   escapeMrkdwn,
   fixesLine,
   gitIn,
@@ -28,6 +27,7 @@ import {
   releaseKind,
   verifyHotfixRef
 } from '../src/v2/hotfix.js'
+import { deadlineRequests } from '../src/v2/deadline.js'
 import { GitFixture, NEWER_RELEASE, PIPELINE, PROJECT, RELEASE, fakeLedger, isolateGitConfig, ledgerRow, standardApp } from './support/git-fixture.js'
 
 // The hotfix logic against real git repositories (see support/git-fixture.js):
@@ -748,6 +748,27 @@ describe('releaseKind (promote)', () => {
     const api = octokit({ compare: { [`${MAIN_TIP}...${SHA}`]: 'diverged', [`${'e'.repeat(40)}...${SHA}`]: 'diverged' }, refs: branches })
     await expect(releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA, request: deadlineRequests({ deadlineMs: 30000, now }) })).rejects.toThrow(/gave up after 30 seconds/)
     expect(api.rest.repos.compareCommitsWithBasehead.mock.calls.length).toBeLessThan(3)
+  })
+
+  // With no `request` of its own, the deadline is releaseKind's default:
+  // promote's 30 seconds. A first read that takes all 30 leaves none for the
+  // next, and the error names the deadline, so a different default fails
+  // here: a shorter one names another number, a longer one lets the read
+  // through.
+  it('gives GitHub 30 seconds in all when the caller passes no deadline', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-11-05T12:00:00Z'))
+      const api = octokit({ compare: { [`${MAIN_TIP}...${SHA}`]: 'diverged' } })
+      api.rest.repos.get.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 30 * 1000)
+        return { data: { default_branch: 'main' } }
+      })
+      await expect(releaseKind({ octokit: api, repository: 'example-org/example-app', sha: SHA })).rejects.toThrow('gave up after 30 seconds')
+      expect(api.rest.repos.getBranch).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

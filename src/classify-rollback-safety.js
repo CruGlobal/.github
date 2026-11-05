@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import { classifyMigrationFiles } from './v2/rollback-safety'
+import { deadlineRequests } from './v2/deadline'
 
 // classify-rollback-safety: advisory EXPAND/CONTRACT classification of the
 // migrations added between the release currently in production (base-sha) and
@@ -16,6 +17,16 @@ const GITHUB_API = 'https://api.github.com'
 // set can't be trusted to be complete.
 const COMPARE_FILE_CAP = 300
 
+// Promote runs this inside the production lock, so a GitHub API that never
+// answers must not hold that lock, and every other promote and rollback of
+// the app, until the job's time limit. Each read gets REQUEST_TIMEOUT_MS to
+// answer, body included, and all of them together get DEADLINE_MS. Running
+// out of time is an error like any other: the verdict is unclassified, which
+// refuses the promote only when the app set require-rollback-safe. The step's
+// own limit in promote.yml is a backstop past DEADLINE_MS.
+export const REQUEST_TIMEOUT_MS = 20 * 1000
+export const DEADLINE_MS = 90 * 1000
+
 function ghHeaders (token, accept) {
   return {
     Authorization: `Bearer ${token}`,
@@ -25,21 +36,66 @@ function ghHeaders (token, accept) {
   }
 }
 
-async function fetchCompare (repository, baseSha, headSha, token) {
-  const url = `${GITHUB_API}/repos/${repository}/compare/${baseSha}...${headSha}`
-  const res = await fetch(url, { headers: ghHeaders(token, 'application/vnd.github+json') })
-  if (!res.ok) throw new Error(`compare API ${res.status} for ${repository} ${baseSha}...${headSha}`)
-  return res.json()
+function timedOut (error) {
+  const names = [error?.name, error?.cause?.name]
+  return names.includes('TimeoutError') || names.includes('AbortError')
 }
 
-async function fetchContent (repository, path, ref, token) {
+// One GET, its body read with `read`, inside the time `limits` leave for it.
+// `api` and `subject` make up the error, as in "compare API 404 for ...".
+//
+// A read that is stopped says which limit stopped it. Near the end, a read
+// gets only what is left of the overall deadline, so one that never answers
+// can be stopped by the deadline rather than by its own 20 seconds. The
+// reason then says the GitHub reads as a whole ran out of time, which is what
+// a person needs to know: the classifier gave up, not one slow API. Which
+// limit applies is known when the read starts (cutByDeadline), so the wording
+// does not depend on reading the clock after the stop.
+async function githubGet ({ url, accept, token, limits, api, subject, read }) {
+  const { request, deadlineMs } = limits
+  const outOfTime = (when) => `the GitHub reads ran out of their ${deadlineMs / 1000} seconds ${when} the ${api} read ${subject}`
+  let signal, cutByDeadline
+  try {
+    ({ signal, cutByDeadline } = request.next())
+  } catch (error) {
+    throw new Error(outOfTime('before'), { cause: error })
+  }
+  try {
+    const res = await fetch(url, { headers: ghHeaders(token, accept), signal })
+    if (!res.ok) throw new Error(`${api} ${res.status} ${subject}`)
+    return await read(res)
+  } catch (error) {
+    if (!timedOut(error)) throw error
+    if (cutByDeadline) throw new Error(outOfTime('during'), { cause: error })
+    throw new Error(`${api} did not answer in time ${subject}`, { cause: error })
+  }
+}
+
+async function fetchCompare (repository, baseSha, headSha, token, limits) {
+  return githubGet({
+    url: `${GITHUB_API}/repos/${repository}/compare/${baseSha}...${headSha}`,
+    accept: 'application/vnd.github+json',
+    token,
+    limits,
+    api: 'compare API',
+    subject: `for ${repository} ${baseSha}...${headSha}`,
+    read: (res) => res.json()
+  })
+}
+
+async function fetchContent (repository, path, ref, token, limits) {
   const encoded = path.split('/').map(encodeURIComponent).join('/')
-  const url = `${GITHUB_API}/repos/${repository}/contents/${encoded}?ref=${encodeURIComponent(ref)}`
-  // The raw media type returns the file body verbatim (the compare `patch` is
-  // not reliable for full content).
-  const res = await fetch(url, { headers: ghHeaders(token, 'application/vnd.github.raw+json') })
-  if (!res.ok) throw new Error(`contents API ${res.status} for ${path}`)
-  return res.text()
+  return githubGet({
+    url: `${GITHUB_API}/repos/${repository}/contents/${encoded}?ref=${encodeURIComponent(ref)}`,
+    // The raw media type returns the file body verbatim (the compare `patch`
+    // is not reliable for full content).
+    accept: 'application/vnd.github.raw+json',
+    token,
+    limits,
+    api: 'contents API',
+    subject: `for ${path}`,
+    read: (res) => res.text()
+  })
 }
 
 // Normalise a migrations path to a directory prefix ("drizzle" -> "drizzle/").
@@ -47,8 +103,8 @@ function pathPrefix (migrationsPath) {
   return migrationsPath.replace(/^\.\//, '').replace(/\/+$/, '') + '/'
 }
 
-async function classify ({ token, repository, baseSha, headSha, migrationsPath }) {
-  const compare = await fetchCompare(repository, baseSha, headSha, token)
+async function classify ({ token, repository, baseSha, headSha, migrationsPath, limits }) {
+  const compare = await fetchCompare(repository, baseSha, headSha, token, limits)
   const files = compare.files ?? []
 
   const truncated = files.length >= COMPARE_FILE_CAP
@@ -64,7 +120,7 @@ async function classify ({ token, repository, baseSha, headSha, migrationsPath }
     // everything else is decided from path + status alone.
     let content
     if (status === 'added' && /\.(sql|rb)$/i.test(path) && !/(^|\/)meta\//.test(path)) {
-      content = await fetchContent(repository, path, headSha, token)
+      content = await fetchContent(repository, path, headSha, token, limits)
     }
     enriched.push({ path, status, content })
   }
@@ -89,7 +145,9 @@ function finish (verdict, reasons) {
   return { verdict, reasons }
 }
 
-export async function run () {
+// The limits are options so tests can shorten them and run a clock of their
+// own.
+export async function run ({ timeoutMs = REQUEST_TIMEOUT_MS, deadlineMs = DEADLINE_MS, now = Date.now } = {}) {
   try {
     const token = core.getInput('github-token')
     const repository = core.getInput('repository')
@@ -121,11 +179,14 @@ export async function run () {
     if (!baseSha) return finish('unclassified', ['no production baseline'])
     if (!headSha) return finish('unclassified', ['no candidate sha to classify'])
 
-    const { verdict, reasons } = await classify({ token, repository, baseSha, headSha, migrationsPath })
+    // One deadline for every GitHub read below.
+    const limits = { request: deadlineRequests({ deadlineMs, timeoutMs, now }), deadlineMs }
+    const { verdict, reasons } = await classify({ token, repository, baseSha, headSha, migrationsPath, limits })
     return finish(verdict, reasons)
   } catch (error) {
-    // ANY failure (API error, bad shas) is advisory-safe: report unclassified
-    // with the error as the reason and exit successfully.
+    // ANY failure (API error, bad shas, a read that ran out of time) is
+    // advisory-safe: report unclassified with the error as the reason and exit
+    // successfully.
     return finish('unclassified', [error.message])
   }
 }
