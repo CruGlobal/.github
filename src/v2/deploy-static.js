@@ -132,11 +132,11 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
       if (stopRolloutOnFailure) {
         await putBackPrevious({ projectName, bucket, distributionId, previous, error })
       } else {
-        error.message += ' This is a rollback, so nothing was put back: the bucket holds part of this release ' +
-          'over the one before. Run the rollback again once the cause is fixed.'
+        addSentence(error, 'This is a rollback, so nothing was put back: the bucket holds part of this release ' +
+          'over the one before. Run the rollback again once the cause is fixed.')
       }
     } else {
-      error.message += ' No file a live page uses had been changed yet.'
+      addSentence(error, 'No file a live page uses had been changed yet.')
     }
     throw error
   }
@@ -242,8 +242,8 @@ function callerReference () {
 // error, which the caller then throws.
 async function putBackPrevious ({ projectName, bucket, distributionId, previous, error }) {
   if (!previous?.digest) {
-    error.message += ` Pipeline v2 had not deployed this site before, so there was no release to put back: s3://${bucket} ` +
-      'now holds part of this one.'
+    addSentence(error, `Pipeline v2 had not deployed this site before, so there was no release to put back: s3://${bucket} ` +
+      'now holds part of this one.')
     return
   }
   const name = previous.revision || previous.digest
@@ -262,16 +262,23 @@ async function putBackPrevious ({ projectName, bucket, distributionId, previous,
     try {
       await cloudfrontCreateInvalidation(distributionId, INVALIDATION_PATHS, callerReference())
     } catch (invalidationError) {
-      error.message += ` The files ${name} served were put back in s3://${bucket}, but invalidating CloudFront ` +
+      addSentence(error, `The files ${name} served were put back in s3://${bucket}, but invalidating CloudFront ` +
         `afterwards failed (${invalidationError.message}), so its edges may serve this release's HTML until their ` +
-        'cache expires.'
+        'cache expires.')
       return
     }
-    error.message += ` The files ${name} served were put back in s3://${bucket}, so it serves ${name} again.`
+    addSentence(error, `The files ${name} served were put back in s3://${bucket}, so it serves ${name} again.`)
   } catch (putBackError) {
-    error.message += ` Putting back ${name} (${previous.digest}) failed as well: ${putBackError.message}. ` +
-      `s3://${bucket} may serve a mix of the two releases until a deploy or rollback finishes.`
+    addSentence(error, `Putting back ${name} (${previous.digest}) failed as well: ${putBackError.message.replace(/\.$/, '')}. ` +
+      `s3://${bucket} may serve a mix of the two releases until a deploy or rollback finishes.`)
   }
+}
+
+// Add a sentence to an error's message, ending the one before it first: the
+// causes come from S3, CloudFront and the image reader, and not all of them
+// end with a full stop.
+function addSentence (error, sentence) {
+  error.message = `${/[.!?]$/.test(error.message) ? error.message : `${error.message}.`} ${sentence}`
 }
 
 // Wait for the invalidation, within INVALIDATION_WAIT_MS and the step's cap.
@@ -291,8 +298,8 @@ async function waitForInvalidation (distributionId, id, clock) {
       status = await cloudfrontInvalidationStatus(distributionId, id)
     } catch (error) {
       core.warning(
-        `could not check CloudFront invalidation ${id}: ${error.message} The files are live at the origin, so the ` +
-        'deploy is done; the edges serve them once the invalidation finishes.'
+        `could not check CloudFront invalidation ${id}: ${error.message.replace(/\.$/, '')}. The files are live at the ` +
+        'origin, so the deploy is done; the edges serve them once the invalidation finishes.'
       )
       return
     }
