@@ -11,7 +11,7 @@ import { openImage } from './v2/oci'
 // tagging step with a single provider-routed action.
 //
 //   cloudrun -> Artifact Registry REST tag create/move (src/v2/gcp.js addTag)
-//   ecs/lambda -> ECR manifest re-tag (src/v2/aws.js ecrRetagDigest)
+//   ecs/lambda/static -> ECR manifest re-tag (src/v2/aws.js ecrRetagDigest)
 //
 // On ecs, the companion images the app image names (src/v2/companions.js) get
 // the same tag first. A release-* tag is what keeps an image past the 60-day
@@ -65,9 +65,10 @@ function dispatch (type, { projectName, digest, tag, registryProject }) {
     case 'ecs':
       return tagCompanions(projectName, digest, tag).then(() => ecrRetagDigest(projectName, digest, tag))
     case 'lambda':
+    case 'static':
       return ecrRetagDigest(projectName, digest, tag)
     default:
-      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`)
+      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun, static.`)
   }
 }
 

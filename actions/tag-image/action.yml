@@ -2,14 +2,14 @@ name: Tag Image
 description: >-
   Provider-agnostic release tagging (pipeline v2). Adds a tag to an
   already-pushed digest in the shared registry without rebuilding or re-pushing
-  layers. cloudrun uses the Artifact Registry REST API; ecs/lambda re-tag the
-  ECR manifest. On ecs, each companion image the app image names in an
+  layers. cloudrun uses the Artifact Registry REST API; ecs, lambda and
+  static re-tag the ECR manifest. On ecs, each companion image the app image names in an
   org.cru.companion.<name> label gets the same tag first, so it lasts as long
   as the app image. A release-* tag is refused unless the authorize-actor
   check passed earlier in the same job for this run attempt.
 inputs:
   type:
-    description: Runtime whose registry to tag in. One of ecs | lambda | cloudrun.
+    description: Runtime whose registry to tag in. One of ecs | lambda | cloudrun | static.
     required: true
   project-name:
     description: Project name (also the shared-registry repo/image name).
