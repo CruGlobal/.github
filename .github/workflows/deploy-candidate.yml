@@ -142,9 +142,11 @@ jobs:
           fi
           # Only a row the v2 app modules wrote carries PipelineVersion "2".
           # Without it the app is not one pipeline v2 deploys: it is still on
-          # the old pipeline, or it deploys itself (a static site or an
-          # Amplify app, whose row has a Type of its own). Refused here,
-          # before any credential.
+          # the old pipeline, or it deploys itself. Type says what a site runs
+          # on and PipelineVersion says which pipeline deploys it, so a static
+          # site or an Amplify app without PipelineVersion "2" deploys itself,
+          # and one with it is deployed here. Refused here, before any
+          # credential.
           if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
             echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so pipeline v2 does not deploy its candidates. Nothing was deployed."
             exit 1
@@ -176,6 +178,13 @@ jobs:
             verify)
               if [ "$provider" != "aws" ]; then
                 echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME). Stage-less verify pulls the candidate from the app's ECR repo; the shared Artifact Registry path is not implemented."
+                exit 1
+              fi
+              # A static site's release candidate is what its stage bucket
+              # serves, and its image has no program to run a verify command
+              # with, so stage-less verify does not apply to it (yet).
+              if [ "$type" = "static" ]; then
+                echo "::error::RcMode 'verify' (stage-less) is not supported for static sites yet ($PROJECT_NAME): a static site's release candidate is what its stage bucket serves, so it needs a stage environment. Nothing was deployed."
                 exit 1
               fi
               if [ "$(echo "$verify_command" | jq 'length')" -eq 0 ]; then
@@ -642,25 +651,34 @@ jobs:
           ref: ${{ inputs.workflow-ref }}
           path: cru-github-actions
 
-      # Fail clearly on AWS types not yet implemented in v2 (serverless).
+      # Fail clearly on AWS types not yet implemented in v2 (serverless), and
+      # pick the type's deploy role in the same place. The credentials step
+      # reads the role from this step, so a type this list does not know stops
+      # here and can never fall through to another type's role.
       - name: Guard supported AWS type
+        id: aws-type
         env:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs|lambda) ;;
-            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+            ecs) role=GitHubDeployECS ;;
+            lambda) role=GitHubDeployLambda ;;
+            static) role=GitHubDeployStatic ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs', 'lambda' and 'static' (got '${TYPE//[$'\r\n']/ }'); serverless lands in a later pass."; exit 1 ;;
           esac
+          echo "role=$role" >> "$GITHUB_OUTPUT"
 
       # ECS/Lambda are org-shared in the cruds account (056154071827); one deploy
-      # role per type (GitHubDeployECS / GitHubDeployLambda, both cru-deploy-
-      # scoped) covers every cluster/function. Unlike cloudrun, AWS derives
-      # everything from the env nickname + conventions — no runtime-project.
+      # role per type (GitHubDeployECS / GitHubDeployLambda / GitHubDeployStatic,
+      # all cru-deploy-scoped) covers every cluster, function and site. Unlike
+      # cloudrun, AWS derives everything from the env nickname + conventions,
+      # with no runtime-project; a static site reads its bucket and distribution
+      # from app-info.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+          role-to-assume: arn:aws:iam::056154071827:role/${{ steps.aws-type.outputs.role }}
 
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
@@ -715,6 +733,7 @@ jobs:
           environment: release-candidate
           image: ${{ steps.resolve.outputs.image }}
           app-url: ${{ needs.lookup.outputs.app-url }}
+          revision: ${{ inputs.tag }}
 
       - name: Record deployment event in Datadog
         if: steps.noop.outputs.skip != 'true'
@@ -1068,15 +1087,21 @@ jobs:
           path: cru-github-actions
 
       # Same type guard as the deploy job: `type` still decides which ECR repo
-      # and which deploy role, even though nothing is deployed here.
+      # and which deploy role, even though nothing is deployed here. A static
+      # site is refused: `lookup` already refuses one in verify mode, and this
+      # is the backstop.
       - name: Guard supported AWS type
+        id: aws-type
         env:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs|lambda) ;;
-            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+            ecs) role=GitHubDeployECS ;;
+            lambda) role=GitHubDeployLambda ;;
+            static) echo "::error::RcMode 'verify' (stage-less) is not supported for static sites yet; a static site needs a stage environment."; exit 1 ;;
+            *) echo "::error::v2 AWS stage-less verify supports types 'ecs' and 'lambda' (got '${TYPE//[$'\r\n']/ }'); serverless lands in a later pass."; exit 1 ;;
           esac
+          echo "role=$role" >> "$GITHUB_OUTPUT"
 
       # The EXISTING deploy role, not a new identity: verify mode is a different
       # use of the same candidate artifact, and the role already reads the app's
@@ -1087,7 +1112,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+          role-to-assume: arn:aws:iam::056154071827:role/${{ steps.aws-type.outputs.role }}
 
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image

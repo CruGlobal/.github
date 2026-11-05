@@ -28,7 +28,7 @@ on:
       type:
         type: string
         required: true
-        description: Runtime to build for. One of ecs | lambda | cloudrun.
+        description: Runtime to build for. One of ecs | lambda | cloudrun | static.
       project-name:
         type: string
         required: false
@@ -116,8 +116,8 @@ jobs:
           PROJECT_NAME: ${{ inputs.project-name }}
         run: |
           case "$TYPE" in
-            ecs|lambda|cloudrun) ;;
-            *) echo "::error::unknown type '$TYPE'; expected ecs, lambda, or cloudrun"; exit 1 ;;
+            ecs|lambda|cloudrun|static) ;;
+            *) echo "::error::unknown type '${TYPE//[$'\r\n']/ }'; expected ecs, lambda, cloudrun, or static"; exit 1 ;;
           esac
           project_name="$PROJECT_NAME"
           if [ -z "$project_name" ]; then
@@ -540,9 +540,14 @@ jobs:
           CANDIDATE: ${{ steps.existing.outputs.candidate || steps.built.outputs.candidate }}
         run: echo "::notice title=Candidate Ready::$PROJECT_NAME $CANDIDATE"
 
+  # A static site builds here too. Its candidate is an image in the app's ECR
+  # repository, built by the app's own build.sh with the same role, tags and
+  # digest as an ECS image; only what the image holds differs (the site under
+  # /site, FROM scratch). So the job, its outputs and the failure notice below
+  # serve both types, and the job is named for the type it builds.
   build-ecs:
-    name: Build Candidate (ECS)
-    if: inputs.type == 'ecs'
+    name: Build Candidate (${{ inputs.type == 'static' && 'static site' || 'ECS' }})
+    if: inputs.type == 'ecs' || inputs.type == 'static'
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 30
