@@ -15,7 +15,18 @@ import { assertDigestRef, parseImageRef } from './image-ref'
 import { openImage } from './oci'
 import { POLL_INTERVAL_MS, STEP_CAP_MS, formatDuration, progressLogger, rolloutBudget } from './rollout-budget'
 import { SOURCEMAPS_LABEL, publishSourceMaps, sourceMapsEndpointFor } from './sourcemaps'
-import { INDEX_KEY, SITE_DIR, planSite, readLiveRelease, releaseMetadata, staticSiteTarget } from './static-site'
+import {
+  INDEX_KEY,
+  PUBLIC_SOURCEMAPS_LABEL,
+  SITE_DIR,
+  isSourceMap,
+  planSite,
+  readLiveRelease,
+  releaseMetadata,
+  servesSourceMaps,
+  shown,
+  staticSiteTarget
+} from './static-site'
 
 // Deploy a static site: copy the files a pre-built, digest-pinned image holds
 // under /site into the environment's S3 bucket, and invalidate its CloudFront
@@ -29,7 +40,10 @@ import { INDEX_KEY, SITE_DIR, planSite, readLiveRelease, releaseMetadata, static
 //   1. Read the whole site out of the image first, without docker, and check
 //      it. A site the deploy cannot copy whole fails here, with nothing changed.
 //   2. Upload the content-hashed files. Their names are new, so no live page
-//      asks for them yet, and this changes nothing a visitor sees.
+//      asks for them yet, and this changes nothing a visitor sees. When the
+//      image serves its source maps (org.cru.public-sourcemaps, see
+//      ./static-site.js), the hashed .map files under /site go up here too, so
+//      each is in place before any page can load the bundle that names it.
 //   3. Upload the source maps to Flightdeck, before any page can load the new
 //      code and report an error against it. Same never-fails policy as the ECS
 //      and Cloud Run deploys. It runs before anything a live page uses has
@@ -38,7 +52,11 @@ import { INDEX_KEY, SITE_DIR, planSite, readLiveRelease, releaseMetadata, static
 //   4. Upload the files that are not hashed and not HTML. A live page may ask
 //      for these by name (a service worker, a module federation entry, a
 //      loader script), and they may name hashed files, which are all in place
-//      by now. This is the first step a visitor can see.
+//      by now. This is the first step a visitor can see. When the image serves
+//      its source maps, the unhashed .map files go up first, on their own, so
+//      no file names a map the bucket does not hold yet. Only dev tools ask for
+//      a map, but a live one may be replaced here, so the failure handling
+//      below counts them like any other file a live page uses.
 //   5. Upload the HTML, index.html very last. index.html carries the release's
 //      digest, revision and sha as metadata, so it is the record of which
 //      release the bucket serves (resolve-image reads it back), and it only
@@ -110,11 +128,10 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
   const handle = await openSiteImage(image)
   const site = await readSite(handle, image)
   core.info(
-    `site: ${site.hashed.length} content-hashed files, ${site.unhashed.length} other files, ${site.html.length + 1} HTML files`
+    `site: ${site.hashed.length} content-hashed files, ${site.unhashedMaps.length + site.unhashed.length} other files, ` +
+    `${site.html.length + 1} HTML files`
   )
-  if (site.maps.length > 0) {
-    core.info(`not uploading ${site.maps.length} .map files under ${SITE_DIR} to the bucket; source maps go under /cru/sourcemaps`)
-  }
+  logSiteMaps(handle.labels, site)
 
   // What was live before, so a failed deploy can put it back.
   const previous = await nothingChangedIfItFails(() => readLiveRelease(bucket))
@@ -129,7 +146,7 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
   const metadata = releaseMetadata({ digest, ...releaseIdentity(await ecrTagsForDigest(projectName, digest), revision) })
 
   // --- Changes ---------------------------------------------------------------
-  const state = { overwrote: false, indexChanged: false }
+  const state = { overwrote: false, indexChanged: false, mapsChanged: false }
   const limits = { step, reserveMs: PUT_BACK_RESERVE_MS }
   let invalidation
   let sourcemaps
@@ -138,6 +155,11 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
     await uploadFiles(bucket, site.hashed, state, limits)
 
     sourcemaps = await uploadSourceMaps({ projectName, nickname, appUrl, handle })
+
+    if (site.unhashedMaps.length > 0) {
+      core.info(`uploading ${site.unhashedMaps.length} .map files whose names carry no content hash`)
+      await uploadFiles(bucket, site.unhashedMaps, state, limits)
+    }
 
     core.info(`uploading ${site.unhashed.length} other files`)
     await uploadFiles(bucket, site.unhashed, state, limits)
@@ -157,7 +179,9 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
     let putBack = { index: false }
     if (state.overwrote) {
       if (stopRolloutOnFailure) {
-        putBack = await putBackPrevious({ projectName, bucket, distributionId, previous, error, step })
+        putBack = await putBackPrevious({
+          projectName, bucket, distributionId, previous, error, step, mapsChanged: state.mapsChanged
+        })
       } else {
         addSentence(error, 'This is a rollback, so nothing was put back: the bucket holds part of this release ' +
           'over the one before. Run the rollback again once the cause is fixed.')
@@ -202,9 +226,50 @@ async function openSiteImage (image) {
 
 async function readSite (handle, image) {
   try {
-    return planSite(await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES }), { maxBytes: MAX_SITE_FILE_BYTES, image })
+    return await planImageSite(handle, image)
   } catch (error) {
     throw new Error(`Could not deploy the site in ${image}: ${error.message}. Nothing was changed.`, { cause: error })
+  }
+}
+
+// What an image's site uploads, read the same way for the release being
+// deployed and for a release being put back: each image's own label says
+// whether its .map files go to the bucket.
+async function planImageSite (handle, image) {
+  const tree = await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES })
+  return planSite(tree, { maxBytes: MAX_SITE_FILE_BYTES, image, publicMaps: servesSourceMaps(handle.labels) })
+}
+
+// Say which way the .map files under /site went, since one way makes the
+// site's source public.
+function logSiteMaps (labels, site) {
+  const value = labels?.[PUBLIC_SOURCEMAPS_LABEL]
+  const count = site.maps.length
+  if (servesSourceMaps(labels)) {
+    if (count === 0) {
+      core.warning(
+        `the image sets ${PUBLIC_SOURCEMAPS_LABEL}=true, but there are no .map files under ${SITE_DIR}, so the bucket ` +
+        'gets none. The build must leave them in the site for dev tools to find them'
+      )
+      return
+    }
+    core.info(
+      `serving ${count} .map files under ${SITE_DIR} from the bucket (${count - site.unhashedMaps.length} content-hashed), ` +
+      `as the image's ${PUBLIC_SOURCEMAPS_LABEL}=true label asks, so anyone can read the source they hold`
+    )
+    return
+  }
+  if (value != null && value !== 'false') {
+    core.warning(
+      `the image sets ${PUBLIC_SOURCEMAPS_LABEL}=${shown(JSON.stringify(value))}, which is not the string "true", so ` +
+      `the .map files under ${SITE_DIR} are not uploaded to the bucket. Set it to true to serve them, or leave it off`
+    )
+  }
+  if (count > 0) {
+    core.info(
+      `not uploading ${count} .map files under ${SITE_DIR} to the bucket, since the image does not set ` +
+      `${PUBLIC_SOURCEMAPS_LABEL}=true; source maps go under /cru/sourcemaps`
+    )
   }
 }
 
@@ -230,7 +295,8 @@ export function releaseIdentity (tags, revision = '') {
 // not content-hashed) may have been replaced: its upload worked, or it failed
 // in a way that does not prove it did not land (a timeout on our side, a 5xx).
 // A 4xx such as access denied is S3 refusing the write, so that one does not
-// count. `state.indexChanged` is the same, for index.html alone. Every upload
+// count. `state.indexChanged` is the same, for index.html alone, and
+// `state.mapsChanged` for a .map file whose name carries no hash. Every upload
 // in flight has finished by the time this returns or throws, so the flags are
 // complete when the caller reads them.
 //
@@ -242,6 +308,7 @@ async function uploadFiles (bucket, files, state, { step, reserveMs = 0 }) {
   const changed = file => {
     if (!file.immutable) state.overwrote = true
     if (file.isIndex) state.indexChanged = true
+    if (!file.immutable && isSourceMap(file.key)) state.mapsChanged = true
   }
   const worker = async () => {
     while (failure === null && next < files.length) {
@@ -319,11 +386,20 @@ function callerReference () {
 // last with its own metadata. Content-hashed files need nothing, since this
 // deploy never changed one a page of that release asks for.
 //
+// Its unhashed .map files come back after that, and only when this deploy may
+// have replaced one (`mapsChanged`) and its own image served them. They come
+// last because only dev tools read a map, and the put-back runs on what is
+// left of the step's time: what visitors see goes first. A map that does not
+// come back is a sentence in the error, not a failed put-back. A map this
+// deploy added stays, since nothing is deleted, and a file of the release put
+// back may still name it, so dev tools can show this release's source for that
+// file until a deploy or rollback finishes.
+//
 // Never throws: it adds what it did, or why it could not, to the deploy's own
 // error, which the caller then throws. Returns { index }, true when index.html
 // was put back and so names the release before again.
-async function putBackPrevious ({ projectName, bucket, distributionId, previous, error, step }) {
-  const state = { overwrote: false, indexChanged: false }
+async function putBackPrevious ({ projectName, bucket, distributionId, previous, error, step, mapsChanged = false }) {
+  const state = { overwrote: false, indexChanged: false, mapsChanged: false }
   if (!previous?.digest) {
     addSentence(error, `Pipeline v2 had not deployed this site before, so there was no release to put back: s3://${bucket} ` +
       'now holds part of this one.')
@@ -332,13 +408,11 @@ async function putBackPrevious ({ projectName, bucket, distributionId, previous,
   const name = previous.revision || previous.digest
   const previousImage = ecrImageRef(projectName, previous.digest)
   core.warning(`the deploy failed after it may have changed files a live page uses; putting back ${name} (${previous.digest})`)
+  const limits = { step, reserveMs: 0 }
+  let site
   try {
     const handle = await openImage(previousImage)
-    const site = planSite(await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES }), {
-      maxBytes: MAX_SITE_FILE_BYTES,
-      image: previousImage
-    })
-    const limits = { step, reserveMs: 0 }
+    site = await planImageSite(handle, previousImage)
     await uploadFiles(bucket, site.unhashed, state, limits)
     await uploadFiles(bucket, site.html, state, limits)
     await uploadFiles(bucket, [{ ...site.index, metadata: releaseMetadata(previous) }], state, limits)
@@ -347,15 +421,24 @@ async function putBackPrevious ({ projectName, bucket, distributionId, previous,
       `s3://${bucket} may serve a mix of the two releases until a deploy or rollback finishes.`)
     return { index: false }
   }
+  let maps = ''
+  if (mapsChanged && site.unhashedMaps.length > 0) {
+    try {
+      await uploadFiles(bucket, site.unhashedMaps, state, limits)
+    } catch (mapsError) {
+      maps = ` Its source maps were not all put back (${mapsError.message.replace(/\.$/, '')}), so dev tools may ` +
+        `show this release's source for some of its files until a deploy or rollback finishes.`
+    }
+  }
   try {
     await cloudfrontCreateInvalidation(distributionId, INVALIDATION_PATHS, callerReference())
   } catch (invalidationError) {
     addSentence(error, `The files ${name} served were put back in s3://${bucket}, but invalidating CloudFront ` +
       `afterwards failed (${invalidationError.message}), so its edges may serve this release's HTML until their ` +
-      'cache expires.')
+      `cache expires.${maps}`)
     return { index: true }
   }
-  addSentence(error, `The files ${name} served were put back in s3://${bucket}, so it serves ${name} again.`)
+  addSentence(error, `The files ${name} served were put back in s3://${bucket}, so it serves ${name} again.${maps}`)
   return { index: true }
 }
 
