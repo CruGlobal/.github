@@ -34,7 +34,7 @@ vi.mock('@aws-sdk/client-ecr', () => {
   }
 })
 
-import { MAX_LAYER_BLOB_BYTES, openImage, parseRegistryRef } from '../src/v2/oci.js'
+import { MAX_LAYER_BLOB_BYTES, MAX_LAYER_BYTES, openImage, parseRegistryRef } from '../src/v2/oci.js'
 import { MAX_ENTRY_BYTES } from '../src/v2/tar.js'
 import { tarArchive, tarEntry } from './support/tar-fixture.js'
 
@@ -476,6 +476,86 @@ describe('openImage layer cache', () => {
     await (await openImage(IMAGE)).readFile(`/${SIGNIN}`)
     await (await openImage(IMAGE)).readFile(`/${SIGNIN}`)
     expect(layerFetches().length).toBe(2)
+  })
+})
+
+// A static site has to be read whole, so every shortcut readDir takes is an
+// error here instead of a quietly missing file.
+describe('openImage readTree', () => {
+  const SITE_IMAGE = (layers, blobs) => serve({
+    'manifests/sha256:top': manifest({ layers }),
+    'blobs/sha256:config': config({ 'org.cru.sourcemaps': '2026-11-04-10150' }),
+    ...blobs
+  })
+
+  it('reads the tree from its one layer, past layers that hold something else', async () => {
+    SITE_IMAGE([layer('sha256:site'), layer('sha256:maps')], {
+      'blobs/sha256:site': gzipLayer(tarEntry('site/index.html', '<html>'), tarEntry('site/assets/app-4a6b2c1d.js', 'js')),
+      'blobs/sha256:maps': gzipLayer(tarEntry('cru/sourcemaps/assets/app-4a6b2c1d.js.map', '{}'))
+    })
+    const image = await openImage(IMAGE)
+    const tree = await image.readTree('/site')
+    expect(tree.files.map(file => file.name)).toEqual(['index.html', 'assets/app-4a6b2c1d.js'])
+    expect(tree.links).toEqual([])
+    // Every layer was read, and the maps layer is cached for the readDir after.
+    expect(layerFetches()).toHaveLength(2)
+    expect(await image.readDir('/cru/sourcemaps')).toHaveLength(1)
+    expect(layerFetches()).toHaveLength(2)
+  })
+
+  it('reports links under the prefix', async () => {
+    SITE_IMAGE([layer('sha256:site')], {
+      'blobs/sha256:site': gzipLayer(tarEntry('site/index.html', '<html>'), tarEntry('site/latest.js', '', { type: '2' }))
+    })
+    const tree = await (await openImage(IMAGE)).readTree('/site')
+    expect(tree.links.map(link => link.name)).toEqual(['latest.js'])
+  })
+
+  it('counts a layer that holds only odd entries under the prefix, and reports them', async () => {
+    SITE_IMAGE([layer('sha256:site'), layer('sha256:pipe')], {
+      'blobs/sha256:site': gzipLayer(tarEntry('site/index.html', '<html>')),
+      'blobs/sha256:pipe': gzipLayer(tarEntry('site/pipe', '', { type: '6' }))
+    })
+    await expect((await openImage(IMAGE)).readTree('/site')).rejects.toThrow(/\/site has files in more than one layer \(1\/2 and 2\/2\)/)
+  })
+
+  it('refuses a tree spread over two layers, which it cannot put together', async () => {
+    SITE_IMAGE([layer('sha256:one'), layer('sha256:two')], {
+      'blobs/sha256:one': gzipLayer(tarEntry('site/index.html', '<html>')),
+      'blobs/sha256:two': gzipLayer(tarEntry('site/extra.css', 'x'))
+    })
+    await expect((await openImage(IMAGE)).readTree('/site')).rejects.toThrow(
+      '/site has files in more than one layer (1/2 and 2/2). Put the whole tree there in one COPY, so the image holds it in one layer'
+    )
+  })
+
+  it('refuses an image with a layer over the blob cap, without downloading it', async () => {
+    const huge = { ...layer('sha256:huge'), size: MAX_LAYER_BLOB_BYTES + 1 }
+    SITE_IMAGE([layer('sha256:site'), huge], { 'blobs/sha256:site': gzipLayer(tarEntry('site/index.html', '<html>')) })
+    await expect((await openImage(IMAGE)).readTree('/site')).rejects.toThrow(
+      `layer 2/2 (sha256:huge) is ${MAX_LAYER_BLOB_BYTES + 1} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit the deploy reads, so /site cannot be read in full`
+    )
+    expect(layerFetches().some(url => url.includes('sha256:huge'))).toBe(false)
+  })
+
+  // The inflated-size cap is node:zlib's maxOutputLength (MAX_LAYER_BYTES,
+  // 1 GiB). Building a layer that trips it would take a gigabyte of memory, so
+  // only its value is pinned here.
+  it('caps a layer at 1 GiB once inflated', () => {
+    expect(MAX_LAYER_BYTES).toBe(1024 * 1024 * 1024)
+  })
+
+  it('reports a file over maxBytes with null contents, for the caller to refuse', async () => {
+    SITE_IMAGE([layer('sha256:site')], {
+      'blobs/sha256:site': gzipLayer(tarEntry('site/index.html', '<html>'), tarEntry('site/video.mp4', Buffer.alloc(4096, 0x61)))
+    })
+    const tree = await (await openImage(IMAGE)).readTree('/site', { maxBytes: 1024 })
+    expect(tree.files.map(file => [file.name, file.contents === null])).toEqual([['index.html', false], ['video.mp4', true]])
+  })
+
+  it('is empty when no layer has the prefix', async () => {
+    SITE_IMAGE([layer('sha256:other')], { 'blobs/sha256:other': gzipLayer(tarEntry('app/server.js', 'x')) })
+    expect(await (await openImage(IMAGE)).readTree('/site')).toEqual({ files: [], links: [], others: [] })
   })
 })
 

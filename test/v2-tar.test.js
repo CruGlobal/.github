@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { findInTar, listInTar, MAX_ENTRY_BYTES, normalizeTarPath, parsePaxRecords } from '../src/v2/tar.js'
-import { paxEntry, paxRecord, tarArchive, tarEntry } from './support/tar-fixture.js'
+import { findInTar, listInTar, listTreeInTar, MAX_ENTRY_BYTES, normalizeTarPath, parsePaxRecords } from '../src/v2/tar.js'
+import { gnuLongRecord, paxEntry, paxRecord, tarArchive, tarEntry } from './support/tar-fixture.js'
 
 const PAGE = '<!DOCTYPE html><title>Sign in</title>'
 
@@ -265,5 +265,116 @@ describe('listInTar', () => {
   it('lists the whole archive for an empty prefix', () => {
     const archive = tarArchive(tarEntry('a.js.map', MAP_A), tarEntry('b/c.js.map', MAP_B))
     expect(listInTar(archive, '').map(file => file.name)).toEqual(['a.js.map', 'b/c.js.map'])
+  })
+})
+
+// A static site has to be copied whole and exactly, so everything listInTar
+// quietly skips is reported instead of lost, and a hard link is followed.
+describe('listTreeInTar', () => {
+  it('returns the same files as listInTar, plus the links and odd entries it skips', () => {
+    const archive = tarArchive(
+      tarEntry('site/', '', { type: '5' }),
+      tarEntry('site/index.html', '<html>'),
+      tarEntry('site/latest.js', '', { type: '2', linkname: 'app-4a6b2c1d.js' }),
+      tarEntry('site/orphan.js', '', { type: '1', linkname: 'site/not-here.js' }),
+      tarEntry('site/pipe', '', { type: '6' }),
+      tarEntry('site/tty', '', { type: '3' }),
+      tarEntry('other/link', '', { type: '2', linkname: 'x' })
+    )
+    const tree = listTreeInTar(archive, '/site')
+    expect(tree.files).toEqual(listInTar(archive, '/site'))
+    expect(tree.files.map(file => file.name)).toEqual(['index.html'])
+    expect(tree.links).toEqual([
+      { path: 'site/latest.js', name: 'latest.js', type: '2', target: 'app-4a6b2c1d.js' },
+      { path: 'site/orphan.js', name: 'orphan.js', type: '1', target: 'site/not-here.js' }
+    ])
+    expect(tree.others).toEqual([
+      { path: 'site/pipe', name: 'pipe', type: '6' },
+      { path: 'site/tty', name: 'tty', type: '3' }
+    ])
+  })
+
+  it('follows a hard link to an earlier file, under the prefix or not', () => {
+    const archive = tarArchive(
+      tarEntry('build/shared.css', 'body{}'),
+      tarEntry('site/index.html', '<html>'),
+      tarEntry('site/copy.html', '', { type: '1', linkname: 'site/index.html' }),
+      tarEntry('./site/theme.css', '', { type: '1', linkname: './build/shared.css' })
+    )
+    const tree = listTreeInTar(archive, '/site')
+    expect(tree.files.map(file => [file.name, file.contents.toString(), file.linkTo])).toEqual([
+      ['index.html', '<html>', undefined],
+      ['copy.html', '<html>', 'site/index.html'],
+      ['theme.css', 'body{}', 'build/shared.css']
+    ])
+    expect(tree.links).toEqual([])
+    // The sign-in and source-map readers see a hard-linked file too.
+    expect(listInTar(archive, '/site').map(file => file.name)).toEqual(['index.html', 'copy.html', 'theme.css'])
+  })
+
+  it('applies maxBytes to a hard link by its target\'s size', () => {
+    const archive = tarArchive(
+      tarEntry('site/big.mp4', Buffer.alloc(2048, 0x61)),
+      tarEntry('site/also-big.mp4', '', { type: '1', linkname: 'site/big.mp4' })
+    )
+    expect(listTreeInTar(archive, '/site', { maxBytes: 1024 }).files.map(file => [file.name, file.size, file.contents])).toEqual([
+      ['big.mp4', 2048, null],
+      ['also-big.mp4', 2048, null]
+    ])
+  })
+
+  it('reads a contiguous file (type 7) as the regular file POSIX says it is', () => {
+    const archive = tarArchive(tarEntry('site/contig.js', 'x', { type: '7' }))
+    expect(listTreeInTar(archive, '/site').files.map(file => file.name)).toEqual(['contig.js'])
+  })
+
+  it('passes maxBytes through', () => {
+    const archive = tarArchive(tarEntry('site/big.mp4', Buffer.alloc(2048, 0x61)))
+    expect(listTreeInTar(archive, '/site', { maxBytes: 1024 }).files[0]).toMatchObject({ size: 2048, contents: null })
+  })
+
+  it('is empty when nothing lives under the prefix', () => {
+    expect(listTreeInTar(tarArchive(tarEntry('app/x', 'x')), '/site')).toEqual({ files: [], links: [], others: [] })
+  })
+})
+
+describe('names', () => {
+  it('reads a UTF-8 name in the header as it was written', () => {
+    const archive = tarArchive(tarEntry('site/assets/café-4a6b2c1d.css', 'x'), tarEntry('site/日本.html', 'y'))
+    expect(listInTar(archive, '/site').map(file => file.name)).toEqual(['assets/café-4a6b2c1d.css', '日本.html'])
+  })
+
+  it('reads bytes that are not UTF-8 as U+FFFD, for a caller to refuse', () => {
+    const archive = tarArchive(tarEntry(Buffer.from([0x73, 0x69, 0x74, 0x65, 0x2f, 0xff, 0x2e, 0x6a, 0x73]), 'x'))
+    expect(listInTar(archive, '/site').map(file => file.name)).toEqual(['�.js'])
+  })
+
+  it('reads a GNU long name in full instead of the truncated header name', () => {
+    const long = `site/assets/${'a'.repeat(150)}-4a6b2c1d.js`
+    const archive = tarArchive(gnuLongRecord(long), tarEntry(long.slice(0, 100), 'js'), tarEntry('site/index.html', '<html>'))
+    expect(listInTar(archive, '/site').map(file => file.name)).toEqual([long.slice('site/'.length), 'index.html'])
+    // The record names only the entry after it.
+    expect(findInTar(archive, long).toString()).toBe('js')
+  })
+
+  it('follows a hard link whose target is a GNU long link name', () => {
+    const long = `site/${'b'.repeat(120)}.html`
+    const archive = tarArchive(
+      gnuLongRecord(long), tarEntry(long.slice(0, 100), '<html>'),
+      gnuLongRecord(long, 'K'), tarEntry('site/copy.html', '', { type: '1', linkname: long.slice(0, 100) })
+    )
+    const copy = listTreeInTar(archive, '/site').files.find(file => file.name === 'copy.html')
+    expect(copy).toMatchObject({ linkTo: long })
+    expect(copy.contents.toString()).toBe('<html>')
+  })
+
+  it('follows a hard link whose target is a PAX linkpath', () => {
+    const long = `site/${'c'.repeat(120)}.html`
+    const archive = tarArchive(
+      paxEntry(long, '<html>'),
+      tarEntry('PaxHeaders.0/copy', paxRecord('linkpath', long), { type: 'x' }),
+      tarEntry('site/copy.html', '', { type: '1', linkname: 'truncated' })
+    )
+    expect(listTreeInTar(archive, '/site').files.find(file => file.name === 'copy.html').contents.toString()).toBe('<html>')
   })
 })

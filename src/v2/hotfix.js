@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { deadlineRequests } from './deadline'
 
 // Hotfix builds (pipeline v2).
 //
@@ -1109,18 +1110,6 @@ export function parseRepo (repository) {
 
 const NEWEST_HOTFIX_BRANCHES = 50
 
-// One overall deadline for a series of requests. Each request gets what is
-// left of it (at most `timeoutMs`), and a request started after it throws, so
-// the series as a whole cannot outlast the deadline by more than a moment.
-export function deadlineRequests ({ deadlineMs = PROMOTE_CHECK_DEADLINE_MS, timeoutMs = 10000, now = Date.now } = {}) {
-  const end = now() + deadlineMs
-  return () => {
-    const left = end - now()
-    if (left <= 0) throw new Error(`gave up after ${deadlineMs / 1000} seconds`)
-    return { signal: AbortSignal.timeout(Math.min(timeoutMs, left)) }
-  }
-}
-
 // Is `sha` reachable from `tip`? The compare API's status says so: "behind"
 // means `sha` is an ancestor of `tip`, "identical" that it is `tip`.
 async function contains (octokit, { owner, repo, tip, sha, request }) {
@@ -1139,7 +1128,7 @@ async function contains (octokit, { owner, repo, tip, sha, request }) {
 // Returns { kind: 'hotfix' | 'deploy', why, branch, release, offBranch }.
 // Throws on an API error or the deadline; the caller treats that as a
 // deploy.
-export async function releaseKind ({ octokit, repository, sha, request = deadlineRequests() }) {
+export async function releaseKind ({ octokit, repository, sha, request = deadlineRequests({ deadlineMs: PROMOTE_CHECK_DEADLINE_MS }) }) {
   const commit = String(sha ?? '').trim()
   if (!FULL_SHA.test(commit)) {
     return { kind: 'deploy', why: 'the promoted image names no commit, so it cannot be a hotfix build' }
@@ -1207,7 +1196,7 @@ export async function releaseKind ({ octokit, repository, sha, request = deadlin
 // the shared deadline. The ledger read before it can take most of that
 // deadline, and a compare that then gave up must not let a confirmed hotfix
 // through.
-export async function hotfixPromoteCheck ({ octokit, repository, sha, project, readLedger, request = deadlineRequests(), compareTimeoutMs = 10000 }) {
+export async function hotfixPromoteCheck ({ octokit, repository, sha, project, readLedger, request = deadlineRequests({ deadlineMs: PROMOTE_CHECK_DEADLINE_MS }), compareTimeoutMs = 10000 }) {
   let kind
   try {
     kind = await releaseKind({ octokit, repository, sha, request })

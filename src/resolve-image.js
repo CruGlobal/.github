@@ -4,6 +4,7 @@ import { environmentNickname } from './v2/env'
 import { resolveCloudRun } from './v2/resolve-cloudrun'
 import { resolveEcs } from './v2/resolve-ecs'
 import { resolveLambda } from './v2/resolve-lambda'
+import { resolveStatic } from './v2/resolve-static'
 
 // resolve-image: resolve a tag or a running environment to a digest-pinned
 // image reference in the shared registry. v2's build-once/promote model means
@@ -66,8 +67,10 @@ function dispatch (type, args) {
       return resolveEcs(args)
     case 'lambda':
       return resolveLambda(args)
+    case 'static':
+      return resolveStatic(args)
     default:
-      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`)
+      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun, static.`)
   }
 }
 

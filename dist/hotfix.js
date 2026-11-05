@@ -24345,6 +24345,21 @@ function shaFromTags(imageTags) {
 
 // src/v2/hotfix.js
 var import_node_child_process = require("node:child_process");
+
+// src/v2/deadline.js
+function deadlineRequests({ deadlineMs, timeoutMs = 1e4, now = Date.now }) {
+  const end = now() + deadlineMs;
+  const next = () => {
+    const left = end - now();
+    if (left <= 0) throw new Error(`gave up after ${deadlineMs / 1e3} seconds`);
+    return { signal: AbortSignal.timeout(Math.min(timeoutMs, left)), cutByDeadline: left < timeoutMs };
+  };
+  const request2 = () => ({ signal: next().signal });
+  request2.next = next;
+  return request2;
+}
+
+// src/v2/hotfix.js
 var LEDGER_URL = "https://deploys.cru.org/deployments";
 var PIPELINE_WORKFLOW = "pipeline-v2.yml";
 var PIPELINE_PATH = `.github/workflows/${PIPELINE_WORKFLOW}`;
@@ -24860,20 +24875,12 @@ function parseRepo(repository) {
   return { owner: parts[0], repo: parts[1] };
 }
 var NEWEST_HOTFIX_BRANCHES = 50;
-function deadlineRequests({ deadlineMs = PROMOTE_CHECK_DEADLINE_MS, timeoutMs = 1e4, now = Date.now } = {}) {
-  const end = now() + deadlineMs;
-  return () => {
-    const left = end - now();
-    if (left <= 0) throw new Error(`gave up after ${deadlineMs / 1e3} seconds`);
-    return { signal: AbortSignal.timeout(Math.min(timeoutMs, left)) };
-  };
-}
 async function contains(octokit, { owner, repo, tip, sha, request: request2 }) {
   if (tip === sha) return true;
   const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${tip}...${sha}`, per_page: 1, request: request2() });
   return data?.status === "behind" || data?.status === "identical";
 }
-async function releaseKind({ octokit, repository, sha, request: request2 = deadlineRequests() }) {
+async function releaseKind({ octokit, repository, sha, request: request2 = deadlineRequests({ deadlineMs: PROMOTE_CHECK_DEADLINE_MS }) }) {
   const commit = String(sha ?? "").trim();
   if (!FULL_SHA.test(commit)) {
     return { kind: "deploy", why: "the promoted image names no commit, so it cannot be a hotfix build" };
@@ -24898,7 +24905,7 @@ async function releaseKind({ octokit, repository, sha, request: request2 = deadl
   }
   return { kind: "deploy", why: `${short(commit)} is not on ${defaultBranch} or on any hotfix branch`, offBranch: true };
 }
-async function hotfixPromoteCheck({ octokit, repository, sha, project, readLedger, request: request2 = deadlineRequests(), compareTimeoutMs = 1e4 }) {
+async function hotfixPromoteCheck({ octokit, repository, sha, project, readLedger, request: request2 = deadlineRequests({ deadlineMs: PROMOTE_CHECK_DEADLINE_MS }), compareTimeoutMs = 1e4 }) {
   let kind;
   try {
     kind = await releaseKind({ octokit, repository, sha, request: request2 });

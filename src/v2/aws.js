@@ -11,6 +11,10 @@ import {
   RepositoryNotFoundException
 } from '@aws-sdk/client-ecr'
 
+import { S3Client, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { CloudFrontClient, CreateInvalidationCommand, GetInvalidationCommand } from '@aws-sdk/client-cloudfront'
+import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb'
+
 import { DEFAULT_ACCOUNT, ecrRegistry } from '../ecs-config'
 import { parseImageRef } from './image-ref'
 
@@ -280,3 +284,220 @@ function registrationPayload (taskDefinition, tags) {
   return taskDef
 }
 
+// --- Static sites (S3 + CloudFront) ----------------------------------------
+//
+// A static site deploys with a role of its own, the same shape as the ECS and
+// Lambda deploy roles. It holds no S3 grant itself: each environment's bucket
+// policy grants it s3:PutObject, s3:GetObject and s3:ListBucket, and nothing
+// more (no delete, no ACL). The release-candidate bucket needs the grant too,
+// and not only for its own deploys: promote reads that bucket's index.html with
+// this role to learn which candidate to ship. Its CloudFront grant is an opt-in
+// too: it covers only distributions tagged pipeline_v2_invalidate = "true".
+// So when S3, CloudFront or DynamoDB says no, the message names the bucket,
+// distribution or table and what must grant the role (for a distribution, the
+// tag), because the fix is in that app's Terraform or the role's, not here.
+// AWS's own words go on the end, so a refusal that no grant here would fix (an
+// organization policy, a KMS key policy, an explicit deny) is not mistaken for
+// a missing grant.
+//
+// The role needs no ecr:GetAuthorizationToken: it reads images through the ECR
+// SDK calls in ./oci.js, never through a registry login. The one deploy-role
+// job that logs in to ECR is stage-less verify, which refuses a static site.
+export const STATIC_DEPLOY_ROLE = 'GitHubDeployStatic'
+
+// The S3 actions a site's bucket policy must grant STATIC_DEPLOY_ROLE.
+// ListBucket is there so a missing object is a 404: without it S3 answers 403
+// for an object that does not exist, and a first deploy would look like a
+// permissions error.
+export const STATIC_BUCKET_ACTIONS = ['s3:PutObject', 's3:GetObject', 's3:ListBucket']
+
+// The CloudFront actions STATIC_DEPLOY_ROLE's own policy allows. It allows them
+// only on a distribution that carries the tag below set to "true", an opt-in
+// on the site's side like the bucket policy. So a distribution without the
+// tag is refused with AccessDenied, and the fix is the tag, not the role.
+export const STATIC_DISTRIBUTION_ACTIONS = ['cloudfront:CreateInvalidation', 'cloudfront:GetInvalidation']
+export const STATIC_INVALIDATE_TAG = 'pipeline_v2_invalidate'
+
+// Per-attempt bounds for the S3 and CloudFront clients. The connection timeout
+// ends a connect that never completes, and the socket timeout ends an attempt
+// whose socket has been idle that long, sending nothing and receiving nothing.
+// The SDK's retries (RETRY_CONFIG) then try again. An idle timeout, not a
+// total one, so a large upload that keeps sending is never cut off for being
+// slow. (The handler's requestTimeout is a total-time limit that only logs a
+// warning unless told to throw, so it is not used.) The whole-call limits below
+// cap a call, retries included, so one object that keeps failing slowly cannot
+// hold the deploy until the job's own limit.
+export const STATIC_CONNECTION_TIMEOUT_MS = 10 * 1000
+export const STATIC_SOCKET_TIMEOUT_MS = 60 * 1000
+export const S3_PUT_CALL_TIMEOUT_MS = 5 * 60 * 1000
+export const STATIC_READ_CALL_TIMEOUT_MS = 30 * 1000
+
+/**
+ * The client settings the S3 and CloudFront calls use. Exported so a test can
+ * run the same settings against a local server that never answers; the two
+ * timeouts can be shortened there and nowhere else.
+ */
+export function staticClientConfig ({
+  connectionTimeoutMs = STATIC_CONNECTION_TIMEOUT_MS,
+  socketTimeoutMs = STATIC_SOCKET_TIMEOUT_MS
+} = {}) {
+  return {
+    region: REGION,
+    ...RETRY_CONFIG,
+    requestHandler: { connectionTimeout: connectionTimeoutMs, socketTimeout: socketTimeoutMs }
+  }
+}
+
+// One client of each for the whole action run, so thousands of uploads share
+// their connections instead of opening new ones.
+let s3
+let cloudfront
+function s3Client () {
+  if (!s3) {
+    // A bucket outside us-east-1 still works: S3's redirect names the region.
+    s3 = new S3Client({ ...staticClientConfig(), followRegionRedirects: true })
+  }
+  return s3
+}
+function cloudfrontClient () {
+  if (!cloudfront) cloudfront = new CloudFrontClient(staticClientConfig())
+  return cloudfront
+}
+
+// Did AWS refuse the call on permissions? S3 and CloudFront both say
+// AccessDenied, and a HeadObject carries no body, so all it has is the 403.
+export function isAccessDenied (error) {
+  return ['AccessDenied', 'AccessDeniedException', 'Forbidden'].includes(error?.name) ||
+    error?.$metadata?.httpStatusCode === 403
+}
+
+// AWS's own name for the error and its words, for the end of a message.
+function awsSays (error) {
+  return `(${error?.name ?? 'Error'}: ${error?.message ?? error})`
+}
+
+function bucketError (error, action, bucket, key) {
+  const where = `s3://${bucket}/${key}`
+  const wrapped = isAccessDenied(error)
+    ? new Error(
+      `S3 refused ${action} on ${where} ${awsSays(error)}. The policy of bucket ${bucket} must grant the ` +
+      `${STATIC_DEPLOY_ROLE} role ${STATIC_BUCKET_ACTIONS.join(', ')}. Every environment's bucket needs that grant, ` +
+      "the release-candidate one included: promote reads that bucket's index.html with this role."
+    )
+    : new Error(`S3 ${action} on ${where} failed: ${error?.message ?? error}`)
+  wrapped.cause = error
+  return wrapped
+}
+
+function distributionError (error, action, distributionId) {
+  const wrapped = isAccessDenied(error)
+    ? new Error(
+      `CloudFront refused ${action} on distribution ${distributionId} ${awsSays(error)}. The ${STATIC_DEPLOY_ROLE} ` +
+      `role may use ${STATIC_DISTRIBUTION_ACTIONS.join(' and ')} only on a distribution tagged ` +
+      `${STATIC_INVALIDATE_TAG} = "true", so distribution ${distributionId} must carry that tag, and the ` +
+      `${STATIC_DEPLOY_ROLE} role must exist with that grant.`
+    )
+    : new Error(`CloudFront ${action} on distribution ${distributionId} failed: ${error?.message ?? error}`)
+  wrapped.cause = error
+  return wrapped
+}
+
+// Upload one object. Never sends an ACL: the bucket owns its objects and its
+// policy is the only grant, so an ACL would either be refused or mean nothing.
+// `timeoutMs` lets the deploy shorten the whole-call limit as its own time
+// runs out.
+export async function s3PutObject (bucket, key, body, { contentType, cacheControl, metadata, timeoutMs = S3_PUT_CALL_TIMEOUT_MS } = {}) {
+  try {
+    await s3Client().send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      CacheControl: cacheControl,
+      ...(metadata && Object.keys(metadata).length > 0 ? { Metadata: metadata } : {})
+    }), { abortSignal: AbortSignal.timeout(Math.max(1, Math.min(timeoutMs, S3_PUT_CALL_TIMEOUT_MS))) })
+  } catch (error) {
+    throw bucketError(error, 's3:PutObject', bucket, key)
+  }
+}
+
+// An object's user metadata, or null when there is no such object. S3
+// lowercases metadata keys, so they read back as they were written.
+export async function s3HeadObject (bucket, key) {
+  try {
+    const response = await s3Client().send(
+      new HeadObjectCommand({ Bucket: bucket, Key: key }),
+      { abortSignal: AbortSignal.timeout(STATIC_READ_CALL_TIMEOUT_MS) }
+    )
+    return { metadata: response.Metadata ?? {} }
+  } catch (error) {
+    if (error?.name === 'NotFound' || error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) return null
+    throw bucketError(error, 's3:GetObject (HeadObject)', bucket, key)
+  }
+}
+
+// Start an invalidation and return its id. `callerReference` makes a retry
+// safe: CloudFront answers a repeat of the same reference and paths with the
+// invalidation it already made.
+export async function cloudfrontCreateInvalidation (distributionId, paths, callerReference) {
+  let response
+  try {
+    response = await cloudfrontClient().send(new CreateInvalidationCommand({
+      DistributionId: distributionId,
+      InvalidationBatch: {
+        CallerReference: callerReference,
+        Paths: { Quantity: paths.length, Items: paths }
+      }
+    }), { abortSignal: AbortSignal.timeout(STATIC_READ_CALL_TIMEOUT_MS) })
+  } catch (error) {
+    throw distributionError(error, 'cloudfront:CreateInvalidation', distributionId)
+  }
+  return response.Invalidation?.Id
+}
+
+// An invalidation's status: "InProgress" or "Completed".
+export async function cloudfrontInvalidationStatus (distributionId, id) {
+  let response
+  try {
+    response = await cloudfrontClient().send(
+      new GetInvalidationCommand({ DistributionId: distributionId, Id: id }),
+      { abortSignal: AbortSignal.timeout(STATIC_READ_CALL_TIMEOUT_MS) }
+    )
+  } catch (error) {
+    throw distributionError(error, 'cloudfront:GetInvalidation', distributionId)
+  }
+  return response.Invalidation?.Status
+}
+
+// The app's CruApplicationInfo row for one LEGACY environment name (staging,
+// production, lab), as { attribute: string } for its string attributes, or
+// null when there is no row. The workflows read the same row with the aws CLI
+// before any deploy. A static deploy reads it again here for the two
+// attributes only it needs (Bucket, DistributionId), so no action input had to
+// change for them. That read is made with STATIC_DEPLOY_ROLE, so the role
+// needs dynamodb:GetItem on the table.
+export async function appInfoItem (projectName, legacyEnvironmentName) {
+  const client = new DynamoDBClient({ region: REGION, ...RETRY_CONFIG })
+  let response
+  try {
+    response = await client.send(new GetItemCommand({
+      TableName: 'CruApplicationInfo',
+      Key: { Project: { S: projectName }, Environment: { S: legacyEnvironmentName } }
+    }), { abortSignal: AbortSignal.timeout(STATIC_READ_CALL_TIMEOUT_MS) })
+  } catch (error) {
+    const wrapped = new Error(
+      isAccessDenied(error)
+        ? `Could not read the CruApplicationInfo row for ${projectName} (${legacyEnvironmentName}) ${awsSays(error)}. ` +
+          `The ${STATIC_DEPLOY_ROLE} role's policy must allow dynamodb:GetItem on the CruApplicationInfo table.`
+        : `Could not read the CruApplicationInfo row for ${projectName} (${legacyEnvironmentName}): ${error?.message ?? error}`
+    )
+    wrapped.cause = error
+    throw wrapped
+  }
+  if (!response?.Item) return null
+  const item = {}
+  for (const [name, value] of Object.entries(response.Item)) {
+    if (typeof value?.S === 'string') item[name] = value.S
+  }
+  return item
+}

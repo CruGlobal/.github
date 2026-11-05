@@ -19151,6 +19151,8 @@ var require_undici = __commonJS({
 // src/classify-rollback-safety.js
 var classify_rollback_safety_exports = {};
 __export(classify_rollback_safety_exports, {
+  DEADLINE_MS: () => DEADLINE_MS,
+  REQUEST_TIMEOUT_MS: () => REQUEST_TIMEOUT_MS,
   run: () => run
 });
 module.exports = __toCommonJS(classify_rollback_safety_exports);
@@ -20357,9 +20359,24 @@ function classifyMigrationFiles(files) {
   return { verdict: "safe", reasons: [`${classifiedFiles} additive migration${classifiedFiles === 1 ? "" : "s"}`] };
 }
 
+// src/v2/deadline.js
+function deadlineRequests({ deadlineMs, timeoutMs = 1e4, now = Date.now }) {
+  const end = now() + deadlineMs;
+  const next = () => {
+    const left = end - now();
+    if (left <= 0) throw new Error(`gave up after ${deadlineMs / 1e3} seconds`);
+    return { signal: AbortSignal.timeout(Math.min(timeoutMs, left)), cutByDeadline: left < timeoutMs };
+  };
+  const request = () => ({ signal: next().signal });
+  request.next = next;
+  return request;
+}
+
 // src/classify-rollback-safety.js
 var GITHUB_API = "https://api.github.com";
 var COMPARE_FILE_CAP = 300;
+var REQUEST_TIMEOUT_MS = 20 * 1e3;
+var DEADLINE_MS = 90 * 1e3;
 function ghHeaders(token, accept) {
   return {
     Authorization: `Bearer ${token}`,
@@ -20368,24 +20385,59 @@ function ghHeaders(token, accept) {
     "User-Agent": "cru-pipeline-v2"
   };
 }
-async function fetchCompare(repository, baseSha, headSha, token) {
-  const url = `${GITHUB_API}/repos/${repository}/compare/${baseSha}...${headSha}`;
-  const res = await fetch(url, { headers: ghHeaders(token, "application/vnd.github+json") });
-  if (!res.ok) throw new Error(`compare API ${res.status} for ${repository} ${baseSha}...${headSha}`);
-  return res.json();
+function timedOut(error) {
+  const names = [error?.name, error?.cause?.name];
+  return names.includes("TimeoutError") || names.includes("AbortError");
 }
-async function fetchContent(repository, path, ref, token) {
+async function githubGet({ url, accept, token, limits, api, subject, read }) {
+  const { request, deadlineMs } = limits;
+  const outOfTime = (when) => `the GitHub reads ran out of their ${deadlineMs / 1e3} seconds ${when} the ${api} read ${subject}`;
+  let signal, cutByDeadline;
+  try {
+    ({ signal, cutByDeadline } = request.next());
+  } catch (error) {
+    throw new Error(outOfTime("before"), { cause: error });
+  }
+  try {
+    const res = await fetch(url, { headers: ghHeaders(token, accept), signal });
+    if (!res.ok) throw new Error(`${api} ${res.status} ${subject}`);
+    return await read(res);
+  } catch (error) {
+    if (!timedOut(error)) throw error;
+    if (cutByDeadline) throw new Error(outOfTime("during"), { cause: error });
+    throw new Error(`${api} did not answer in time ${subject}`, { cause: error });
+  }
+}
+async function fetchCompare(repository, baseSha, headSha, token, limits) {
+  return githubGet({
+    url: `${GITHUB_API}/repos/${repository}/compare/${baseSha}...${headSha}`,
+    accept: "application/vnd.github+json",
+    token,
+    limits,
+    api: "compare API",
+    subject: `for ${repository} ${baseSha}...${headSha}`,
+    read: (res) => res.json()
+  });
+}
+async function fetchContent(repository, path, ref, token, limits) {
   const encoded = path.split("/").map(encodeURIComponent).join("/");
-  const url = `${GITHUB_API}/repos/${repository}/contents/${encoded}?ref=${encodeURIComponent(ref)}`;
-  const res = await fetch(url, { headers: ghHeaders(token, "application/vnd.github.raw+json") });
-  if (!res.ok) throw new Error(`contents API ${res.status} for ${path}`);
-  return res.text();
+  return githubGet({
+    url: `${GITHUB_API}/repos/${repository}/contents/${encoded}?ref=${encodeURIComponent(ref)}`,
+    // The raw media type returns the file body verbatim (the compare `patch`
+    // is not reliable for full content).
+    accept: "application/vnd.github.raw+json",
+    token,
+    limits,
+    api: "contents API",
+    subject: `for ${path}`,
+    read: (res) => res.text()
+  });
 }
 function pathPrefix(migrationsPath) {
   return migrationsPath.replace(/^\.\//, "").replace(/\/+$/, "") + "/";
 }
-async function classify({ token, repository, baseSha, headSha, migrationsPath }) {
-  const compare = await fetchCompare(repository, baseSha, headSha, token);
+async function classify({ token, repository, baseSha, headSha, migrationsPath, limits }) {
+  const compare = await fetchCompare(repository, baseSha, headSha, token, limits);
   const files = compare.files ?? [];
   const truncated = files.length >= COMPARE_FILE_CAP;
   const prefix = pathPrefix(migrationsPath);
@@ -20396,7 +20448,7 @@ async function classify({ token, repository, baseSha, headSha, migrationsPath })
     const status = f.status;
     let content;
     if (status === "added" && /\.(sql|rb)$/i.test(path) && !/(^|\/)meta\//.test(path)) {
-      content = await fetchContent(repository, path, headSha, token);
+      content = await fetchContent(repository, path, headSha, token, limits);
     }
     enriched.push({ path, status, content });
   }
@@ -20414,7 +20466,7 @@ function finish(verdict, reasons) {
   else notice(summary2);
   return { verdict, reasons };
 }
-async function run() {
+async function run({ timeoutMs = REQUEST_TIMEOUT_MS, deadlineMs = DEADLINE_MS, now = Date.now } = {}) {
   try {
     const token = getInput("github-token");
     const repository = getInput("repository");
@@ -20428,7 +20480,8 @@ async function run() {
     if (!migrationsPath) return finish("unclassified", ["no migrations path configured"]);
     if (!baseSha) return finish("unclassified", ["no production baseline"]);
     if (!headSha) return finish("unclassified", ["no candidate sha to classify"]);
-    const { verdict, reasons } = await classify({ token, repository, baseSha, headSha, migrationsPath });
+    const limits = { request: deadlineRequests({ deadlineMs, timeoutMs, now }), deadlineMs };
+    const { verdict, reasons } = await classify({ token, repository, baseSha, headSha, migrationsPath, limits });
     return finish(verdict, reasons);
   } catch (error) {
     return finish("unclassified", [error.message]);
@@ -20437,6 +20490,8 @@ async function run() {
 if (!process.env.VITEST) run();
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  DEADLINE_MS,
+  REQUEST_TIMEOUT_MS,
   run
 });
 /*! Bundled license information:

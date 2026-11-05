@@ -315,6 +315,36 @@ describe('mode release-kind (promote)', () => {
     expect(warning).not.toMatch(/ordinary promote/)
   })
 
+  // The workflow's path: run() passes no `request`, so promote's deadline
+  // is hotfixPromoteCheck's default, 30 seconds. A first read that takes all
+  // 30 leaves none for the next, and the warning names the deadline, so a
+  // different default fails here: a shorter one names another number, a
+  // longer one lets the next read through.
+  it('gives GitHub 30 seconds in all on the workflow\'s path', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-11-05T12:00:00Z'))
+      octokit.current = {
+        rest: {
+          repos: {
+            get: async () => {
+              vi.setSystemTime(Date.now() + 30 * 1000)
+              return { data: { default_branch: 'main' } }
+            },
+            getBranch: async () => { throw new Error('asked after the deadline') }
+          }
+        }
+      }
+      Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', 'project-name': PROJECT, sha: SHA })
+      await run({ readLedger: fakeLedger(new Error('must not be read')).readLedger })
+      expect(outputs).toMatchObject({ kind: 'deploy', check: 'skipped' })
+      expect(core.warning).toHaveBeenCalledWith('could not tell whether this promote is a hotfix (gave up after 30 seconds), so it goes on as an ordinary promote')
+      expect(core.setFailed).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('outputs deploy and skips the check, with a warning, when GitHub cannot answer, and never fails', async () => {
     octokit.current = { rest: { repos: { get: async () => { throw new Error('Not Found') } } } }
     Object.assign(inputs, { mode: 'release-kind', 'github-token': 'tok', repository: 'example-org/example-app', 'project-name': PROJECT, sha: SHA })
