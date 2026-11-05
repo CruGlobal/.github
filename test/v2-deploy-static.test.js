@@ -82,8 +82,8 @@ const handle = (tree, labels = {}) => ({ labels, readTree: vi.fn(async () => tre
 let images
 let clock
 
-function stubs ({ live = { metadata: OLD_METADATA }, labels = {}, newSite = NEW_SITE } = {}) {
-  images = { [IMAGE]: handle(newSite, labels), [OLD_IMAGE]: handle(OLD_SITE) }
+function stubs ({ live = { metadata: OLD_METADATA }, labels = {}, newSite = NEW_SITE, oldSite = OLD_SITE, oldLabels = {} } = {}) {
+  images = { [IMAGE]: handle(newSite, labels), [OLD_IMAGE]: handle(oldSite, oldLabels) }
   openImage.mockImplementation(async ref => {
     if (!images[ref]) throw new Error(`no image ${ref}`)
     events.push(`open:${ref === IMAGE ? 'new' : 'old'}`)
@@ -309,6 +309,253 @@ describe('deployStatic: source maps', () => {
     expect(result.sourcemaps).toEqual({ status: 'failed', uploaded: 0, failed: 0 })
     expect(core.warning).toHaveBeenCalledWith(expect.stringMatching(/^source maps not uploaded \(deploy unaffected\)/))
     expect(puts()).toContain('index.html')
+  })
+})
+
+describe('deployStatic: serving the source maps under /site', () => {
+  const PUBLIC = { 'org.cru.public-sourcemaps': 'true' }
+  const TRACKED = { 'org.cru.sourcemaps': '2026-11-04-10150' }
+
+  // A release whose bundles name their maps: a hashed bundle and stylesheet
+  // with theirs, and a loader script whose map has no hash in its name.
+  const MAPPED_SITE = {
+    files: [
+      file('index.html', '<html>new</html>'),
+      file('assets/app.4a6b2c1d.js'),
+      file('assets/app.4a6b2c1d.js.map', '{"version":3,"new":true}'),
+      file('assets/app.9f8e7d6c.css'),
+      file('assets/app.9f8e7d6c.css.map'),
+      file('loader.js'),
+      file('loader.js.map', '{"version":3,"loader":"new"}'),
+      file('about/index.html')
+    ],
+    links: []
+  }
+
+  // The release before it, which served its maps too.
+  const OLD_MAPPED_SITE = {
+    files: [
+      file('index.html', '<html>old</html>'),
+      file('assets/app.1a2b3c4d.js'),
+      file('assets/app.1a2b3c4d.js.map'),
+      file('loader.js', 'old loader'),
+      file('loader.js.map', '{"version":3,"loader":"old"}'),
+      file('about/index.html', '<html>old about</html>')
+    ],
+    links: []
+  }
+
+  const failOn = (key, error = new Error(`S3 s3:PutObject on s3://${BUCKET}/${key} failed: timed out`)) => {
+    const put = aws.s3PutObject.getMockImplementation()
+    aws.s3PutObject.mockImplementation(async (bucket, k, ...rest) => {
+      if (k === key && openImage.mock.calls.length === 1) throw error
+      return put(bucket, k, ...rest)
+    })
+  }
+  const logged = () => [...core.info.mock.calls, ...core.warning.mock.calls].map(([line]) => line).join('\n')
+
+  describe('without the label', () => {
+    it('leaves every map out of the bucket and says why', async () => {
+      stubs({ newSite: MAPPED_SITE })
+      await deploy()
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+      expect(core.info).toHaveBeenCalledWith(
+        'not uploading 3 .map files under /site to the bucket, since the image does not set ' +
+        'org.cru.public-sourcemaps=true; source maps go under /cru/sourcemaps'
+      )
+      expect(core.warning).not.toHaveBeenCalled()
+    })
+
+    it('leaves them out for false, without a warning', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: { 'org.cru.public-sourcemaps': 'false' } })
+      await deploy()
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+      expect(core.warning).not.toHaveBeenCalled()
+    })
+
+    it.each(['True', 'yes', '1', ' true', ''])('leaves them out for %j, and warns that it is not "true"', async value => {
+      stubs({ newSite: MAPPED_SITE, labels: { 'org.cru.public-sourcemaps': value } })
+      await deploy()
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+      expect(core.warning).toHaveBeenCalledWith(
+        `the image sets org.cru.public-sourcemaps="${value}", which is not "true", so the .map files under /site are ` +
+        'not uploaded to the bucket. Set it to true to serve them, or leave it off'
+      )
+    })
+
+    it('quotes a value with a line break, so it cannot start a workflow command', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: { 'org.cru.public-sourcemaps': 'true\n::error::injected' } })
+      await deploy()
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+      const [[warning]] = core.warning.mock.calls
+      expect(warning).not.toContain('\n')
+      expect(warning).toContain('"\\"true\\n::error::injected\\""')
+    })
+  })
+
+  describe('with the label', () => {
+    it('uploads hashed maps with the hashed files and unhashed maps before the other files, keeping the tracker upload', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: { ...PUBLIC, ...TRACKED } })
+      ssmParameterValue.mockResolvedValue('server-token')
+
+      const result = await deploy()
+
+      expect(events).toEqual([
+        'open:new',
+        'put:assets/app.4a6b2c1d.js', 'put:assets/app.4a6b2c1d.js.map', 'put:assets/app.9f8e7d6c.css', 'put:assets/app.9f8e7d6c.css.map',
+        'maps',
+        'put:loader.js.map',
+        'put:loader.js',
+        'put:about/index.html',
+        'put:index.html',
+        'invalidate'
+      ])
+      // The error tracker's upload is the same call it is without the label.
+      expect(publishSourceMaps).toHaveBeenCalledTimes(1)
+      expect(publishSourceMaps).toHaveBeenCalledWith({
+        oci: images[IMAGE], appUrl: APP_URL, token: 'server-token', endpoint: 'https://flightdeck.cru.org/api/1/sourcemap'
+      })
+      expect(result.sourcemaps).toEqual({ status: 'uploaded', uploaded: 1, failed: 0 })
+      expect(core.info).toHaveBeenCalledWith(
+        'serving 3 .map files under /site from the bucket (2 content-hashed), as the image\'s ' +
+        'org.cru.public-sourcemaps=true label asks, so anyone can read the source they hold'
+      )
+    })
+
+    it('sends each map as JSON, at its own path, with the cache its name earns', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC })
+      await deploy()
+      const sent = Object.fromEntries(aws.s3PutObject.mock.calls.map(([, key, body, options]) => [key, { body: body.toString(), ...options }]))
+      expect(sent['assets/app.4a6b2c1d.js.map']).toMatchObject({
+        body: '{"version":3,"new":true}',
+        contentType: 'application/json; charset=utf-8',
+        cacheControl: 'public, max-age=31536000, immutable'
+      })
+      expect(sent['assets/app.9f8e7d6c.css.map']).toMatchObject({ cacheControl: 'public, max-age=31536000, immutable' })
+      expect(sent['loader.js.map']).toMatchObject({
+        body: '{"version":3,"loader":"new"}',
+        contentType: 'application/json; charset=utf-8',
+        cacheControl: 'public, max-age=300'
+      })
+      expect(sent['assets/app.4a6b2c1d.js.map'].metadata).toBeUndefined()
+    })
+
+    it('uploads the maps without the tracker label too, since the two are separate', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC })
+      const result = await deploy()
+      expect(puts().filter(key => /\.map$/.test(key))).toHaveLength(3)
+      expect(ssmParameterValue).not.toHaveBeenCalled()
+      expect(result.sourcemaps.status).toBe('skipped')
+    })
+
+    it('warns when the site holds no maps to serve', async () => {
+      stubs({ labels: PUBLIC, newSite: { files: [file('index.html'), file('assets/app.4a6b2c1d.js')], links: [] } })
+      await deploy()
+      expect(core.warning).toHaveBeenCalledWith(
+        'the image sets org.cru.public-sourcemaps=true, but there are no .map files under /site, so the bucket gets none. ' +
+        'The build must leave them in the site for dev tools to find them'
+      )
+    })
+  })
+
+  describe('a deploy with the label that fails partway', () => {
+    it('needs nothing put back when a hashed map fails, and never reaches the tracker or a live file', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: { ...PUBLIC, ...TRACKED }, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      failOn('assets/app.9f8e7d6c.css.map')
+      const error = await deploy().catch(e => e)
+      expect(error.message).toMatch(/app\.9f8e7d6c\.css\.map failed: timed out\. No file a live page uses had been changed yet\.$/)
+      expect(publishSourceMaps).not.toHaveBeenCalled()
+      expect(puts()).not.toContain('loader.js.map')
+      expect(openImage).toHaveBeenCalledTimes(1)
+    })
+
+    it('counts an unhashed map S3 refused outright as unchanged, so nothing is put back', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      failOn('loader.js.map', Object.assign(new Error(`S3 refused s3:PutObject on s3://${BUCKET}/loader.js.map (access denied).`), {
+        cause: Object.assign(new Error('Access Denied'), { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } })
+      }))
+      const error = await deploy().catch(e => e)
+      expect(error.message).toMatch(/No file a live page uses had been changed yet\.$/)
+      expect(puts()).not.toContain('loader.js')
+      expect(openImage).toHaveBeenCalledTimes(1)
+    })
+
+    it('puts back the old release, its served maps first, when an unhashed map may have landed', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      failOn('loader.js.map')
+      const error = await deploy().catch(e => e)
+      expect(error.message).toMatch(/^S3 s3:PutObject on s3:\/\/example-site-prod\/loader\.js\.map failed: timed out\./)
+      expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
+      // The new loader never went up; the old release's map, loader and HTML
+      // came back, in the order a deploy uses.
+      expect(events.slice(events.indexOf('open:old'))).toEqual([
+        'open:old', 'put:loader.js.map', 'put:loader.js', 'put:about/index.html', 'put:index.html', 'invalidate'
+      ])
+      expect(putOf('loader.js.map').map(([, , body]) => body.toString())).toEqual([
+        '{"version":3,"loader":"new"}', '{"version":3,"loader":"old"}'
+      ])
+      expect(putOf('loader.js.map')[1][3]).toMatchObject({ contentType: 'application/json; charset=utf-8', cacheControl: 'public, max-age=300' })
+      // A hashed map, like a hashed file, is never put back.
+      expect(puts()).not.toContain('assets/app.1a2b3c4d.js.map')
+    })
+
+    it('puts back the old release\'s map along with its other files when HTML fails', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      failOn('about/index.html')
+      const error = await deploy().catch(e => e)
+      expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
+      expect(putOf('loader.js.map').map(([, , body]) => body.toString())).toEqual([
+        '{"version":3,"loader":"new"}', '{"version":3,"loader":"old"}'
+      ])
+      expect(putOf('loader.js').map(([, , body]) => body.toString())).toEqual(['contents of loader.js', 'old loader'])
+    })
+
+    it('puts back no map when the old release did not serve them, leaving the new one, which its files do not name', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: {} })
+      failOn('about/index.html')
+      const error = await deploy().catch(e => e)
+      expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
+      expect(events.slice(events.indexOf('open:old'))).toEqual([
+        'open:old', 'put:loader.js', 'put:about/index.html', 'put:index.html', 'invalidate'
+      ])
+      expect(putOf('loader.js.map')).toHaveLength(1)
+    })
+
+    it('stops before the tracker and any live file when the step runs out during the hashed maps', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: { ...PUBLIC, ...TRACKED }, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      clock.stepStartedAt = -(STEP_CAP_MS - PUT_BACK_RESERVE_MS - 2 * 60 * 1000)
+      const put = aws.s3PutObject.getMockImplementation()
+      aws.s3PutObject.mockImplementation(async (...args) => { await clock.sleep(60 * 1000); return put(...args) })
+      const error = await deploy().catch(e => e)
+      expect(error.message).toMatch(/^The deploy step is within 5m 0s of its 50m 0s cap/)
+      expect(error.message).toMatch(/No file a live page uses had been changed yet\.$/)
+      expect(publishSourceMaps).not.toHaveBeenCalled()
+      expect(puts()).not.toContain('loader.js.map')
+    })
+  })
+
+  describe('a rollback', () => {
+    it('to an image without the label serves no maps, and leaves the newer release\'s maps where they are', async () => {
+      // The bucket serves a release that had the label; the rollback target
+      // never did. Nothing is deleted, so its maps stay, named by no file of
+      // the release rolled back to.
+      stubs({ newSite: MAPPED_SITE, labels: {}, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      const result = await deploy({ stopRolloutOnFailure: false })
+      expect(result.deployedImage).toBe(IMAGE)
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+      expect(logged()).toContain('not uploading 3 .map files under /site to the bucket')
+      // A rollback that works never reads the release it rolls away from.
+      expect(openImage).toHaveBeenCalledTimes(1)
+    })
+
+    it('with the label that fails partway puts nothing back, maps included', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      failOn('loader.js')
+      const error = await deploy({ stopRolloutOnFailure: false }).catch(e => e)
+      expect(error.message).toContain('This is a rollback, so nothing was put back')
+      expect(openImage).toHaveBeenCalledTimes(1)
+      expect(putOf('loader.js.map')).toHaveLength(1)
+    })
   })
 })
 

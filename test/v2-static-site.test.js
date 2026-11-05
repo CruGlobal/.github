@@ -22,6 +22,7 @@ import {
   planSite,
   readLiveRelease,
   releaseMetadata,
+  servesSourceMaps,
   staticSiteTarget
 } from '../src/v2/static-site.js'
 
@@ -161,7 +162,9 @@ describe('content type', () => {
     ['models/chair.glb', 'model/gltf-binary'],
     ['models/chair.gltf', 'model/gltf+json'],
     ['apple-app-site-association', 'application/json'],
-    ['.well-known/apple-app-site-association', 'application/json']
+    ['.well-known/apple-app-site-association', 'application/json'],
+    ['assets/app.4a6b2c1d.js.map', 'application/json; charset=utf-8'],
+    ['loader.js.MAP', 'application/json; charset=utf-8']
   ])('%s is %s', (key, type) => {
     expect(contentTypeFor(key)).toBe(type)
   })
@@ -174,7 +177,11 @@ describe('content-hashed names', () => {
     '_next/static/chunks/pages/index-4a6b2c1d4a6b2c1d.js',
     'assets/4a6b2c1d9e8f.css',
     'img/logo_0f1e2d3c.png',
-    'fonts/inter.1a2b3c4d5e6f7a8b9c0d.woff2'
+    'fonts/inter.1a2b3c4d5e6f7a8b9c0d.woff2',
+    // A map named after a hashed bundle is hashed too, by the bundle's hash.
+    'assets/app.4a6b2c1d.js.map', // webpack's [file].map
+    'assets/index-4a6b2c1d.js.map', // Vite 4
+    'assets/app.9f8e7d6c.css.map'
   ])('%s is hashed', (key) => {
     expect(isContentHashed(key)).toBe(true)
     expect(cacheControlFor(key)).toBe(HASHED_CACHE_CONTROL)
@@ -188,7 +195,9 @@ describe('content-hashed names', () => {
     ['an unhashed bundle', 'assets/app.js'],
     ['uppercase hex', 'assets/app-4A6B2C1D.js'],
     ['a hash in a directory name only', 'build/4a6b2c1d/app.js'],
-    ['a base64 hash', 'assets/index-DiwrgTda.js']
+    ['a base64 hash', 'assets/index-DiwrgTda.js'],
+    ['the map of an unhashed file', 'sw.js.map'],
+    ['the map of a base64-hashed bundle', 'assets/index-DiwrgTda.js.map']
   ])('%s (%s) is not hashed', (_label, key) => {
     expect(isContentHashed(key)).toBe(false)
     expect(cacheControlFor(key)).toBe(DEFAULT_CACHE_CONTROL)
@@ -225,6 +234,41 @@ describe('planSite', () => {
       ['sw.js', false, DEFAULT_CACHE_CONTROL]
     ])
     expect(site.maps).toEqual(['assets/app-4a6b2c1d.js.map', 'stray.MAP'])
+    expect(site.unhashedMaps).toEqual([])
+  })
+
+  describe('with publicMaps', () => {
+    const files = [
+      file('index.html', '<html>'),
+      file('assets/app.4a6b2c1d.js'),
+      file('assets/app.4a6b2c1d.js.map', '{"version":3}'),
+      file('assets/app.9f8e7d6c.css.map'),
+      file('sw.js'),
+      file('sw.js.map'),
+      file('stray.MAP')
+    ]
+
+    it('sorts a hashed map in with the hashed files, and keeps the rest apart', () => {
+      const site = planSite({ files, links: [], others: [] }, { maxBytes: 1024, image: IMAGE, publicMaps: true })
+      expect(site.hashed.map(entry => [entry.key, entry.immutable, entry.cacheControl, entry.contentType])).toEqual([
+        ['assets/app.4a6b2c1d.js', true, HASHED_CACHE_CONTROL, 'text/javascript; charset=utf-8'],
+        ['assets/app.4a6b2c1d.js.map', true, HASHED_CACHE_CONTROL, 'application/json; charset=utf-8'],
+        ['assets/app.9f8e7d6c.css.map', true, HASHED_CACHE_CONTROL, 'application/json; charset=utf-8']
+      ])
+      expect(site.hashed[1].contents.toString()).toBe('{"version":3}')
+      expect(site.unhashedMaps.map(entry => [entry.key, entry.immutable, entry.cacheControl, entry.contentType])).toEqual([
+        ['sw.js.map', false, DEFAULT_CACHE_CONTROL, 'application/json; charset=utf-8'],
+        ['stray.MAP', false, DEFAULT_CACHE_CONTROL, 'application/json; charset=utf-8']
+      ])
+      expect(site.unhashed.map(entry => entry.key)).toEqual(['sw.js'])
+      expect(site.maps).toEqual(['assets/app.4a6b2c1d.js.map', 'assets/app.9f8e7d6c.css.map', 'sw.js.map', 'stray.MAP'])
+    })
+
+    it('still runs every check on the maps, which are now uploaded', () => {
+      expect(() => planSite({ files: [file('index.html'), file('a//b.js.map')], links: [], others: [] }, {
+        maxBytes: 1024, image: IMAGE, publicMaps: true
+      })).toThrow('it has an empty path segment')
+    })
   })
 
   it('keeps a hard-linked file, which tar.js has already followed', () => {
@@ -302,5 +346,24 @@ describe('planSite', () => {
     expect(() => plan([file('index.html', 'first'), file('app.js'), file('index.html', 'second')])).toThrow(
       'holds the same name more than once, so which copy to serve is a guess: site/index.html'
     )
+  })
+})
+
+describe('servesSourceMaps', () => {
+  it('is on for exactly "true"', () => {
+    expect(servesSourceMaps({ 'org.cru.public-sourcemaps': 'true' })).toBe(true)
+  })
+
+  it.each([
+    ['no labels', undefined],
+    ['no such label', { 'org.cru.sourcemaps': 'abc1234' }],
+    ['false', { 'org.cru.public-sourcemaps': 'false' }],
+    ['True', { 'org.cru.public-sourcemaps': 'True' }],
+    ['true with a space', { 'org.cru.public-sourcemaps': ' true' }],
+    ['yes', { 'org.cru.public-sourcemaps': 'yes' }],
+    ['1', { 'org.cru.public-sourcemaps': '1' }],
+    ['empty', { 'org.cru.public-sourcemaps': '' }]
+  ])('is off for %s', (_label, labels) => {
+    expect(servesSourceMaps(labels)).toBe(false)
   })
 })

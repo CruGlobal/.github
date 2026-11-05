@@ -15,7 +15,17 @@ import { assertDigestRef, parseImageRef } from './image-ref'
 import { openImage } from './oci'
 import { POLL_INTERVAL_MS, STEP_CAP_MS, formatDuration, progressLogger, rolloutBudget } from './rollout-budget'
 import { SOURCEMAPS_LABEL, publishSourceMaps, sourceMapsEndpointFor } from './sourcemaps'
-import { INDEX_KEY, SITE_DIR, planSite, readLiveRelease, releaseMetadata, staticSiteTarget } from './static-site'
+import {
+  INDEX_KEY,
+  PUBLIC_SOURCEMAPS_LABEL,
+  SITE_DIR,
+  planSite,
+  readLiveRelease,
+  releaseMetadata,
+  servesSourceMaps,
+  shown,
+  staticSiteTarget
+} from './static-site'
 
 // Deploy a static site: copy the files a pre-built, digest-pinned image holds
 // under /site into the environment's S3 bucket, and invalidate its CloudFront
@@ -29,7 +39,10 @@ import { INDEX_KEY, SITE_DIR, planSite, readLiveRelease, releaseMetadata, static
 //   1. Read the whole site out of the image first, without docker, and check
 //      it. A site the deploy cannot copy whole fails here, with nothing changed.
 //   2. Upload the content-hashed files. Their names are new, so no live page
-//      asks for them yet, and this changes nothing a visitor sees.
+//      asks for them yet, and this changes nothing a visitor sees. When the
+//      image serves its source maps (org.cru.public-sourcemaps, see
+//      ./static-site.js), the hashed .map files under /site go up here too, so
+//      each is in place before any page can load the bundle that names it.
 //   3. Upload the source maps to Flightdeck, before any page can load the new
 //      code and report an error against it. Same never-fails policy as the ECS
 //      and Cloud Run deploys. It runs before anything a live page uses has
@@ -38,7 +51,11 @@ import { INDEX_KEY, SITE_DIR, planSite, readLiveRelease, releaseMetadata, static
 //   4. Upload the files that are not hashed and not HTML. A live page may ask
 //      for these by name (a service worker, a module federation entry, a
 //      loader script), and they may name hashed files, which are all in place
-//      by now. This is the first step a visitor can see.
+//      by now. This is the first step a visitor can see. When the image serves
+//      its source maps, the unhashed .map files go up first, on their own, so
+//      no file names a map the bucket does not hold yet. Only dev tools ask for
+//      a map, but a live one may be replaced here, so the failure handling
+//      below counts them like any other file a live page uses.
 //   5. Upload the HTML, index.html very last. index.html carries the release's
 //      digest, revision and sha as metadata, so it is the record of which
 //      release the bucket serves (resolve-image reads it back), and it only
@@ -110,11 +127,10 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
   const handle = await openSiteImage(image)
   const site = await readSite(handle, image)
   core.info(
-    `site: ${site.hashed.length} content-hashed files, ${site.unhashed.length} other files, ${site.html.length + 1} HTML files`
+    `site: ${site.hashed.length} content-hashed files, ${site.unhashedMaps.length + site.unhashed.length} other files, ` +
+    `${site.html.length + 1} HTML files`
   )
-  if (site.maps.length > 0) {
-    core.info(`not uploading ${site.maps.length} .map files under ${SITE_DIR} to the bucket; source maps go under /cru/sourcemaps`)
-  }
+  logSiteMaps(handle.labels, site)
 
   // What was live before, so a failed deploy can put it back.
   const previous = await nothingChangedIfItFails(() => readLiveRelease(bucket))
@@ -138,6 +154,11 @@ export async function deployStatic ({ projectName, environment, image, appUrl, r
     await uploadFiles(bucket, site.hashed, state, limits)
 
     sourcemaps = await uploadSourceMaps({ projectName, nickname, appUrl, handle })
+
+    if (site.unhashedMaps.length > 0) {
+      core.info(`uploading ${site.unhashedMaps.length} .map files whose names carry no content hash`)
+      await uploadFiles(bucket, site.unhashedMaps, state, limits)
+    }
 
     core.info(`uploading ${site.unhashed.length} other files`)
     await uploadFiles(bucket, site.unhashed, state, limits)
@@ -202,9 +223,50 @@ async function openSiteImage (image) {
 
 async function readSite (handle, image) {
   try {
-    return planSite(await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES }), { maxBytes: MAX_SITE_FILE_BYTES, image })
+    return await planImageSite(handle, image)
   } catch (error) {
     throw new Error(`Could not deploy the site in ${image}: ${error.message}. Nothing was changed.`, { cause: error })
+  }
+}
+
+// What an image's site uploads, read the same way for the release being
+// deployed and for a release being put back: each image's own label says
+// whether its .map files go to the bucket.
+async function planImageSite (handle, image) {
+  const tree = await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES })
+  return planSite(tree, { maxBytes: MAX_SITE_FILE_BYTES, image, publicMaps: servesSourceMaps(handle.labels) })
+}
+
+// Say which way the .map files under /site went, since one way makes the
+// site's source public.
+function logSiteMaps (labels, site) {
+  const value = labels?.[PUBLIC_SOURCEMAPS_LABEL]
+  const count = site.maps.length
+  if (servesSourceMaps(labels)) {
+    if (count === 0) {
+      core.warning(
+        `the image sets ${PUBLIC_SOURCEMAPS_LABEL}=true, but there are no .map files under ${SITE_DIR}, so the bucket ` +
+        'gets none. The build must leave them in the site for dev tools to find them'
+      )
+      return
+    }
+    core.info(
+      `serving ${count} .map files under ${SITE_DIR} from the bucket (${count - site.unhashedMaps.length} content-hashed), ` +
+      `as the image's ${PUBLIC_SOURCEMAPS_LABEL}=true label asks, so anyone can read the source they hold`
+    )
+    return
+  }
+  if (value != null && value !== 'false') {
+    core.warning(
+      `the image sets ${PUBLIC_SOURCEMAPS_LABEL}=${shown(`"${value}"`)}, which is not "true", so the .map files under ` +
+      `${SITE_DIR} are not uploaded to the bucket. Set it to true to serve them, or leave it off`
+    )
+  }
+  if (count > 0) {
+    core.info(
+      `not uploading ${count} .map files under ${SITE_DIR} to the bucket, since the image does not set ` +
+      `${PUBLIC_SOURCEMAPS_LABEL}=true; source maps go under /cru/sourcemaps`
+    )
   }
 }
 
@@ -317,7 +379,9 @@ function callerReference () {
 // Put back what the release that was live before served under the names this
 // deploy may have overwritten: its unhashed files, then its HTML, index.html
 // last with its own metadata. Content-hashed files need nothing, since this
-// deploy never changed one a page of that release asks for.
+// deploy never changed one a page of that release asks for. Its .map files
+// come back only when its own image served them; a map this deploy added stays,
+// since nothing is deleted, and the release put back does not name it.
 //
 // Never throws: it adds what it did, or why it could not, to the deploy's own
 // error, which the caller then throws. Returns { index }, true when index.html
@@ -334,11 +398,9 @@ async function putBackPrevious ({ projectName, bucket, distributionId, previous,
   core.warning(`the deploy failed after it may have changed files a live page uses; putting back ${name} (${previous.digest})`)
   try {
     const handle = await openImage(previousImage)
-    const site = planSite(await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES }), {
-      maxBytes: MAX_SITE_FILE_BYTES,
-      image: previousImage
-    })
+    const site = await planImageSite(handle, previousImage)
     const limits = { step, reserveMs: 0 }
+    await uploadFiles(bucket, site.unhashedMaps, state, limits)
     await uploadFiles(bucket, site.unhashed, state, limits)
     await uploadFiles(bucket, site.html, state, limits)
     await uploadFiles(bucket, [{ ...site.index, metadata: releaseMetadata(previous) }], state, limits)

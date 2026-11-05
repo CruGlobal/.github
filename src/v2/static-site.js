@@ -13,13 +13,34 @@ import { legacyEnvironment } from './env'
 //   COPY <built site> /site/                     one COPY, so one layer
 //   COPY <built maps> /cru/sourcemaps/           optional, see ./sourcemaps.js
 //   LABEL org.cru.sourcemaps=<code_version>      optional, see ./sourcemaps.js
+//   LABEL org.cru.public-sourcemaps=true         optional, see below
 //
 // /site must hold index.html at its root. Everything under /site is served
 // from the root of the bucket: /site/assets/app-1a2b3c4d.js becomes the object
 // assets/app-1a2b3c4d.js.
+//
+// The .map files under /site are left out of the bucket, unless the image sets
+// org.cru.public-sourcemaps to exactly "true". A served map hands the site's
+// original source to anyone who opens the browser's dev tools, and for most
+// sites that source is not public, so serving them is something a site asks
+// for in its own build. The label travels with the image, so a promote or a
+// rollback serves exactly what that build chose, with nothing to set anywhere
+// else. With it, each map goes up at its own path, next to the file it maps,
+// so a bundle's relative sourceMappingURL finds it. The maps under
+// /cru/sourcemaps go to the error tracker either way.
 
 /** Directory in the image that holds the site. */
 export const SITE_DIR = '/site'
+
+/** Image label that serves the .map files under /site from the bucket. */
+export const PUBLIC_SOURCEMAPS_LABEL = 'org.cru.public-sourcemaps'
+
+// Only the exact value "true" turns it on. A typo, a "True" or a "yes" leaves
+// the maps out, as no label does, because the cost of a wrong guess is the
+// site's source made public. The deploy warns about a value it does not know.
+export function servesSourceMaps (labels) {
+  return labels?.[PUBLIC_SOURCEMAPS_LABEL] === 'true'
+}
 
 /** The object that records which release is live, and the last one written. */
 export const INDEX_KEY = 'index.html'
@@ -131,6 +152,9 @@ const CONTENT_TYPES = {
   mjs: 'text/javascript; charset=utf-8',
   cjs: 'text/javascript; charset=utf-8',
   json: 'application/json; charset=utf-8',
+  // A source map is JSON, and only reaches the bucket when the image asks for
+  // it (see PUBLIC_SOURCEMAPS_LABEL). The charset is the one .json gets.
+  map: 'application/json; charset=utf-8',
   webmanifest: 'application/manifest+json; charset=utf-8',
   xml: 'application/xml; charset=utf-8',
   rss: 'application/rss+xml; charset=utf-8',
@@ -226,7 +250,14 @@ export function isContentHashed (key) {
   return stem.split(/[.\-_]/).some(segment => HASH_SEGMENT.test(segment))
 }
 
-/** Cache-Control for an object: HTML always revalidates, hashed names never change. */
+// Cache-Control for an object: HTML always revalidates, hashed names never
+// change.
+//
+// A source map named after a hashed bundle (app.4a6b2c1d.js.map) counts as
+// hashed too, though the hash is the bundle's and not the map's. Two builds
+// can make the same bundle bytes with different maps (a source change the
+// minifier drops, like a comment), but each of those maps is right for those
+// bytes. So a browser that keeps an older one still maps the bundle it has.
 export function cacheControlFor (key) {
   if (isHtml(key)) return HTML_CACHE_CONTROL
   return isContentHashed(key) ? HASHED_CACHE_CONTROL : DEFAULT_CACHE_CONTROL
@@ -263,17 +294,26 @@ function listed (items, describe) {
  * Sort a site's files into what is uploaded when, and check the site is one
  * the deploy can serve. `tree` is what readTree returned for SITE_DIR.
  *
- * Returns `{ hashed, unhashed, html, index, maps }`. Each entry is
- * `{ key, contents, contentType, cacheControl, immutable }`:
+ * Returns `{ hashed, unhashedMaps, unhashed, html, index, maps }`. Each entry
+ * but those in `maps` is `{ key, contents, contentType, cacheControl,
+ * immutable }`:
  *
- *   hashed    files whose names carry a content hash, which no live page
- *             asks for until new HTML names them
- *   unhashed  every other file that is not HTML, which a live page may
- *             already ask for by the same name
- *   html      every HTML file but the root index.html, which is `index`
- *   maps      names of the .map files under the site, which are never uploaded
- *             to the bucket (the deploy sends the maps under /cru/sourcemaps
- *             to Flightdeck instead)
+ *   hashed        files whose names carry a content hash, which no live page
+ *                 asks for until new HTML names them
+ *   unhashedMaps  the .map files whose names carry no hash, when `publicMaps`
+ *                 is set, and otherwise none. A live page may ask for these by
+ *                 the same name, as for `unhashed`, and they go up before the
+ *                 files that name them
+ *   unhashed      every other file that is not HTML, which a live page may
+ *                 already ask for by the same name
+ *   html          every HTML file but the root index.html, which is `index`
+ *   maps          names of every .map file under the site
+ *
+ * `publicMaps` is servesSourceMaps() of the image the tree came from. Without
+ * it, the .map files are left out of every list but `maps`, and are never
+ * uploaded to the bucket (the deploy sends the maps under /cru/sourcemaps to
+ * Flightdeck instead). With it, they are sorted like any other file: a hashed
+ * one into `hashed`, the rest into `unhashedMaps`.
  *
  * Throws, naming the files, for anything the deploy cannot copy whole and
  * exactly: a symbolic link, a hard link whose target the layer does not hold,
@@ -282,7 +322,7 @@ function listed (items, describe) {
  * `maxBytes`, an empty site, or one with no index.html. Every check runs
  * before anything is uploaded.
  */
-export function planSite (tree, { maxBytes, image }) {
+export function planSite (tree, { maxBytes, image, publicMaps = false }) {
   const files = tree?.files ?? []
   const links = tree?.links ?? []
   const others = tree?.others ?? []
@@ -326,6 +366,7 @@ export function planSite (tree, { maxBytes, image }) {
   }
 
   const hashed = []
+  const unhashedMaps = []
   const unhashed = []
   const html = []
   const maps = []
@@ -334,7 +375,7 @@ export function planSite (tree, { maxBytes, image }) {
     const key = file.name
     if (isSourceMap(key)) {
       maps.push(key)
-      continue
+      if (!publicMaps) continue
     }
     const entry = {
       key,
@@ -346,6 +387,7 @@ export function planSite (tree, { maxBytes, image }) {
     if (key === INDEX_KEY) index = entry
     else if (isHtml(key)) html.push(entry)
     else if (entry.immutable) hashed.push(entry)
+    else if (isSourceMap(key)) unhashedMaps.push(entry)
     else unhashed.push(entry)
   }
   if (!index) {
@@ -354,5 +396,5 @@ export function planSite (tree, { maxBytes, image }) {
       'and records on it which release is live'
     )
   }
-  return { hashed, unhashed, html, index, maps }
+  return { hashed, unhashedMaps, unhashed, html, index, maps }
 }
