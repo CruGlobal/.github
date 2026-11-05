@@ -986,8 +986,8 @@ jobs:
           echo "role=$role" >> "$GITHUB_OUTPUT"
 
       # One deploy role per type (GitHubDeployECS / GitHubDeployLambda /
-      # GitHubDeployStatic), all cru-deploy-scoped and covering the cruds
-      # account (056154071827).
+      # GitHubDeployStatic), all cru-deploy-scoped and covering the shared
+      # account the apps run in.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:

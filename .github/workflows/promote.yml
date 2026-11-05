@@ -1370,9 +1370,8 @@ jobs:
 
       # One deploy role per type (GitHubDeployECS / GitHubDeployLambda /
       # GitHubDeployStatic) covers the rc + prod clusters, functions and sites,
-      # which share the cruds account (056154071827), so no per-env re-auth is
-      # needed. The chosen role also holds ecr:PutImage for the release-<n>
-      # tag-image step below.
+      # which share one account, so no per-env re-auth is needed. The chosen
+      # role also holds ecr:PutImage for the release-<n> tag-image step below.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:

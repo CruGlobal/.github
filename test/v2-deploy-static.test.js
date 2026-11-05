@@ -25,7 +25,7 @@ vi.mock('../src/v2/aws.js', () => ({
   ...aws,
   ecrImageRef: (name, digest) => `000000000000.dkr.ecr.us-east-1.amazonaws.com/${name}@${digest}`
 }))
-vi.mock('../src/aws.js', () => ({ ssmParameterValue }))
+vi.mock('../src/aws.js', async importOriginal => ({ isPermanentAwsError: (await importOriginal()).isPermanentAwsError, ssmParameterValue }))
 vi.mock('../src/v2/oci.js', () => ({ openImage }))
 vi.mock('../src/v2/sourcemaps.js', async importOriginal => ({ ...(await importOriginal()), publishSourceMaps }))
 vi.mock('@actions/core', () => core)
@@ -389,6 +389,33 @@ describe('deployStatic: a deploy that fails partway', () => {
     expect(openImage).toHaveBeenCalledTimes(1)
     expect(puts()).not.toContain('index.html')
     expect(aws.cloudfrontCreateInvalidation).not.toHaveBeenCalled()
+  })
+
+  describe('an unhashed file whose upload failed', () => {
+    const site = { files: [file('index.html'), file('favicon.ico')], links: [] }
+    const denied = Object.assign(new Error(`S3 refused s3:PutObject on s3://${BUCKET}/favicon.ico (access denied).`), {
+      cause: Object.assign(new Error('Access Denied'), { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } })
+    })
+    const timedOut = Object.assign(new Error(`S3 s3:PutObject on s3://${BUCKET}/favicon.ico failed: Request aborted`), {
+      cause: Object.assign(new Error('Request aborted'), { name: 'AbortError' })
+    })
+
+    it('counts as unchanged when S3 refused it outright, so nothing is put back', async () => {
+      stubs({ newSite: site })
+      failOn('favicon.ico', denied)
+      const error = await deploy().catch(e => e)
+      expect(error.message).toMatch(/No file a live page uses had been changed yet\.$/)
+      expect(openImage).toHaveBeenCalledTimes(1)
+    })
+
+    it('counts as changed when it may have landed (a timeout), so the old release is put back', async () => {
+      stubs({ newSite: site })
+      failOn('favicon.ico', timedOut)
+      const error = await deploy().catch(e => e)
+      expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
+      // The attempt that timed out, then the old release's copy.
+      expect(putOf('favicon.ico').map(([, , body]) => body.toString())).toEqual(['contents of favicon.ico', 'old icon'])
+    })
   })
 
   it('stops starting uploads after the first failure', async () => {

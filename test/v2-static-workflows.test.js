@@ -23,6 +23,10 @@ const guard = (file, job, type) => runShellStep(findStep(workflows[file], job, '
   context: { ...CONTEXT, 'needs.lookup.outputs.type': type }
 })
 
+// The role ARN in the account the workflow names, with the role's name taken
+// from the guard step and nothing else.
+const ROLE_FROM_GUARD = /^arn:aws:iam::\d{12}:role\/\$\{\{ steps\.aws-type\.outputs\.role \}\}$/
+
 const DEPLOY_JOBS = [
   ['deploy-candidate.yml', 'deploy-candidate-aws'],
   ['promote.yml', 'promote-aws'],
@@ -59,7 +63,7 @@ describe.each(DEPLOY_JOBS)('%s:%s type guard', (file, job) => {
     const credentialsAt = steps.findIndex(step => step.name === 'Configure AWS credentials')
     expect(steps[guardAt].id).toBe('aws-type')
     expect(guardAt).toBeLessThan(credentialsAt)
-    expect(steps[credentialsAt].with['role-to-assume']).toBe('arn:aws:iam::056154071827:role/${{ steps.aws-type.outputs.role }}')
+    expect(steps[credentialsAt].with['role-to-assume']).toMatch(ROLE_FROM_GUARD)
   })
 })
 
@@ -85,7 +89,7 @@ describe('deploy-candidate.yml:verify-candidate-aws type guard', () => {
 
   it('assumes the role the guard picked', () => {
     const { step } = findStep(workflows['deploy-candidate.yml'], 'verify-candidate-aws', 'Configure AWS credentials')
-    expect(step.with['role-to-assume']).toBe('arn:aws:iam::056154071827:role/${{ steps.aws-type.outputs.role }}')
+    expect(step.with['role-to-assume']).toMatch(ROLE_FROM_GUARD)
   })
 })
 

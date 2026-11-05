@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import { randomUUID } from 'node:crypto'
-import { ssmParameterValue } from '../aws'
+import { isPermanentAwsError, ssmParameterValue } from '../aws'
 import { environmentNickname } from './env'
 import {
   cloudfrontCreateInvalidation,
@@ -179,23 +179,27 @@ export function releaseIdentity (tags, revision = '') {
 // starting; the ones already in flight are let finish, so nothing is still
 // writing once this throws.
 //
-// `state.overwrote` turns true BEFORE the first upload of an object a live
-// page may use (anything not content-hashed). An upload that timed out on our
-// side may still have landed, so an attempt has to count.
+// `state.overwrote` turns true once an object a live page may use (anything
+// not content-hashed) may have been replaced: its upload worked, or it failed
+// in a way that does not prove it did not land (a timeout on our side, a 5xx).
+// A 4xx such as access denied is S3 refusing the write, so that one does not
+// count. Every upload in flight has finished by the time this returns or
+// throws, so the flag is complete when the caller reads it.
 async function uploadFiles (bucket, files, state) {
   let next = 0
   let failure = null
   const worker = async () => {
     while (failure === null && next < files.length) {
       const file = files[next++]
-      if (!file.immutable) state.overwrote = true
       try {
         await s3PutObject(bucket, file.key, file.contents, {
           contentType: file.contentType,
           cacheControl: file.cacheControl,
           metadata: file.metadata
         })
+        if (!file.immutable) state.overwrote = true
       } catch (error) {
+        if (!file.immutable && !isPermanentAwsError(error.cause ?? error)) state.overwrote = true
         if (failure === null) failure = error
       }
     }
