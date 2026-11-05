@@ -38,6 +38,7 @@ These permissions are usually provided by terraform.
 | Name         | Required | Description                                            |
 |--------------|----------|--------------------------------------------------------|
 | workflow-ref | [ ]      | Branch, tag or commit of CruGlobal/.github to load the workflow's actions from. Defaults to `v1`. If you call the workflow at another ref, pass that same ref here. |
+| cache-mode   | [ ]      | BuildKit layer cache mode, `min` (default) or `max`. `max` also caches the earlier stages of a multi-stage Dockerfile, so their dependency install doesn't run on every build. Those layers are saved in the repository's Actions cache, which any workflow run in the repository can restore, including a pull request from a fork of a public repository. Only use `max` when no build stage writes a credential into its layers. Passing `SIDEKIQ_CREDS` with `--build-arg` and saving it with `bundle config`, as in the example above, does; instead pass it with `--secret id=sidekiq_creds,env=SIDEKIQ_CREDS` in `build.sh` and read it in the one `RUN` that needs it: `RUN --mount=type=secret,id=sidekiq_creds,env=BUNDLE_GEMS__CONTRIBSYS__COM bundle install`. The same input exists on the Cloud Run and Lambda build workflows. |
 
 #### Outputs
 | Name          | Description                                  |

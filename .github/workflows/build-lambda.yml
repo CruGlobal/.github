@@ -8,6 +8,19 @@ on:
         required: false
         default: v1
         description: Branch, tag or commit of CruGlobal/.github to load this workflow's actions from. Defaults to the v1 tag. If you call this workflow at another ref, pass that same ref here.
+      cache-mode:
+        type: string
+        required: false
+        default: min
+        description: >-
+          BuildKit layer cache mode, 'min' or 'max'. 'max' also caches the layers of
+          earlier stages in a multi-stage Dockerfile, so their dependency install doesn't
+          run again on every build. Those layers are saved in this repository's Actions
+          cache, which any workflow run in the repository can restore, including a pull
+          request from a fork of a public repository. Only use 'max' when no build stage
+          writes a credential into its layers: pass it with build.sh's --secret and read it
+          inside the one RUN that needs it (RUN --mount=type=secret,id=...,env=...), never
+          with --build-arg or by saving it to a file.
     outputs:
       project-name:
         description: Project Name, defaults to GitHub repo name.
@@ -159,6 +172,9 @@ jobs:
           # --provenance=false: BuildKit's default attestation adds an extra
           # manifest that registries scan and bill as a second image; nothing
           # in the pipeline consumes it.
+          # --cache-to: cache-mode 'max' (any letter case) caches every stage; any other
+          # value is 'min', which caches only the final image's layers (the behavior
+          # before the input existed).
           DOCKER_ARGS: |
             --builder ${{ steps.buildx.outputs.name }}
             --provenance=false
@@ -166,7 +182,7 @@ jobs:
             --build-arg ENVIRONMENT=${{ steps.env.outputs.environment }}
             --build-arg BUILD_NUMBER=${{ steps.build-number.outputs.build-number }}
             --cache-from type=local,src=/tmp/.buildx-cache
-            --cache-to type=local,dest=/tmp/.buildx-cache-new
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=${{ inputs.cache-mode == 'max' && 'max' || 'min' }}
             --tag ${{ steps.ecr.outputs.registry }}/${{ steps.env.outputs.project-name }}:${{ steps.env.outputs.environment}}-${{ steps.build-number.outputs.build-number}}
             --provenance=false
             --push
