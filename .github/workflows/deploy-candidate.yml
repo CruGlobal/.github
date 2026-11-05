@@ -212,16 +212,21 @@ jobs:
           }
           # Only a static row names a bucket, so only a static site reads the
           # production row here: one more read, and no production row (a
-          # pre-release site) is fine.
+          # pre-release site) is fine. A read that fails skips the check with a
+          # warning rather than failing the stage deploy: promote makes the same
+          # check again, on rows it has to read anyway, before production changes.
           if [ "$type" = static ]; then
-            prod_item=$(aws dynamodb get-item --region us-east-1 --output json \
-              --table-name CruApplicationInfo \
-              --key "$(jq -n --arg project "$PROJECT_NAME" '{Project: {S: $project}, Environment: {S: "production"}}')" \
-              | jq -c '.Item // empty')
+            if ! prod_info=$(aws dynamodb get-item --region us-east-1 --output json \
+                --table-name CruApplicationInfo \
+                --key "$(jq -n --arg project "$PROJECT_NAME" '{Project: {S: $project}, Environment: {S: "production"}}')"); then
+              echo "::warning title=Same-site check skipped::could not read $PROJECT_NAME's CruApplicationInfo row for 'production', so this run did not check that release-candidate and production name different buckets and distributions. Promote checks it again."
+              prod_info='{}'
+            fi
+            prod_item=$(echo "$prod_info" | jq -c '.Item // empty' 2>/dev/null) || prod_item=""
             if [ -n "$prod_item" ]; then
               for attribute in Bucket DistributionId; do
-                ours=$(echo "$item" | jq -r --arg a "$attribute" '.[$a].S // empty')
-                theirs=$(echo "$prod_item" | jq -r --arg a "$attribute" '.[$a].S // empty')
+                ours=$(echo "$item" | jq -r --arg a "$attribute" '.[$a].S // empty | gsub("[\r\n]"; " ") | gsub("^\\s+|\\s+$"; "")')
+                theirs=$(echo "$prod_item" | jq -r --arg a "$attribute" '.[$a].S // empty | gsub("[\r\n]"; " ") | gsub("^\\s+|\\s+$"; "")')
                 if [ -n "$ours" ] && [ "$ours" = "$theirs" ]; then same_site "$attribute" "$ours"; fi
               done
             fi

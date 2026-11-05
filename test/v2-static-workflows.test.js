@@ -200,10 +200,11 @@ describe('a gcp row must be typed cloudrun', () => {
 
 // A static site's release candidate and production must be two sites: with one
 // bucket, every stage deploy would change production, and promote would read
-// production's own release as the candidate.
+// production's own release as the candidate. Only a static site deploys to a
+// bucket, so no other type is checked.
 describe('one bucket for stage and production', () => {
-  const site = (bucket, distribution) => ({
-    Provider: { S: 'aws' }, Type: { S: 'static' }, PipelineVersion: { S: '2' }, ProjectId: { S: '' },
+  const site = (bucket, distribution, type = 'static') => ({
+    Provider: { S: 'aws' }, Type: { S: type }, PipelineVersion: { S: '2' }, ProjectId: { S: '' },
     Bucket: { S: bucket }, DistributionId: { S: distribution }
   })
 
@@ -211,39 +212,46 @@ describe('one bucket for stage and production', () => {
     const production = (item, rc) => runShellStep(findStep(workflows['promote.yml'], 'lookup', 'Look up app info (production)'), {
       context: {
         'inputs.project-name': 'example-app',
+        'steps.app-info-rc.outputs.type': rc.type ?? 'static',
         'steps.app-info-rc.outputs.bucket': rc.bucket,
         'steps.app-info-rc.outputs.distribution-id': rc.distribution
       },
       aws: { Item: item }
     })
 
-    it('passes the release-candidate row\'s bucket and distribution on, on one line each', async () => {
+    it('passes the release-candidate row\'s type, bucket and distribution on, on one line each and trimmed', async () => {
       const result = await runShellStep(findStep(workflows['promote.yml'], 'lookup', 'Look up app info (release-candidate)'), {
         context: { 'inputs.project-name': 'example-app' },
-        aws: { Item: site('example-site-stage\n::notice::x', 'E000STAGE000') }
+        aws: { Item: site(' example-site-stage\n::notice::x ', '  E000STAGE000') }
       })
       expect(result.status, result.stdout).toBe(0)
+      expect(result.outputs.type).toBe('static')
       expect(result.outputs.bucket).toBe('example-site-stage ::notice::x')
       expect(result.outputs['distribution-id']).toBe('E000STAGE000')
     })
 
     it.each([
-      ['Bucket', site('example-site', 'E000PROD000'), { bucket: 'example-site', distribution: 'E000STAGE000' }],
-      ['DistributionId', site('example-site-prod', 'E000SHARED00'), { bucket: 'example-site-stage', distribution: 'E000SHARED00' }]
-    ])('refuses rows that share a %s, before anything changes', async (attribute, item, rc) => {
+      ['Bucket', site('example-site', 'E000PROD000'), { bucket: 'example-site', distribution: 'E000STAGE000' }, "Bucket 'example-site'"],
+      ['DistributionId', site('example-site-prod', 'E000SHARED00'), { bucket: 'example-site-stage', distribution: 'E000SHARED00' }, "DistributionId 'E000SHARED00'"],
+      ['Bucket, once trimmed', site(' example-site  ', 'E000PROD000'), { bucket: 'example-site', distribution: 'E000STAGE000' }, "Bucket 'example-site'"]
+    ])('refuses rows that share a %s, before anything changes', async (_label, item, rc, named) => {
       const result = await production(item, rc)
       expect(result.status).not.toBe(0)
-      expect(result.stdout).toContain(`::error::example-app's CruApplicationInfo rows for 'staging' and 'production' both name ${attribute} '`)
+      expect(result.stdout).toContain(`::error::example-app's CruApplicationInfo rows for 'staging' and 'production' both name ${named}.`)
       expect(result.stdout).toContain('must be separate sites')
       expect(result.outputs).toEqual({})
     })
 
     it.each([
       ['two sites', site('example-site-prod', 'E000PROD000'), { bucket: 'example-site-stage', distribution: 'E000STAGE000' }],
-      ['an app that is not a static site', { ...site('', ''), Type: { S: 'ecs' } }, { bucket: '', distribution: '' }]
+      ['an app that is not a static site', site('', '', 'ecs'), { type: 'ecs', bucket: '', distribution: '' }],
+      // A row of another type that happens to carry the attributes is not a
+      // site, so it is not checked.
+      ['an ecs app whose rows share a Bucket', site('example-bucket', 'E000SHARED00', 'ecs'), { type: 'ecs', bucket: 'example-bucket', distribution: 'E000SHARED00' }]
     ])('lets %s through', async (_label, item, rc) => {
       const result = await production(item, rc)
       expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.stdout).not.toContain('must be separate sites')
     })
   })
 
@@ -254,12 +262,13 @@ describe('one bucket for stage and production', () => {
     })
 
     it.each([
-      ['Bucket', site('example-site', 'E000STAGE000'), site('example-site', 'E000PROD000')],
-      ['DistributionId', site('example-site-stage', 'E000SHARED00'), site('example-site-prod', 'E000SHARED00')]
-    ])('refuses a static site whose production row shares its %s', async (attribute, staging, production) => {
+      ['Bucket', site('example-site', 'E000STAGE000'), site('example-site', 'E000PROD000'), "Bucket 'example-site'"],
+      ['DistributionId', site('example-site-stage', 'E000SHARED00'), site('example-site-prod', 'E000SHARED00'), "DistributionId 'E000SHARED00'"],
+      ['Bucket, once trimmed', site('example-site ', 'E000STAGE000'), site('  example-site', 'E000PROD000'), "Bucket 'example-site'"]
+    ])('refuses a static site whose production row shares its %s', async (_label, staging, production, named) => {
       const result = await lookup({ staging: { Item: staging }, production: { Item: production } })
       expect(result.status).not.toBe(0)
-      expect(result.stdout).toContain(`both name ${attribute} '`)
+      expect(result.stdout).toContain(`both name ${named}.`)
       expect(result.outputs).toEqual({})
     })
 
@@ -270,6 +279,29 @@ describe('one bucket for stage and production', () => {
       const result = await lookup({ staging: { Item: site('example-site-stage', 'E000STAGE000') }, production })
       expect(result.status, result.stdout + result.stderr).toBe(0)
       expect(result.outputs.type).toBe('static')
+      expect(result.stdout).not.toContain('Same-site check skipped')
+    })
+
+    it('skips the check with a warning when the production row cannot be read, and deploys', async () => {
+      const result = await lookup({ staging: { Item: site('example-site-stage', 'E000STAGE000') }, production: 'FAIL' })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.stdout).toContain(
+        "::warning title=Same-site check skipped::could not read example-app's CruApplicationInfo row for 'production', " +
+        'so this run did not check that release-candidate and production name different buckets and distributions. Promote checks it again.'
+      )
+      expect(result.outputs.type).toBe('static')
+    })
+
+    // A production read that failed would warn, so no warning means no read.
+    it.each([
+      ['an ecs app', site('', '', 'ecs')],
+      ['an ecs app whose row carries a Bucket its production row shares', site('example-bucket', 'E000SHARED00', 'ecs')]
+    ])('reads no production row for %s', async (_label, staging) => {
+      const result = await lookup({ staging: { Item: staging }, production: 'FAIL' })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.stdout).not.toContain('Same-site check skipped')
+      expect(result.stdout).not.toContain('must be separate sites')
+      expect(result.outputs.type).toBe('ecs')
     })
   })
 })

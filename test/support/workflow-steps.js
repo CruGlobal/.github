@@ -93,7 +93,12 @@ if [ "$1" = dynamodb ] && [ "$2" = get-item ] && [ -n "$FAKE_AWS_BY_ENVIRONMENT"
     esac
   done
   environment=$(printf '%s' "$key" | jq -r '.Environment.S')
-  printf '%s' "$FAKE_AWS_BY_ENVIRONMENT" | jq -c --arg e "$environment" '.[$e] // {}'
+  answer=$(printf '%s' "$FAKE_AWS_BY_ENVIRONMENT" | jq -c --arg e "$environment" '.[$e] // {}')
+  if [ "$answer" = '"FAIL"' ]; then
+    echo "An error occurred (AccessDeniedException) when calling the GetItem operation" >&2
+    exit 254
+  fi
+  printf '%s' "$answer"
   exit 0
 fi
 printf '%s' "$FAKE_AWS"
@@ -175,7 +180,8 @@ function readOutputs (file) {
 // answers (an object is sent as JSON, a string as it is), `ledgerFails` makes
 // that read fail the way curl -f does on an HTTP error, and `aws` is what an
 // aws call prints. `awsByEnvironment`, when given, answers each app-info
-// get-item by its key's Environment instead (a missing one answers {}).
+// get-item by its key's Environment instead (a missing one answers {}, and
+// "FAIL" makes that read fail the way the aws CLI does on a refusal).
 // `ghCompare` is what a `gh api .../compare/...` read
 // answers, and `ghCompareFails` makes it fail. Resolves to the exit status,
 // the output, the step's outputs, the variables it set for later steps
