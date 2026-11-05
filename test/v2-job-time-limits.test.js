@@ -229,8 +229,21 @@ function expectBoundedRetries (command, key) {
 // stopped may or may not be there. So an advisory read needs
 // continue-on-error, or its backstop would turn a hang into a failed job.
 describe('reads inside the deploy lock', () => {
+  // The stage-less candidate's image pull: about sixteen times the slowest
+  // pull seen in real runs (see the comment on the step).
+  const PULL_LIMIT_MINUTES = 15
   // [workflow, job, step, step limit in minutes, advisory]
   const READS = [
+    // Must succeed. Their clients have no request timeout of their own yet,
+    // so the step limit is the backstop; in recent runs each took seconds.
+    ['deploy-candidate.yml', 'deploy-candidate-gcp', 'Resolve candidate image', 5, false],
+    ['deploy-candidate.yml', 'deploy-candidate-aws', 'Resolve candidate image', 5, false],
+    ['deploy-candidate.yml', 'verify-candidate-aws', 'Resolve candidate image', 5, false],
+    ['deploy-candidate.yml', 'verify-candidate-aws', 'Pull the candidate image', PULL_LIMIT_MINUTES, false],
+    ['promote.yml', 'promote-gcp', 'Resolve running release-candidate image', 5, false],
+    ['promote.yml', 'promote-aws', 'Resolve release-candidate image', 5, false],
+    ['rollback.yml', 'rollback-gcp', 'Resolve release image', 5, false],
+    ['rollback.yml', 'rollback-aws', 'Resolve release image', 5, false],
     ['promote.yml', 'promote-gcp', 'Refuse a stale promote', 2, false],
     ['promote.yml', 'promote-aws', 'Refuse a stale promote', 2, false],
     ['rollback.yml', 'rollback-gcp', 'Refuse a stale rollback', 2, false],
@@ -266,7 +279,7 @@ describe('reads inside the deploy lock', () => {
     }
   })
 
-  it.each(cases.filter(([, file, id, name]) => findStep(workflows[file], id, name).step.run))('%s caps each curl inside its step limit', (key, file, id, name, limit) => {
+  it.each(cases.filter(([, file, id, name]) => curlCommands(findStep(workflows[file], id, name).step.run).length > 0))('%s caps each curl inside its step limit', (key, file, id, name, limit) => {
     const { step } = findStep(workflows[file], id, name)
     const curls = curlCommands(step.run)
     expect(curls.length, key).toBeGreaterThan(0)
@@ -304,13 +317,53 @@ describe('reads inside the deploy lock', () => {
   })
 
   // Wider than the list above: no curl in a deploy job runs without a time
-  // limit before the environment changes, and no read of the deployment
-  // ledger runs without one anywhere in these workflows.
+  // limit before the environment changes, no step there that reaches the
+  // network runs without a step limit unless it is on the lists below, and
+  // no read of the deployment ledger runs without a limit anywhere in these
+  // workflows.
   it.each(deployJobs.map(([file, id, job]) => [`${file}:${id}`, job]))('%s caps every curl before the environment changes', (key, job) => {
     const before = job.steps.slice(0, job.steps.findIndex(changesTheEnvironment))
     for (const step of before) {
       for (const command of curlCommands(step.run)) expect(command, `${key}: "${step.name}"`).toMatch(/--max-time \d+/)
     }
+  })
+
+  // Actions from GitHub and the clouds: not ours to change, and none has
+  // been seen to hang. Each is listed by the start of its `uses`.
+  const THIRD_PARTY = [
+    'actions/checkout@',
+    'google-github-actions/auth@',
+    'aws-actions/configure-aws-credentials@',
+    'aws-actions/amazon-ecr-login@'
+  ]
+  // Our own actions that end their own requests, so a step limit would only
+  // repeat theirs.
+  const ENDS_ITS_OWN_REQUESTS = [
+    // 10 seconds a request, three tries, and it refuses when they run out
+    // (src/authorize-actor.js).
+    './cru-github-actions/actions/authorize-actor'
+  ]
+  // Bash comments are not commands.
+  const commands = (script) => (script ?? '').split('\n').filter((line) => !/^\s*#/.test(line)).join('\n')
+  const reachesNetwork = (step) => step.uses
+    ? !step.uses.startsWith('./') || step.uses.startsWith('./cru-github-actions/actions/')
+    : /\b(curl|gh|aws|gcloud|docker)\s/.test(commands(step.run))
+
+  it.each(deployJobs.map(([file, id, job]) => [`${file}:${id}`, job]))('%s gives every step that reaches the network a step limit before the environment changes', (key, job) => {
+    const before = job.steps.slice(0, job.steps.findIndex(changesTheEnvironment))
+    const checked = before.filter(reachesNetwork)
+      .filter((step) => !THIRD_PARTY.some((prefix) => step.uses?.startsWith(prefix)))
+      .filter((step) => !ENDS_ITS_OWN_REQUESTS.includes(step.uses))
+    expect(checked.length).toBeGreaterThan(0)
+    for (const step of checked) {
+      expect(step['timeout-minutes'], `${key}: "${step.name}" reaches the network inside the lock, so it needs timeout-minutes or a place on a list`).toBeGreaterThan(0)
+    }
+  })
+
+  it('keeps those lists honest', () => {
+    const used = deployJobs.flatMap(([, , job]) => job.steps.map((step) => step.uses).filter(Boolean))
+    for (const prefix of THIRD_PARTY) expect(used.some((uses) => uses.startsWith(prefix)), prefix).toBe(true)
+    for (const action of ENDS_ITS_OWN_REQUESTS) expect(used, action).toContain(action)
   })
 
   it('caps every read of the deployment ledger', () => {

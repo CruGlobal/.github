@@ -571,9 +571,19 @@ jobs:
       # cannot be promoted. When there is no single serving image (no ready
       # revision, services serving different images, or split traffic) this
       # step fails and the promote stops here.
+      #
+      # Inside the production lock. Not every call under this step has a
+      # request timeout of its own yet (the Artifact Registry REST calls have
+      # none), so the step limit is a backstop against one that never
+      # answers. In recent runs the step took 4 seconds at most, and five
+      # minutes leaves room for the clients' own retries. No
+      # continue-on-error: if the limit ends this step, the promote stops, as
+      # it does on any failure to resolve. Request timeouts in the clients are
+      # a separate follow-up.
       - name: Resolve running release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: cloudrun
           project-name: ${{ inputs.project-name }}
@@ -1500,9 +1510,18 @@ jobs:
       # different images, or a service still on the scratch placeholder beside
       # ones that serve the app image) this step fails and the promote stops
       # here.
+      #
+      # Inside the production lock. The AWS SDK calls under this step have no
+      # request timeout of their own yet (the SDK's default is none), so the
+      # step limit is a backstop against one that never answers. In recent
+      # runs the step took 4 seconds at most, and five minutes leaves room
+      # for the SDK's own retries. No continue-on-error: if the limit ends this
+      # step, the promote stops, as it does on any failure to resolve. Request
+      # timeouts in the clients are a separate follow-up.
       - name: Resolve release-candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}

@@ -233,9 +233,18 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: cru-deploy@${{ needs.lookup.outputs.project-id }}.iam.gserviceaccount.com
 
+      # Inside the release-candidate lock. Not every call under this step has
+      # a request timeout of its own yet (the AWS SDK's default is none, and
+      # so are the Artifact Registry REST calls), so the step limit is a
+      # backstop against one that never answers. In recent runs the step took
+      # 4 seconds at most, and five minutes leaves room for the clients' own
+      # retries. No continue-on-error: a step it stops fails the run, as any
+      # failure to resolve the candidate does. Request timeouts in the
+      # clients are a separate follow-up.
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: cloudrun
           project-name: ${{ inputs.project-name }}
@@ -668,9 +677,18 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
+      # Inside the release-candidate lock. Not every call under this step has
+      # a request timeout of its own yet (the AWS SDK's default is none, and
+      # so are the Artifact Registry REST calls), so the step limit is a
+      # backstop against one that never answers. In recent runs the step took
+      # 4 seconds at most, and five minutes leaves room for the clients' own
+      # retries. No continue-on-error: a step it stops fails the run, as any
+      # failure to resolve the candidate does. Request timeouts in the
+      # clients are a separate follow-up.
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}
@@ -1101,9 +1119,18 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
 
+      # Inside the release-candidate lock. Not every call under this step has
+      # a request timeout of its own yet (the AWS SDK's default is none, and
+      # so are the Artifact Registry REST calls), so the step limit is a
+      # backstop against one that never answers. In recent runs the step took
+      # 4 seconds at most, and five minutes leaves room for the clients' own
+      # retries. No continue-on-error: a step it stops fails the run, as any
+      # failure to resolve the candidate does. Request timeouts in the
+      # clients are a separate follow-up.
       - name: Resolve candidate image
         uses: ./cru-github-actions/actions/resolve-image
         id: resolve
+        timeout-minutes: 5
         with:
           type: ${{ needs.lookup.outputs.type }}
           project-name: ${{ inputs.project-name }}
@@ -1161,8 +1188,17 @@ jobs:
       # BY DIGEST, never by tag — `resolve` already pinned it, and the v2 deploy
       # invariant applies just as much to what gets verified as to what gets
       # deployed: the bytes that pass the gate must be the bytes that promote.
+      #
+      # Inside the release-candidate lock, and docker pull has no time limit
+      # of its own, so the step has one: a registry that stops sending would
+      # otherwise hold the lock until the job's limit. In two weeks of real
+      # runs the pull took 10 to 16 seconds, and once 56. Fifteen minutes is
+      # about sixteen times the slowest, room for a much larger image or a
+      # slow registry. No continue-on-error: a pull it stops fails the run, as
+      # any failed pull does, and the candidate is not verified.
       - name: Pull the candidate image
         if: steps.noop.outputs.skip != 'true'
+        timeout-minutes: 15
         env:
           IMAGE: ${{ steps.resolve.outputs.image }}
         run: docker pull --quiet "$IMAGE"
