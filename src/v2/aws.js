@@ -291,10 +291,15 @@ function registrationPayload (taskDefinition, tags) {
 // policy grants it s3:PutObject, s3:GetObject and s3:ListBucket, and nothing
 // more (no delete, no ACL). The release-candidate bucket needs the grant too,
 // and not only for its own deploys: promote reads that bucket's index.html with
-// this role to learn which candidate to ship. So when S3, CloudFront or
-// DynamoDB says no, the message names the bucket, distribution or table and
-// what must grant the role, because the fix is in that app's Terraform or the
-// role's, not here. AWS's own words go on the end, so a refusal that no grant
+// this role to learn which candidate to ship. Its CloudFront grant is an opt-in
+// too: it covers only distributions tagged pipeline_v2_invalidate = "true".
+// So when S3, CloudFront or DynamoDB says no, the message names the bucket,
+// distribution or table and what must grant the role (for a distribution, the
+// tag), because the fix is in that app's Terraform or the role's, not here.
+//
+// The role needs no ecr:GetAuthorizationToken: it reads images through the ECR
+// SDK calls in ./oci.js, never through a registry login. The one deploy-role
+// job that logs in to ECR is stage-less verify, which refuses a static site. AWS's own words go on the end, so a refusal that no grant
 // here would fix (an organization policy, a KMS key policy, an explicit deny)
 // is not mistaken for a missing grant.
 export const STATIC_DEPLOY_ROLE = 'GitHubDeployStatic'
@@ -305,9 +310,12 @@ export const STATIC_DEPLOY_ROLE = 'GitHubDeployStatic'
 // permissions error.
 export const STATIC_BUCKET_ACTIONS = ['s3:PutObject', 's3:GetObject', 's3:ListBucket']
 
-// The CloudFront actions STATIC_DEPLOY_ROLE's own policy must allow on the
-// site's distribution.
+// The CloudFront actions STATIC_DEPLOY_ROLE's own policy allows. It allows them
+// only on a distribution that carries the tag below set to "true", an opt-in
+// on the site's side like the bucket policy. So a distribution without the
+// tag is refused with AccessDenied, and the fix is the tag, not the role.
 export const STATIC_DISTRIBUTION_ACTIONS = ['cloudfront:CreateInvalidation', 'cloudfront:GetInvalidation']
+export const STATIC_INVALIDATE_TAG = 'pipeline_v2_invalidate'
 
 // Per-attempt bounds for the S3 and CloudFront clients. The connection timeout
 // ends a connect that never completes, and the socket timeout ends an attempt
@@ -384,7 +392,9 @@ function distributionError (error, action, distributionId) {
   const wrapped = isAccessDenied(error)
     ? new Error(
       `CloudFront refused ${action} on distribution ${distributionId} ${awsSays(error)}. The ${STATIC_DEPLOY_ROLE} ` +
-      `role's policy must allow ${STATIC_DISTRIBUTION_ACTIONS.join(' and ')} on distribution ${distributionId}.`
+      `role may use ${STATIC_DISTRIBUTION_ACTIONS.join(' and ')} only on a distribution tagged ` +
+      `${STATIC_INVALIDATE_TAG} = "true", so distribution ${distributionId} must carry that tag, and the ` +
+      `${STATIC_DEPLOY_ROLE} role must exist with that grant.`
     )
     : new Error(`CloudFront ${action} on distribution ${distributionId} failed: ${error?.message ?? error}`)
   wrapped.cause = error

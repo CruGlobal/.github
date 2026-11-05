@@ -178,13 +178,16 @@ describe('CloudFront', () => {
   it.each([
     ['CreateInvalidation', () => cloudfrontCreateInvalidation(DISTRIBUTION, ['/*'], 'ref')],
     ['GetInvalidation', () => cloudfrontInvalidationStatus(DISTRIBUTION, 'I000EXAMPLE')]
-  ])('turns access denied on %s into a message that names the distribution and the grant', async (action, call) => {
+  ])('turns access denied on %s into a message that names the distribution and the tag that opts it in', async (action, call) => {
     cloudfrontSend.mockRejectedValue(awsError('AccessDenied', 403, 'User is not authorized'))
-    await expect(call()).rejects.toThrow(
+    const error = await call().catch(e => e)
+    expect(error.message).toBe(
       `CloudFront refused cloudfront:${action} on distribution ${DISTRIBUTION} (AccessDenied: User is not authorized). ` +
-      `The GitHubDeployStatic role's policy must allow cloudfront:CreateInvalidation and cloudfront:GetInvalidation on ` +
-      `distribution ${DISTRIBUTION}.`
+      'The GitHubDeployStatic role may use cloudfront:CreateInvalidation and cloudfront:GetInvalidation only on a ' +
+      `distribution tagged pipeline_v2_invalidate = "true", so distribution ${DISTRIBUTION} must carry that tag, and ` +
+      'the GitHubDeployStatic role must exist with that grant.'
     )
+    expect(error.cause.name).toBe('AccessDenied')
   })
 
   it('names the distribution on any other failure', async () => {

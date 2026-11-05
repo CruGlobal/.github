@@ -382,10 +382,10 @@ describe('deployStatic: a deploy that fails partway', () => {
 
   it('puts back the release that was live when the invalidation is refused', async () => {
     stubs()
-    const denied = new Error(`CloudFront refused cloudfront:CreateInvalidation on distribution ${DISTRIBUTION} (access denied). The GitHubDeployStatic role's policy must allow cloudfront:CreateInvalidation and cloudfront:GetInvalidation on distribution ${DISTRIBUTION}.`)
+    const denied = new Error(`CloudFront refused cloudfront:CreateInvalidation on distribution ${DISTRIBUTION} (AccessDenied: User is not authorized). The GitHubDeployStatic role may use cloudfront:CreateInvalidation and cloudfront:GetInvalidation only on a distribution tagged pipeline_v2_invalidate = "true", so distribution ${DISTRIBUTION} must carry that tag, and the GitHubDeployStatic role must exist with that grant.`)
     aws.cloudfrontCreateInvalidation.mockRejectedValue(denied)
     const error = await deploy().catch(e => e)
-    expect(error.message).toMatch(/^CloudFront refused cloudfront:CreateInvalidation on distribution E000EXAMPLE000 \(access denied\)\. The GitHubDeployStatic role's policy must allow/)
+    expect(error.message).toMatch(/^CloudFront refused cloudfront:CreateInvalidation on distribution E000EXAMPLE000 \(AccessDenied: User is not authorized\)\. .*must carry that tag/)
     expect(error.message).toContain('The files release-2026-10-01-10090 served were put back in s3://example-site-prod, but invalidating CloudFront afterwards failed')
     expect(putOf('index.html').map(([, , body]) => body.toString())).toEqual(['<html>new</html>', '<html>old</html>'])
   })
