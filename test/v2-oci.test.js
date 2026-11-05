@@ -511,6 +511,14 @@ describe('openImage readTree', () => {
     expect(tree.links.map(link => link.name)).toEqual(['latest.js'])
   })
 
+  it('counts a layer that holds only odd entries under the prefix, and reports them', async () => {
+    SITE_IMAGE([layer('sha256:site'), layer('sha256:pipe')], {
+      'blobs/sha256:site': gzipLayer(tarEntry('site/index.html', '<html>')),
+      'blobs/sha256:pipe': gzipLayer(tarEntry('site/pipe', '', { type: '6' }))
+    })
+    await expect((await openImage(IMAGE)).readTree('/site')).rejects.toThrow(/\/site has files in more than one layer \(1\/2 and 2\/2\)/)
+  })
+
   it('refuses a tree spread over two layers, which it cannot put together', async () => {
     SITE_IMAGE([layer('sha256:one'), layer('sha256:two')], {
       'blobs/sha256:one': gzipLayer(tarEntry('site/index.html', '<html>')),
@@ -547,7 +555,7 @@ describe('openImage readTree', () => {
 
   it('is empty when no layer has the prefix', async () => {
     SITE_IMAGE([layer('sha256:other')], { 'blobs/sha256:other': gzipLayer(tarEntry('app/server.js', 'x')) })
-    expect(await (await openImage(IMAGE)).readTree('/site')).toEqual({ files: [], links: [] })
+    expect(await (await openImage(IMAGE)).readTree('/site')).toEqual({ files: [], links: [], others: [] })
   })
 })
 

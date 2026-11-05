@@ -372,7 +372,7 @@ export async function openImage (imageRef) {
     /**
      * Everything under `prefix`, read from EVERY layer, for a caller that must
      * have the whole tree or nothing (a static site, where a missing file is a
-     * broken page). Returns tar.js's `{ files, links }` for the one layer that
+     * broken page). Returns tar.js's `{ files, links, others }` for the one layer that
      * has anything there, or empty lists when none does.
      *
      * readDir's shortcuts would each lose files without a word here, so each
@@ -410,7 +410,7 @@ export async function openImage (imageRef) {
           )
         }
         const tree = listTreeInTar(tar, prefix, maxBytes === undefined ? {} : { maxBytes })
-        if (tree.files.length === 0 && tree.links.length === 0) continue
+        if (tree.files.length === 0 && tree.links.length === 0 && tree.others.length === 0) continue
         if (found) {
           throw new Error(
             `${prefix} has files in more than one layer (${found.position} and ${position}). Put the whole tree ` +
@@ -419,7 +419,7 @@ export async function openImage (imageRef) {
         }
         found = { position, layer, tree }
       }
-      if (!found) return { files: [], links: [] }
+      if (!found) return { files: [], links: [], others: [] }
       core.info(`found ${prefix} in layer ${found.position} (${found.layer.digest})`)
       return found.tree
     }
