@@ -290,6 +290,22 @@ describe('verifyHotfixRef (build-candidate\'s check)', () => {
       expect(error.message).toContain(`give ${WORKFLOW} (merge attribute: union)`)
     })
 
+    it('finds the .gitattributes file that sets the driver, even through a macro defined at the top level', async () => {
+      const fx = emptyApp()
+      const CI = '.github/workflows/ci.yml'
+      // The top level defines a macro that sets union; .github/.gitattributes
+      // uses it. A line in the top-level file would lose to the deeper one,
+      // so the way out has to name .github/.gitattributes.
+      fx.commit('initial', { 'app.js': 'a\n', [PIPELINE_PATH]: PIPELINE, [CI]: tenLines(), '.gitattributes': '[attr]keepboth merge=union\n', '.github/.gitattributes': 'workflows/*.yml keepboth\n' })
+      fx.release = fx.commit('feature', { 'app.js': 'b\n' })
+      const ci = fx.commit('ci: line 9', { [CI]: tenLines({ 9: 'main nine' }) })
+      fx.push('main')
+      handBranch(fx, () => fx.git(['cherry-pick', '-x', ci]))
+      const error = await refusal(verify(fx))
+      expect(error.reason).toBe(REASONS.mergeDriver)
+      expect(error.wayOut).toEqual({ onto: fx.release, source: ci, sources: [{ file: '.github/.gitattributes', line: 'workflows/** merge' }], blocked: [] })
+    })
+
     it('reads the merge attribute from the commit a pick was made on, not from the checkout', async () => {
       const fx = emptyApp()
       const CI = '.github/workflows/ci.yml'
