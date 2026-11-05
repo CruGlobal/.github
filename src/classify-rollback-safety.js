@@ -48,13 +48,15 @@ function timedOut (error) {
 // gets only what is left of the overall deadline, so one that never answers
 // can be stopped by the deadline rather than by its own 20 seconds. The
 // reason then says the GitHub reads as a whole ran out of time, which is what
-// a person needs to know: the classifier gave up, not one slow API.
+// a person needs to know: the classifier gave up, not one slow API. Which
+// limit applies is known when the read starts (cutByDeadline), so the wording
+// does not depend on reading the clock after the stop.
 async function githubGet ({ url, accept, token, limits, api, subject, read }) {
   const { request, deadlineMs } = limits
   const outOfTime = (when) => `the GitHub reads ran out of their ${deadlineMs / 1000} seconds ${when} the ${api} read ${subject}`
-  let signal
+  let signal, cutByDeadline
   try {
-    ({ signal } = request())
+    ({ signal, cutByDeadline } = request.next())
   } catch (error) {
     throw new Error(outOfTime('before'), { cause: error })
   }
@@ -64,7 +66,7 @@ async function githubGet ({ url, accept, token, limits, api, subject, read }) {
     return await read(res)
   } catch (error) {
     if (!timedOut(error)) throw error
-    if (request.expired()) throw new Error(outOfTime('during'), { cause: error })
+    if (cutByDeadline) throw new Error(outOfTime('during'), { cause: error })
     throw new Error(`${api} did not answer in time ${subject}`, { cause: error })
   }
 }

@@ -27,14 +27,31 @@ describe('deadlineRequests', () => {
     expect(() => request()).toThrow('gave up after 30 seconds')
   })
 
-  it('says when the deadline has passed', () => {
+  // What a caller uses to word a stop: decided when the signal is made, so a
+  // timer that fires a moment before the clock reaches the deadline cannot
+  // change the answer.
+  it('says whether a request\'s limit was cut to what was left of the deadline', () => {
     let clock = 0
-    const request = deadlineRequests({ deadlineMs: 30000, now: () => clock })
-    expect(request.expired()).toBe(false)
-    clock = 29999
-    expect(request.expired()).toBe(false)
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const request = deadlineRequests({ deadlineMs: 30000, timeoutMs: 10000, now: () => clock })
+    expect(request.next().cutByDeadline).toBe(false)
+    clock = 20000
+    // Exactly the request's own limit is left: not cut.
+    expect(request.next().cutByDeadline).toBe(false)
+    clock = 20001
+    const near = request.next()
+    expect(near.cutByDeadline).toBe(true)
+    expect(near.signal).toBeInstanceOf(AbortSignal)
+    expect(timeout.mock.calls).toEqual([[10000], [10000], [9999]])
     clock = 30000
-    expect(request.expired()).toBe(true)
+    expect(() => request.next()).toThrow('gave up after 30 seconds')
+  })
+
+  // The hotfix checks hand this to octokit as its `request` option, so it
+  // stays the signal alone.
+  it('gives a plain call the signal alone', () => {
+    const options = deadlineRequests({ deadlineMs: 30000, now: () => 0 })()
+    expect(Object.keys(options)).toEqual(['signal'])
   })
 
   it('gives a request ten seconds when the caller names no limit', () => {
