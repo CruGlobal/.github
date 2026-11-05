@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.17.0](https://github.com/CruGlobal/.github/compare/v2.16.0...v2.17.0) (2026-11-05)
+
+
+### Features
+
+* **v2:** deploy static sites to S3 and CloudFront ([#560](https://github.com/CruGlobal/.github/issues/560)) ([f9cf9cd](https://github.com/CruGlobal/.github/commit/f9cf9cd00503a6b63d1537665c6f0a450b35c3e9))
+
+
+### Bug Fixes
+
+* **v2:** make the hotfix merge-driver messages true ([#561](https://github.com/CruGlobal/.github/issues/561)) ([41da251](https://github.com/CruGlobal/.github/commit/41da251139ae2ac3b8efa3133aa90b1fb2813a3d))
+* **v2:** put time limits on the reads inside the deploy lock ([#559](https://github.com/CruGlobal/.github/issues/559)) ([cba71b2](https://github.com/CruGlobal/.github/commit/cba71b22000f5b6bb5dd9dc37c8bb640b68cb924))
+
 ## [2.16.0](https://github.com/CruGlobal/.github/compare/v2.15.0...v2.16.0) (2026-11-04)
 
 
