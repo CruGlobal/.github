@@ -283158,6 +283158,10 @@ var import_node_crypto11 = require("node:crypto");
 
 // src/v2/static-site.js
 var SITE_DIR = "/site";
+var PUBLIC_SOURCEMAPS_LABEL = "org.cru.public-sourcemaps";
+function servesSourceMaps(labels) {
+  return labels?.[PUBLIC_SOURCEMAPS_LABEL] === "true";
+}
 var INDEX_KEY = "index.html";
 var DIGEST_METADATA = "cru-digest";
 var REVISION_METADATA = "cru-revision";
@@ -283223,6 +283227,9 @@ var CONTENT_TYPES = {
   mjs: "text/javascript; charset=utf-8",
   cjs: "text/javascript; charset=utf-8",
   json: "application/json; charset=utf-8",
+  // A source map is JSON, and only reaches the bucket when the image asks for
+  // it (see PUBLIC_SOURCEMAPS_LABEL). The charset is the one .json gets.
+  map: "application/json; charset=utf-8",
   webmanifest: "application/manifest+json; charset=utf-8",
   xml: "application/xml; charset=utf-8",
   rss: "application/rss+xml; charset=utf-8",
@@ -283310,7 +283317,7 @@ function badName(name) {
 function listed(items, describe) {
   return `${items.slice(0, 5).map(describe).join(", ")}${items.length > 5 ? ` and ${items.length - 5} more` : ""}`;
 }
-function planSite(tree, { maxBytes, image }) {
+function planSite(tree, { maxBytes, image, publicMaps = false }) {
   const files = tree?.files ?? [];
   const links = tree?.links ?? [];
   const others = tree?.others ?? [];
@@ -283348,6 +283355,7 @@ function planSite(tree, { maxBytes, image }) {
     throw new Error(`${image} has nothing under ${SITE_DIR}. A static site's image copies the built site there`);
   }
   const hashed = [];
+  const unhashedMaps = [];
   const unhashed = [];
   const html = [];
   const maps = [];
@@ -283356,7 +283364,7 @@ function planSite(tree, { maxBytes, image }) {
     const key = file.name;
     if (isSourceMap(key)) {
       maps.push(key);
-      continue;
+      if (!publicMaps) continue;
     }
     const entry = {
       key,
@@ -283368,6 +283376,7 @@ function planSite(tree, { maxBytes, image }) {
     if (key === INDEX_KEY) index = entry;
     else if (isHtml(key)) html.push(entry);
     else if (entry.immutable) hashed.push(entry);
+    else if (isSourceMap(key)) unhashedMaps.push(entry);
     else unhashed.push(entry);
   }
   if (!index) {
@@ -283375,7 +283384,7 @@ function planSite(tree, { maxBytes, image }) {
       `${image} has no ${SITE_DIR}/${INDEX_KEY}. A static site needs one at its root: the deploy writes it last and records on it which release is live`
     );
   }
-  return { hashed, unhashed, html, index, maps };
+  return { hashed, unhashedMaps, unhashed, html, index, maps };
 }
 
 // src/v2/deploy-static.js
@@ -283396,11 +283405,9 @@ async function deployStatic({ projectName, environment, image, appUrl, revision 
   const handle = await openSiteImage(image);
   const site = await readSite(handle, image);
   info(
-    `site: ${site.hashed.length} content-hashed files, ${site.unhashed.length} other files, ${site.html.length + 1} HTML files`
+    `site: ${site.hashed.length} content-hashed files, ${site.unhashedMaps.length + site.unhashed.length} other files, ${site.html.length + 1} HTML files`
   );
-  if (site.maps.length > 0) {
-    info(`not uploading ${site.maps.length} .map files under ${SITE_DIR} to the bucket; source maps go under /cru/sourcemaps`);
-  }
+  logSiteMaps(handle.labels, site);
   const previous = await nothingChangedIfItFails(() => readLiveRelease(bucket));
   if (!previous) {
     info(`s3://${bucket}/${INDEX_KEY} does not exist yet, so this is the site's first deploy`);
@@ -283410,7 +283417,7 @@ async function deployStatic({ projectName, environment, image, appUrl, revision 
     info(`s3://${bucket} serves ${previous.revision || "an unnamed release"} (${previous.digest})`);
   }
   const metadata = releaseMetadata({ digest: digest4, ...releaseIdentity(await ecrTagsForDigest(projectName, digest4), revision) });
-  const state2 = { overwrote: false, indexChanged: false };
+  const state2 = { overwrote: false, indexChanged: false, mapsChanged: false };
   const limits = { step, reserveMs: PUT_BACK_RESERVE_MS };
   let invalidation;
   let sourcemaps;
@@ -283418,6 +283425,10 @@ async function deployStatic({ projectName, environment, image, appUrl, revision 
     info(`uploading ${site.hashed.length} content-hashed files`);
     await uploadFiles(bucket, site.hashed, state2, limits);
     sourcemaps = await uploadSourceMaps3({ projectName, nickname, appUrl, handle });
+    if (site.unhashedMaps.length > 0) {
+      info(`uploading ${site.unhashedMaps.length} .map files whose names carry no content hash`);
+      await uploadFiles(bucket, site.unhashedMaps, state2, limits);
+    }
     info(`uploading ${site.unhashed.length} other files`);
     await uploadFiles(bucket, site.unhashed, state2, limits);
     info(`uploading ${site.html.length + 1} HTML files, ${INDEX_KEY} last`);
@@ -283432,7 +283443,15 @@ async function deployStatic({ projectName, environment, image, appUrl, revision 
     let putBack = { index: false };
     if (state2.overwrote) {
       if (stopRolloutOnFailure) {
-        putBack = await putBackPrevious({ projectName, bucket, distributionId, previous, error: error3, step });
+        putBack = await putBackPrevious({
+          projectName,
+          bucket,
+          distributionId,
+          previous,
+          error: error3,
+          step,
+          mapsChanged: state2.mapsChanged
+        });
       } else {
         addSentence(error3, "This is a rollback, so nothing was put back: the bucket holds part of this release over the one before. Run the rollback again once the cause is fixed.");
       }
@@ -283465,9 +283484,39 @@ async function openSiteImage(image) {
 }
 async function readSite(handle, image) {
   try {
-    return planSite(await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES }), { maxBytes: MAX_SITE_FILE_BYTES, image });
+    return await planImageSite(handle, image);
   } catch (error3) {
     throw new Error(`Could not deploy the site in ${image}: ${error3.message}. Nothing was changed.`, { cause: error3 });
+  }
+}
+async function planImageSite(handle, image) {
+  const tree = await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES });
+  return planSite(tree, { maxBytes: MAX_SITE_FILE_BYTES, image, publicMaps: servesSourceMaps(handle.labels) });
+}
+function logSiteMaps(labels, site) {
+  const value = labels?.[PUBLIC_SOURCEMAPS_LABEL];
+  const count2 = site.maps.length;
+  if (servesSourceMaps(labels)) {
+    if (count2 === 0) {
+      warning(
+        `the image sets ${PUBLIC_SOURCEMAPS_LABEL}=true, but there are no .map files under ${SITE_DIR}, so the bucket gets none. The build must leave them in the site for dev tools to find them`
+      );
+      return;
+    }
+    info(
+      `serving ${count2} .map files under ${SITE_DIR} from the bucket (${count2 - site.unhashedMaps.length} content-hashed), as the image's ${PUBLIC_SOURCEMAPS_LABEL}=true label asks, so anyone can read the source they hold`
+    );
+    return;
+  }
+  if (value != null && value !== "false") {
+    warning(
+      `the image sets ${PUBLIC_SOURCEMAPS_LABEL}=${shown(JSON.stringify(value))}, which is not the string "true", so the .map files under ${SITE_DIR} are not uploaded to the bucket. Set it to true to serve them, or leave it off`
+    );
+  }
+  if (count2 > 0) {
+    info(
+      `not uploading ${count2} .map files under ${SITE_DIR} to the bucket, since the image does not set ${PUBLIC_SOURCEMAPS_LABEL}=true; source maps go under /cru/sourcemaps`
+    );
   }
 }
 function releaseIdentity(tags, revision = "") {
@@ -283481,6 +283530,7 @@ async function uploadFiles(bucket, files, state2, { step, reserveMs = 0 }) {
   const changed = (file) => {
     if (!file.immutable) state2.overwrote = true;
     if (file.isIndex) state2.indexChanged = true;
+    if (!file.immutable && isSourceMap(file.key)) state2.mapsChanged = true;
   };
   const worker = async () => {
     while (failure === null && next < files.length) {
@@ -283535,8 +283585,8 @@ async function uploadSourceMaps3({ projectName, nickname, appUrl, handle }) {
 function callerReference() {
   return `cru-pipeline-v2-${(0, import_node_crypto11.randomUUID)()}`;
 }
-async function putBackPrevious({ projectName, bucket, distributionId, previous, error: error3, step }) {
-  const state2 = { overwrote: false, indexChanged: false };
+async function putBackPrevious({ projectName, bucket, distributionId, previous, error: error3, step, mapsChanged = false }) {
+  const state2 = { overwrote: false, indexChanged: false, mapsChanged: false };
   if (!previous?.digest) {
     addSentence(error3, `Pipeline v2 had not deployed this site before, so there was no release to put back: s3://${bucket} now holds part of this one.`);
     return { index: false };
@@ -283544,13 +283594,11 @@ async function putBackPrevious({ projectName, bucket, distributionId, previous, 
   const name = previous.revision || previous.digest;
   const previousImage = ecrImageRef(projectName, previous.digest);
   warning(`the deploy failed after it may have changed files a live page uses; putting back ${name} (${previous.digest})`);
+  const limits = { step, reserveMs: 0 };
+  let site;
   try {
     const handle = await openImage(previousImage);
-    const site = planSite(await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES }), {
-      maxBytes: MAX_SITE_FILE_BYTES,
-      image: previousImage
-    });
-    const limits = { step, reserveMs: 0 };
+    site = await planImageSite(handle, previousImage);
     await uploadFiles(bucket, site.unhashed, state2, limits);
     await uploadFiles(bucket, site.html, state2, limits);
     await uploadFiles(bucket, [{ ...site.index, metadata: releaseMetadata(previous) }], state2, limits);
@@ -283558,13 +283606,21 @@ async function putBackPrevious({ projectName, bucket, distributionId, previous, 
     addSentence(error3, `Putting back ${name} (${previous.digest}) failed as well: ${putBackError.message.replace(/\.$/, "")}. s3://${bucket} may serve a mix of the two releases until a deploy or rollback finishes.`);
     return { index: false };
   }
+  let maps = "";
+  if (mapsChanged && site.unhashedMaps.length > 0) {
+    try {
+      await uploadFiles(bucket, site.unhashedMaps, state2, limits);
+    } catch (mapsError) {
+      maps = ` Its source maps were not all put back (${mapsError.message.replace(/\.$/, "")}), so dev tools may show this release's source for some of its files until a deploy or rollback finishes.`;
+    }
+  }
   try {
     await cloudfrontCreateInvalidation(distributionId, INVALIDATION_PATHS, callerReference());
   } catch (invalidationError) {
-    addSentence(error3, `The files ${name} served were put back in s3://${bucket}, but invalidating CloudFront afterwards failed (${invalidationError.message}), so its edges may serve this release's HTML until their cache expires.`);
+    addSentence(error3, `The files ${name} served were put back in s3://${bucket}, but invalidating CloudFront afterwards failed (${invalidationError.message}), so its edges may serve this release's HTML until their cache expires.${maps}`);
     return { index: true };
   }
-  addSentence(error3, `The files ${name} served were put back in s3://${bucket}, so it serves ${name} again.`);
+  addSentence(error3, `The files ${name} served were put back in s3://${bucket}, so it serves ${name} again.${maps}`);
   return { index: true };
 }
 function addSentence(error3, sentence2) {
