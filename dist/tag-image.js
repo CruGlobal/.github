@@ -190968,6 +190968,23 @@ var init_setTokenFeature = __esm({
   }
 });
 
+// node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js
+var isDefaultSocketTimeoutEnabled, getDefaultSocketTimeout;
+var init_getDefaultSocketTimeout = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js"() {
+    isDefaultSocketTimeoutEnabled = () => typeof process === "object" && process?.env?.AWS_ENABLE_DEFAULT_SOCKET_TIMEOUT_2026 === "true";
+    getDefaultSocketTimeout = (requestHandler, timeoutMs) => {
+      if (!isDefaultSocketTimeoutEnabled()) {
+        return void 0;
+      }
+      if (typeof requestHandler?.handle === "function") {
+        return void 0;
+      }
+      return timeoutMs;
+    };
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-host-header/hostHeaderMiddleware.js
 function resolveHostHeaderConfig(input) {
   return input;
@@ -193466,6 +193483,7 @@ __export(client_exports2, {
   emitWarningIfUnsupportedVersion: () => emitWarningIfUnsupportedVersion,
   fallback: () => fallback,
   getAwsRegionExtensionConfiguration: () => getAwsRegionExtensionConfiguration,
+  getDefaultSocketTimeout: () => getDefaultSocketTimeout,
   getHostHeaderPlugin: () => getHostHeaderPlugin,
   getLoggerPlugin: () => getLoggerPlugin,
   getLongPollPlugin: () => getLongPollPlugin,
@@ -193507,6 +193525,7 @@ var init_client3 = __esm({
     init_setCredentialFeature();
     init_setFeature();
     init_setTokenFeature();
+    init_getDefaultSocketTimeout();
     init_hostHeaderMiddleware();
     init_loggerMiddleware();
     init_configuration();
@@ -210385,6 +210404,10 @@ async function ecrRetagDigest(projectName, digest2, tag) {
   }
   return { repository: repositoryName, digest: digest2, tag, image: ecrImageRef(projectName, digest2) };
 }
+var STATIC_CONNECTION_TIMEOUT_MS = 10 * 1e3;
+var STATIC_SOCKET_TIMEOUT_MS = 60 * 1e3;
+var S3_PUT_CALL_TIMEOUT_MS = 5 * 60 * 1e3;
+var STATIC_READ_CALL_TIMEOUT_MS = 30 * 1e3;
 
 // src/v2/attempt-guard.js
 var AUTHORIZED_ATTEMPT_MARKER = "CRU_V2_AUTHORIZED_ATTEMPT";
@@ -210463,13 +210486,29 @@ var MAX_ENTRY_BYTES = 8 * 1024 * 1024;
 var NAME3 = [0, 100];
 var SIZE = [124, 12];
 var TYPE = 156;
+var LINKNAME = [157, 100];
 var PREFIX = [345, 155];
-var REGULAR = /* @__PURE__ */ new Set(["0", "\0"]);
+var REGULAR = /* @__PURE__ */ new Set(["0", "\0", "7"]);
+var HARDLINK = "1";
+var SYMLINK = "2";
+var DIRECTORY = "5";
 var PAX_EXTENDED = "x";
-function field(block, [offset, length]) {
+var GNU_LONG_NAME = "L";
+var GNU_LONG_LINK = "K";
+function rawField(block, [offset, length]) {
   const raw = block.subarray(offset, offset + length);
   const end2 = raw.indexOf(0);
-  return raw.subarray(0, end2 === -1 ? raw.length : end2).toString("ascii").trim();
+  return raw.subarray(0, end2 === -1 ? raw.length : end2);
+}
+function field(block, spec) {
+  return rawField(block, spec).toString("ascii").trim();
+}
+function textField(block, spec) {
+  return rawField(block, spec).toString("utf8").trim();
+}
+function cString(body) {
+  const end2 = body.indexOf(0);
+  return body.subarray(0, end2 === -1 ? body.length : end2).toString("utf8");
 }
 function octal(block, spec) {
   const text = field(block, spec);
@@ -210500,30 +210539,50 @@ function parsePaxRecords(body) {
 function normalizeTarPath(path) {
   return path.replace(/^(?:\.?\/)+/, "");
 }
+function nonEmpty(value) {
+  return typeof value === "string" && value !== "" ? value : null;
+}
 function padded(size) {
   return Math.ceil(size / BLOCK2) * BLOCK2;
 }
 function* walkTar(archive) {
   let offset = 0;
-  let overridePath = null;
+  let pax = {};
+  let longName = null;
+  let longLink = null;
   while (offset + BLOCK2 <= archive.length) {
     const header = archive.subarray(offset, offset + BLOCK2);
-    const name = field(header, NAME3);
+    const name = textField(header, NAME3);
     if (name === "") return;
     const size = octal(header, SIZE);
     const type = String.fromCharCode(header[TYPE]);
     const body = offset + BLOCK2;
     const next = body + padded(size);
     if (type === PAX_EXTENDED) {
-      const { path } = parsePaxRecords(archive.subarray(body, body + size));
-      overridePath = typeof path === "string" && path !== "" ? path : null;
+      const records = parsePaxRecords(archive.subarray(body, body + size));
+      pax = { path: nonEmpty(records.path), linkpath: nonEmpty(records.linkpath) };
       offset = next;
       continue;
     }
-    const prefix = field(header, PREFIX);
+    if (type === GNU_LONG_NAME || type === GNU_LONG_LINK) {
+      const value = nonEmpty(cString(archive.subarray(body, body + size)));
+      if (type === GNU_LONG_NAME) longName = value;
+      else longLink = value;
+      offset = next;
+      continue;
+    }
+    const prefix = textField(header, PREFIX);
     const stored = prefix === "" ? name : `${prefix}/${name}`;
-    yield { path: normalizeTarPath(overridePath ?? stored), type, size, offset: body };
-    overridePath = null;
+    yield {
+      path: normalizeTarPath(pax.path ?? longName ?? stored),
+      type,
+      size,
+      offset: body,
+      linkname: pax.linkpath ?? longLink ?? textField(header, LINKNAME)
+    };
+    pax = {};
+    longName = null;
+    longLink = null;
     offset = next;
   }
 }
@@ -210542,20 +210601,36 @@ function findInTar(archive, target, { maxBytes = MAX_ENTRY_BYTES } = {}) {
   return null;
 }
 function listInTar(archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  return listTreeInTar(archive, prefix, { maxBytes }).files;
+}
+function listTreeInTar(archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
   const base = normalizeTarPath(prefix).replace(/\/+$/, "");
   const dir = base === "" ? "" : `${base}/`;
   const files = [];
+  const links = [];
+  const others = [];
+  const regular = /* @__PURE__ */ new Map();
   for (const entry of walkTar(archive)) {
-    if (!REGULAR.has(entry.type)) continue;
+    const target = entry.type === HARDLINK ? normalizeTarPath(entry.linkname) : null;
+    const source = REGULAR.has(entry.type) ? entry : target === null ? null : regular.get(target) ?? null;
+    if (source) regular.set(entry.path, source);
     if (!entry.path.startsWith(dir)) continue;
-    files.push({
-      path: entry.path,
-      name: entry.path.slice(dir.length),
-      size: entry.size,
-      contents: entry.size > maxBytes ? null : readEntry(archive, entry)
-    });
+    const name = entry.path.slice(dir.length);
+    if (source) {
+      files.push({
+        path: entry.path,
+        name,
+        size: source.size,
+        contents: source.size > maxBytes ? null : readEntry(archive, source),
+        ...target === null ? {} : { linkTo: target }
+      });
+    } else if (entry.type === HARDLINK || entry.type === SYMLINK) {
+      links.push({ path: entry.path, name, type: entry.type, target: entry.linkname });
+    } else if (entry.type !== DIRECTORY) {
+      others.push({ path: entry.path, name, type: entry.type });
+    }
   }
-  return files;
+  return { files, links, others };
 }
 
 // src/v2/oci.js
@@ -210747,6 +210822,57 @@ async function openImage(imageRef) {
         return files.length > 0 ? files : null;
       });
       return found ?? [];
+    },
+    /**
+     * Everything under `prefix`, read from EVERY layer, for a caller that must
+     * have the whole tree or nothing (a static site, where a missing file is a
+     * broken page). Returns tar.js's `{ files, links, others }` for the one layer that
+     * has anything there, or empty lists when none does.
+     *
+     * readDir's shortcuts would each lose files without a word here, so each
+     * one is an error instead:
+     *
+     *   - a layer over the blob cap is skipped by readDir, and may hold the
+     *     tree. Here it fails, naming the cap.
+     *   - readDir stops at the newest layer that has the prefix, so files that
+     *     an older COPY put there are never seen. Here a second layer with
+     *     anything under the prefix fails, because overlay order and whiteouts
+     *     are not interpreted and the tree would be a guess.
+     *   - a layer that inflates past MAX_LAYER_BYTES fails, naming the cap,
+     *     rather than surfacing zlib's own message.
+     */
+    async readTree(prefix, { maxBytes } = {}) {
+      const layers = (manifest.layers ?? []).filter((layer) => isReadableLayer(layer.mediaType));
+      let found = null;
+      for (const [index, layer] of layers.entries()) {
+        const position = `${index + 1}/${layers.length}`;
+        if (layer.size > MAX_LAYER_BLOB_BYTES) {
+          throw new Error(
+            `layer ${position} (${layer.digest}) is ${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit the deploy reads, so ${prefix} cannot be read in full`
+          );
+        }
+        let tar;
+        try {
+          tar = await layerTar(layer);
+        } catch (error3) {
+          if (error3?.code !== "ERR_BUFFER_TOO_LARGE") throw error3;
+          throw new Error(
+            `layer ${position} (${layer.digest}) is over ${MAX_LAYER_BYTES} bytes once inflated, so ${prefix} cannot be read in full`,
+            { cause: error3 }
+          );
+        }
+        const tree = listTreeInTar(tar, prefix, maxBytes === void 0 ? {} : { maxBytes });
+        if (tree.files.length === 0 && tree.links.length === 0 && tree.others.length === 0) continue;
+        if (found) {
+          throw new Error(
+            `${prefix} has files in more than one layer (${found.position} and ${position}). Put the whole tree there in one COPY, so the image holds it in one layer`
+          );
+        }
+        found = { position, layer, tree };
+      }
+      if (!found) return { files: [], links: [], others: [] };
+      info(`found ${prefix} in layer ${found.position} (${found.layer.digest})`);
+      return found.tree;
     }
   };
 }
@@ -210782,9 +210908,10 @@ function dispatch(type, { projectName, digest: digest2, tag, registryProject }) 
     case "ecs":
       return tagCompanions(projectName, digest2, tag).then(() => ecrRetagDigest(projectName, digest2, tag));
     case "lambda":
+    case "static":
       return ecrRetagDigest(projectName, digest2, tag);
     default:
-      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`);
+      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun, static.`);
   }
 }
 async function tagCompanions(projectName, digest2, tag) {
