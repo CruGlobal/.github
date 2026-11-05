@@ -37,6 +37,7 @@ vi.mock('@aws-sdk/client-dynamodb', () => ({
 }))
 vi.mock('@actions/core', () => ({ info: vi.fn(), warning: vi.fn() }))
 
+import { ImageNotFoundException, RepositoryNotFoundException } from '@aws-sdk/client-ecr'
 import { resolveStatic } from '../src/v2/resolve-static.js'
 import { DEFAULT_ACCOUNT, ecrRegistry } from '../src/ecs-config.js'
 
@@ -95,10 +96,38 @@ describe('resolveStatic mode=environment', () => {
     expect(s3Send.mock.calls[0][0]).toMatchObject({ op: 'HeadObject', input: { Bucket: BUCKET, Key: 'index.html' } })
   })
 
-  it('reports no tags rather than failing when ECR cannot say', async () => {
+  it('reports no tags rather than failing when ECR cannot list them', async () => {
+    s3Send.mockResolvedValue({ Metadata: { 'cru-digest': DIGEST } })
+    ecrSend
+      .mockResolvedValueOnce({ imageDetails: [{ imageDigest: DIGEST, imageTags: TAGS }] })
+      .mockRejectedValue(new Error('throttled'))
+    expect((await resolveStatic({ mode: 'environment', projectName: 'example-app', environment: 'production' })).tags).toEqual([])
+  })
+
+  it.each([
+    ['the image is gone', () => ecrSend.mockResolvedValue({ imageDetails: [] })],
+    ['the repository is gone', () => ecrSend.mockRejectedValue(new RepositoryNotFoundException('no repository'))],
+    ['ECR says the image is not found', () => ecrSend.mockRejectedValue(new ImageNotFoundException('no image'))]
+  ])('says the live image has expired when %s, rather than that it has no candidate tag', async (_label, gone) => {
+    s3Send.mockResolvedValue({ Metadata: { 'cru-digest': DIGEST, 'cru-revision': 'candidate-2026-08-01-10001' } })
+    gone()
+    await expect(resolveStatic({ mode: 'environment', projectName: 'example-app', environment: 'release-candidate' })).rejects.toThrow(
+      `s3://${BUCKET}/index.html says release-candidate serves ${DIGEST} (candidate-2026-08-01-10001), but that image is no ` +
+      'longer in the ECR repository example-app: it has expired or been deleted. Nothing was resolved'
+    )
+  })
+
+  it('fails on an ECR error that says nothing about the image', async () => {
     s3Send.mockResolvedValue({ Metadata: { 'cru-digest': DIGEST } })
     ecrSend.mockRejectedValue(new Error('throttled'))
-    expect((await resolveStatic({ mode: 'environment', projectName: 'example-app', environment: 'production' })).tags).toEqual([])
+    await expect(resolveStatic({ mode: 'environment', projectName: 'example-app', environment: 'production' })).rejects.toThrow('throttled')
+  })
+
+  it('words a missing row for a resolve, not a deploy', async () => {
+    dynamoSend.mockResolvedValue({})
+    const error = await resolveStatic({ mode: 'environment', projectName: 'example-app', environment: 'production' }).catch(e => e)
+    expect(error.message).toMatch(/^No CruApplicationInfo row for example-app in 'production'/)
+    expect(error.message).not.toMatch(/deploy the site|Nothing was changed/)
   })
 
   it('fails as "nothing is live yet" when the bucket has no index.html, as a never-deployed ECS app does', async () => {
@@ -122,7 +151,7 @@ describe('resolveStatic mode=environment', () => {
   it('names the bucket and the grant it needs when S3 refuses', async () => {
     s3Send.mockRejectedValue(awsError('Forbidden', 403))
     await expect(resolveStatic({ mode: 'environment', projectName: 'example-app', environment: 'production' })).rejects.toThrow(
-      /S3 refused s3:GetObject \(HeadObject\) on s3:\/\/example-site-stage\/index\.html \(access denied\)\. The policy of bucket example-site-stage must grant the GitHubDeployStatic role/
+      /S3 refused s3:GetObject \(HeadObject\) on s3:\/\/example-site-stage\/index\.html \(Forbidden: Forbidden\)\. The policy of bucket example-site-stage must grant the GitHubDeployStatic role .*the release-candidate one included: promote reads that bucket.s index\.html with this role\./
     )
   })
 

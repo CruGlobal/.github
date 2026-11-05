@@ -21,16 +21,21 @@ const { aws, ssmParameterValue, openImage, publishSourceMaps, core, events } = v
   events: []
 }))
 
-vi.mock('../src/v2/aws.js', () => ({
-  ...aws,
-  ecrImageRef: (name, digest) => `000000000000.dkr.ecr.us-east-1.amazonaws.com/${name}@${digest}`
-}))
+vi.mock('../src/v2/aws.js', async importOriginal => {
+  const real = await importOriginal()
+  return {
+    ...aws,
+    STATIC_DEPLOY_ROLE: real.STATIC_DEPLOY_ROLE,
+    isAccessDenied: real.isAccessDenied,
+    ecrImageRef: (name, digest) => `000000000000.dkr.ecr.us-east-1.amazonaws.com/${name}@${digest}`
+  }
+})
 vi.mock('../src/aws.js', async importOriginal => ({ isPermanentAwsError: (await importOriginal()).isPermanentAwsError, ssmParameterValue }))
 vi.mock('../src/v2/oci.js', () => ({ openImage }))
 vi.mock('../src/v2/sourcemaps.js', async importOriginal => ({ ...(await importOriginal()), publishSourceMaps }))
 vi.mock('@actions/core', () => core)
 
-import { INVALIDATION_WAIT_MS, MAX_SITE_FILE_BYTES, deployStatic, releaseIdentity } from '../src/v2/deploy-static.js'
+import { INVALIDATION_WAIT_MS, MAX_SITE_FILE_BYTES, PUT_BACK_RESERVE_MS, deployStatic, releaseIdentity } from '../src/v2/deploy-static.js'
 import { STEP_CAP_MS } from '../src/v2/rollout-budget.js'
 
 const REGISTRY = '000000000000.dkr.ecr.us-east-1.amazonaws.com'
@@ -113,7 +118,7 @@ beforeEach(() => {
 })
 
 describe('deployStatic: a deploy that works', () => {
-  it('uploads assets, then maps, then HTML, then index.html last, then invalidates', async () => {
+  it('uploads hashed files, then maps, then the other files, then HTML, then index.html last, then invalidates', async () => {
     stubs({ labels: { 'org.cru.sourcemaps': '2026-11-04-10150' } })
     ssmParameterValue.mockResolvedValue('server-token')
 
@@ -121,8 +126,9 @@ describe('deployStatic: a deploy that works', () => {
 
     expect(events).toEqual([
       'open:new',
-      'put:assets/app-4a6b2c1d.js', 'put:favicon.ico', 'put:assets/app-9f8e7d6c.css',
+      'put:assets/app-4a6b2c1d.js', 'put:assets/app-9f8e7d6c.css',
       'maps',
+      'put:favicon.ico',
       'put:about/index.html',
       'put:index.html',
       'invalidate'
@@ -203,6 +209,7 @@ describe('deployStatic: refusals before anything changes', () => {
     stubs()
     aws.appInfoItem.mockResolvedValue(row)
     await expect(deploy()).rejects.toThrow(message)
+    await expect(deploy()).rejects.toThrow(/Nothing was changed\.$/)
     expect(openImage).not.toHaveBeenCalled()
     expect(aws.s3PutObject).not.toHaveBeenCalled()
     expect(aws.cloudfrontCreateInvalidation).not.toHaveBeenCalled()
@@ -245,7 +252,7 @@ describe('deployStatic: refusals before anything changes', () => {
   it('stops on a bucket it may not read, before uploading', async () => {
     stubs()
     aws.s3HeadObject.mockRejectedValue(new Error(`S3 refused s3:GetObject (HeadObject) on s3://${BUCKET}/index.html (access denied). The policy of bucket ${BUCKET} must grant the GitHubDeployStatic role s3:PutObject, s3:GetObject, s3:ListBucket.`))
-    await expect(deploy()).rejects.toThrow(/policy of bucket example-site-prod must grant the GitHubDeployStatic role/)
+    await expect(deploy()).rejects.toThrow(/policy of bucket example-site-prod must grant the GitHubDeployStatic role.*Nothing was changed\.$/)
     expect(aws.s3PutObject).not.toHaveBeenCalled()
   })
 })
@@ -278,8 +285,21 @@ describe('deployStatic: source maps', () => {
     expect(result.sourcemaps.status).toBe('skipped')
   })
 
+  it('names the grant when the token read is refused, and deploys anyway', async () => {
+    stubs({ labels: { 'org.cru.sourcemaps': '2026-11-04-10150' } })
+    ssmParameterValue.mockRejectedValue(Object.assign(new Error('User is not authorized to perform: ssm:GetParameters'), {
+      name: 'AccessDeniedException', $metadata: { httpStatusCode: 400 }
+    }))
+    const result = await deploy()
+    expect(result.sourcemaps.status).toBe('failed')
+    expect(core.warning).toHaveBeenCalledWith(
+      'source maps not uploaded (deploy unaffected): User is not authorized to perform: ssm:GetParameters (the ' +
+      "GitHubDeployStatic role's policy must allow ssm:GetParameters on /ecs/example-app/prod/FLIGHTDECK_SOURCEMAP_TOKEN)"
+    )
+  })
+
   it.each([
-    ['the token read', () => ssmParameterValue.mockRejectedValue(new Error('AccessDeniedException'))],
+    ['the token read', () => ssmParameterValue.mockRejectedValue(new Error('socket hang up'))],
     ['the upload', () => publishSourceMaps.mockRejectedValue(new Error('socket hang up'))]
   ])('warns and deploys anyway when %s fails', async (_label, fail) => {
     stubs({ labels: { 'org.cru.sourcemaps': '2026-11-04-10150' } })
@@ -314,10 +334,11 @@ describe('deployStatic: the invalidation wait', () => {
   it('never waits past the deploy step\'s own cap', async () => {
     stubs()
     aws.cloudfrontInvalidationStatus.mockResolvedValue('InProgress')
-    // The step started long enough ago that only two minutes of its cap are left.
-    clock.stepStartedAt = -(STEP_CAP_MS - 2 * 60 * 1000)
+    // The step started long enough ago that only seven minutes of its cap are
+    // left: enough to upload, and less than the ten-minute wait.
+    clock.stepStartedAt = -(STEP_CAP_MS - 7 * 60 * 1000)
     await deploy()
-    expect(clock.now()).toBe(2 * 60 * 1000)
+    expect(clock.now()).toBe(7 * 60 * 1000)
   })
 
   it('warns and finishes when the status cannot be read', async () => {
@@ -369,13 +390,39 @@ describe('deployStatic: a deploy that fails partway', () => {
     expect(putOf('index.html').map(([, , body]) => body.toString())).toEqual(['<html>new</html>', '<html>old</html>'])
   })
 
-  it('puts back an overwritten unhashed asset even before any HTML changed', async () => {
-    stubs()
-    failOn('assets/app-9f8e7d6c.css')
+  it('puts back an overwritten unhashed file even before any HTML changed', async () => {
+    stubs({ newSite: { files: [...NEW_SITE.files, file('loader.js')], links: [] } })
+    failOn('loader.js')
     const error = await deploy().catch(e => e)
     expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
     expect(putOf('favicon.ico').map(([, , body]) => body.toString())).toEqual(['contents of favicon.ico', 'old icon'])
+  })
+
+  it('needs nothing put back when a hashed file fails, and never reaches the unhashed ones', async () => {
+    stubs({ labels: { 'org.cru.sourcemaps': '2026-11-04-10150' } })
+    failOn('assets/app-9f8e7d6c.css')
+    const error = await deploy().catch(e => e)
+    expect(error.message).toMatch(/No file a live page uses had been changed yet\.$/)
+    expect(puts()).not.toContain('favicon.ico')
     expect(publishSourceMaps).not.toHaveBeenCalled()
+    expect(openImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('has changed nothing a live page uses while the source maps upload', async () => {
+    stubs({ labels: { 'org.cru.sourcemaps': '2026-11-04-10150' } })
+    ssmParameterValue.mockResolvedValue('server-token')
+    // The source maps take the deploy step up to the reserve its uploads
+    // leave for a put-back, so the unhashed files never start.
+    publishSourceMaps.mockImplementation(async () => {
+      events.push('maps')
+      await clock.sleep(STEP_CAP_MS - PUT_BACK_RESERVE_MS - clock.now())
+      return { status: 'uploaded', uploaded: 1, failed: 0 }
+    })
+    const error = await deploy().catch(e => e)
+    expect(events).toEqual(['open:new', 'put:assets/app-4a6b2c1d.js', 'put:assets/app-9f8e7d6c.css', 'maps'])
+    expect(error.message).toMatch(/^The deploy step is within 5m 0s of its 50m 0s cap, so no more uploads were started; 0 of 1 in this phase were\./)
+    expect(error.message).toMatch(/No file a live page uses had been changed yet\.$/)
+    expect(openImage).toHaveBeenCalledTimes(1)
   })
 
   it('puts nothing back when nothing a live page uses had changed', async () => {
@@ -459,5 +506,109 @@ describe('deployStatic: a deploy that fails partway', () => {
     const error = await deploy().catch(e => e)
     expect(error.message).toContain(`Putting back release-2026-10-01-10090 (${OLD}) failed as well: no image ${OLD_IMAGE}.`)
     expect(error.message).toContain('may serve a mix of the two releases')
+  })
+
+  it('gives the deploy and the put-back invalidations of their own', async () => {
+    stubs()
+    aws.cloudfrontCreateInvalidation.mockRejectedValueOnce(new Error('CloudFront cloudfront:CreateInvalidation on distribution E000EXAMPLE000 failed: throttled'))
+    await deploy().catch(e => e)
+    const references = aws.cloudfrontCreateInvalidation.mock.calls.map(([, , reference]) => reference)
+    expect(references).toHaveLength(2)
+    expect(references[0]).not.toBe(references[1])
+    for (const reference of references) expect(reference).toMatch(/^cru-pipeline-v2-[0-9a-f-]{36}$/)
+  })
+
+  it('gives each deploy an invalidation of its own', async () => {
+    stubs()
+    await deploy()
+    await deploy()
+    const [first, second] = aws.cloudfrontCreateInvalidation.mock.calls.map(([, , reference]) => reference)
+    expect(first).not.toBe(second)
+  })
+})
+
+describe('deployStatic: the step\'s time limit', () => {
+  it('stops starting uploads near the step\'s cap, keeping time for the put-back', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => file(`img/photo-${i}.png`))
+    stubs({ newSite: { files: [file('index.html'), ...many], links: [] } })
+    // Each upload takes a minute of the fake clock, and the step started 30
+    // minutes before the deploy, so the uploads stop at 15 minutes in.
+    clock.stepStartedAt = -30 * 60 * 1000
+    const put = aws.s3PutObject.getMockImplementation()
+    aws.s3PutObject.mockImplementation(async (...args) => { await clock.sleep(60 * 1000); return put(...args) })
+
+    const error = await deploy().catch(e => e)
+    expect(error.message).toMatch(/^The deploy step is within 5m 0s of its 50m 0s cap, so no more uploads were started; \d+ of 30 in this phase were\./)
+    expect(puts().filter(key => key.startsWith('img/')).length).toBeLessThan(30)
+    // The new release's HTML never went up; only the old release's came back.
+    expect(putOf('about/index.html').map(([, , body]) => body.toString())).toEqual(['<html>old about</html>'])
+    // The put-back ran, in the time the uploads left for it.
+    expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
+    expect(putOf('index.html').map(([, , body]) => body.toString())).toEqual(['<html>old</html>'])
+  })
+
+  it('gives each upload only the time left before the step\'s cap', async () => {
+    stubs()
+    clock.stepStartedAt = -40 * 60 * 1000
+    await deploy()
+    for (const [, , , options] of aws.s3PutObject.mock.calls) {
+      expect(options.timeoutMs).toBe(STEP_CAP_MS - 40 * 60 * 1000 - PUT_BACK_RESERVE_MS)
+    }
+  })
+})
+
+describe('deployStatic: a stage deploy that did not finish', () => {
+  const FORCE = 'run deploy-candidate for it again with force set: without force, the run finds this release live and ' +
+    'stops at "Already deployed", with the deploy unfinished.'
+  const invalidationFails = () => aws.cloudfrontCreateInvalidation.mockRejectedValue(
+    new Error('CloudFront cloudfront:CreateInvalidation on distribution E000EXAMPLE000 failed: throttled')
+  )
+
+  it('says to re-run with force when index.html names this release and nothing was put back (first deploy)', async () => {
+    stubs({ live: null })
+    invalidationFails()
+    const error = await deploy({ environment: 'release-candidate' }).catch(e => e)
+    expect(error.message).toContain(`index.html may already name this release, so ${FORCE}`)
+  })
+
+  it('says to re-run with force when the put-back failed', async () => {
+    stubs()
+    invalidationFails()
+    delete images[OLD_IMAGE]
+    const error = await deploy({ environment: 'release-candidate' }).catch(e => e)
+    expect(error.message).toContain('failed as well')
+    expect(error.message).toContain(FORCE)
+  })
+
+  it('says nothing about force when index.html was put back', async () => {
+    stubs()
+    invalidationFails()
+    const error = await deploy({ environment: 'release-candidate' }).catch(e => e)
+    expect(error.message).toContain('put back')
+    expect(error.message).not.toContain('force')
+  })
+
+  it('says nothing about force before index.html changed', async () => {
+    stubs({ live: null })
+    const put = aws.s3PutObject.getMockImplementation()
+    aws.s3PutObject.mockImplementation(async (bucket, key, ...rest) => {
+      if (key === 'about/index.html') throw new Error('S3 s3:PutObject failed: timed out')
+      return put(bucket, key, ...rest)
+    })
+    const error = await deploy({ environment: 'release-candidate' }).catch(e => e)
+    expect(error.message).not.toContain('force')
+  })
+
+  it('says nothing about force on a promote, which has no "Already deployed" to skip it', async () => {
+    stubs({ live: null })
+    invalidationFails()
+    const error = await deploy({ environment: 'production' }).catch(e => e)
+    expect(error.message).not.toContain('force')
+  })
+
+  it('logs the advice once index.html is written, for a step stopped from outside', async () => {
+    stubs()
+    await deploy({ environment: 'release-candidate' })
+    expect(core.info).toHaveBeenCalledWith(`index.html now names this release. If this step stops before it finishes, ${FORCE}`)
   })
 })

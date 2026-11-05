@@ -46,20 +46,33 @@ describe('staticSiteTarget', () => {
   })
 
   it.each([
-    ['Bucket', { Bucket: undefined }, /has no Bucket\. A static site deploys/],
-    ['DistributionId', { DistributionId: undefined }, /has no DistributionId\. A static site deploys/],
+    ['Bucket', { Bucket: undefined }, /has no Bucket\. A static site is served from/],
+    ['DistributionId', { DistributionId: undefined }, /has no DistributionId\. A static site is served from/],
     ['both', { Bucket: '', DistributionId: ' ' }, /has no Bucket and no DistributionId\./]
-  ])('refuses a row with no %s, before anything changes', async (_label, change, message) => {
+  ])('refuses a row with no %s', async (_label, change, message) => {
     appInfoItem.mockResolvedValue({ ...ROW, ...change })
     const error = await staticSiteTarget('example-app', 'production').catch(e => e)
     expect(error.message).toMatch(message)
     expect(error.message).toContain("example-app's CruApplicationInfo row for 'production'")
-    expect(error.message).toMatch(/Nothing was changed\.$/)
+    // Both a deploy and a resolve ask, so the message is neither's: the
+    // deploy adds that nothing was changed.
+    expect(error.message).not.toMatch(/deploy|Nothing was changed/i)
   })
 
-  it('refuses a missing row', async () => {
+  it('refuses a missing row, in words that suit a resolve as well as a deploy', async () => {
     appInfoItem.mockResolvedValue(null)
-    await expect(staticSiteTarget('example-app', 'production')).rejects.toThrow(/No CruApplicationInfo row for example-app in 'production'.*Nothing was changed/)
+    const error = await staticSiteTarget('example-app', 'production').catch(e => e)
+    expect(error.message).toBe(
+      "No CruApplicationInfo row for example-app in 'production' (production), so there is no S3 bucket or CloudFront " +
+      'distribution on record for the site there.'
+    )
+  })
+
+  it('quotes a value with a line break, so it cannot start a workflow command', async () => {
+    appInfoItem.mockResolvedValue({ ...ROW, Bucket: 'example\n::error::injected' })
+    const error = await staticSiteTarget('example-app', 'production').catch(e => e)
+    expect(error.message).not.toContain('\n')
+    expect(error.message).toContain('"\\"example\\n::error::injected\\""')
   })
 
   it.each([
@@ -136,7 +149,19 @@ describe('content type', () => {
     ['app.wasm', 'application/wasm'],
     ['LICENSE', 'application/octet-stream'],
     ['.well-known/thing', 'application/octet-stream'],
-    ['data.unknownext', 'application/octet-stream']
+    ['data.unknownext', 'application/octet-stream'],
+    ['captions/en.vtt', 'text/vtt; charset=utf-8'],
+    ['video/intro.mov', 'video/quicktime'],
+    ['video/intro.m4v', 'video/x-m4v'],
+    ['audio/song.flac', 'audio/flac'],
+    ['audio/song.aac', 'audio/aac'],
+    ['audio/song.opus', 'audio/opus'],
+    ['feed.rss', 'application/rss+xml; charset=utf-8'],
+    ['feed.atom', 'application/atom+xml; charset=utf-8'],
+    ['models/chair.glb', 'model/gltf-binary'],
+    ['models/chair.gltf', 'model/gltf+json'],
+    ['apple-app-site-association', 'application/json'],
+    ['.well-known/apple-app-site-association', 'application/json']
   ])('%s is %s', (key, type) => {
     expect(contentTypeFor(key)).toBe(type)
   })
@@ -177,25 +202,34 @@ describe('content-hashed names', () => {
 
 describe('planSite', () => {
   const file = (name, contents = 'x', size) => ({ path: `site/${name}`, name, size: size ?? Buffer.byteLength(contents), contents: contents === null ? null : Buffer.from(contents) })
-  const plan = (files, links = []) => planSite({ files, links }, { maxBytes: 1024, image: IMAGE })
+  const plan = (files, { links = [], others = [] } = {}) => planSite({ files, links, others }, { maxBytes: 1024, image: IMAGE })
 
-  it('sorts files into assets, HTML and index.html, and keeps .map files out', () => {
+  it('sorts files into hashed, unhashed, HTML and index.html, and keeps .map files out', () => {
     const site = plan([
       file('index.html', '<html>'),
       file('about/index.html'),
       file('assets/app-4a6b2c1d.js'),
       file('assets/app-4a6b2c1d.js.map'),
       file('robots.txt'),
+      file('sw.js'),
       file('stray.MAP')
     ])
     expect(site.index).toMatchObject({ key: 'index.html', contentType: 'text/html; charset=utf-8', cacheControl: 'no-cache', immutable: false })
     expect(site.index.contents.toString()).toBe('<html>')
     expect(site.html.map(entry => entry.key)).toEqual(['about/index.html'])
-    expect(site.assets.map(entry => [entry.key, entry.immutable, entry.cacheControl])).toEqual([
-      ['assets/app-4a6b2c1d.js', true, HASHED_CACHE_CONTROL],
-      ['robots.txt', false, DEFAULT_CACHE_CONTROL]
+    expect(site.hashed.map(entry => [entry.key, entry.immutable, entry.cacheControl])).toEqual([
+      ['assets/app-4a6b2c1d.js', true, HASHED_CACHE_CONTROL]
+    ])
+    expect(site.unhashed.map(entry => [entry.key, entry.immutable, entry.cacheControl])).toEqual([
+      ['robots.txt', false, DEFAULT_CACHE_CONTROL],
+      ['sw.js', false, DEFAULT_CACHE_CONTROL]
     ])
     expect(site.maps).toEqual(['assets/app-4a6b2c1d.js.map', 'stray.MAP'])
+  })
+
+  it('keeps a hard-linked file, which tar.js has already followed', () => {
+    const site = plan([file('index.html'), { ...file('copy.html', '<html>'), linkTo: 'site/index.html' }])
+    expect(site.html.map(entry => entry.key)).toEqual(['copy.html'])
   })
 
   it('refuses a site with no index.html at its root', () => {
@@ -212,9 +246,61 @@ describe('planSite', () => {
     )
   })
 
-  it('refuses links, which cannot be copied to a bucket', () => {
-    expect(() => plan([file('index.html')], [{ path: 'site/latest.js', name: 'latest.js', type: '2' }])).toThrow(
-      /\/site in .* holds links, which the deploy cannot copy to a bucket: site\/latest\.js/
+  it('refuses a symbolic link, naming its target', () => {
+    expect(() => plan([file('index.html')], { links: [{ path: 'site/latest.js', name: 'latest.js', type: '2', target: 'app-4a6b2c1d.js' }] })).toThrow(
+      /\/site in .* holds links, which the deploy cannot copy to a bucket: site\/latest\.js is a symbolic link to app-4a6b2c1d\.js/
+    )
+  })
+
+  it('refuses a hard link whose target the layer does not hold, saying it is a hard link', () => {
+    expect(() => plan([file('index.html')], { links: [{ path: 'site/copy.js', name: 'copy.js', type: '1', target: 'build/app.js' }] })).toThrow(
+      'site/copy.js is a hardlink to build/app.js, which is not in the same layer'
+    )
+  })
+
+  it.each([
+    ['6', 'FIFO'],
+    ['3', 'character device'],
+    ['4', 'block device'],
+    ['S', 'tar type S']
+  ])('refuses an entry of type %s (%s) loudly, not by skipping it', (type, label) => {
+    expect(() => plan([file('index.html')], { others: [{ path: 'site/odd', name: 'odd', type }] })).toThrow(
+      `holds entries that are not files or directories: site/odd (${label})`
+    )
+  })
+
+  it.each([
+    ['a .. segment', '../escape.html', 'it has a . or .. path segment'],
+    ['a . segment', './dot.js', 'it has a . or .. path segment'],
+    ['a nested .. segment', 'assets/../../x.js', 'it has a . or .. path segment'],
+    ['an empty segment', 'assets//double.js', 'it has an empty path segment'],
+    ['a leading /', '/double.js', 'it starts with /'],
+    ['an overlay whiteout', '.wh.old.js', 'it is an overlay whiteout (.wh.*)'],
+    ['an opaque-directory whiteout', 'assets/.wh..wh..opq', 'it is an overlay whiteout (.wh.*)'],
+    ['a name that is not UTF-8', '\ufffd.js', 'it is not valid UTF-8'],
+    ['a control character', 'bad\u0007name.js', 'it holds a control character'],
+    ['a key over 1024 bytes', `${'k'.repeat(1100)}.js`, "it is over S3's 1024-byte limit for a key"],
+    ['1024 bytes of multi-byte characters', `${'é'.repeat(513)}`, "it is over S3's 1024-byte limit for a key"]
+  ])('refuses %s, before anything is uploaded', (_label, name, why) => {
+    expect(() => plan([file('index.html'), file(name)])).toThrow(`holds names that cannot be object keys: `)
+    expect(() => plan([file('index.html'), file(name)])).toThrow(why)
+  })
+
+  it('accepts a key of exactly 1024 bytes, and UTF-8 names', () => {
+    const site = plan([file('index.html'), file(`${'k'.repeat(1021)}.js`), file('assets/café-4a6b2c1d.css')])
+    expect(site.unhashed.map(entry => entry.key.length)).toEqual([1024])
+    expect(site.hashed.map(entry => entry.key)).toEqual(['assets/café-4a6b2c1d.css'])
+  })
+
+  it('quotes a name with a line break, so it cannot start a workflow command', () => {
+    const error = (() => { try { plan([file('index.html'), file('x\n::error::y.js')]) } catch (e) { return e } })()
+    expect(error.message).not.toContain('\n')
+    expect(error.message).toContain('"site/x\\n::error::y.js"')
+  })
+
+  it('refuses a name that appears twice, since which copy to serve is a guess', () => {
+    expect(() => plan([file('index.html', 'first'), file('app.js'), file('index.html', 'second')])).toThrow(
+      'holds the same name more than once, so which copy to serve is a guess: site/index.html'
     )
   })
 })

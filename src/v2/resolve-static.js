@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { ecrImageRef, ecrResolveDigest, ecrTagsForDigest } from './aws'
+import { ecrDigestExists, ecrImageRef, ecrRepo, ecrResolveDigest, ecrTagsForDigest } from './aws'
 import { INDEX_KEY, readLiveRelease, staticSiteTarget } from './static-site'
 
 // Resolve a static site's image to a digest reference in the shared ECR
@@ -12,7 +12,9 @@ import { INDEX_KEY, readLiveRelease, staticSiteTarget } from './static-site'
 // mode=environment: a bucket runs nothing, so "what is live" is what the last
 //                   deploy recorded on index.html: its cru-digest metadata
 //                   (./static-site.js). The tags are then that digest's tags
-//                   in ECR.
+//                   in ECR. The bucket is read with the deploy role, so the
+//                   release-candidate bucket's policy has to grant it too:
+//                   promote reads that bucket to learn which candidate to ship.
 //
 // Returns { image, digest, tags } where `image` is a full ECR digest reference.
 export async function resolveStatic ({ mode, projectName, tag, environment }) {
@@ -29,7 +31,7 @@ export async function resolveStatic ({ mode, projectName, tag, environment }) {
   throw new Error(`Unknown resolve mode "${mode}". Expected "tag" or "environment".`)
 }
 
-// How every "nothing is live" error ends, so it reads right for any caller:
+// How every "nothing to resolve" error ends, so it reads right for any caller:
 // deploy-candidate carries on past it (the first deploy), promote stops on it.
 const NEXT_STEPS =
   'Nothing was resolved, so a deploy to this environment goes ahead and a promote from it stops here. ' +
@@ -51,6 +53,16 @@ async function resolveLiveRelease (projectName, environment) {
     `s3://${bucket}/${INDEX_KEY} says ${environment} serves ${live.digest}` +
     ` (${live.revision || 'no revision recorded'}, sha ${live.sha || 'not recorded'})`
   )
+  // A candidate's image expires from ECR after a while unless a release tag
+  // keeps it. Said here, by name, rather than left to surface later as a
+  // digest with no candidate tag.
+  if (!await ecrDigestExists(ecrRepo(projectName), live.digest)) {
+    throw new Error(
+      `s3://${bucket}/${INDEX_KEY} says ${environment} serves ${live.digest}` +
+      `${live.revision ? ` (${live.revision})` : ''}, but that image is no longer in the ECR repository ` +
+      `${ecrRepo(projectName)}: it has expired or been deleted. ${NEXT_STEPS}`
+    )
+  }
   // Reported opportunistically: an ECR read that fails leaves the tags empty,
   // and a promote then stops for want of a candidate tag rather than guess one.
   const tags = await ecrTagsForDigest(projectName, live.digest).catch(() => [])
