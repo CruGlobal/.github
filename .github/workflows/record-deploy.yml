@@ -32,7 +32,10 @@ name: Record Deploy
 #
 # What it needs from app-info: the app's row for the environment, without
 # PipelineVersion "2" (a v2 app's own workflows record its deploys), and with a
-# FlightdeckProject. The utility/app-info Terraform module writes such a row,
+# FlightdeckProject. Type says what the app runs on and PipelineVersion which
+# pipeline deploys it, so a static site or an Amplify app whose row has no
+# PipelineVersion "2" deploys itself and is recorded here, and one with it is
+# recorded by pipeline v2. The aws/app-base Terraform module writes such a row,
 # and its deploy_workflow input writes DeployWorkflow. With no row, a v2 row,
 # or no FlightdeckProject, it records nothing and says why.
 #
@@ -158,7 +161,7 @@ jobs:
           fi
           item=$(echo "$info" | jq -c '.Item // empty' 2>/dev/null || true)
           if [ -z "$item" ]; then
-            skip "no CruApplicationInfo row for project '$PROJECT_NAME' environment '$ENVIRONMENT', so there is no Flightdeck project to record it on. The utility/app-info Terraform module writes one."
+            skip "no CruApplicationInfo row for project '$PROJECT_NAME' environment '$ENVIRONMENT', so there is no Flightdeck project to record it on. The aws/app-base Terraform module writes one."
           fi
           # A v2 app's deploys are recorded by promote, rollback and
           # deploy-candidate. A second record of one would put a tag on its

@@ -4,13 +4,15 @@ import { assertDigestRef } from './v2/gcp'
 import { deployCloudRun } from './v2/deploy-cloudrun'
 import { deployEcs } from './v2/deploy-ecs'
 import { deployLambda } from './v2/deploy-lambda'
+import { deployStatic } from './v2/deploy-static'
 import { assertAttemptAuthorized } from './v2/attempt-guard'
 
 // deploy: deploy a pre-built, digest-pinned image to a target environment.
 // Enforces the v2 invariant that only digest references are deployed — a tag
 // reference fails the action immediately.
 //
-// The router dispatches on `type` (cloudrun implemented; ecs/lambda stubbed).
+// The router dispatches on `type`: cloudrun, ecs, lambda or static. Any other
+// type fails before anything is touched.
 //
 // A deploy to production (anything but the two non-production environments
 // below) is refused unless the authorize-actor check passed earlier in this
@@ -27,6 +29,9 @@ export async function run () {
     const image = core.getInput('image', { required: true })
     const runtimeProject = core.getInput('runtime-project', { required: false })
     const appUrl = core.getInput('app-url', { required: false })
+    // The release name the run records, which a static deploy writes on
+    // index.html. Empty from an older workflow, and the other types ignore it.
+    const revision = core.getInput('revision', { required: false })
     // Only "false" turns it off. The action defaults it to "true", and an empty
     // value (an older caller, or a test) means the same.
     const stopRolloutOnFailure = core.getInput('stop-rollout-on-failure', { required: false }).trim().toLowerCase() !== 'false'
@@ -40,7 +45,7 @@ export async function run () {
       assertAttemptAuthorized(`deploy to ${environment}`)
     }
 
-    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl, stopRolloutOnFailure })
+    const result = await dispatch(type, { projectName, environment, image, runtimeProject, appUrl, revision, stopRolloutOnFailure })
 
     core.info(`deployed image: ${result.deployedImage}`)
     core.info(`updated services: ${JSON.stringify(result.services)}`)
@@ -59,6 +64,8 @@ export async function run () {
   }
 }
 
+export const DEPLOY_TYPES = Object.freeze(['ecs', 'lambda', 'cloudrun', 'static'])
+
 function dispatch (type, args) {
   switch (type) {
     case 'cloudrun':
@@ -67,8 +74,10 @@ function dispatch (type, args) {
       return deployEcs(args)
     case 'lambda':
       return deployLambda(args)
+    case 'static':
+      return deployStatic(args)
     default:
-      throw new Error(`Unknown type "${type}". Expected one of: ecs, lambda, cloudrun.`)
+      throw new Error(`Unknown type "${type}". Expected one of: ${DEPLOY_TYPES.join(', ')}.`)
   }
 }
 

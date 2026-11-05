@@ -4,7 +4,7 @@ description: >-
   reference in the shared registry (pipeline v2).
 inputs:
   type:
-    description: Runtime to resolve for. One of ecs | lambda | cloudrun.
+    description: Runtime to resolve for. One of ecs | lambda | cloudrun | static.
     required: true
   project-name:
     description: Project name (also the shared-registry repo and image name).
@@ -17,7 +17,9 @@ inputs:
       a multi-platform image, the index its linux/amd64 child belongs to), and
       the step fails when there is no single serving image (no ready revision,
       services serving different images, split traffic, or an untagged image
-      that cannot be traced to a candidate).
+      that cannot be traced to a candidate). For static, "running" means the
+      digest the cru-digest metadata on the bucket's index.html names, and the
+      step fails when there is no index.html or it names none.
     required: true
   environment:
     description: >-

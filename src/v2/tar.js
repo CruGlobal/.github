@@ -6,11 +6,15 @@
 //
 // Supports the ustar layout every image builder emits (docker, buildkit, kaniko,
 // ko): 512-byte header blocks, octal sizes, optional `prefix` for long names.
-// PAX (`x`) records ARE interpreted, but only their `path` key — see the comment
-// on parsePaxRecords for why that one matters. Everything else in a PAX record,
-// PAX global (`g`) records and GNU long-name (`L`) records are SKIPPED, not
-// interpreted. Skipping keeps the stream aligned, so entries after such a record
-// still parse correctly.
+// Names are read as UTF-8, so a name the header holds in UTF-8 reads as it was
+// written, and bytes that are not UTF-8 read as U+FFFD for a caller to refuse.
+// PAX (`x`) records ARE interpreted, but only their `path` and `linkpath` keys:
+// see the comment on parsePaxRecords for why. GNU long-name (`L`) and
+// long-link-name (`K`) records are interpreted too, for the same reason: GNU
+// tar writes a long name there instead of in a PAX record. Everything else in a
+// PAX record, and PAX global (`g`) records, are SKIPPED, not interpreted.
+// Skipping keeps the stream aligned, so entries after such a record still parse
+// correctly.
 
 const BLOCK = 512
 
@@ -25,20 +29,46 @@ export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
 const NAME = [0, 100]
 const SIZE = [124, 12]
 const TYPE = 156
+const LINKNAME = [157, 100]
 const PREFIX = [345, 155]
 
 // Typeflags that denote a regular file. '\0' is the pre-POSIX spelling of '0'
-// and is still emitted by some writers.
-const REGULAR = new Set(['0', '\0'])
+// and is still emitted by some writers. '7' is a "contiguous" file, which POSIX
+// and every reader treat as a regular file.
+const REGULAR = new Set(['0', '\0', '7'])
+const HARDLINK = '1'
+const SYMLINK = '2'
+const DIRECTORY = '5'
 
 // PAX extended header, scoped to the NEXT entry in the stream.
 const PAX_EXTENDED = 'x'
 
-// Read a NUL- or space-padded ASCII header field.
-function field (block, [offset, length]) {
+// GNU records holding the NEXT entry's long name, and its long link name.
+const GNU_LONG_NAME = 'L'
+const GNU_LONG_LINK = 'K'
+
+// The bytes of a NUL- or space-padded header field, up to the first NUL.
+function rawField (block, [offset, length]) {
   const raw = block.subarray(offset, offset + length)
   const end = raw.indexOf(0)
-  return raw.subarray(0, end === -1 ? raw.length : end).toString('ascii').trim()
+  return raw.subarray(0, end === -1 ? raw.length : end)
+}
+
+// Read a NUL- or space-padded ASCII header field (the numeric ones).
+function field (block, spec) {
+  return rawField(block, spec).toString('ascii').trim()
+}
+
+// Read a name field as UTF-8. Reading it as ASCII would drop the high bit of
+// every byte, turning a UTF-8 name into a different name without a word.
+function textField (block, spec) {
+  return rawField(block, spec).toString('utf8').trim()
+}
+
+// The text of a GNU long-name record's body, which ends with a NUL.
+function cString (body) {
+  const end = body.indexOf(0)
+  return body.subarray(0, end === -1 ? body.length : end).toString('utf8')
 }
 
 // Parse an octal numeric header field. Empty means zero (some writers leave
@@ -59,8 +89,10 @@ function octal (block, spec) {
  * The format is a sequence of `"<len> <key>=<value>\n"` chunks where `<len>` is
  * the byte length of the whole chunk, its own digits included. Values are UTF-8.
  *
- * Only `path` is acted on by this module, and it is the reason PAX is parsed at
- * all: when an entry's name does not fit the ustar header (>100 bytes, or >255
+ * Only `path` and `linkpath` are acted on by this module. `linkpath` is the
+ * same thing for a link's target, which a hard link in a static site needs.
+ * `path` is the reason PAX is parsed at all: when an entry's name does not fit
+ * the ustar header (>100 bytes, or >255
  * split across `prefix`), or contains non-ASCII bytes, buildkit stores the real
  * name here and leaves a truncated placeholder in the header. For one fixed
  * 22-character path that never happened. For an enumerated directory of
@@ -102,6 +134,10 @@ export function normalizeTarPath (path) {
   return path.replace(/^(?:\.?\/)+/, '')
 }
 
+function nonEmpty (value) {
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
 // Round a byte count up to the next 512-byte block boundary.
 function padded (size) {
   return Math.ceil(size / BLOCK) * BLOCK
@@ -109,20 +145,23 @@ function padded (size) {
 
 /**
  * Walk an uncompressed tar archive, yielding one descriptor per entry:
- * `{ path, type, size, offset }` where `offset` is where the body starts.
+ * `{ path, type, size, offset, linkname }` where `offset` is where the body
+ * starts and `linkname` is what a link entry points at.
  *
- * PAX `x` records are consumed rather than yielded: a `path` record overrides
- * the ustar name of the single entry that follows it, exactly as POSIX
- * specifies. Any other record type is yielded as-is and callers filter on
- * `type`.
+ * PAX `x` records and GNU `L`/`K` records are consumed rather than yielded:
+ * each overrides the name (or link name) of the single entry that follows it,
+ * as POSIX and GNU tar specify, PAX first when both are there. Any other
+ * record type is yielded as-is and callers filter on `type`.
  */
 function * walkTar (archive) {
   let offset = 0
-  let overridePath = null
+  let pax = {}
+  let longName = null
+  let longLink = null
 
   while (offset + BLOCK <= archive.length) {
     const header = archive.subarray(offset, offset + BLOCK)
-    const name = field(header, NAME)
+    const name = textField(header, NAME)
     // A zero-filled block is the end-of-archive marker. Trailing garbage after
     // it (some writers pad generously) is not our problem.
     if (name === '') return
@@ -133,19 +172,34 @@ function * walkTar (archive) {
     const next = body + padded(size)
 
     if (type === PAX_EXTENDED) {
-      const { path } = parsePaxRecords(archive.subarray(body, body + size))
-      overridePath = typeof path === 'string' && path !== '' ? path : null
+      const records = parsePaxRecords(archive.subarray(body, body + size))
+      pax = { path: nonEmpty(records.path), linkpath: nonEmpty(records.linkpath) }
+      offset = next
+      continue
+    }
+    if (type === GNU_LONG_NAME || type === GNU_LONG_LINK) {
+      const value = nonEmpty(cString(archive.subarray(body, body + size)))
+      if (type === GNU_LONG_NAME) longName = value
+      else longLink = value
       offset = next
       continue
     }
 
-    const prefix = field(header, PREFIX)
+    const prefix = textField(header, PREFIX)
     const stored = prefix === '' ? name : `${prefix}/${name}`
-    yield { path: normalizeTarPath(overridePath ?? stored), type, size, offset: body }
+    yield {
+      path: normalizeTarPath(pax.path ?? longName ?? stored),
+      type,
+      size,
+      offset: body,
+      linkname: pax.linkpath ?? longLink ?? textField(header, LINKNAME)
+    }
 
-    // A PAX record applies to exactly one entry, whatever that entry turned
-    // out to be.
-    overridePath = null
+    // A PAX or GNU record applies to exactly one entry, whatever that entry
+    // turned out to be.
+    pax = {}
+    longName = null
+    longLink = null
     offset = next
   }
 }
@@ -193,25 +247,65 @@ export function findInTar (archive, target, { maxBytes = MAX_ENTRY_BYTES } = {})
  * decision of what to do about it belongs to the caller, which has the context
  * to warn usefully. Nothing over the cap is ever copied out of the archive.
  *
- * Directories, symlinks and hardlinks under the prefix are skipped: only real
- * bytes are returned. Order is archive order.
+ * Directories, symlinks and anything else that is not a file are skipped: only
+ * real bytes are returned. A hard link to a file earlier in the archive is
+ * returned with that file's bytes; one whose target is not there is skipped.
+ * Order is archive order.
  */
 export function listInTar (archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  return listTreeInTar(archive, prefix, { maxBytes }).files
+}
+
+/**
+ * listInTar, plus what it leaves out under the prefix.
+ *
+ * Returns `{ files, links, others }`:
+ *
+ *   files   exactly what listInTar returns. A hard link whose target is an
+ *           earlier regular file in the same archive is a file too, with its
+ *           target's bytes and `linkTo` naming the target: a hard link is the
+ *           same file under a second name.
+ *   links   `[{ path, name, type, target }]` for each symbolic link, and each
+ *           hard link whose target this archive does not hold.
+ *   others  `[{ path, name, type }]` for every other entry that is not a
+ *           directory: a FIFO, a device, or a type this reader does not know.
+ *
+ * A caller that must copy a whole tree (a static site) needs to know about
+ * links and others, because skipping one quietly would leave a file missing
+ * from what it serves.
+ */
+export function listTreeInTar (archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
   // "/cru/sourcemaps", "cru/sourcemaps" and "cru/sourcemaps/" all mean the same
   // directory. An empty prefix lists the whole archive.
   const base = normalizeTarPath(prefix).replace(/\/+$/, '')
   const dir = base === '' ? '' : `${base}/`
 
   const files = []
+  const links = []
+  const others = []
+  // Every regular file read so far, anywhere in the archive, by path. A hard
+  // link names an earlier entry, which need not be under the prefix.
+  const regular = new Map()
   for (const entry of walkTar(archive)) {
-    if (!REGULAR.has(entry.type)) continue
+    const target = entry.type === HARDLINK ? normalizeTarPath(entry.linkname) : null
+    const source = REGULAR.has(entry.type) ? entry : (target === null ? null : regular.get(target) ?? null)
+    if (source) regular.set(entry.path, source)
     if (!entry.path.startsWith(dir)) continue
-    files.push({
-      path: entry.path,
-      name: entry.path.slice(dir.length),
-      size: entry.size,
-      contents: entry.size > maxBytes ? null : readEntry(archive, entry)
-    })
+
+    const name = entry.path.slice(dir.length)
+    if (source) {
+      files.push({
+        path: entry.path,
+        name,
+        size: source.size,
+        contents: source.size > maxBytes ? null : readEntry(archive, source),
+        ...(target === null ? {} : { linkTo: target })
+      })
+    } else if (entry.type === HARDLINK || entry.type === SYMLINK) {
+      links.push({ path: entry.path, name, type: entry.type, target: entry.linkname })
+    } else if (entry.type !== DIRECTORY) {
+      others.push({ path: entry.path, name, type: entry.type })
+    }
   }
-  return files
+  return { files, links, others }
 }

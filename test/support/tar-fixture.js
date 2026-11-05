@@ -14,16 +14,21 @@ function octalField (value, length) {
 /**
  * One tar entry (header + NUL-padded body).
  *
- * @param {string} name    entry name (<=100 chars, or pass `prefix` to split)
+ * @param {string|Buffer} name    entry name (<=100 bytes, or pass `prefix` to
+ *   split). A string is written as UTF-8; a Buffer is written as its bytes, for
+ *   a name that is not valid UTF-8.
  * @param {string|Buffer} contents
- * @param {{prefix?: string, type?: string}} [options] `type` defaults to '0'
- *   (regular file); pass 'x' for a PAX record, '5' for a directory, etc.
+ * @param {{prefix?: string, type?: string, linkname?: string}} [options] `type`
+ *   defaults to '0' (regular file); pass 'x' for a PAX record, '5' for a
+ *   directory, '1' for a hard link (with `linkname`), etc.
  */
-export function tarEntry (name, contents, { prefix = '', type = '0' } = {}) {
+export function tarEntry (name, contents, { prefix = '', type = '0', linkname = '' } = {}) {
   const body = Buffer.isBuffer(contents) ? contents : Buffer.from(contents)
   const header = Buffer.alloc(BLOCK)
 
-  header.write(name, 0, 100, 'ascii')
+  if (Buffer.isBuffer(name)) name.copy(header, 0, 0, 100)
+  else header.write(name, 0, 100, 'utf8')
+  if (linkname !== '') header.write(linkname, 157, 100, 'utf8')
   header.write(octalField(0o644, 8), 100, 8, 'ascii') // mode
   header.write(octalField(body.length, 12), 124, 12, 'ascii')
   header.write(type, 156, 1, 'ascii')
@@ -53,6 +58,15 @@ export function paxEntry (path, contents, { placeholder = 'PaxHeaders/entry' } =
     tarEntry(`PaxHeaders.0/${placeholder}`, record, { type: 'x' }),
     tarEntry(placeholder, contents)
   ])
+}
+
+/**
+ * A GNU long-name record (type L, or K for a long link name) carrying `value`,
+ * the way GNU tar writes a name that does not fit the header. Put it right
+ * before the entry it names.
+ */
+export function gnuLongRecord (value, type = 'L') {
+  return tarEntry('././@LongLink', Buffer.concat([Buffer.from(value, 'utf8'), Buffer.from([0])]), { type })
 }
 
 /**

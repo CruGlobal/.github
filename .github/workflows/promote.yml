@@ -78,7 +78,9 @@ name: Promote
 #
 # Apps that are not on pipeline v2 are refused in `lookup` as well: a row
 # without PipelineVersion "2" belongs to an app still on the old pipeline, or
-# to one that deploys itself (a static site or an Amplify app).
+# to one that deploys itself. Type says what an app runs on and PipelineVersion
+# which pipeline deploys it, so a static site with PipelineVersion "2" is
+# promoted here, and one without it deploys itself.
 
 on:
   workflow_call:
@@ -228,10 +230,11 @@ jobs:
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           # Only a row the v2 app modules wrote carries PipelineVersion "2".
           # Without it the app is not one pipeline v2 deploys: it is still on
-          # the old pipeline, or it deploys itself (a static site or an
-          # Amplify app, whose row has a Type of its own). Refused here, before
-          # any credential, rather than deep in a provider job inside the
-          # production lock.
+          # the old pipeline, or it deploys itself. Type says what a site runs
+          # on and PipelineVersion says which pipeline deploys it, so a static
+          # site or an Amplify app without PipelineVersion "2" deploys itself.
+          # Refused here, before any credential, rather than deep in a provider
+          # job inside the production lock.
           if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
             echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so there is no release candidate to promote. Nothing was changed. An app that deploys itself ships with its own workflow."
             exit 1
@@ -264,6 +267,14 @@ jobs:
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
           esac
+          # The gcp jobs deploy Cloud Run and nothing else, so a gcp row typed
+          # anything but cloudrun (a static site, say) stops here instead of
+          # being deployed as a Cloud Run service. The Cloud Run app module
+          # always writes Type "cloudrun", so its rows pass.
+          if [ "$provider" = gcp ] && [ "$type" != cloudrun ]; then
+            echo "::error::$PROJECT_NAME's CruApplicationInfo row for '$legacy_env' has provider 'gcp' and type '${type//[$'\r\n']/ }', but pipeline v2 deploys only type 'cloudrun' on gcp. Nothing was changed."
+            exit 1
+          fi
           # Validate the gate here, in the one job that reads app-info and the
           # one that always runs, so a misconfigured app fails before anything
           # touches production — same placement and reasoning as
@@ -275,6 +286,12 @@ jobs:
                 echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME); stage-less candidate resolution is implemented for the ECR path only."
                 exit 1
               fi
+              # deploy-candidate refuses a stage-less static site, so no
+              # verified candidate of one can exist to promote.
+              if [ "$type" = "static" ]; then
+                echo "::error::RcMode 'verify' (stage-less) is not supported for static sites yet ($PROJECT_NAME): a static site's release candidate is what its stage bucket serves, so it needs a stage environment. Nothing was changed."
+                exit 1
+              fi
               ;;
             *) echo "::error::unsupported RcMode '$rc_mode' for $PROJECT_NAME (expected deploy or verify)"; exit 1 ;;
           esac
@@ -282,6 +299,11 @@ jobs:
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
           echo "rc-mode=$rc_mode" >> "$GITHUB_OUTPUT"
+          # For the production step, which refuses a static site whose two rows
+          # name one site. One line each, whatever the row holds, and trimmed
+          # as the deploy trims them.
+          echo "bucket=$(echo "$item" | jq -r '.Bucket.S // empty | gsub("[\r\n]"; " ") | gsub("^\\s+|\\s+$"; "")')" >> "$GITHUB_OUTPUT"
+          echo "distribution-id=$(echo "$item" | jq -r '.DistributionId.S // empty | gsub("[\r\n]"; " ") | gsub("^\\s+|\\s+$"; "")')" >> "$GITHUB_OUTPUT"
           echo "::notice::app-info $PROJECT_NAME/$V2_ENV -> provider=$provider type=$type project=$project_id"
 
       - name: Look up app info (production)
@@ -289,6 +311,9 @@ jobs:
         env:
           PROJECT_NAME: ${{ inputs.project-name }}
           V2_ENV: production
+          RC_TYPE: ${{ steps.app-info-rc.outputs.type }}
+          RC_BUCKET: ${{ steps.app-info-rc.outputs.bucket }}
+          RC_DISTRIBUTION_ID: ${{ steps.app-info-rc.outputs.distribution-id }}
         run: |
           case "$V2_ENV" in
             release-candidate) legacy_env=staging ;;
@@ -316,6 +341,21 @@ jobs:
           if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
             echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so there is nothing to promote into. Nothing was changed."
             exit 1
+          fi
+          # A static site's stage and production must be two sites. If both
+          # rows name one bucket, or one CloudFront distribution, every stage
+          # deploy would change production, and promote would read production's
+          # own release as the candidate. Refused before anything changes. Only
+          # a static site deploys to a bucket, so no other type is checked.
+          same_site() {
+            echo "::error::$PROJECT_NAME's CruApplicationInfo rows for 'staging' and 'production' both name $1 '${2//[$'\r\n']/ }'. A static site's release candidate and production must be separate sites, so each needs its own bucket and distribution. Nothing was changed."
+            exit 1
+          }
+          if [ "$RC_TYPE" = static ]; then
+            bucket=$(echo "$item" | jq -r '.Bucket.S // empty | gsub("[\r\n]"; " ") | gsub("^\\s+|\\s+$"; "")')
+            distribution_id=$(echo "$item" | jq -r '.DistributionId.S // empty | gsub("[\r\n]"; " ") | gsub("^\\s+|\\s+$"; "")')
+            if [ -n "$bucket" ] && [ "$bucket" = "$RC_BUCKET" ]; then same_site Bucket "$bucket"; fi
+            if [ -n "$distribution_id" ] && [ "$distribution_id" = "$RC_DISTRIBUTION_ID" ]; then same_site DistributionId "$distribution_id"; fi
           fi
           project_id=$(echo "$item" | jq -r '.ProjectId.S // empty')
           slack_channel=$(echo "$item" | jq -r '.SlackChannel.S // empty')
@@ -1403,24 +1443,32 @@ jobs:
           fi
           echo "::notice::production is still running $current, as expected; going ahead with the promote"
 
+      # Fail clearly on AWS types not yet implemented in v2 (serverless), and
+      # pick the type's deploy role in the same place. The credentials step
+      # reads the role from this step, so a type this list does not know stops
+      # here and can never fall through to another type's role.
       - name: Guard supported AWS type
+        id: aws-type
         env:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs|lambda) ;;
-            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+            ecs) role=GitHubDeployECS ;;
+            lambda) role=GitHubDeployLambda ;;
+            static) role=GitHubDeployStatic ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs', 'lambda' and 'static' (got '${TYPE//[$'\r\n']/ }'); serverless lands in a later pass."; exit 1 ;;
           esac
+          echo "role=$role" >> "$GITHUB_OUTPUT"
 
-      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda) covers the
-      # rc + prod clusters/functions, which share the cruds account (056154071827)
-      # — no per-env re-auth needed. The chosen role also holds ecr:PutImage for
-      # the release-<n> tag-image step below.
+      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda /
+      # GitHubDeployStatic) covers the rc + prod clusters, functions and sites,
+      # which share one account, so no per-env re-auth is needed. The chosen
+      # role also holds ecr:PutImage for the release-<n> tag-image step below.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+          role-to-assume: arn:aws:iam::056154071827:role/${{ steps.aws-type.outputs.role }}
 
       # --- Stage-less candidate resolution (RcMode "verify" only) -----------
       # A stage-less app has no running release-candidate service, so "what is
@@ -1510,6 +1558,10 @@ jobs:
       # different images, or a service still on the scratch placeholder beside
       # ones that serve the app image) this step fails and the promote stops
       # here.
+      #
+      # A static site's release-candidate image is the digest its stage
+      # bucket's index.html names, read here with GitHubDeployStatic. So the
+      # stage bucket's policy must grant that role too, not only production's.
       #
       # Inside the production lock. The AWS SDK calls under this step have no
       # request timeout of their own yet (the SDK's default is none), so the
@@ -1767,10 +1819,12 @@ jobs:
           environment: production
           image: ${{ steps.resolve.outputs.image }}
           app-url: ${{ needs.lookup.outputs.app-url }}
+          revision: ${{ steps.release.outputs.release }}
 
       # Tag the promoted digest release-<n> in ECR (manifest re-tag; the ECR path
-      # is shared by ecs and lambda). Requires ecr:PutImage on the deploy role
-      # (GitHubDeployECS / GitHubDeployLambda) — see the tag-image comment / docs.
+      # is shared by ecs, lambda and static). Requires ecr:PutImage on the
+      # deploy role (GitHubDeployECS / GitHubDeployLambda / GitHubDeployStatic);
+      # see the tag-image comment / docs.
       - name: Tag digest as release
         uses: ./cru-github-actions/actions/tag-image
         with:

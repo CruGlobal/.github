@@ -169,10 +169,12 @@ jobs:
           fi
           # Only a row the v2 app modules wrote carries PipelineVersion "2".
           # Without it the app is not one pipeline v2 deploys: it is still on
-          # the old pipeline, or it deploys itself (a static site or an
-          # Amplify app, whose row has a Type of its own), so there is no v2
-          # release to roll back to. Refused here, before any credential,
-          # rather than deep in a provider job inside the production lock.
+          # the old pipeline, or it deploys itself (Type says what a site runs
+          # on and PipelineVersion which pipeline deploys it, so a static site
+          # or an Amplify app without PipelineVersion "2" deploys itself), so
+          # there is no v2 release to roll back to. Refused here, before any
+          # credential, rather than deep in a provider job inside the
+          # production lock.
           if [ "$(echo "$item" | jq -r '.PipelineVersion.S // empty')" != "2" ]; then
             echo "::error title=Not a pipeline v2 app::$PROJECT_NAME is not on pipeline v2: its CruApplicationInfo row for '$legacy_env' has no PipelineVersion 2 (type '$(echo "$item" | jq -r '.Type.S // "none" | gsub("[\r\n]"; " ")')'), so there is no pipeline v2 release to roll back to. Nothing was changed. An app that deploys itself rolls back by deploying an earlier commit with its own workflow."
             exit 1
@@ -189,6 +191,14 @@ jobs:
             gcp|aws) ;;
             *) echo "::error::unsupported provider '$provider' for $PROJECT_NAME (expected gcp or aws)"; exit 1 ;;
           esac
+          # The gcp jobs deploy Cloud Run and nothing else, so a gcp row typed
+          # anything but cloudrun (a static site, say) stops here instead of
+          # being deployed as a Cloud Run service. The Cloud Run app module
+          # always writes Type "cloudrun", so its rows pass.
+          if [ "$provider" = gcp ] && [ "$type" != cloudrun ]; then
+            echo "::error::$PROJECT_NAME's CruApplicationInfo row for '$legacy_env' has provider 'gcp' and type '${type//[$'\r\n']/ }', but pipeline v2 deploys only type 'cloudrun' on gcp. Nothing was changed."
+            exit 1
+          fi
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
           echo "type=$type" >> "$GITHUB_OUTPUT"
           echo "project-id=$project_id" >> "$GITHUB_OUTPUT"
@@ -1027,22 +1037,31 @@ jobs:
             echo "::notice::production is still running $current and ran $previous just before it, as expected; going ahead with the rollback"
           fi
 
+      # Fail clearly on AWS types not yet implemented in v2 (serverless), and
+      # pick the type's deploy role in the same place. The credentials step
+      # reads the role from this step, so a type this list does not know stops
+      # here and can never fall through to another type's role.
       - name: Guard supported AWS type
+        id: aws-type
         env:
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
           case "$TYPE" in
-            ecs|lambda) ;;
-            *) echo "::error::v2 AWS deploys support types 'ecs' and 'lambda' (got '$TYPE'); serverless lands in a later pass."; exit 1 ;;
+            ecs) role=GitHubDeployECS ;;
+            lambda) role=GitHubDeployLambda ;;
+            static) role=GitHubDeployStatic ;;
+            *) echo "::error::v2 AWS deploys support types 'ecs', 'lambda' and 'static' (got '${TYPE//[$'\r\n']/ }'); serverless lands in a later pass."; exit 1 ;;
           esac
+          echo "role=$role" >> "$GITHUB_OUTPUT"
 
-      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda), both
-      # cru-deploy-scoped and covering the cruds account (056154071827).
+      # One deploy role per type (GitHubDeployECS / GitHubDeployLambda /
+      # GitHubDeployStatic), all cru-deploy-scoped and covering the shared
+      # account the apps run in.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::056154071827:role/${{ needs.lookup.outputs.type == 'lambda' && 'GitHubDeployLambda' || 'GitHubDeployECS' }}
+          role-to-assume: arn:aws:iam::056154071827:role/${{ steps.aws-type.outputs.role }}
 
       # Inside the production lock. The AWS SDK calls under this step have no
       # request timeout of their own yet (the SDK's default is none), so the
@@ -1135,7 +1154,9 @@ jobs:
       # both wait for it in full, but never send a service or function back to
       # the release being rolled back from. An ECS rollback always moves its
       # scheduled tasks to the rollback target, even when the service rollout
-      # ends short (unless another update took the service over meanwhile).
+      # ends short (unless another update took the service over meanwhile). A
+      # static rollback that fails partway leaves the files it uploaded, and
+      # puts nothing of the release it rolls away from back.
       - name: Deploy to production
         uses: ./cru-github-actions/actions/deploy
         with:
@@ -1144,6 +1165,7 @@ jobs:
           environment: production
           image: ${{ steps.resolve.outputs.image }}
           app-url: ${{ needs.lookup.outputs.app-url }}
+          revision: ${{ steps.actual-release.outputs.tag }}
           stop-rollout-on-failure: 'false'
 
       - name: Record deployment event in Datadog
