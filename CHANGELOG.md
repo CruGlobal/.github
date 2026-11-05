@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.18.0](https://github.com/CruGlobal/.github/compare/v2.17.0...v2.18.0) (2026-11-05)
+
+
+### Features
+
+* **build:** add an opt-in cache-mode input to the v1 build workflows ([#563](https://github.com/CruGlobal/.github/issues/563)) ([d16ae90](https://github.com/CruGlobal/.github/commit/d16ae90634084e4131775b1f1786cfd22192f8e7))
+* **v2:** let a static site serve its source maps from the bucket ([#565](https://github.com/CruGlobal/.github/issues/565)) ([94caf88](https://github.com/CruGlobal/.github/commit/94caf88f46358522508722cd92d2a44cb254908e))
+
 ## [2.17.0](https://github.com/CruGlobal/.github/compare/v2.16.0...v2.17.0) (2026-11-05)
 
 
