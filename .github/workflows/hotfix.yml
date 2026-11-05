@@ -94,12 +94,19 @@ name: Hotfix
 # .gitattributes "give" the file a merge attribute and that "a workflow file
 # must merge with git's own merge". This workflow's refusal says the same
 # before anyone picks by hand. The way out: land a commit on the default
-# branch that gives workflow files git's own merge (for example a
-# `.github/workflows/** merge` line after the line that sets the driver),
-# cut that commit onto the hotfix branch with this workflow (it changes no
-# workflow file), then pick the workflow fix on top by hand. If the refused
-# pick is already on the branch, first move the branch back to the commit
-# that pick was made on.
+# branch that gives workflow files git's own merge, at the end of the
+# .gitattributes file that sets the driver (the refusal names it, with a line
+# written for that file: in the top-level one, a `.github/workflows/** merge`
+# line), cut that commit onto the hotfix branch with this workflow, then pick
+# the workflow fix on top by hand. When the driver is set in
+# .github/workflows/.gitattributes, that commit changes a workflow file too,
+# so it is picked by hand as well, before the fix. If the refused pick is
+# already on the branch, first move the branch back to the commit that pick
+# was made on: that takes a force push, and drops every pick after it, so
+# those are picked again afterwards. With a driver set, this workflow also
+# checks the fix against git's own merge, and refuses it as
+# cherry_pick_conflict when a workflow file conflicts there, since the pick
+# by hand would.
 #
 # The order in step 2 is advice, not a rule: build-candidate checks each pick
 # on its own, so it does not notice picks out of order, a fix picked again

@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { deadlineRequests } from './deadline'
 
 // Hotfix builds (pipeline v2).
@@ -90,15 +93,27 @@ import { deadlineRequests } from './deadline'
 // merge: when the commit it is picked onto names a merge driver for the file
 // in .gitattributes (union, say, which keeps the lines of both sides of a
 // conflict), the check refuses it (merge_driver). The way out is to land a
-// commit on the default branch that gives workflow files git's own merge (a
-// `.github/workflows/** merge` line after the line that sets the driver; a
-// later line wins), cut that commit onto the branch with the hotfix workflow
-// (it changes no workflow file), then pick the workflow fix on top by hand.
+// commit on the default branch that gives workflow files git's own merge, at
+// the end of the .gitattributes file that sets the driver (a later line wins,
+// and a deeper .gitattributes file wins over a shallower one): in the
+// top-level file a `.github/workflows/** merge` line, in
+// .github/.gitattributes a `workflows/** merge` line, since a pattern there
+// is read from that folder. Cut that commit onto the branch with the hotfix
+// workflow, then pick the workflow fix on top by hand. When the driver is
+// set in .github/workflows/.gitattributes, that commit is a workflow change
+// too, so it is picked by hand as well, before the fix, and pushed with the
+// workflow scope. The refusals name the file and the line, found by trying
+// the line at the end of each .gitattributes file and asking git
+// (driverSources). A refused pick that is already on the branch has to go
+// first: moving the branch back takes a force push, and drops every pick
+// after it.
 // The cut checks all of this before it gives the by-hand steps, so its
 // workflow_change refusal names whichever applies: the steps, a conflict, or
-// the merge driver and its way out. Once the branch is pushed, the cut can
-// add later fixes to it that change no workflow file; its push carries only
-// its own pick.
+// the merge driver and its way out. With a driver set, it also merges the
+// fix with git's own merge, as the pick by hand will after the way out, and
+// refuses it as a conflict when that conflicts in a workflow file. Once the
+// branch is pushed, the cut can add later fixes to it that change no workflow
+// file; its push carries only its own pick.
 //
 // What the check does not judge: the order of the picks, a source picked
 // again after its revert was picked, or a source the default branch has
@@ -385,30 +400,80 @@ async function treeOf (git, sha) {
 // silently, which would leave the attributes unpinned without saying so.
 export const attrSource = (onto) => `--attr-source=${onto}`
 
-// A git that refused --attr-source, or was killed while using it, is too old
-// for the check. Either way the check refuses rather than merging with the
-// checkout's .gitattributes.
-function refuseOldGit (result, what) {
-  const killed = result.code === null && Boolean(result.signal)
-  if (result.code === 129 || /unknown option/i.test(result.stderr) || killed) {
-    const happened = killed
-      ? `this runner's git was killed by ${result.signal}`
-      : `this runner's git refused the command (${result.stderr.trim().split('\n')[0]})`
-    throw new Error(`${what} needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and ${happened}; refusing rather than checking with the checkout's .gitattributes`)
+// The tree with nothing in it. As an attribute source it gives every file
+// git's own merge, whatever the commit's .gitattributes say.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+// The signals git raises on itself when it crashes: SIGSEGV for a bad memory
+// access, which is how git 2.41 and 2.42 end in merge-tree --attr-source, and
+// SIGABRT for abort(), which git's own internal checks and the allocator's
+// heap checks call when something has already gone wrong inside git. SIGBUS
+// is left out: on these Linux runners it comes from a file git had mapped into
+// memory going away or getting shorter underneath it, which says nothing
+// about git's version. Any other signal comes from outside git.
+const CRASH_SIGNALS = new Set(['SIGSEGV', 'SIGABRT'])
+
+// What most likely sent the signals that come from outside git, so a failed
+// run says what happened instead of blaming git's version.
+const STOPPED_BY = {
+  SIGKILL: 'the runner may have run out of memory, or the run was cancelled',
+  SIGTERM: 'the run was cancelled, or the runner is shutting down',
+  SIGINT: 'the run was cancelled'
+}
+
+// This runner's git version, as { text, major, minor }, or null when git
+// cannot say. Only a crash asks for it, to tell an old git from a broken one.
+async function gitVersion (git) {
+  try {
+    const result = await git(['version'])
+    const match = result.code === 0 ? result.stdout.match(/git version ((\d+)\.(\d+)[0-9.]*)/) : null
+    return match ? { text: match[1], major: Number(match[2]), minor: Number(match[3]) } : null
+  } catch {
+    return null
+  }
+}
+
+// A git that refused --attr-source is too old for the check. So is one that
+// crashed using it, when its version is older than 2.43; a newer git that
+// crashed is not called too old, and neither is one that something else
+// stopped (a runner out of memory, a cancelled run). Every case refuses rather
+// than merging with the checkout's .gitattributes.
+async function refuseOldGit (git, result, what) {
+  const signal = result.code === null ? result.signal : null
+  const needs = `${what} needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree)`
+  const refusing = "refusing rather than checking with the checkout's .gitattributes"
+  if (result.code === 129 || /unknown option/i.test(result.stderr)) {
+    throw new Error(`${needs}, and this runner's git refused the command (${result.stderr.trim().split('\n')[0]}); ${refusing}`)
+  }
+  if (CRASH_SIGNALS.has(signal)) {
+    const version = await gitVersion(git)
+    if (!version) {
+      throw new Error(`${needs}, and this runner's git crashed with ${signal}, and its version could not be read; ${refusing}`)
+    }
+    if (version.major < 2 || (version.major === 2 && version.minor < 43)) {
+      throw new Error(`${needs}, and this runner's git ${version.text} crashed with ${signal}; ${refusing}`)
+    }
+    throw new Error(`${what} did not finish: this runner's git ${version.text} crashed with ${signal}. It is not too old for the check (that needs 2.43 or later), so the crash has another cause; ${refusing}`)
+  }
+  if (signal) {
+    const why = STOPPED_BY[signal]
+    throw new Error(`${what} did not finish: this runner's git was killed by ${signal}${why ? ` (${why})` : ''}`)
   }
 }
 
 // The tree `git cherry-pick` would make by applying `commit` (whose parent is
 // `parent`) onto `onto`: a three-way merge with the commit's parent as the
-// base, using `onto`'s .gitattributes. Nothing in the working tree or the
-// index changes. `clean` is false when the merge has conflicts, and
-// `conflicts` lists the files.
-export async function pickTree (git, { parent, commit, onto }) {
-  const result = await git([attrSource(onto), 'merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${parent}`, onto, commit])
-  const lines = result.stdout.split('\n').filter(Boolean)
-  if (result.code === 0) return { clean: true, tree: lines[0] ?? '', conflicts: [] }
-  if (result.code === 1) return { clean: false, tree: lines[0] ?? '', conflicts: lines.slice(1) }
-  refuseOldGit(result, 'checking a cherry-pick')
+// base, using `onto`'s .gitattributes, or those of `attributes` when given.
+// Nothing in the working tree or the index changes. `clean` is false when the
+// merge has conflicts, and `conflicts` lists the files. -z keeps every path
+// raw: git quotes a name with a quote, a backslash or a non-ASCII character
+// in it otherwise, and a quoted path would not start with the directory.
+export async function pickTree (git, { parent, commit, onto, attributes = onto }) {
+  const result = await git([attrSource(attributes), 'merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', `--merge-base=${parent}`, onto, commit])
+  const fields = result.stdout.split('\0').filter(Boolean)
+  if (result.code === 0) return { clean: true, tree: fields[0] ?? '', conflicts: [] }
+  if (result.code === 1) return { clean: false, tree: fields[0] ?? '', conflicts: fields.slice(1) }
+  await refuseOldGit(git, result, 'checking a cherry-pick')
   must(result, `applying ${short(commit)} to ${short(onto)} (git merge-tree)`)
 }
 
@@ -419,11 +484,23 @@ async function firstParentHistory (git, ref) {
   return new Set(result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
 }
 
-// The workflow files a single-parent commit changes, against its parent. -z
-// keeps every path raw: a quoted path would not start with the directory.
-async function workflowFilesChanged (git, sha, parent) {
+// The files a single-parent commit changes, against its parent. -z keeps
+// every path raw: a quoted path would not start with the directory.
+async function filesChanged (git, sha, parent) {
   const result = must(await git(['diff-tree', '-r', '-z', '--no-renames', '--name-only', '--no-commit-id', parent, sha]), `listing the files ${short(sha)} changes`)
-  return result.stdout.split('\0').filter((file) => file.startsWith(WORKFLOWS_DIR))
+  return result.stdout.split('\0').filter(Boolean)
+}
+
+async function workflowFilesChanged (git, sha, parent) {
+  return (await filesChanged(git, sha, parent)).filter((file) => file.startsWith(WORKFLOWS_DIR))
+}
+
+// Up to ten files for a message, then how many more.
+const fileList = (files) => files.slice(0, 10).join(', ') + (files.length > 10 ? `, and ${files.length - 10} more` : '')
+
+// "a", "a and b", "a, b and c".
+function inWords (items) {
+  return items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
 // The merge attribute values that mean git's own three-way merge: none at
@@ -441,7 +518,7 @@ async function mergeDrivers (git, onto, files) {
   if (files.length === 0) return []
   const result = await git([attrSource(onto), 'check-attr', '-z', 'merge', '--', ...files])
   if (result.code !== 0) {
-    refuseOldGit(result, 'checking how a workflow file merges')
+    await refuseOldGit(git, result, 'checking how a workflow file merges')
     must(result, `reading the merge attribute of ${files.join(', ')} at ${short(onto)}`)
   }
   const fields = result.stdout.split('\0')
@@ -459,13 +536,164 @@ async function mergeDrivers (git, onto, files) {
 
 const describeDrivers = (drivers) => drivers.map(({ file, driver }) => `${file} (merge attribute: ${driver})`).join(', ')
 
+// The .gitattributes line that gives every workflow file git's own merge,
+// written for the .gitattributes file in `folder` ('' for the top level). A
+// pattern with a slash in it is read from the folder its .gitattributes file
+// is in, so the top level's `.github/workflows/** merge` matches nothing when
+// written in .github/.gitattributes.
+function ownMergeLine (folder) {
+  return folder.startsWith(WORKFLOWS_DIR) ? '* merge' : `${WORKFLOWS_DIR.slice(folder.length)}** merge`
+}
+
+// A tree holding only the .gitattributes files in `entries`, as they are,
+// except `changed`, which gets `line` added at the end. It is built in a
+// scratch index, so the checkout's own index and files are never touched.
+// core.splitIndex is off for it: in a clone that splits its index, a scratch
+// index would otherwise leave a sharedindex file in the clone's own .git.
+async function attributesTree (git, scratch, entries, changed, line) {
+  const text = must(await git(['cat-file', 'blob', changed.sha]), `reading ${changed.path}`).stdout
+  const file = path.join(scratch, 'gitattributes')
+  writeFileSync(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${line}\n`)
+  const blob = must(await git(['hash-object', '-w', '--no-filters', '--', file]), 'writing a .gitattributes file to try').stdout.trim()
+  const env = { GIT_INDEX_FILE: path.join(scratch, 'index') }
+  const scratchGit = (args) => git(['-c', 'core.splitIndex=false', ...args], { env })
+  must(await scratchGit(['read-tree', '--empty']), 'starting a scratch index')
+  const add = entries.flatMap((entry) => entry === changed
+    ? ['--cacheinfo', '100644', blob, entry.path]
+    : ['--cacheinfo', entry.mode, entry.sha, entry.path])
+  must(await scratchGit(['update-index', '--add', ...add]), 'filling a scratch index')
+  return must(await scratchGit(['write-tree']), 'writing a scratch tree').stdout.trim()
+}
+
+// Which .gitattributes file sets the merge driver on each of `files` at
+// `onto`, and a line that gives workflow files git's own merge there:
+// [{ file, line }], shallowest first. A deeper .gitattributes file wins over
+// a shallower one, and a later line over an earlier one, so the file that
+// sets a driver is the shallowest one where adding the line at the end gives
+// git's own merge. Each try is judged by git itself, on a tree of the
+// .gitattributes files with the line added, so a macro defined at the top
+// level and used further down counts the way git counts it. null when no
+// file covers them all (a driver set by the runner's own git config, say) or
+// git cannot tell; the refusal then gives the general advice. It never
+// throws: it only shapes a refusal's words, never whether there is one.
+async function driverSources (git, onto, files) {
+  const folders = new Set([''])
+  for (const file of files) {
+    const parts = file.split('/')
+    for (let i = 1; i < parts.length; i++) folders.add(`${parts.slice(0, i).join('/')}/`)
+  }
+  const wanted = new Set([...folders].map((folder) => `${folder}.gitattributes`))
+  let scratch = ''
+  try {
+    // A driver git applies with no .gitattributes at all comes from the
+    // runner's own attributes (core.attributesFile, or the clone's
+    // info/attributes), not from any file in the repository to name. A line
+    // in the top-level file would still win over core.attributesFile, which
+    // would make it look like the file that sets it.
+    if ((await mergeDrivers(git, EMPTY_TREE, files)).length > 0) return null
+    const listed = must(await git(['--literal-pathspecs', 'ls-tree', '-r', '-z', onto, '--', ...wanted]), `listing the .gitattributes files at ${short(onto)}`)
+    const entries = listed.stdout.split('\0').filter(Boolean).map((record) => {
+      const tab = record.indexOf('\t')
+      const [mode, type, sha] = record.slice(0, tab).split(' ')
+      return { mode, type, sha, path: record.slice(tab + 1) }
+    }).filter((entry) => wanted.has(entry.path))
+    const depth = (file) => file.split('/').length
+    // Only a regular file is tried. A .gitattributes that is a symlink is read
+    // from a tree (as --attr-source reads it) as the text of its link target,
+    // not as the file it points to, so it is no file a person can add a line
+    // to. A driver set that way is left to a deeper regular file where the
+    // line works, or, with none, to the general advice. Every entry still
+    // goes in the tree as it is, so the tries see what the real merge sees.
+    const candidates = entries
+      .filter((entry) => entry.type === 'blob' && (entry.mode === '100644' || entry.mode === '100755'))
+      .sort((a, b) => depth(a.path) - depth(b.path))
+    scratch = mkdtempSync(path.join(tmpdir(), 'hotfix-attributes-'))
+    let left = [...files]
+    const sources = []
+    for (const candidate of candidates) {
+      const folder = candidate.path.slice(0, -'.gitattributes'.length)
+      const under = left.filter((file) => file.startsWith(folder))
+      if (under.length === 0) continue
+      const line = ownMergeLine(folder)
+      const tree = await attributesTree(git, scratch, entries, candidate, line)
+      const still = new Set((await mergeDrivers(git, tree, under)).map(({ file }) => file))
+      if (still.size === under.length) continue
+      sources.push({ file: candidate.path, line })
+      left = left.filter((file) => !under.includes(file) || still.has(file))
+    }
+    return left.length === 0 ? sources : null
+  } catch {
+    return null
+  } finally {
+    if (scratch) rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+// What the way past a merge driver on `drivers` at `onto` involves: where the
+// drivers are set (see driverSources), and which of those .gitattributes
+// files merge with a driver themselves. A .gitattributes file under
+// .github/workflows is a workflow file too, so build-candidate judges a pick
+// that changes it by the same rule, and a driver on it would refuse that pick
+// as well. Returns { sources, blocked }; it never throws.
+export async function mergeDriverWayOut (git, onto, drivers) {
+  const sources = await driverSources(git, onto, drivers.map(({ file }) => file))
+  const inWorkflows = (sources ?? []).map(({ file }) => file).filter((file) => file.startsWith(WORKFLOWS_DIR))
+  if (inWorkflows.length === 0) return { sources, blocked: [] }
+  try {
+    return { sources, blocked: await mergeDrivers(git, onto, inWorkflows) }
+  } catch {
+    return { sources: null, blocked: [] }
+  }
+}
+
+const changesWorkflows = (sources) => (sources ?? []).some(({ file }) => file.startsWith(WORKFLOWS_DIR))
+
+// Why the way out does not work as it stands when a .gitattributes file that
+// sets the driver is under .github/workflows and merges with a driver
+// itself. It does not say no way exists: when a shallower file gives it that
+// driver, a commit changing that file first could open one, which is a
+// person's call.
+function blockedWhy (blocked) {
+  const one = blocked.length === 1
+  const drivers = one ? `merge attribute: ${blocked[0].driver}` : blocked.map(({ file, driver }) => `${file}: ${driver}`).join(', ')
+  return `the driver is set in ${inWords(blocked.map(({ file }) => file))}, which ${one ? 'is' : 'are'} under .github/workflows too, and the .gitattributes there give ${one ? 'it' : 'them'} a driver as well (${drivers}), so build-candidate would refuse a pick that changes ${one ? 'it' : 'them'} for the same reason`
+}
+
 // The first step out of a merge-driver refusal, shared by the cut's refusal
-// and build-candidate's. A later line in .gitattributes wins, so a
-// `.github/workflows/** merge` line after the one that sets the driver gives
-// every workflow file git's own merge again. Nothing in it changes a workflow
-// file, so the hotfix workflow can cut it.
-export function ownMergeStep (defaultBranch) {
-  return `land a commit on ${defaultBranch} that gives workflow files git's own merge (for example a \`.github/workflows/** merge\` line after the line that sets the driver)`
+// and build-candidate's: the commit to land on the default branch, as two
+// sentences. It names the .gitattributes file that sets the driver, with a
+// line written for that file, when driverSources found it, and gives the
+// general rule when not. The line goes at the end of the file, where
+// driverSources tried it: a later line that sets the driver again would win
+// over a line put right after the first one.
+export function ownMergeStep (defaultBranch, sources = null) {
+  const land = `land a commit on ${defaultBranch} that gives workflow files git's own merge.`
+  if (!sources || sources.length === 0) {
+    return `${land} That takes a \`merge\` line for them at the end of the .gitattributes file that sets the driver, with its pattern written from that file's folder (in the top-level .gitattributes, \`.github/workflows/** merge\`).`
+  }
+  return `${land} The driver is set in ${inWords(sources.map(({ file }) => file))}, so add ${inWords(sources.map(({ file, line }) => `a \`${line}\` line at the end of ${file}`))}.`
+}
+
+// The way past build-candidate's merge-driver refusal of a pick that is
+// already on the branch, shared by build-candidate's refusal and the cut's
+// refusal to add to such a branch. Every pick is judged with the
+// .gitattributes of the commit it was made on, so the branch has to go back
+// to before the refused pick, and the picks after it go with it. `wayOut` is
+// the refusal's: { onto, source, sources, blocked, pickChangesWorkflows }.
+// The push needs the workflow scope when a pick by hand changes a workflow
+// file; a fix whose pick lands outside .github/workflows does not.
+export function pickedWayOut ({ defaultBranch, onto = '', source = '', sources = null, blocked = [], pickChangesWorkflows = true } = {}) {
+  if (blocked.length > 0) {
+    return `The way past a merge driver is to move the branch back to before that pick and give workflow files git's own merge first, but as it stands that does not work: ${blockedWhy(blocked)}.`
+  }
+  const back = `move the branch back to ${onto ? `${short(onto)}, ` : ''}the commit that pick was made on. That takes a force push, and it also drops every pick made after that one`
+  const byHand = changesWorkflows(sources)
+  const pick = `git cherry-pick -x ${source || '<the fix>'}`
+  const push = byHand || pickChangesWorkflows ? 'push the branch with a token that has the workflow scope' : 'push the branch'
+  const steps = byHand
+    ? `That commit changes a file under .github/workflows too, so the hotfix workflow refuses it as well: check out the branch, run git cherry-pick -x <that commit>, then ${pick}, ${push}, and run the app's ${PIPELINE_WORKFLOW} on it.`
+    : `Cut that commit onto the branch with the hotfix workflow, then check out the branch, run ${pick}, ${push}, and run the app's ${PIPELINE_WORKFLOW} on it.`
+  return `To build it, ${back}. Then ${ownMergeStep(defaultBranch, sources)} ${steps} Pick again any later fixes the force push dropped.`
 }
 
 // The commits in base..head, oldest first, each with its parents.
@@ -541,13 +769,19 @@ export async function verifyHotfixCommits ({ git, base, head, defaultRef }) {
     // A workflow pick is allowed, so the merge that judges it must be git's
     // own (see mergeDrivers). Both diffs are read: a rename the merge follows
     // can land the source's change on a workflow path the source never named.
+    const pickWorkflows = await workflowFilesChanged(git, sha, parents[0])
     const workflows = [...new Set([
       ...await workflowFilesChanged(git, source, sourceParents[0]),
-      ...await workflowFilesChanged(git, sha, parents[0])
+      ...pickWorkflows
     ])]
     const drivers = await mergeDrivers(git, parents[0], workflows)
     if (drivers.length > 0) {
-      refuse(`${short(sha)} says it was cherry-picked from ${short(source)} and changes a workflow file, but the .gitattributes of the commit it was picked onto (${short(parents[0])}) give ${describeDrivers(drivers)}. A workflow file must merge with git's own merge: a merge driver such as union can make a conflicting pick look clean by keeping the lines of both sides, a file no reviewed commit had`, REASONS.mergeDriver)
+      // The refusal carries what its way out needs (see pickedWayOut), so
+      // build-candidate's message and the cut's can both name the
+      // .gitattributes file to change.
+      const error = new HotfixRefusal(REASONS.mergeDriver, `${short(sha)} says it was cherry-picked from ${short(source)} and changes a workflow file, but the .gitattributes of the commit it was picked onto (${short(parents[0])}) give ${describeDrivers(drivers)}. A workflow file must merge with git's own merge: a merge driver such as union can make a conflicting pick look clean by keeping the lines of both sides, a file no reviewed commit had`)
+      error.wayOut = { onto: parents[0], source, pickChangesWorkflows: pickWorkflows.length > 0, ...await mergeDriverWayOut(git, parents[0], drivers) }
+      throw error
     }
     const pick = await pickTree(git, { parent: sourceParents[0], commit: source, onto: parents[0] })
     if (!pick.clean || pick.tree !== tree) {
@@ -637,7 +871,7 @@ async function cherryPick (git, { onto, commit, committer }) {
   const result = await git([attrSource(onto), 'cherry-pick', '-x', commit], { env })
   if (result.code !== 0) {
     await git(['cherry-pick', '--abort'])
-    refuseOldGit(result, 'cherry-picking the fix')
+    await refuseOldGit(git, result, 'cherry-picking the fix')
     return ''
   }
   return must(await git(['rev-parse', 'HEAD']), 'reading the cherry-pick').stdout.trim()
@@ -743,7 +977,12 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
       existing = await verifyHotfixCommits({ git, base, head: remoteTip, defaultRef })
     } catch (error) {
       if (!(error instanceof HotfixRefusal)) throw error
-      throw new HotfixRefusal(REASONS.branchNotClean, `${branch} already exists and is not a branch this workflow would cut: ${error.message}. It was left as it is, and nothing was pushed. A person needs to look at it; build-candidate refuses to build it as it is`)
+      // A branch build-candidate refuses for a merge driver gets the same way
+      // out build-candidate's refusal gives, and then this run's fix.
+      const wayOut = error.reason === REASONS.mergeDriver
+        ? `. ${pickedWayOut({ defaultBranch, ...error.wayOut })} Once the branch builds, run this workflow again for ${short(fix)}.`
+        : ''
+      throw new HotfixRefusal(REASONS.branchNotClean, `${branch} already exists and is not a branch this workflow would cut: ${error.message}. It was left as it is, and nothing was pushed. A person needs to look at it; build-candidate refuses to build it as it is${wayOut}`)
     }
     tip = remoteTip
   }
@@ -753,12 +992,13 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
   let head = tip
   if (!already) {
     const pick = await pickTree(git, { parent: fixParents[0], commit: fix, onto: tip })
+    const target = remoteTip ? branch : release
     if (!pick.clean) {
-      const files = pick.conflicts.slice(0, 10).join(', ') + (pick.conflicts.length > 10 ? `, and ${pick.conflicts.length - 10} more` : '')
-      throw new HotfixRefusal(REASONS.conflict, `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} conflicts${files ? ` in ${files}` : ''}. The fix needs a version that applies to ${release}: land one on ${defaultBranch} and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`)
+      const files = fileList(pick.conflicts)
+      throw new HotfixRefusal(REASONS.conflict, `cherry-picking ${short(fix)} onto ${target} conflicts${files ? ` in ${files}` : ''}. The fix needs a version that applies to ${release}: land one on ${defaultBranch} and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`)
     }
     if (pick.tree === await treeOf(git, tip)) {
-      throw new HotfixRefusal(REASONS.alreadyInRelease, `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes nothing: the code there already has this change. Nothing was pushed`)
+      throw new HotfixRefusal(REASONS.alreadyInRelease, `cherry-picking ${short(fix)} onto ${target} changes nothing: the code there already has this change. Nothing was pushed`)
     }
     // This workflow's token never gets the workflow scope, so it never pushes
     // a workflow change. Both diffs are read, as build-candidate reads them: a
@@ -767,22 +1007,53 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
     // known to apply, and says how a person ships the fix by hand, or, when
     // the .gitattributes here name a merge driver for the file (which
     // build-candidate would refuse), what has to land first.
-    const workflows = [...new Set([
-      ...await workflowFilesChanged(git, fix, fixParents[0]),
-      ...await workflowFilesChanged(git, pick.tree, tip)
-    ])]
+    const fixWorkflows = await workflowFilesChanged(git, fix, fixParents[0])
+    const pickWorkflows = await workflowFilesChanged(git, pick.tree, tip)
+    const workflows = [...new Set([...fixWorkflows, ...pickWorkflows])]
     if (workflows.length > 0) {
-      // "Cherry-picking X changes" rather than "X changes": after a rename,
-      // the files the pick changes are not the ones X names.
-      const scope = `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes ${workflows.join(', ')}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get.`
-      const drivers = await mergeDrivers(git, tip, workflows)
-      if (drivers.length > 0) {
-        throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build yet: the .gitattributes on ${remoteTip ? branch : release} give ${describeDrivers(drivers)}, and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, ${ownMergeStep(defaultBranch)}, run this workflow for that commit, then check out ${branch}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, and run the app's ${PIPELINE_WORKFLOW} on ${branch}. Refusing to cut a hotfix. Nothing was pushed`)
-      }
+      // The opening names what the pick changes, which after a rename is not
+      // what the fix names. A pick that lands outside .github/workflows (the
+      // release has the file at another path, or already has that part of
+      // the change) is still refused: the fix changes a workflow file. Its
+      // push would need no workflow scope, so the steps do not ask for one.
+      const scope = pickWorkflows.length > 0
+        ? `cherry-picking ${short(fix)} onto ${target} changes ${pickWorkflows.join(', ')}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get.`
+        : `cherry-picking ${short(fix)} onto ${target} changes ${fileList(await filesChanged(git, pick.tree, tip))}, but ${short(fix)} changes ${fixWorkflows.join(', ')} on ${defaultBranch}. This workflow leaves every fix that changes a workflow file to a person, even one whose pick lands outside .github/workflows.`
       const start = remoteTip
         ? `check out ${branch} (it already exists)`
         : `create ${branch} at ${base} (the commit production runs for ${release})`
-      throw new HotfixRefusal(REASONS.workflowChange, `${scope} A person ships it by hand: ${start}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, then run the app's ${PIPELINE_WORKFLOW} on ${branch}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`)
+      const pushWith = (needsScope) => needsScope ? 'push the branch with a token that has the workflow scope' : 'push the branch'
+      const drivers = await mergeDrivers(git, tip, workflows)
+      if (drivers.length > 0) {
+        const given = `the .gitattributes on ${target} give ${describeDrivers(drivers)}`
+        // The check above merged with that driver, which can make a
+        // conflicting pick look clean. Once the way out gives workflow files
+        // git's own merge, the pick by hand merges them that way, so check
+        // that merge too: the empty tree as the attribute source gives every
+        // file git's own merge. Only conflicts in workflow files count,
+        // because the way out leaves every other file's driver as it is. The
+        // empty tree only replaces the commit's .gitattributes: git still
+        // reads core.attributesFile and the clone's info/attributes, which a
+        // hosted runner does not have.
+        const own = await pickTree(git, { parent: fixParents[0], commit: fix, onto: tip, attributes: EMPTY_TREE })
+        const ownConflicts = own.conflicts.filter((file) => file.startsWith(WORKFLOWS_DIR))
+        if (!own.clean && (ownConflicts.length > 0 || own.conflicts.length === 0)) {
+          const files = fileList(ownConflicts)
+          throw new HotfixRefusal(REASONS.conflict, `cherry-picking ${short(fix)} onto ${target} conflicts${files ? ` in ${files}` : ''} with git's own merge. ${capitalize(given)}, which hides that conflict, but build-candidate builds a workflow change only when it merges with git's own merge. The fix needs a version that applies to ${release}: land one on ${defaultBranch} and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`)
+        }
+        const { sources, blocked } = await mergeDriverWayOut(git, tip, drivers)
+        if (blocked.length > 0) {
+          throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build as it stands: ${given}, and build-candidate builds a workflow change only when it merges with git's own merge. Changing that is a workflow change too: ${blockedWhy(blocked)}. A person needs to look at it. Refusing to cut a hotfix. Nothing was pushed`)
+        }
+        // When the driver is set in a .gitattributes file under
+        // .github/workflows, the commit that changes it is a workflow change
+        // too, so this workflow cannot cut it either.
+        const steps = changesWorkflows(sources)
+          ? `That commit changes a file under .github/workflows as well, so it ships by hand too, before the fix: ${start}, run git cherry-pick -x <that commit>, then git cherry-pick -x ${fix}, ${pushWith(true)}, and run the app's ${PIPELINE_WORKFLOW} on ${branch}.`
+          : `Then run this workflow for that commit, check out ${branch}, run git cherry-pick -x ${fix}, ${pushWith(pickWorkflows.length > 0)}, and run the app's ${PIPELINE_WORKFLOW} on ${branch}.`
+        throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build yet: ${given}, and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, ${ownMergeStep(defaultBranch, sources)} ${steps} Refusing to cut a hotfix. Nothing was pushed`)
+      }
+      throw new HotfixRefusal(REASONS.workflowChange, `${scope} A person ships it by hand: ${start}, run git cherry-pick -x ${fix}, ${pushWith(pickWorkflows.length > 0)}, then run the app's ${PIPELINE_WORKFLOW} on ${branch}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`)
     }
     head = await cherryPick(git, { onto: tip, commit: fix, committer })
     if (!head) {

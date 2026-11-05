@@ -13,7 +13,7 @@ import {
   gitIn,
   hotfixPromoteCheck,
   oneLine,
-  ownMergeStep,
+  pickedWayOut,
   readProductionLedger,
   short,
   verifyHotfixRef
@@ -72,11 +72,15 @@ const repoPath = (input) => path.resolve(process.env.GITHUB_WORKSPACE || '.', in
 // for word, with the reason this hotfix branch does not pass added. A
 // merge-driver refusal ends with its own way out instead of the usual advice:
 // the hotfix workflow refuses a workflow fix, so "cut the hotfix branch with
-// the hotfix workflow" would send the person in a circle.
-export function buildRefusal ({ ref, defaultBranch, why, reason = '' }) {
+// the hotfix workflow" would send the person in a circle. `wayOut` is what
+// that refusal found (see pickedWayOut); without it the way out stays general.
+// When the way out does not work as it stands, the refusal ends by saying a
+// person needs to look at the branch.
+export function buildRefusal ({ ref, defaultBranch, why, reason = '', wayOut = {} }) {
   const opening = `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}.`
   if (reason === REASONS.mergeDriver) {
-    return `${opening} To build it, move the branch back to the commit that pick was made on, ${ownMergeStep(oneLine(defaultBranch))}, cut that commit onto the branch with the hotfix workflow, then cherry-pick the fix onto it again by hand.`
+    const person = wayOut?.blocked?.length > 0 ? ' A person needs to look at it.' : ''
+    return `${opening} ${oneLine(pickedWayOut({ ...wayOut, defaultBranch: oneLine(defaultBranch) }))}${person}`
   }
   return `${opening} Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`
 }
@@ -98,7 +102,7 @@ async function runVerify ({ readLedger }) {
   } catch (error) {
     const refusal = error instanceof HotfixRefusal
     const why = refusal ? error.message : `the check could not finish (${error.message})`
-    refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error.reason : '' }), 'Build Candidate')
+    refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error.reason : '', wayOut: refusal ? error.wayOut : undefined }), 'Build Candidate')
   }
 }
 
