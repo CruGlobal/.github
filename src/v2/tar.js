@@ -197,15 +197,36 @@ export function findInTar (archive, target, { maxBytes = MAX_ENTRY_BYTES } = {})
  * bytes are returned. Order is archive order.
  */
 export function listInTar (archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
+  return listTreeInTar(archive, prefix, { maxBytes }).files
+}
+
+// Typeflags for a hard link and a symbolic link.
+const LINKS = new Set(['1', '2'])
+
+/**
+ * listInTar, plus the links under the prefix that it leaves out.
+ *
+ * Returns `{ files, links }`. `files` is exactly what listInTar returns, and
+ * `links` is `[{ path, name, type }]` for each hard or symbolic link under the
+ * prefix. A caller that must copy a whole tree (a static site) needs to know
+ * about them, because skipping one quietly would leave a file missing from what
+ * it serves.
+ */
+export function listTreeInTar (archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {}) {
   // "/cru/sourcemaps", "cru/sourcemaps" and "cru/sourcemaps/" all mean the same
   // directory. An empty prefix lists the whole archive.
   const base = normalizeTarPath(prefix).replace(/\/+$/, '')
   const dir = base === '' ? '' : `${base}/`
 
   const files = []
+  const links = []
   for (const entry of walkTar(archive)) {
-    if (!REGULAR.has(entry.type)) continue
     if (!entry.path.startsWith(dir)) continue
+    if (LINKS.has(entry.type)) {
+      links.push({ path: entry.path, name: entry.path.slice(dir.length), type: entry.type })
+      continue
+    }
+    if (!REGULAR.has(entry.type)) continue
     files.push({
       path: entry.path,
       name: entry.path.slice(dir.length),
@@ -213,5 +234,5 @@ export function listInTar (archive, prefix, { maxBytes = MAX_ENTRY_BYTES } = {})
       contents: entry.size > maxBytes ? null : readEntry(archive, entry)
     })
   }
-  return files
+  return { files, links }
 }

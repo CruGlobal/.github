@@ -31,7 +31,7 @@ import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { ECRClient, BatchGetImageCommand, GetDownloadUrlForLayerCommand } from '@aws-sdk/client-ecr'
 import { authClient, parseImageRef } from './gcp'
 import { MANIFEST_MEDIA_TYPES, RETRY_CONFIG } from './aws'
-import { findInTar, listInTar } from './tar'
+import { findInTar, listInTar, listTreeInTar } from './tar'
 
 // Manifest media types we can read: both spellings of both formats, plus the
 // multi-platform index/list wrappers buildx emits even for a single platform.
@@ -279,8 +279,9 @@ export const MAX_CACHED_LAYER_BYTES = 512 * 1024 * 1024
  * Works against Artifact Registry and ECR alike — the reference's host picks the
  * transport, and callers never say which.
  *
- * Returns { labels, readFile(path), readDir(prefix) }. Both readers scan layers
- * newest-first, and layers they inflate are cached on the handle — so pass ONE
+ * Returns { labels, readFile(path), readDir(prefix), readTree(prefix) }. The
+ * first two scan layers newest-first and stop at the first hit; readTree reads
+ * every layer. Layers they inflate are cached on the handle, so pass ONE
  * handle to everything that reads the same image rather than opening it twice.
  */
 export async function openImage (imageRef) {
@@ -366,6 +367,61 @@ export async function openImage (imageRef) {
         return files.length > 0 ? files : null
       })
       return found ?? []
+    },
+
+    /**
+     * Everything under `prefix`, read from EVERY layer, for a caller that must
+     * have the whole tree or nothing (a static site, where a missing file is a
+     * broken page). Returns tar.js's `{ files, links }` for the one layer that
+     * has anything there, or empty lists when none does.
+     *
+     * readDir's shortcuts would each lose files without a word here, so each
+     * one is an error instead:
+     *
+     *   - a layer over the blob cap is skipped by readDir, and may hold the
+     *     tree. Here it fails, naming the cap.
+     *   - readDir stops at the newest layer that has the prefix, so files that
+     *     an older COPY put there are never seen. Here a second layer with
+     *     anything under the prefix fails, because overlay order and whiteouts
+     *     are not interpreted and the tree would be a guess.
+     *   - a layer that inflates past MAX_LAYER_BYTES fails, naming the cap,
+     *     rather than surfacing zlib's own message.
+     */
+    async readTree (prefix, { maxBytes } = {}) {
+      const layers = (manifest.layers ?? []).filter(layer => isReadableLayer(layer.mediaType))
+      let found = null
+      for (const [index, layer] of layers.entries()) {
+        const position = `${index + 1}/${layers.length}`
+        if (layer.size > MAX_LAYER_BLOB_BYTES) {
+          throw new Error(
+            `layer ${position} (${layer.digest}) is ${layer.size} bytes, over the ${MAX_LAYER_BLOB_BYTES}-byte limit ` +
+            `the deploy reads, so ${prefix} cannot be read in full`
+          )
+        }
+        let tar
+        try {
+          tar = await layerTar(layer)
+        } catch (error) {
+          if (error?.code !== 'ERR_BUFFER_TOO_LARGE') throw error
+          throw new Error(
+            `layer ${position} (${layer.digest}) is over ${MAX_LAYER_BYTES} bytes once inflated, so ${prefix} ` +
+            'cannot be read in full',
+            { cause: error }
+          )
+        }
+        const tree = listTreeInTar(tar, prefix, maxBytes === undefined ? {} : { maxBytes })
+        if (tree.files.length === 0 && tree.links.length === 0) continue
+        if (found) {
+          throw new Error(
+            `${prefix} has files in more than one layer (${found.position} and ${position}). Put the whole tree ` +
+            'there in one COPY, so the image holds it in one layer'
+          )
+        }
+        found = { position, layer, tree }
+      }
+      if (!found) return { files: [], links: [] }
+      core.info(`found ${prefix} in layer ${found.position} (${found.layer.digest})`)
+      return found.tree
     }
   }
 }
