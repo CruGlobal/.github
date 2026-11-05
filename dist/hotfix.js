@@ -1068,14 +1068,14 @@ var require_util = __commonJS({
         }
         const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
         let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-        let path2 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+        let path3 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
         if (origin[origin.length - 1] === "/") {
           origin = origin.slice(0, origin.length - 1);
         }
-        if (path2 && path2[0] !== "/") {
-          path2 = `/${path2}`;
+        if (path3 && path3[0] !== "/") {
+          path3 = `/${path3}`;
         }
-        return new URL(`${origin}${path2}`);
+        return new URL(`${origin}${path3}`);
       }
       if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
         throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -1526,39 +1526,39 @@ var require_diagnostics = __commonJS({
       });
       diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
         const {
-          request: { method, path: path2, origin }
+          request: { method, path: path3, origin }
         } = evt;
-        debuglog("sending request to %s %s/%s", method, origin, path2);
+        debuglog("sending request to %s %s/%s", method, origin, path3);
       });
       diagnosticsChannel.channel("undici:request:headers").subscribe((evt) => {
         const {
-          request: { method, path: path2, origin },
+          request: { method, path: path3, origin },
           response: { statusCode }
         } = evt;
         debuglog(
           "received response to %s %s/%s - HTTP %d",
           method,
           origin,
-          path2,
+          path3,
           statusCode
         );
       });
       diagnosticsChannel.channel("undici:request:trailers").subscribe((evt) => {
         const {
-          request: { method, path: path2, origin }
+          request: { method, path: path3, origin }
         } = evt;
-        debuglog("trailers received from %s %s/%s", method, origin, path2);
+        debuglog("trailers received from %s %s/%s", method, origin, path3);
       });
       diagnosticsChannel.channel("undici:request:error").subscribe((evt) => {
         const {
-          request: { method, path: path2, origin },
+          request: { method, path: path3, origin },
           error: error2
         } = evt;
         debuglog(
           "request to %s %s/%s errored - %s",
           method,
           origin,
-          path2,
+          path3,
           error2.message
         );
       });
@@ -1607,9 +1607,9 @@ var require_diagnostics = __commonJS({
         });
         diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
           const {
-            request: { method, path: path2, origin }
+            request: { method, path: path3, origin }
           } = evt;
-          debuglog("sending request to %s %s/%s", method, origin, path2);
+          debuglog("sending request to %s %s/%s", method, origin, path3);
         });
       }
       diagnosticsChannel.channel("undici:websocket:open").subscribe((evt) => {
@@ -1672,7 +1672,7 @@ var require_request = __commonJS({
     var kHandler = /* @__PURE__ */ Symbol("handler");
     var Request = class {
       constructor(origin, {
-        path: path2,
+        path: path3,
         method,
         body,
         headers,
@@ -1687,11 +1687,11 @@ var require_request = __commonJS({
         expectContinue,
         servername
       }, handler2) {
-        if (typeof path2 !== "string") {
+        if (typeof path3 !== "string") {
           throw new InvalidArgumentError("path must be a string");
-        } else if (path2[0] !== "/" && !(path2.startsWith("http://") || path2.startsWith("https://")) && method !== "CONNECT") {
+        } else if (path3[0] !== "/" && !(path3.startsWith("http://") || path3.startsWith("https://")) && method !== "CONNECT") {
           throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-        } else if (invalidPathRegex.test(path2)) {
+        } else if (invalidPathRegex.test(path3)) {
           throw new InvalidArgumentError("invalid request path");
         }
         if (typeof method !== "string") {
@@ -1757,7 +1757,7 @@ var require_request = __commonJS({
         this.completed = false;
         this.aborted = false;
         this.upgrade = upgrade || null;
-        this.path = query ? buildURL(path2, query) : path2;
+        this.path = query ? buildURL(path3, query) : path3;
         this.origin = origin;
         this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
         this.blocking = blocking == null ? false : blocking;
@@ -6450,7 +6450,7 @@ var require_client_h1 = __commonJS({
       return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
     }
     function writeH1(client, request2) {
-      const { method, path: path2, host, upgrade, blocking, reset } = request2;
+      const { method, path: path3, host, upgrade, blocking, reset } = request2;
       let { body, headers, contentLength } = request2;
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
       if (util.isFormDataLike(body)) {
@@ -6531,7 +6531,7 @@ var require_client_h1 = __commonJS({
       if (blocking) {
         socket[kBlocking] = true;
       }
-      let header = `${method} ${path2} HTTP/1.1\r
+      let header = `${method} ${path3} HTTP/1.1\r
 `;
       if (typeof host === "string") {
         header += `host: ${host}\r
@@ -7060,7 +7060,7 @@ var require_client_h2 = __commonJS({
     }
     function writeH2(client, request2) {
       const session = client[kHTTP2Session];
-      const { method, path: path2, host, upgrade, expectContinue, signal, headers: reqHeaders } = request2;
+      const { method, path: path3, host, upgrade, expectContinue, signal, headers: reqHeaders } = request2;
       let { body } = request2;
       if (upgrade) {
         util.errorRequest(client, request2, new Error("Upgrade not supported for H2"));
@@ -7157,7 +7157,7 @@ var require_client_h2 = __commonJS({
         });
         return true;
       }
-      headers[HTTP2_HEADER_PATH] = path2;
+      headers[HTTP2_HEADER_PATH] = path3;
       headers[HTTP2_HEADER_SCHEME] = "https";
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
       if (body && typeof body.read === "function") {
@@ -7510,9 +7510,9 @@ var require_redirect_handler = __commonJS({
           return this.handler.onHeaders(statusCode, headers, resume, statusText);
         }
         const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-        const path2 = search ? `${pathname}${search}` : pathname;
+        const path3 = search ? `${pathname}${search}` : pathname;
         this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-        this.opts.path = path2;
+        this.opts.path = path3;
         this.opts.origin = origin;
         this.opts.maxRedirections = 0;
         this.opts.query = null;
@@ -8751,10 +8751,10 @@ var require_proxy_agent = __commonJS({
         };
         const {
           origin,
-          path: path2 = "/",
+          path: path3 = "/",
           headers = {}
         } = opts;
-        opts.path = origin + path2;
+        opts.path = origin + path3;
         if (!("host" in headers) && !("Host" in headers)) {
           const { host } = new URL2(origin);
           headers.host = host;
@@ -10726,20 +10726,20 @@ var require_mock_utils = __commonJS({
       }
       return true;
     }
-    function safeUrl(path2) {
-      if (typeof path2 !== "string") {
-        return path2;
+    function safeUrl(path3) {
+      if (typeof path3 !== "string") {
+        return path3;
       }
-      const pathSegments = path2.split("?");
+      const pathSegments = path3.split("?");
       if (pathSegments.length !== 2) {
-        return path2;
+        return path3;
       }
       const qp = new URLSearchParams(pathSegments.pop());
       qp.sort();
       return [...pathSegments, qp.toString()].join("?");
     }
-    function matchKey(mockDispatch2, { path: path2, method, body, headers }) {
-      const pathMatch = matchValue(mockDispatch2.path, path2);
+    function matchKey(mockDispatch2, { path: path3, method, body, headers }) {
+      const pathMatch = matchValue(mockDispatch2.path, path3);
       const methodMatch = matchValue(mockDispatch2.method, method);
       const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
       const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -10761,7 +10761,7 @@ var require_mock_utils = __commonJS({
     function getMockDispatch(mockDispatches, key) {
       const basePath = key.query ? buildURL(key.path, key.query) : key.path;
       const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
-      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path2 }) => matchValue(safeUrl(path2), resolvedPath));
+      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path3 }) => matchValue(safeUrl(path3), resolvedPath));
       if (matchedMockDispatches.length === 0) {
         throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
       }
@@ -10799,9 +10799,9 @@ var require_mock_utils = __commonJS({
       }
     }
     function buildKey(opts) {
-      const { path: path2, method, body, headers, query } = opts;
+      const { path: path3, method, body, headers, query } = opts;
       return {
-        path: path2,
+        path: path3,
         method,
         body,
         headers,
@@ -11264,10 +11264,10 @@ var require_pending_interceptors_formatter = __commonJS({
       }
       format(pendingInterceptors) {
         const withPrettyHeaders = pendingInterceptors.map(
-          ({ method, path: path2, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+          ({ method, path: path3, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
             Method: method,
             Origin: origin,
-            Path: path2,
+            Path: path3,
             "Status code": statusCode,
             Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
             Invocations: timesInvoked,
@@ -16146,9 +16146,9 @@ var require_util6 = __commonJS({
         }
       }
     }
-    function validateCookiePath(path2) {
-      for (let i = 0; i < path2.length; ++i) {
-        const code = path2.charCodeAt(i);
+    function validateCookiePath(path3) {
+      for (let i = 0; i < path3.length; ++i) {
+        const code = path3.charCodeAt(i);
         if (code < 32 || // exclude CTLs (0-31)
         code > 126 || // exclude DEL and non-ascii
         code === 59) {
@@ -19068,11 +19068,11 @@ var require_undici = __commonJS({
           if (typeof opts.path !== "string") {
             throw new InvalidArgumentError("invalid opts.path");
           }
-          let path2 = opts.path;
+          let path3 = opts.path;
           if (!opts.path.startsWith("/")) {
-            path2 = `/${path2}`;
+            path3 = `/${path3}`;
           }
-          url = new URL(util.parseOrigin(url).origin + path2);
+          url = new URL(util.parseOrigin(url).origin + path3);
         } else {
           if (!opts) {
             opts = typeof url === "object" ? url : {};
@@ -20559,8 +20559,8 @@ var Context = class {
       if ((0, import_fs2.existsSync)(process.env.GITHUB_EVENT_PATH)) {
         this.payload = JSON.parse((0, import_fs2.readFileSync)(process.env.GITHUB_EVENT_PATH, { encoding: "utf8" }));
       } else {
-        const path2 = process.env.GITHUB_EVENT_PATH;
-        process.stdout.write(`GITHUB_EVENT_PATH ${path2} does not exist${import_os3.EOL}`);
+        const path3 = process.env.GITHUB_EVENT_PATH;
+        process.stdout.write(`GITHUB_EVENT_PATH ${path3} does not exist${import_os3.EOL}`);
       }
     }
     this.eventName = process.env.GITHUB_EVENT_NAME;
@@ -24291,7 +24291,7 @@ function getOctokit(token, options, ...additionalPlugins) {
 }
 
 // src/hotfix.js
-var import_node_path = __toESM(require("node:path"));
+var import_node_path2 = __toESM(require("node:path"));
 
 // src/v2/attempt-guard.js
 var AUTHORIZED_ATTEMPT_MARKER = "CRU_V2_AUTHORIZED_ATTEMPT";
@@ -24345,6 +24345,9 @@ function shaFromTags(imageTags) {
 
 // src/v2/hotfix.js
 var import_node_child_process = require("node:child_process");
+var import_node_fs = require("node:fs");
+var import_node_os = require("node:os");
+var import_node_path = __toESM(require("node:path"));
 
 // src/v2/deadline.js
 function deadlineRequests({ deadlineMs, timeoutMs = 1e4, now = Date.now }) {
@@ -24555,35 +24558,73 @@ async function treeOf(git, sha) {
   return must(await git(["rev-parse", `${sha}^{tree}`]), `reading the tree of ${short(sha)}`).stdout.trim();
 }
 var attrSource = (onto) => `--attr-source=${onto}`;
-function refuseOldGit(result, what) {
-  const killed = result.code === null && Boolean(result.signal);
-  if (result.code === 129 || /unknown option/i.test(result.stderr) || killed) {
-    const happened = killed ? `this runner's git was killed by ${result.signal}` : `this runner's git refused the command (${result.stderr.trim().split("\n")[0]})`;
-    throw new Error(`${what} needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree), and ${happened}; refusing rather than checking with the checkout's .gitattributes`);
+var EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+var CRASH_SIGNALS = /* @__PURE__ */ new Set(["SIGSEGV", "SIGABRT"]);
+var STOPPED_BY = {
+  SIGKILL: "the runner may have run out of memory, or the run was cancelled",
+  SIGTERM: "the run was cancelled, or the runner is shutting down",
+  SIGINT: "the run was cancelled"
+};
+async function gitVersion(git) {
+  try {
+    const result = await git(["version"]);
+    const match = result.code === 0 ? result.stdout.match(/git version ((\d+)\.(\d+)[0-9.]*)/) : null;
+    return match ? { text: match[1], major: Number(match[2]), minor: Number(match[3]) } : null;
+  } catch {
+    return null;
   }
 }
-async function pickTree(git, { parent, commit, onto }) {
-  const result = await git([attrSource(onto), "merge-tree", "--write-tree", "--name-only", "--no-messages", `--merge-base=${parent}`, onto, commit]);
-  const lines = result.stdout.split("\n").filter(Boolean);
-  if (result.code === 0) return { clean: true, tree: lines[0] ?? "", conflicts: [] };
-  if (result.code === 1) return { clean: false, tree: lines[0] ?? "", conflicts: lines.slice(1) };
-  refuseOldGit(result, "checking a cherry-pick");
+async function refuseOldGit(git, result, what) {
+  const signal = result.code === null ? result.signal : null;
+  const needs = `${what} needs git 2.43 or later (git 2.40 and older refuse --attr-source, and 2.41 and 2.42 crash using it in merge-tree)`;
+  const refusing = "refusing rather than checking with the checkout's .gitattributes";
+  if (result.code === 129 || /unknown option/i.test(result.stderr)) {
+    throw new Error(`${needs}, and this runner's git refused the command (${result.stderr.trim().split("\n")[0]}); ${refusing}`);
+  }
+  if (CRASH_SIGNALS.has(signal)) {
+    const version = await gitVersion(git);
+    if (!version) {
+      throw new Error(`${needs}, and this runner's git crashed with ${signal}, and its version could not be read; ${refusing}`);
+    }
+    if (version.major < 2 || version.major === 2 && version.minor < 43) {
+      throw new Error(`${needs}, and this runner's git ${version.text} crashed with ${signal}; ${refusing}`);
+    }
+    throw new Error(`${what} did not finish: this runner's git ${version.text} crashed with ${signal}. It is not too old for the check (that needs 2.43 or later), so the crash has another cause; ${refusing}`);
+  }
+  if (signal) {
+    const why = STOPPED_BY[signal];
+    throw new Error(`${what} did not finish: this runner's git was killed by ${signal}${why ? ` (${why})` : ""}`);
+  }
+}
+async function pickTree(git, { parent, commit, onto, attributes = onto }) {
+  const result = await git([attrSource(attributes), "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", `--merge-base=${parent}`, onto, commit]);
+  const fields = result.stdout.split("\0").filter(Boolean);
+  if (result.code === 0) return { clean: true, tree: fields[0] ?? "", conflicts: [] };
+  if (result.code === 1) return { clean: false, tree: fields[0] ?? "", conflicts: fields.slice(1) };
+  await refuseOldGit(git, result, "checking a cherry-pick");
   must(result, `applying ${short(commit)} to ${short(onto)} (git merge-tree)`);
 }
 async function firstParentHistory(git, ref) {
   const result = must(await git(["rev-list", "--first-parent", ref]), `listing ${ref}'s first-parent history`);
   return new Set(result.stdout.split("\n").map((line) => line.trim()).filter(Boolean));
 }
-async function workflowFilesChanged(git, sha, parent) {
+async function filesChanged(git, sha, parent) {
   const result = must(await git(["diff-tree", "-r", "-z", "--no-renames", "--name-only", "--no-commit-id", parent, sha]), `listing the files ${short(sha)} changes`);
-  return result.stdout.split("\0").filter((file) => file.startsWith(WORKFLOWS_DIR));
+  return result.stdout.split("\0").filter(Boolean);
+}
+async function workflowFilesChanged(git, sha, parent) {
+  return (await filesChanged(git, sha, parent)).filter((file) => file.startsWith(WORKFLOWS_DIR));
+}
+var fileList = (files) => files.slice(0, 10).join(", ") + (files.length > 10 ? `, and ${files.length - 10} more` : "");
+function inWords(items) {
+  return items.length < 3 ? items.join(" and ") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 var OWN_MERGE = /* @__PURE__ */ new Set(["unspecified", "set", "text"]);
 async function mergeDrivers(git, onto, files) {
   if (files.length === 0) return [];
   const result = await git([attrSource(onto), "check-attr", "-z", "merge", "--", ...files]);
   if (result.code !== 0) {
-    refuseOldGit(result, "checking how a workflow file merges");
+    await refuseOldGit(git, result, "checking how a workflow file merges");
     must(result, `reading the merge attribute of ${files.join(", ")} at ${short(onto)}`);
   }
   const fields = result.stdout.split("\0");
@@ -24599,8 +24640,94 @@ async function mergeDrivers(git, onto, files) {
   return drivers;
 }
 var describeDrivers = (drivers) => drivers.map(({ file, driver }) => `${file} (merge attribute: ${driver})`).join(", ");
-function ownMergeStep(defaultBranch) {
-  return `land a commit on ${defaultBranch} that gives workflow files git's own merge (for example a \`.github/workflows/** merge\` line after the line that sets the driver)`;
+function ownMergeLine(folder) {
+  return folder.startsWith(WORKFLOWS_DIR) ? "* merge" : `${WORKFLOWS_DIR.slice(folder.length)}** merge`;
+}
+async function attributesTree(git, scratch, entries, changed, line) {
+  const text = must(await git(["cat-file", "blob", changed.sha]), `reading ${changed.path}`).stdout;
+  const file = import_node_path.default.join(scratch, "gitattributes");
+  (0, import_node_fs.writeFileSync)(file, `${text}${text === "" || text.endsWith("\n") ? "" : "\n"}${line}
+`);
+  const blob = must(await git(["hash-object", "-w", "--no-filters", "--", file]), "writing a .gitattributes file to try").stdout.trim();
+  const env = { GIT_INDEX_FILE: import_node_path.default.join(scratch, "index") };
+  const scratchGit = (args) => git(["-c", "core.splitIndex=false", ...args], { env });
+  must(await scratchGit(["read-tree", "--empty"]), "starting a scratch index");
+  const add = entries.flatMap((entry) => entry === changed ? ["--cacheinfo", "100644", blob, entry.path] : ["--cacheinfo", entry.mode, entry.sha, entry.path]);
+  must(await scratchGit(["update-index", "--add", ...add]), "filling a scratch index");
+  return must(await scratchGit(["write-tree"]), "writing a scratch tree").stdout.trim();
+}
+async function driverSources(git, onto, files) {
+  const folders = /* @__PURE__ */ new Set([""]);
+  for (const file of files) {
+    const parts = file.split("/");
+    for (let i = 1; i < parts.length; i++) folders.add(`${parts.slice(0, i).join("/")}/`);
+  }
+  const wanted = new Set([...folders].map((folder) => `${folder}.gitattributes`));
+  let scratch = "";
+  try {
+    if ((await mergeDrivers(git, EMPTY_TREE, files)).length > 0) return null;
+    const listed = must(await git(["--literal-pathspecs", "ls-tree", "-r", "-z", onto, "--", ...wanted]), `listing the .gitattributes files at ${short(onto)}`);
+    const entries = listed.stdout.split("\0").filter(Boolean).map((record) => {
+      const tab = record.indexOf("	");
+      const [mode, type, sha] = record.slice(0, tab).split(" ");
+      return { mode, type, sha, path: record.slice(tab + 1) };
+    }).filter((entry) => wanted.has(entry.path));
+    const depth = (file) => file.split("/").length;
+    const candidates = entries.filter((entry) => entry.type === "blob" && (entry.mode === "100644" || entry.mode === "100755")).sort((a, b) => depth(a.path) - depth(b.path));
+    scratch = (0, import_node_fs.mkdtempSync)(import_node_path.default.join((0, import_node_os.tmpdir)(), "hotfix-attributes-"));
+    let left = [...files];
+    const sources = [];
+    for (const candidate of candidates) {
+      const folder = candidate.path.slice(0, -".gitattributes".length);
+      const under = left.filter((file) => file.startsWith(folder));
+      if (under.length === 0) continue;
+      const line = ownMergeLine(folder);
+      const tree = await attributesTree(git, scratch, entries, candidate, line);
+      const still = new Set((await mergeDrivers(git, tree, under)).map(({ file }) => file));
+      if (still.size === under.length) continue;
+      sources.push({ file: candidate.path, line });
+      left = left.filter((file) => !under.includes(file) || still.has(file));
+    }
+    return left.length === 0 ? sources : null;
+  } catch {
+    return null;
+  } finally {
+    if (scratch) (0, import_node_fs.rmSync)(scratch, { recursive: true, force: true });
+  }
+}
+async function mergeDriverWayOut(git, onto, drivers) {
+  const sources = await driverSources(git, onto, drivers.map(({ file }) => file));
+  const inWorkflows = (sources ?? []).map(({ file }) => file).filter((file) => file.startsWith(WORKFLOWS_DIR));
+  if (inWorkflows.length === 0) return { sources, blocked: [] };
+  try {
+    return { sources, blocked: await mergeDrivers(git, onto, inWorkflows) };
+  } catch {
+    return { sources: null, blocked: [] };
+  }
+}
+var changesWorkflows = (sources) => (sources ?? []).some(({ file }) => file.startsWith(WORKFLOWS_DIR));
+function blockedWhy(blocked) {
+  const one = blocked.length === 1;
+  const drivers = one ? `merge attribute: ${blocked[0].driver}` : blocked.map(({ file, driver }) => `${file}: ${driver}`).join(", ");
+  return `the driver is set in ${inWords(blocked.map(({ file }) => file))}, which ${one ? "is" : "are"} under .github/workflows too, and the .gitattributes there give ${one ? "it" : "them"} a driver as well (${drivers}), so build-candidate would refuse a pick that changes ${one ? "it" : "them"} for the same reason`;
+}
+function ownMergeStep(defaultBranch, sources = null) {
+  const land = `land a commit on ${defaultBranch} that gives workflow files git's own merge.`;
+  if (!sources || sources.length === 0) {
+    return `${land} That takes a \`merge\` line for them at the end of the .gitattributes file that sets the driver, with its pattern written from that file's folder (in the top-level .gitattributes, \`.github/workflows/** merge\`).`;
+  }
+  return `${land} The driver is set in ${inWords(sources.map(({ file }) => file))}, so add ${inWords(sources.map(({ file, line }) => `a \`${line}\` line at the end of ${file}`))}.`;
+}
+function pickedWayOut({ defaultBranch, onto = "", source = "", sources = null, blocked = [], pickChangesWorkflows = true } = {}) {
+  if (blocked.length > 0) {
+    return `The way past a merge driver is to move the branch back to before that pick and give workflow files git's own merge first, but as it stands that does not work: ${blockedWhy(blocked)}.`;
+  }
+  const back = `move the branch back to ${onto ? `${short(onto)}, ` : ""}the commit that pick was made on. That takes a force push, and it also drops every pick made after that one`;
+  const byHand = changesWorkflows(sources);
+  const pick = `git cherry-pick -x ${source || "<the fix>"}`;
+  const push = byHand || pickChangesWorkflows ? "push the branch with a token that has the workflow scope" : "push the branch";
+  const steps = byHand ? `That commit changes a file under .github/workflows too, so the hotfix workflow refuses it as well: check out the branch, run git cherry-pick -x <that commit>, then ${pick}, ${push}, and run the app's ${PIPELINE_WORKFLOW} on it.` : `Cut that commit onto the branch with the hotfix workflow, then check out the branch, run ${pick}, ${push}, and run the app's ${PIPELINE_WORKFLOW} on it.`;
+  return `To build it, ${back}. Then ${ownMergeStep(defaultBranch, sources)} ${steps} Pick again any later fixes the force push dropped.`;
 }
 async function rangeCommits(git, base, head) {
   const result = must(await git(["rev-list", "--reverse", "--topo-order", "--parents", `${base}..${head}`]), `listing the commits after ${short(base)}`);
@@ -24656,13 +24783,16 @@ async function verifyHotfixCommits({ git, base, head, defaultRef }) {
     if (tree === await treeOf(git, parents[0])) {
       refuse2(`${short(sha)} says it was cherry-picked from ${short(source)}, but it changes nothing: that change is already in the code it was picked onto`, REASONS.alreadyInRelease);
     }
+    const pickWorkflows = await workflowFilesChanged(git, sha, parents[0]);
     const workflows = [.../* @__PURE__ */ new Set([
       ...await workflowFilesChanged(git, source, sourceParents[0]),
-      ...await workflowFilesChanged(git, sha, parents[0])
+      ...pickWorkflows
     ])];
     const drivers = await mergeDrivers(git, parents[0], workflows);
     if (drivers.length > 0) {
-      refuse2(`${short(sha)} says it was cherry-picked from ${short(source)} and changes a workflow file, but the .gitattributes of the commit it was picked onto (${short(parents[0])}) give ${describeDrivers(drivers)}. A workflow file must merge with git's own merge: a merge driver such as union can make a conflicting pick look clean by keeping the lines of both sides, a file no reviewed commit had`, REASONS.mergeDriver);
+      const error2 = new HotfixRefusal(REASONS.mergeDriver, `${short(sha)} says it was cherry-picked from ${short(source)} and changes a workflow file, but the .gitattributes of the commit it was picked onto (${short(parents[0])}) give ${describeDrivers(drivers)}. A workflow file must merge with git's own merge: a merge driver such as union can make a conflicting pick look clean by keeping the lines of both sides, a file no reviewed commit had`);
+      error2.wayOut = { onto: parents[0], source, pickChangesWorkflows: pickWorkflows.length > 0, ...await mergeDriverWayOut(git, parents[0], drivers) };
+      throw error2;
     }
     const pick = await pickTree(git, { parent: sourceParents[0], commit: source, onto: parents[0] });
     if (!pick.clean || pick.tree !== tree) {
@@ -24734,7 +24864,7 @@ async function cherryPick(git, { onto, commit, committer }) {
   const result = await git([attrSource(onto), "cherry-pick", "-x", commit], { env });
   if (result.code !== 0) {
     await git(["cherry-pick", "--abort"]);
-    refuseOldGit(result, "cherry-picking the fix");
+    await refuseOldGit(git, result, "cherry-picking the fix");
     return "";
   }
   return must(await git(["rev-parse", "HEAD"]), "reading the cherry-pick").stdout.trim();
@@ -24808,7 +24938,8 @@ async function cutHotfix({ git, project, commit, expectedRelease, readLedger, pu
       existing = await verifyHotfixCommits({ git, base, head: remoteTip, defaultRef });
     } catch (error2) {
       if (!(error2 instanceof HotfixRefusal)) throw error2;
-      throw new HotfixRefusal(REASONS.branchNotClean, `${branch} already exists and is not a branch this workflow would cut: ${error2.message}. It was left as it is, and nothing was pushed. A person needs to look at it; build-candidate refuses to build it as it is`);
+      const wayOut = error2.reason === REASONS.mergeDriver ? `. ${pickedWayOut({ defaultBranch, ...error2.wayOut })} Once the branch builds, run this workflow again for ${short(fix)}.` : "";
+      throw new HotfixRefusal(REASONS.branchNotClean, `${branch} already exists and is not a branch this workflow would cut: ${error2.message}. It was left as it is, and nothing was pushed. A person needs to look at it; build-candidate refuses to build it as it is${wayOut}`);
     }
     tip = remoteTip;
   }
@@ -24816,25 +24947,38 @@ async function cutHotfix({ git, project, commit, expectedRelease, readLedger, pu
   let head = tip;
   if (!already) {
     const pick = await pickTree(git, { parent: fixParents[0], commit: fix, onto: tip });
+    const target = remoteTip ? branch : release;
     if (!pick.clean) {
-      const files = pick.conflicts.slice(0, 10).join(", ") + (pick.conflicts.length > 10 ? `, and ${pick.conflicts.length - 10} more` : "");
-      throw new HotfixRefusal(REASONS.conflict, `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} conflicts${files ? ` in ${files}` : ""}. The fix needs a version that applies to ${release}: land one on ${defaultBranch} and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`);
+      const files = fileList(pick.conflicts);
+      throw new HotfixRefusal(REASONS.conflict, `cherry-picking ${short(fix)} onto ${target} conflicts${files ? ` in ${files}` : ""}. The fix needs a version that applies to ${release}: land one on ${defaultBranch} and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`);
     }
     if (pick.tree === await treeOf(git, tip)) {
-      throw new HotfixRefusal(REASONS.alreadyInRelease, `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes nothing: the code there already has this change. Nothing was pushed`);
+      throw new HotfixRefusal(REASONS.alreadyInRelease, `cherry-picking ${short(fix)} onto ${target} changes nothing: the code there already has this change. Nothing was pushed`);
     }
-    const workflows = [.../* @__PURE__ */ new Set([
-      ...await workflowFilesChanged(git, fix, fixParents[0]),
-      ...await workflowFilesChanged(git, pick.tree, tip)
-    ])];
+    const fixWorkflows = await workflowFilesChanged(git, fix, fixParents[0]);
+    const pickWorkflows = await workflowFilesChanged(git, pick.tree, tip);
+    const workflows = [.../* @__PURE__ */ new Set([...fixWorkflows, ...pickWorkflows])];
     if (workflows.length > 0) {
-      const scope = `cherry-picking ${short(fix)} onto ${remoteTip ? branch : release} changes ${workflows.join(", ")}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get.`;
+      const scope = pickWorkflows.length > 0 ? `cherry-picking ${short(fix)} onto ${target} changes ${pickWorkflows.join(", ")}. This workflow never pushes a change to a workflow file: that needs the workflow scope, which its token does not get.` : `cherry-picking ${short(fix)} onto ${target} changes ${fileList(await filesChanged(git, pick.tree, tip))}, but ${short(fix)} changes ${fixWorkflows.join(", ")} on ${defaultBranch}. This workflow leaves every fix that changes a workflow file to a person, even one whose pick lands outside .github/workflows.`;
+      const start = remoteTip ? `check out ${branch} (it already exists)` : `create ${branch} at ${base} (the commit production runs for ${release})`;
+      const pushWith = (needsScope) => needsScope ? "push the branch with a token that has the workflow scope" : "push the branch";
       const drivers = await mergeDrivers(git, tip, workflows);
       if (drivers.length > 0) {
-        throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build yet: the .gitattributes on ${remoteTip ? branch : release} give ${describeDrivers(drivers)}, and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, ${ownMergeStep(defaultBranch)}, run this workflow for that commit, then check out ${branch}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, and run the app's ${PIPELINE_WORKFLOW} on ${branch}. Refusing to cut a hotfix. Nothing was pushed`);
+        const given = `the .gitattributes on ${target} give ${describeDrivers(drivers)}`;
+        const own = await pickTree(git, { parent: fixParents[0], commit: fix, onto: tip, attributes: EMPTY_TREE });
+        const ownConflicts = own.conflicts.filter((file) => file.startsWith(WORKFLOWS_DIR));
+        if (!own.clean && (ownConflicts.length > 0 || own.conflicts.length === 0)) {
+          const files = fileList(ownConflicts);
+          throw new HotfixRefusal(REASONS.conflict, `cherry-picking ${short(fix)} onto ${target} conflicts${files ? ` in ${files}` : ""} with git's own merge. ${capitalize(given)}, which hides that conflict, but build-candidate builds a workflow change only when it merges with git's own merge. The fix needs a version that applies to ${release}: land one on ${defaultBranch} and hotfix that commit instead; refusing to cut a hotfix. Nothing was pushed`);
+        }
+        const { sources, blocked } = await mergeDriverWayOut(git, tip, drivers);
+        if (blocked.length > 0) {
+          throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build as it stands: ${given}, and build-candidate builds a workflow change only when it merges with git's own merge. Changing that is a workflow change too: ${blockedWhy(blocked)}. A person needs to look at it. Refusing to cut a hotfix. Nothing was pushed`);
+        }
+        const steps = changesWorkflows(sources) ? `That commit changes a file under .github/workflows as well, so it ships by hand too, before the fix: ${start}, run git cherry-pick -x <that commit>, then git cherry-pick -x ${fix}, ${pushWith(true)}, and run the app's ${PIPELINE_WORKFLOW} on ${branch}.` : `Then run this workflow for that commit, check out ${branch}, run git cherry-pick -x ${fix}, ${pushWith(pickWorkflows.length > 0)}, and run the app's ${PIPELINE_WORKFLOW} on ${branch}.`;
+        throw new HotfixRefusal(REASONS.workflowChange, `${scope} Shipping it by hand would not build yet: ${given}, and build-candidate builds a workflow change only when it merges with git's own merge. To ship it, ${ownMergeStep(defaultBranch, sources)} ${steps} Refusing to cut a hotfix. Nothing was pushed`);
       }
-      const start = remoteTip ? `check out ${branch} (it already exists)` : `create ${branch} at ${base} (the commit production runs for ${release})`;
-      throw new HotfixRefusal(REASONS.workflowChange, `${scope} A person ships it by hand: ${start}, run git cherry-pick -x ${fix}, push the branch with a token that has the workflow scope, then run the app's ${PIPELINE_WORKFLOW} on ${branch}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`);
+      throw new HotfixRefusal(REASONS.workflowChange, `${scope} A person ships it by hand: ${start}, run git cherry-pick -x ${fix}, ${pushWith(pickWorkflows.length > 0)}, then run the app's ${PIPELINE_WORKFLOW} on ${branch}; build-candidate builds it. Refusing to cut a hotfix. Nothing was pushed`);
     }
     head = await cherryPick(git, { onto: tip, commit: fix, committer });
     if (!head) {
@@ -25044,11 +25188,12 @@ async function writeSummary(lines) {
     info(`could not write the run summary (${error2.message})`);
   }
 }
-var repoPath = (input) => import_node_path.default.resolve(process.env.GITHUB_WORKSPACE || ".", input || ".");
-function buildRefusal({ ref, defaultBranch, why, reason = "" }) {
+var repoPath = (input) => import_node_path2.default.resolve(process.env.GITHUB_WORKSPACE || ".", input || ".");
+function buildRefusal({ ref, defaultBranch, why, reason = "", wayOut = {} }) {
   const opening = `candidates build from the default branch only -- ${oneLine(ref)} is not refs/heads/${oneLine(defaultBranch)}, and it is not a hotfix branch this pipeline can build: ${oneLine(why)}.`;
   if (reason === REASONS.mergeDriver) {
-    return `${opening} To build it, move the branch back to the commit that pick was made on, ${ownMergeStep(oneLine(defaultBranch))}, cut that commit onto the branch with the hotfix workflow, then cherry-pick the fix onto it again by hand.`;
+    const person = wayOut?.blocked?.length > 0 ? " A person needs to look at it." : "";
+    return `${opening} ${oneLine(pickedWayOut({ ...wayOut, defaultBranch: oneLine(defaultBranch) }))}${person}`;
   }
   return `${opening} Merge the change to ${oneLine(defaultBranch)}, then dispatch, or cut the hotfix branch with the hotfix workflow.`;
 }
@@ -25069,7 +25214,7 @@ async function runVerify({ readLedger }) {
   } catch (error2) {
     const refusal = error2 instanceof HotfixRefusal;
     const why = refusal ? error2.message : `the check could not finish (${error2.message})`;
-    refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error2.reason : "" }), "Build Candidate");
+    refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error2.reason : "", wayOut: refusal ? error2.wayOut : void 0 }), "Build Candidate");
   }
 }
 async function runCut({ env, readLedger }) {
