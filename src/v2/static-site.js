@@ -24,10 +24,14 @@ import { legacyEnvironment } from './env'
 // original source to anyone who opens the browser's dev tools, and for most
 // sites that source is not public, so serving them is something a site asks
 // for in its own build. The label travels with the image, so a promote or a
-// rollback serves exactly what that build chose, with nothing to set anywhere
-// else. With it, each map goes up at its own path, next to the file it maps,
-// so a bundle's relative sourceMappingURL finds it. The maps under
-// /cru/sourcemaps go to the error tracker either way.
+// rollback uploads the maps exactly when that build chose to, with nothing to
+// set anywhere else. With it, each map goes up at its own path, next to the
+// file it maps, so a bundle's relative sourceMappingURL finds it. The maps
+// under /cru/sourcemaps go to the error tracker either way.
+//
+// Nothing is ever deleted, so dropping the label, or deploying a release
+// built without it, does not take down the maps an earlier release served.
+// They stay public at their URLs until someone deletes them by hand.
 
 /** Directory in the image that holds the site. */
 export const SITE_DIR = '/site'

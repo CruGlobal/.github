@@ -264,10 +264,16 @@ describe('planSite', () => {
       expect(site.maps).toEqual(['assets/app.4a6b2c1d.js.map', 'assets/app.9f8e7d6c.css.map', 'sw.js.map', 'stray.MAP'])
     })
 
-    it('still runs every check on the maps, which are now uploaded', () => {
-      expect(() => planSite({ files: [file('index.html'), file('a//b.js.map')], links: [], others: [] }, {
+    it('sorts a map named like a page as a map, never as HTML', () => {
+      const site = planSite({ files: [file('index.html'), file('about.html.map'), file('index.html.map')], links: [], others: [] }, {
         maxBytes: 1024, image: IMAGE, publicMaps: true
-      })).toThrow('it has an empty path segment')
+      })
+      expect(site.html).toEqual([])
+      expect(site.index.contents.toString()).toBe('x')
+      expect(site.unhashedMaps.map(entry => [entry.key, entry.contentType, entry.cacheControl])).toEqual([
+        ['about.html.map', 'application/json; charset=utf-8', DEFAULT_CACHE_CONTROL],
+        ['index.html.map', 'application/json; charset=utf-8', DEFAULT_CACHE_CONTROL]
+      ])
     })
   })
 

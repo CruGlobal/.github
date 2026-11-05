@@ -378,9 +378,17 @@ describe('deployStatic: serving the source maps under /site', () => {
       await deploy()
       expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
       expect(core.warning).toHaveBeenCalledWith(
-        `the image sets org.cru.public-sourcemaps="${value}", which is not "true", so the .map files under /site are ` +
-        'not uploaded to the bucket. Set it to true to serve them, or leave it off'
+        `the image sets org.cru.public-sourcemaps="${value}", which is not the string "true", so the .map files under ` +
+        '/site are not uploaded to the bucket. Set it to true to serve them, or leave it off'
       )
+    })
+
+    it('leaves them out for a value that is not a string, saying it is not the string "true"', async () => {
+      // An image built by a tool, not docker, can carry any JSON there.
+      stubs({ newSite: MAPPED_SITE, labels: { 'org.cru.public-sourcemaps': true } })
+      await deploy()
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+      expect(core.warning).toHaveBeenCalledWith(expect.stringMatching(/^the image sets org\.cru\.public-sourcemaps=true, which is not the string "true"/))
     })
 
     it('quotes a value with a line break, so it cannot start a workflow command', async () => {
@@ -389,7 +397,7 @@ describe('deployStatic: serving the source maps under /site', () => {
       expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
       const [[warning]] = core.warning.mock.calls
       expect(warning).not.toContain('\n')
-      expect(warning).toContain('"\\"true\\n::error::injected\\""')
+      expect(warning).toContain('org.cru.public-sourcemaps="true\\n::error::injected"')
     })
   })
 
@@ -461,6 +469,8 @@ describe('deployStatic: serving the source maps under /site', () => {
   describe('a deploy with the label that fails partway', () => {
     it('needs nothing put back when a hashed map fails, and never reaches the tracker or a live file', async () => {
       stubs({ newSite: MAPPED_SITE, labels: { ...PUBLIC, ...TRACKED }, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      // With a token, the tracker upload would run if the order let it.
+      ssmParameterValue.mockResolvedValue('server-token')
       failOn('assets/app.9f8e7d6c.css.map')
       const error = await deploy().catch(e => e)
       expect(error.message).toMatch(/app\.9f8e7d6c\.css\.map failed: timed out\. No file a live page uses had been changed yet\.$/)
@@ -480,16 +490,16 @@ describe('deployStatic: serving the source maps under /site', () => {
       expect(openImage).toHaveBeenCalledTimes(1)
     })
 
-    it('puts back the old release, its served maps first, when an unhashed map may have landed', async () => {
+    it('puts back the old release, then its served maps, when an unhashed map may have landed', async () => {
       stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
       failOn('loader.js.map')
       const error = await deploy().catch(e => e)
       expect(error.message).toMatch(/^S3 s3:PutObject on s3:\/\/example-site-prod\/loader\.js\.map failed: timed out\./)
-      expect(error.message).toContain('so it serves release-2026-10-01-10090 again')
-      // The new loader never went up; the old release's map, loader and HTML
-      // came back, in the order a deploy uses.
+      expect(error.message).toMatch(/so it serves release-2026-10-01-10090 again\.$/)
+      // The new loader never went up. The old release's loader and HTML came
+      // back first, since visitors see those, and its map after them.
       expect(events.slice(events.indexOf('open:old'))).toEqual([
-        'open:old', 'put:loader.js.map', 'put:loader.js', 'put:about/index.html', 'put:index.html', 'invalidate'
+        'open:old', 'put:loader.js', 'put:about/index.html', 'put:index.html', 'put:loader.js.map', 'invalidate'
       ])
       expect(putOf('loader.js.map').map(([, , body]) => body.toString())).toEqual([
         '{"version":3,"loader":"new"}', '{"version":3,"loader":"old"}'
@@ -510,7 +520,36 @@ describe('deployStatic: serving the source maps under /site', () => {
       expect(putOf('loader.js').map(([, , body]) => body.toString())).toEqual(['contents of loader.js', 'old loader'])
     })
 
-    it('puts back no map when the old release did not serve them, leaving the new one, which its files do not name', async () => {
+    it('puts back no map when this deploy changed none, though the old release served them', async () => {
+      // The new image does not serve its maps, so no map was replaced.
+      stubs({ newSite: MAPPED_SITE, labels: {}, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      failOn('about/index.html')
+      const error = await deploy().catch(e => e)
+      expect(error.message).toMatch(/so it serves release-2026-10-01-10090 again\.$/)
+      expect(puts().filter(key => /\.map$/.test(key))).toEqual([])
+    })
+
+    it('still puts back the files visitors see when the old maps do not all come back, and says so', async () => {
+      stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      // The deploy gets as far as its invalidation, so index.html had named it.
+      aws.cloudfrontCreateInvalidation.mockRejectedValueOnce(new Error('CloudFront cloudfront:CreateInvalidation failed: throttled'))
+      const put = aws.s3PutObject.getMockImplementation()
+      aws.s3PutObject.mockImplementation(async (bucket, key, ...rest) => {
+        if (key === 'loader.js.map' && openImage.mock.calls.length === 2) throw new Error('S3 s3:PutObject failed: throttled')
+        return put(bucket, key, ...rest)
+      })
+      const error = await deploy({ environment: 'release-candidate' }).catch(e => e)
+      expect(error.message).toContain(
+        'so it serves release-2026-10-01-10090 again. Its source maps were not all put back (S3 s3:PutObject failed: ' +
+        "throttled), so dev tools may show this release's source for some of its files until a deploy or rollback finishes."
+      )
+      expect(putOf('index.html').map(([, , body]) => body.toString())).toEqual(['<html>new</html>', '<html>old</html>'])
+      expect(aws.cloudfrontCreateInvalidation).toHaveBeenCalledTimes(2)
+      // index.html names the release before again, so no force is needed.
+      expect(error.message).not.toContain('force')
+    })
+
+    it('puts back no map when the old release did not serve them, leaving the new one in place', async () => {
       stubs({ newSite: MAPPED_SITE, labels: PUBLIC, oldSite: OLD_MAPPED_SITE, oldLabels: {} })
       failOn('about/index.html')
       const error = await deploy().catch(e => e)
@@ -523,6 +562,7 @@ describe('deployStatic: serving the source maps under /site', () => {
 
     it('stops before the tracker and any live file when the step runs out during the hashed maps', async () => {
       stubs({ newSite: MAPPED_SITE, labels: { ...PUBLIC, ...TRACKED }, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
+      ssmParameterValue.mockResolvedValue('server-token')
       clock.stepStartedAt = -(STEP_CAP_MS - PUT_BACK_RESERVE_MS - 2 * 60 * 1000)
       const put = aws.s3PutObject.getMockImplementation()
       aws.s3PutObject.mockImplementation(async (...args) => { await clock.sleep(60 * 1000); return put(...args) })
@@ -537,8 +577,7 @@ describe('deployStatic: serving the source maps under /site', () => {
   describe('a rollback', () => {
     it('to an image without the label serves no maps, and leaves the newer release\'s maps where they are', async () => {
       // The bucket serves a release that had the label; the rollback target
-      // never did. Nothing is deleted, so its maps stay, named by no file of
-      // the release rolled back to.
+      // never did. Nothing is deleted, so its maps stay in the bucket.
       stubs({ newSite: MAPPED_SITE, labels: {}, oldSite: OLD_MAPPED_SITE, oldLabels: PUBLIC })
       const result = await deploy({ stopRolloutOnFailure: false })
       expect(result.deployedImage).toBe(IMAGE)
