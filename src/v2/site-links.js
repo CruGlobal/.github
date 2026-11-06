@@ -23,7 +23,15 @@
 // The last two rules are how the sites we host serve a directory: CloudFront
 // serves index.html for the root, and the edge function in front of a
 // multi-page site maps /x/ to /x/index.html and redirects an extensionless /x
-// to /x/. Paths are compared as they are, case and all, since S3 keys are.
+// to /x/. A site with no such function serves /x as the file x instead. The
+// check cannot tell which a site has, so for /x it takes either: a link that
+// works on one of them is not called broken, at the cost of missing the rare
+// link to an extensionless file on a site that redirects. Paths are compared
+// as they are, case and all, since S3 keys are.
+//
+// A site whose CloudFront answers every missing path with index.html (an SPA
+// fallback) and whose HTML links to its own client-side routes fails this
+// check, since those routes are not files.
 //
 // WHAT IS NOT CHECKED. Links in srcset, in a <meta http-equiv="refresh">, in
 // CSS (url(...)) or in scripts; xlink:href; links to the site's own host
@@ -108,6 +116,16 @@ export function htmlReferences (html) {
     const open = text.indexOf('<', at)
     if (open === -1) break
     if (text.startsWith('<!--', open)) {
+      // <!--> and <!---> are whole comments to a browser, empty ones, so what
+      // follows them is markup again.
+      if (text.startsWith('>', open + 4)) {
+        at = open + 5
+        continue
+      }
+      if (text.startsWith('->', open + 4)) {
+        at = open + 6
+        continue
+      }
       const close = text.indexOf('-->', open + 4)
       at = close === -1 ? text.length : close + 3
       continue
@@ -232,18 +250,22 @@ export function siteKeysFor (value, base) {
  * `pages` is `[{ key, contents }]`, the HTML files (contents a Buffer or a
  * string). `served` is the set of every key the deploy uploads.
  *
- * Returns `{ pages, links, broken, targets }`: how many pages and local links
- * were checked, each broken link as `{ page, line, tag, attribute, value,
- * wanted }` (`wanted` the keys that would have answered it), and the key each
- * good link resolved to, so a caller can look at the files that are linked.
+ * Returns `{ pages, links, broken, targets, elsewhere }`: how many pages and
+ * local links were checked, each broken link as `{ page, line, tag,
+ * attribute, value, wanted }` (`wanted` the keys that would have answered
+ * it), the key each good link resolved to, so a caller can look at the files
+ * that are linked, and the pages whose <base href> names another host, whose
+ * relative links point there and so were not checked.
  */
 export function checkSiteLinks ({ pages, served }) {
   const broken = []
   const targets = new Set()
+  const elsewhere = []
   let links = 0
   for (const page of pages) {
     const { base, references } = htmlReferences(page.contents.toString('utf8'))
     const resolveAgainst = documentBase(page.key, base)
+    if (resolveAgainst.origin !== SITE_ORIGIN) elsewhere.push(page.key)
     for (const reference of references) {
       const wanted = siteKeysFor(reference.value, resolveAgainst)
       if (wanted === null) continue
@@ -253,7 +275,7 @@ export function checkSiteLinks ({ pages, served }) {
       else broken.push({ page: page.key, ...reference, wanted })
     }
   }
-  return { pages: pages.length, links, broken, targets }
+  return { pages: pages.length, links, broken, targets, elsewhere }
 }
 
 // How many broken links an error names one by one. The log lists them all.

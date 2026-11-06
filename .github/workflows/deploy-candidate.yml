@@ -106,7 +106,7 @@ jobs:
       repository: ${{ steps.app-info.outputs.repository }}
       # Release-candidate gate for this app: "deploy" (stage deploy, the default
       # and the case for every app that has a stage environment) or "verify"
-      # (stage-less — run VerifyCommand inside the candidate image instead, or
+      # (stage-less: run VerifyCommand inside the candidate image instead, or
       # for a static site, check the site the image holds).
       rc-mode: ${{ steps.app-info.outputs.rc-mode }}
       verify-command: ${{ steps.app-info.outputs.verify-command }}

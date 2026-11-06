@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Stage-less verify of a static site, against a mocked image reader. The
 // deploy's own site checks run for real (planImageSite in
@@ -74,6 +74,9 @@ beforeEach(() => {
   process.exitCode = undefined
 })
 
+// run() sets the exit code; leave the test process's own alone.
+afterEach(() => { process.exitCode = undefined })
+
 function expectNothingTouched () {
   for (const fn of [...Object.values(aws), ...Object.values(ssm), publishSourceMaps]) expect(fn).not.toHaveBeenCalled()
 }
@@ -131,6 +134,29 @@ describe('verifyStatic: a site the deploy would refuse', () => {
     })
     const error = await verifyStatic({ image: IMAGE }).catch(e => e)
     expect(error.message).toBe(`The deploy would refuse the site in ${IMAGE}: /site has files in more than one layer (1/2 and 2/2)`)
+  })
+
+  // A failed read is not a broken site: the message says so, and that a
+  // re-run may pass, so nobody goes looking for a fault in the site.
+  it.each([
+    ['an ECR call that failed', Object.assign(new Error('Rate exceeded'), { name: 'ThrottlingException', $metadata: { httpStatusCode: 400 } })],
+    ['a layer download that failed', Object.assign(new Error('HTTP 503 downloading example-app@sha256:ccc'), { status: 503 })],
+    ['a layer download that timed out', Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })],
+    ['a lost connection', new TypeError('fetch failed')]
+  ])('tells %s from a site the deploy would refuse', async (_label, cause) => {
+    openImage.mockResolvedValue({ labels: {}, readTree: vi.fn(async () => { throw cause }) })
+    const error = await verifyStatic({ image: IMAGE }).catch(e => e)
+    expect(error.message).toBe(
+      `Could not read the site in ${IMAGE}: ${cause.message}. That is a failed read, not a problem found in the site, ` +
+      'so running the verify again may pass'
+    )
+    expect(error.cause).toBe(cause)
+  })
+
+  it('does not call a fault in its own code a failed read', async () => {
+    openImage.mockResolvedValue({ labels: {}, readTree: vi.fn(async () => { throw new TypeError("Cannot read properties of undefined (reading 'files')") }) })
+    const error = await verifyStatic({ image: IMAGE }).catch(e => e)
+    expect(error.message).toMatch(/^The deploy would refuse the site in /)
   })
 
   it('says so when it cannot read the image at all', async () => {
@@ -212,6 +238,19 @@ describe('verifyStatic: warnings that do not fail it', () => {
     expect(core.warning).not.toHaveBeenCalled()
   })
 
+  it('names the pages whose links it could not check, because their <base href> is on another host', async () => {
+    serve(tree([
+      ...GOOD_SITE.filter(f => f.name !== 'guide/index.html'),
+      file('guide/index.html', '<base href="https://docs.example.org/guide/"><a href="missing.html">x</a>')
+    ]))
+    const result = await verifyStatic({ image: IMAGE })
+    expect(result.links).toBe(7)
+    expect(core.warning).toHaveBeenCalledTimes(1)
+    expect(core.warning).toHaveBeenCalledWith(
+      '1 HTML pages have a <base href> on another host, so their relative links point there and were not checked: guide/index.html'
+    )
+  })
+
   it('passes on the deploy\'s warning about a public-sourcemaps label it does not know', async () => {
     serve(tree(GOOD_SITE), { 'org.cru.public-sourcemaps': 'yes' })
     await verifyStatic({ image: IMAGE })
@@ -227,7 +266,21 @@ describe('the verify-static-site action', () => {
     expect(core.getInput).toHaveBeenCalledWith('image', { required: true })
     expect(core.setOutput.mock.calls).toEqual([['pages', '3'], ['links', '8'], ['files', '6']])
     expect(core.error).not.toHaveBeenCalled()
-    expect(process.exitCode).toBeUndefined()
+    expect(process.exitCode).toBe(0)
+  })
+
+  // The exit code says failure until the check has passed, so a run that
+  // stops part way can never read as verified.
+  it('holds a failing exit code while the check runs', async () => {
+    let during
+    openImage.mockImplementation(async () => {
+      during = process.exitCode
+      return handle(tree(GOOD_SITE))
+    })
+    core.getInput.mockReturnValue(IMAGE)
+    await run()
+    expect(during).toBe(1)
+    expect(process.exitCode).toBe(0)
   })
 
   it('fails the step with a "Verification failed" error that says the candidate is not verified', async () => {

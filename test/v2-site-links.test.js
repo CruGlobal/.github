@@ -58,6 +58,14 @@ describe('htmlReferences', () => {
     expect(values(html)).toEqual(['/real.html'])
   })
 
+  it('skips a comment that holds a >, up to its -->', () => {
+    expect(values('<!-- a > b <a href="/commented.html"> --><a href="/real.html">')).toEqual(['/real.html'])
+  })
+
+  it('reads <!--> and <!---> as whole, empty comments, as a browser does', () => {
+    expect(values('<!--><a href="/one.html"><!---><a href="/two.html"> -->')).toEqual(['/one.html', '/two.html'])
+  })
+
   it('reads the src of a raw text element itself', () => {
     expect(values('<script src="/a.js"></script><iframe src="/frame.html">fallback</iframe>')).toEqual(['/a.js', '/frame.html'])
   })
@@ -189,8 +197,32 @@ describe('checkSiteLinks', () => {
       pages: 2,
       links: 5,
       broken: [],
-      targets: new Set(['app.css', 'about/index.html', 'logo.png', 'guide'])
+      targets: new Set(['app.css', 'about/index.html', 'logo.png', 'guide']),
+      elsewhere: []
     })
+  })
+
+  it('resolves a page\'s links against its <base href>', () => {
+    const result = checkSiteLinks({
+      pages: [page('deep/page.html', '<base href="/about/"><a href="./">about</a><img src="../logo.png"><a href="missing.html">x</a>')],
+      served
+    })
+    expect(result.links).toBe(3)
+    expect(result.broken.map(link => link.wanted)).toEqual([['about/missing.html']])
+    expect(result.elsewhere).toEqual([])
+  })
+
+  it('names the pages whose <base href> is on another host, and checks none of their relative links', () => {
+    const result = checkSiteLinks({
+      pages: [
+        page('index.html', '<base href="https://docs.example.org/"><a href="missing.html">x</a><a href="/gone/">y</a>'),
+        page('about/index.html', '<a href="/missing.html">x</a>')
+      ],
+      served
+    })
+    expect(result.elsewhere).toEqual(['index.html'])
+    expect(result.broken.map(link => link.page)).toEqual(['about/index.html'])
+    expect(result.links).toBe(1)
   })
 
   it('reports each broken link with its page, line, value and the files that would have answered it', () => {

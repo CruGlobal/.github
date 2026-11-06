@@ -44,6 +44,19 @@ function listed (keys) {
   return `${keys.slice(0, NAMED).map(shown).join(', ')}${keys.length > NAMED ? ` and ${keys.length - NAMED} more` : ''}`
 }
 
+// Did reading the image fail on the way, rather than find something wrong
+// with the site? An ECR call that failed carries the SDK's $metadata, a layer
+// download that failed carries its HTTP status, one that timed out is an
+// abort, and one that lost its connection is fetch's own "fetch failed". Every
+// check of the site itself throws a plain Error. Told apart so the person
+// reading a failed run knows whether to fix the site or run it again.
+export function isReadError (error) {
+  return error?.$metadata !== undefined ||
+    error?.status !== undefined ||
+    ['AbortError', 'TimeoutError'].includes(error?.name) ||
+    (error?.name === 'TypeError' && error?.message === 'fetch failed')
+}
+
 /**
  * Verify a static site's candidate image. Throws, saying why, when the deploy
  * would refuse it or a local link in it is broken; returns `{ pages, links,
@@ -63,6 +76,13 @@ export async function verifyStatic ({ image }) {
   try {
     site = await planImageSite(handle, image)
   } catch (error) {
+    if (isReadError(error)) {
+      throw new Error(
+        `Could not read the site in ${image}: ${error.message.replace(/\.$/, '')}. That is a failed read, not a ` +
+        'problem found in the site, so running the verify again may pass',
+        { cause: error }
+      )
+    }
     throw new Error(`The deploy would refuse the site in ${image}: ${error.message}`, { cause: error })
   }
   logSiteMaps(handle.labels, site)
@@ -85,6 +105,13 @@ export async function verifyStatic ({ image }) {
     throw new Error(brokenLinksMessage(result))
   }
   core.info(`all ${result.links} local links in ${result.pages} HTML pages name a file in the site`)
+
+  if (result.elsewhere.length > 0) {
+    core.warning(
+      `${result.elsewhere.length} HTML pages have a <base href> on another host, so their relative links point there ` +
+      `and were not checked: ${listed(result.elsewhere)}`
+    )
+  }
 
   const octetStream = uploaded
     .filter(file => file.contentType === DEFAULT_CONTENT_TYPE && result.targets.has(file.key))
