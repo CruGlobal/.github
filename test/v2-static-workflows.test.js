@@ -68,28 +68,96 @@ describe.each(DEPLOY_JOBS)('%s:%s type guard', (file, job) => {
 })
 
 describe('deploy-candidate.yml:verify-candidate-aws type guard', () => {
-  it.each([['ecs', 'GitHubDeployECS'], ['lambda', 'GitHubDeployLambda']])('picks the %s role', async (type, role) => {
+  it.each([['ecs', 'GitHubDeployECS'], ['lambda', 'GitHubDeployLambda'], ['static', 'GitHubDeployStatic']])('picks the %s role', async (type, role) => {
     const result = await guard('deploy-candidate.yml', 'verify-candidate-aws', type)
-    expect(result.status).toBe(0)
+    expect(result.status, result.stdout + result.stderr).toBe(0)
     expect(result.outputs).toEqual({ role })
   })
 
-  it('refuses a static site, which cannot be stage-less', async () => {
-    const result = await guard('deploy-candidate.yml', 'verify-candidate-aws', 'static')
+  it.each(['serverless', '', 'Static', 'cloudrun'])('stops on type %j', async (type) => {
+    const result = await guard('deploy-candidate.yml', 'verify-candidate-aws', type)
     expect(result.status).not.toBe(0)
-    expect(result.stdout).toContain("::error::RcMode 'verify' (stage-less) is not supported for static sites yet")
+    expect(result.stdout).toContain(`::error::v2 AWS stage-less verify supports types 'ecs', 'lambda' and 'static' (got '${type}')`)
     expect(result.outputs).toEqual({})
   })
 
-  it.each(['serverless', ''])('stops on type %j', async (type) => {
-    const result = await guard('deploy-candidate.yml', 'verify-candidate-aws', type)
+  it('keeps a type that holds a line break on the error\'s one line', async () => {
+    const result = await guard('deploy-candidate.yml', 'verify-candidate-aws', 'static\n::notice::injected')
     expect(result.status).not.toBe(0)
-    expect(result.outputs).toEqual({})
+    expect(result.stdout).not.toMatch(/^::notice::injected/m)
   })
 
   it('assumes the role the guard picked', () => {
     const { step } = findStep(workflows['deploy-candidate.yml'], 'verify-candidate-aws', 'Configure AWS credentials')
     expect(step.with['role-to-assume']).toMatch(ROLE_FROM_GUARD)
+  })
+})
+
+// A stage-less static site is gated by the site check, and an ECS or Lambda
+// app by its verify command. Each step names the type it runs for, so exactly
+// one gate runs, and the static role, which cannot log in to the registry, is
+// never asked to.
+describe('deploy-candidate.yml:verify-candidate-aws gates', () => {
+  const job = workflows['deploy-candidate.yml'].jobs['verify-candidate-aws']
+  const step = name => findStep(workflows['deploy-candidate.yml'], 'verify-candidate-aws', name).step
+  const NOT_STATIC = "steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type != 'static'"
+
+  it.each(['Login to Amazon ECR', 'Pull the candidate image', 'Verify the candidate image'])('runs "%s" for every type but static', (name) => {
+    expect(step(name).if).toBe(NOT_STATIC)
+  })
+
+  it('checks a static site with the verify-static-site action, by the resolved digest', () => {
+    const check = step('Check the candidate site')
+    expect(check.if).toBe("steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type == 'static'")
+    expect(check.uses).toBe('./cru-github-actions/actions/verify-static-site')
+    expect(check.with).toEqual({ image: '${{ steps.resolve.outputs.image }}' })
+  })
+
+  it('fails the run when the site check fails, within a step limit, before anything is recorded', () => {
+    const check = step('Check the candidate site')
+    expect(check['continue-on-error']).toBeUndefined()
+    expect(check['timeout-minutes']).toBe(15)
+    const names = job.steps.map(s => s.name)
+    expect(names.indexOf('Check the candidate site')).toBeGreaterThan(names.indexOf('No-op guard (already verified)'))
+    for (const record of ['Record deployment event in Datadog', 'Record deployment in ledger', 'Record release event in Flightdeck', 'Notify Slack']) {
+      expect(names.indexOf(record), record).toBeGreaterThan(names.indexOf('Check the candidate site'))
+    }
+  })
+
+  it('writes the same release-candidate ledger row for every type, with the verify marker', () => {
+    const ledger = step('Record deployment in ledger')
+    expect(ledger.if).toBe("steps.noop.outputs.skip != 'true'")
+    expect(ledger.env.TYPE).toBe('${{ needs.lookup.outputs.type }}')
+    expect(ledger.run).toContain('--arg environment release-candidate')
+    expect(ledger.run).toContain('--arg action deploy')
+    expect(ledger.run).toContain('--arg rcmode verify')
+  })
+
+  it('names the action\'s only input', () => {
+    const action = loadYaml('actions/verify-static-site/action.yml')
+    expect(Object.keys(action.inputs)).toEqual(['image'])
+    expect(action.inputs.image.required).toBe(true)
+    expect(action.runs.main).toBe('../../dist/verify-static-site.js')
+  })
+})
+
+// Promote takes a stage-less static site's candidate from the ledger, exactly
+// as it does a stage-less ECS app's, so no stage bucket is read.
+describe('promote.yml:promote-aws for a stage-less static site', () => {
+  const step = name => findStep(workflows['promote.yml'], 'promote-aws', name).step
+
+  it('resolves the ledger\'s candidate tag, not the release-candidate environment', () => {
+    const resolve = step('Resolve release-candidate image')
+    expect(resolve.with.type).toBe('${{ needs.lookup.outputs.type }}')
+    expect(resolve.with.mode).toBe("${{ needs.lookup.outputs.rc-mode == 'verify' && 'tag' || 'environment' }}")
+    expect(resolve.with.tag).toBe("${{ needs.lookup.outputs.rc-mode == 'verify' && steps.ledger-candidate.outputs.revision || '' }}")
+    expect(step('Resolve candidate from ledger (stage-less)').if).toBe("needs.lookup.outputs.rc-mode == 'verify'")
+    expect(step('Confirm candidate digest is unchanged (stage-less)').if).toBe("needs.lookup.outputs.rc-mode == 'verify'")
+  })
+
+  it('deploys the digest it resolved, which the step before confirmed against the ledger', () => {
+    expect(step('Deploy to production').with.image).toBe('${{ steps.resolve.outputs.image }}')
+    expect(step('Confirm candidate digest is unchanged (stage-less)').env.RESOLVED_DIGEST).toBe('${{ steps.resolve.outputs.digest }}')
   })
 })
 

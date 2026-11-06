@@ -68,26 +68,68 @@ describe.each(SITES.map((site) => [site.name, site]))('%s lookup', (_name, site)
   })
 })
 
-// A static site's release candidate is what its stage bucket serves, so it
-// cannot be stage-less. Both lookups that read RcMode refuse it before any
-// credential.
+// A static site may be stage-less (RcMode "verify"): its verify checks the
+// site in the candidate image, so it needs no VerifyCommand, and promote takes
+// its candidate from the ledger. Both lookups that read RcMode let it through
+// and say so in rc-mode. A static site without RcMode is a stage deploy, as
+// before.
 describe.each([
-  ['deploy-candidate', SITES[3], 'Nothing was deployed.'],
-  ['promote release-candidate', SITES[0], 'Nothing was changed.']
-])('%s lookup of a stage-less static site', (_name, site, nothing) => {
-  it('refuses it, saying a static site needs a stage environment', async () => {
-    const row = { ...v2Row, Type: { S: 'static' }, RcMode: { S: 'verify' }, VerifyCommand: { L: [{ S: 'true' }] } }
-    const result = await lookup(site, row)
-    expect(result.status).not.toBe(0)
-    expect(result.stdout).toContain("::error::RcMode 'verify' (stage-less) is not supported for static sites yet (example-app)")
-    expect(result.stdout).toContain(nothing)
-    expect(result.outputs).toEqual({})
+  ['deploy-candidate', SITES[3]],
+  ['promote release-candidate', SITES[0]]
+])('%s lookup of a stage-less static site', (_name, site) => {
+  const stageless = { ...v2Row, Type: { S: 'static' }, RcMode: { S: 'verify' } }
+
+  it('lets it through with no VerifyCommand, in verify mode', async () => {
+    const result = await lookup(site, stageless)
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.outputs.type).toBe('static')
+    expect(result.outputs['rc-mode']).toBe('verify')
+    expect(result.stdout).not.toContain('::error::')
+  })
+
+  it('keeps a static site with no RcMode a stage deploy', async () => {
+    const result = await lookup(site, { ...v2Row, Type: { S: 'static' } })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.outputs['rc-mode']).toBe('deploy')
   })
 
   it('still lets a stage-less ECS app through', async () => {
     const row = { ...v2Row, RcMode: { S: 'verify' }, VerifyCommand: { L: [{ S: 'true' }] } }
     const result = await lookup(site, row)
     expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.outputs['rc-mode']).toBe('verify')
+  })
+
+  it('still refuses an RcMode it does not know', async () => {
+    const result = await lookup(site, { ...stageless, RcMode: { S: 'Verify' } })
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toContain("::error::unsupported RcMode 'Verify' for example-app (expected deploy or verify)")
+    expect(result.outputs).toEqual({})
+  })
+})
+
+describe('deploy-candidate lookup of a stage-less app', () => {
+  it('warns that a static site\'s VerifyCommand is not run, and goes on', async () => {
+    const row = { ...v2Row, Type: { S: 'static' }, RcMode: { S: 'verify' }, VerifyCommand: { L: [{ S: 'true' }] } }
+    const result = await lookup(SITES[3], row)
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.stdout).toContain(
+      '::warning title=VerifyCommand not used::example-app is a static site, so its stage-less verify checks the site in the candidate image and does not run the VerifyCommand on its CruApplicationInfo row.'
+    )
+    expect(result.outputs['rc-mode']).toBe('verify')
+  })
+
+  it.each(['ecs', 'lambda'])('still refuses a stage-less %s app with no VerifyCommand', async (type) => {
+    const result = await lookup(SITES[3], { ...v2Row, Type: { S: type }, RcMode: { S: 'verify' } })
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toContain("::error::example-app has RcMode 'verify' but no VerifyCommand in its CruApplicationInfo item")
+    expect(result.outputs).toEqual({})
+  })
+
+  it('still refuses a stage-less gcp app', async () => {
+    const result = await lookup(SITES[3], { ...v2Row, Provider: { S: 'gcp' }, Type: { S: 'cloudrun' }, RcMode: { S: 'verify' } })
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toContain("::error::RcMode 'verify' is aws-only today (got provider 'gcp' for example-app)")
   })
 })
 

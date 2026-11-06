@@ -234,15 +234,17 @@ async function readSite (handle, image) {
 
 // What an image's site uploads, read the same way for the release being
 // deployed and for a release being put back: each image's own label says
-// whether its .map files go to the bucket.
-async function planImageSite (handle, image) {
+// whether its .map files go to the bucket. Stage-less verify
+// (./verify-static.js) reads a candidate with it too, so the checks it runs
+// are the ones this deploy runs, and cannot drift from them.
+export async function planImageSite (handle, image) {
   const tree = await handle.readTree(SITE_DIR, { maxBytes: MAX_SITE_FILE_BYTES })
   return planSite(tree, { maxBytes: MAX_SITE_FILE_BYTES, image, publicMaps: servesSourceMaps(handle.labels) })
 }
 
 // Say which way the .map files under /site went, since one way makes the
 // site's source public.
-function logSiteMaps (labels, site) {
+export function logSiteMaps (labels, site) {
   const value = labels?.[PUBLIC_SOURCEMAPS_LABEL]
   const count = site.maps.length
   if (servesSourceMaps(labels)) {

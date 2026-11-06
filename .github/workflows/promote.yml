@@ -55,8 +55,9 @@ name: Promote
 # actions from the current release.
 #
 # Stage-less apps (`RcMode` "verify" in app-info) reach production by the same
-# route with ONE substitution: there is no running release-candidate service to
-# read the promotable digest off, so the candidate comes from the DEPLOYMENT
+# route with ONE substitution: there is no running release-candidate service (or,
+# for a static site, no stage bucket) to read the promotable digest off, so the
+# candidate comes from the DEPLOYMENT
 # LEDGER's release-candidate head -- the row deploy-candidate's verification run
 # writes (CruGlobal/.github#441). Everything after the resolve step is shared:
 # same release-name derivation, same rollback-safety advisory, same production
@@ -286,12 +287,9 @@ jobs:
                 echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME); stage-less candidate resolution is implemented for the ECR path only."
                 exit 1
               fi
-              # deploy-candidate refuses a stage-less static site, so no
-              # verified candidate of one can exist to promote.
-              if [ "$type" = "static" ]; then
-                echo "::error::RcMode 'verify' (stage-less) is not supported for static sites yet ($PROJECT_NAME): a static site's release candidate is what its stage bucket serves, so it needs a stage environment. Nothing was changed."
-                exit 1
-              fi
+              # A static site in verify mode is promoted like any stage-less
+              # app: its candidate comes from the ledger, not a stage bucket
+              # (see "Resolve release-candidate image" in promote-aws).
               ;;
             *) echo "::error::unsupported RcMode '$rc_mode' for $PROJECT_NAME (expected deploy or verify)"; exit 1 ;;
           esac
@@ -1562,6 +1560,10 @@ jobs:
       # A static site's release-candidate image is the digest its stage
       # bucket's index.html names, read here with GitHubDeployStatic. So the
       # stage bucket's policy must grant that role too, not only production's.
+      # A stage-less static site (verify mode) has no stage bucket, and none is
+      # read: like any stage-less app it resolves the candidate tag the ledger
+      # named, so the production deploy gets the digest the ledger recorded
+      # when the site check passed, which the next step confirms.
       #
       # Inside the production lock. The AWS SDK calls under this step have no
       # request timeout of their own yet (the SDK's default is none), so the

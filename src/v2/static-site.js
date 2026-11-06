@@ -204,7 +204,7 @@ const CONTENT_TYPES = {
 const CONTENT_TYPES_BY_NAME = {
   'apple-app-site-association': 'application/json'
 }
-const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
+export const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 
 export const HTML_CACHE_CONTROL = 'no-cache'
 export const HASHED_CACHE_CONTROL = 'public, max-age=31536000, immutable'

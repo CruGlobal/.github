@@ -41,6 +41,11 @@ const ACTIONS = {
   hotfix: {
     inputs: { MODE: 'cut', 'PROJECT-NAME': 'example-app', COMMIT: 'a'.repeat(40), 'EXPECTED-RELEASE': 'release-2026-10-20-10140' },
     error: '::error title=actor_not_allowed::refusing to push a hotfix branch: no authorize-actor check passed earlier in this job'
+  },
+  // A release-candidate gate: what it must never do is pass without checking.
+  'verify-static-site': {
+    inputs: { IMAGE: '000000000000.dkr.ecr.us-east-1.amazonaws.com/example-app:candidate-2026-11-06-10200' },
+    error: '::error title=Verification failed::Expected a digest-pinned image reference (name@sha256:...)'
   }
 }
 

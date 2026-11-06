@@ -302,7 +302,8 @@ function registrationPayload (taskDefinition, tags) {
 //
 // The role needs no ecr:GetAuthorizationToken: it reads images through the ECR
 // SDK calls in ./oci.js, never through a registry login. The one deploy-role
-// job that logs in to ECR is stage-less verify, which refuses a static site.
+// job that logs in to ECR is stage-less verify, and a static site's verify
+// skips that login: it reads the image through ./oci.js, as the deploy does.
 export const STATIC_DEPLOY_ROLE = 'GitHubDeployStatic'
 
 // The S3 actions a site's bucket policy must grant STATIC_DEPLOY_ROLE.

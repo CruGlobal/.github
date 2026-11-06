@@ -15,6 +15,9 @@ import { INDEX_KEY, readLiveRelease, staticSiteTarget } from './static-site'
 //                   in ECR. The bucket is read with the deploy role, so the
 //                   release-candidate bucket's policy has to grant it too:
 //                   promote reads that bucket to learn which candidate to ship.
+//                   A stage-less site (RcMode "verify") has no such bucket,
+//                   and promote resolves its candidate in tag mode instead,
+//                   from the tag the deployment ledger names.
 //
 // Returns { image, digest, tags } where `image` is a full ECR digest reference.
 export async function resolveStatic ({ mode, projectName, tag, environment }) {

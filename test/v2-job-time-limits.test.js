@@ -70,8 +70,11 @@ const allJobs = Object.entries(workflows).flatMap(([file, workflow]) => Object.e
 const deployJobs = allJobs.filter(([, , job]) => /^(production|release-candidate)-/.test(job.concurrency?.group ?? ''))
 
 // The step in a deploy job that changes the environment, or for a stage-less
-// candidate, the step that verifies it.
-const changesTheEnvironment = (step) => /^Deploy to /.test(step.name ?? '') || step.name === 'Verify the candidate image'
+// candidate, the step that verifies it. The stage-less job has two such gates,
+// the verify command (ECS, Lambda) and the site check (static), and runs only
+// one of them.
+const GATES = ['Verify the candidate image', 'Check the candidate site']
+const changesTheEnvironment = (step) => /^Deploy to /.test(step.name ?? '') || GATES.includes(step.name)
 
 function isReusable (workflow) {
   // js-yaml reads the `on:` key as a string, but a YAML 1.1 reader makes it
@@ -155,7 +158,9 @@ describe('steps before the ledger write', () => {
 
   it.each(deployJobs.map(([file, id, job]) => [`${file}:${id}`, job]))('%s limits each step that comes first', (key, job) => {
     const steps = job.steps
-    const deploy = steps.findIndex(changesTheEnvironment)
+    // The last gate: a job runs one of its gates, so the steps after the last
+    // one are the ones that run after whichever gate ran.
+    const deploy = steps.findLastIndex(changesTheEnvironment)
     const ledger = steps.findIndex((step) => step.name === LEDGER)
     expect(deploy, `${key} has no deploy step`).toBeGreaterThanOrEqual(0)
     expect(ledger, `${key} has no ledger step`).toBeGreaterThan(deploy)

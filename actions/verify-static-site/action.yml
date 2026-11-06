@@ -1,0 +1,28 @@
+name: Verify Static Site
+description: >-
+  The release-candidate gate of a static site with no stage environment
+  (pipeline v2, app-info RcMode "verify"). Reads the site under /site in a
+  digest-pinned candidate image with the static deploy's own checks (one
+  layer, index.html at its root, nothing the deploy cannot copy to a bucket),
+  then checks that every local href and src in its HTML pages names a file in
+  the site. It reads the image through the ECR API, so it needs no docker and
+  no registry login. It touches no bucket and no CloudFront distribution and
+  uploads no source maps. The step fails when the deploy would refuse the site
+  or a local link is broken.
+inputs:
+  image:
+    description: >-
+      FULL DIGEST reference of the candidate image (name@sha256:...). The
+      action fails if given a tag reference.
+    required: true
+outputs:
+  pages:
+    description: Number of HTML pages checked.
+  links:
+    description: Number of local links checked.
+  files:
+    description: Number of files the deploy would upload.
+
+runs:
+  using: 'node24'
+  main: '../../dist/verify-static-site.js'

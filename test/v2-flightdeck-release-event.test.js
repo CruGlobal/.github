@@ -869,17 +869,22 @@ describe('release event wiring', () => {
       expect(step.with).toMatchObject({ environment: 'staging', kind: 'deploy', 'release-tag': '${{ inputs.tag }}' })
     })
 
-    it('posts only after the candidate is verified, and not on a no-op run', () => {
+    // Two gates, one per kind of image: the verify command for ECS and Lambda,
+    // the site check for a static site. Exactly one runs.
+    it.each([
+      ['Verify the candidate image', "steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type != 'static'"],
+      ['Check the candidate site', "steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type == 'static'"]
+    ])('posts only after "%s" passed, and not on a no-op run', (gate, condition) => {
       const { job, step, names } = verify()
       const at = job.steps.indexOf(step)
-      expect(at).toBeGreaterThan(names.indexOf('Verify the candidate image'))
+      expect(names.indexOf(gate)).toBeGreaterThan(0)
+      expect(at).toBeGreaterThan(names.indexOf(gate))
       expect(at).toBeGreaterThan(names.indexOf('Record deployment in ledger'))
-      expect(names.indexOf('Verify the candidate image')).toBeGreaterThan(0)
       expect(step.if).toBe("steps.noop.outputs.skip != 'true'")
-      // The verify step itself can fail the job, which skips this one.
-      const verifyStep = job.steps.find((s) => s.name === 'Verify the candidate image')
-      expect(verifyStep['continue-on-error']).toBeUndefined()
-      expect(verifyStep.if).toBe("steps.noop.outputs.skip != 'true'")
+      // The gate itself can fail the job, which skips this one.
+      const gateStep = job.steps.find((s) => s.name === gate)
+      expect(gateStep['continue-on-error']).toBeUndefined()
+      expect(gateStep.if).toBe(condition)
     })
 
     it('posts the candidate as a staging deploy with its tag, build number and sha', async () => {

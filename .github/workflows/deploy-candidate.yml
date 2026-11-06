@@ -106,7 +106,8 @@ jobs:
       repository: ${{ steps.app-info.outputs.repository }}
       # Release-candidate gate for this app: "deploy" (stage deploy, the default
       # and the case for every app that has a stage environment) or "verify"
-      # (stage-less — run VerifyCommand inside the candidate image instead).
+      # (stage-less — run VerifyCommand inside the candidate image instead, or
+      # for a static site, check the site the image holds).
       rc-mode: ${{ steps.app-info.outputs.rc-mode }}
       verify-command: ${{ steps.app-info.outputs.verify-command }}
     steps:
@@ -188,14 +189,15 @@ jobs:
                 echo "::error::RcMode 'verify' is aws-only today (got provider '$provider' for $PROJECT_NAME). Stage-less verify pulls the candidate from the app's ECR repo; the shared Artifact Registry path is not implemented."
                 exit 1
               fi
-              # A static site's release candidate is what its stage bucket
-              # serves, and its image has no program to run a verify command
-              # with, so stage-less verify does not apply to it (yet).
+              # A static site's image has no program in it to run a verify
+              # command with. Its verify reads the site out of the image and
+              # checks it instead (the verify-static-site action), so it needs
+              # no VerifyCommand, and one on its row would never run.
               if [ "$type" = "static" ]; then
-                echo "::error::RcMode 'verify' (stage-less) is not supported for static sites yet ($PROJECT_NAME): a static site's release candidate is what its stage bucket serves, so it needs a stage environment. Nothing was deployed."
-                exit 1
-              fi
-              if [ "$(echo "$verify_command" | jq 'length')" -eq 0 ]; then
+                if [ "$(echo "$verify_command" | jq 'length')" -ne 0 ]; then
+                  echo "::warning title=VerifyCommand not used::$PROJECT_NAME is a static site, so its stage-less verify checks the site in the candidate image and does not run the VerifyCommand on its CruApplicationInfo row."
+                fi
+              elif [ "$(echo "$verify_command" | jq 'length')" -eq 0 ]; then
                 echo "::error::$PROJECT_NAME has RcMode 'verify' but no VerifyCommand in its CruApplicationInfo item; set verify_command in the app's Terraform module."
                 exit 1
               fi
@@ -1120,6 +1122,17 @@ jobs:
   # code loads, and nothing more. That is the honest trade for these apps —
   # a boot check is strictly more gate than none, and pretending otherwise would
   # be worse than the gap.
+  #
+  # A static site's image (FROM scratch, the site under /site) has no program
+  # to run, so its verification run is the verify-static-site action instead of
+  # a VerifyCommand: it reads the site out of the candidate image with the
+  # deploy's own checks, and checks that every local link in its HTML names a
+  # file in the site. It reads the image through the ECR API, as the deploy
+  # does, so there is no docker pull and no registry login, and it touches no
+  # bucket or distribution. It proves the deploy would take the site and the
+  # site is whole, not that it renders in a browser. Everything after the gate
+  # (the ledger row, the release event, the Slack message) is the same for
+  # every type, so promote, rollback and hotfix need nothing new for it.
   verify-candidate-aws:
     name: Verify Candidate for release-candidate (stage-less, AWS)
     needs: lookup
@@ -1153,9 +1166,7 @@ jobs:
           path: cru-github-actions
 
       # Same type guard as the deploy job: `type` still decides which ECR repo
-      # and which deploy role, even though nothing is deployed here. A static
-      # site is refused: `lookup` already refuses one in verify mode, and this
-      # is the backstop.
+      # and which deploy role, even though nothing is deployed here.
       - name: Guard supported AWS type
         id: aws-type
         env:
@@ -1164,8 +1175,8 @@ jobs:
           case "$TYPE" in
             ecs) role=GitHubDeployECS ;;
             lambda) role=GitHubDeployLambda ;;
-            static) echo "::error::RcMode 'verify' (stage-less) is not supported for static sites yet; a static site needs a stage environment."; exit 1 ;;
-            *) echo "::error::v2 AWS stage-less verify supports types 'ecs' and 'lambda' (got '${TYPE//[$'\r\n']/ }'); serverless lands in a later pass."; exit 1 ;;
+            static) role=GitHubDeployStatic ;;
+            *) echo "::error::v2 AWS stage-less verify supports types 'ecs', 'lambda' and 'static' (got '${TYPE//[$'\r\n']/ }'); serverless lands in a later pass."; exit 1 ;;
           esac
           echo "role=$role" >> "$GITHUB_OUTPUT"
 
@@ -1174,6 +1185,9 @@ jobs:
       # ECR repo (DescribeImages/BatchGetImage) and writes the ledger. `docker
       # pull` additionally needs ecr:GetAuthorizationToken and
       # ecr:GetDownloadUrlForLayer — see the grants matrix in docs/pipeline-v2.md.
+      # A static site's check reads the image with the SDK calls its deploy
+      # already makes (BatchGetImage, GetDownloadUrlForLayer), so
+      # GitHubDeployStatic needs no new grant and no registry login.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -1241,8 +1255,12 @@ jobs:
         if: steps.noop.outputs.skip != 'true'
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
+      # The next three steps are the ECS and Lambda gate, and a static site
+      # skips all three: GitHubDeployStatic has no ecr:GetAuthorizationToken,
+      # and there is nothing in a site's image to run. Its gate is the step
+      # after them, which only a static site runs.
       - name: Login to Amazon ECR
-        if: steps.noop.outputs.skip != 'true'
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type != 'static'
         uses: aws-actions/amazon-ecr-login@v2
 
       # BY DIGEST, never by tag — `resolve` already pinned it, and the v2 deploy
@@ -1257,7 +1275,7 @@ jobs:
       # slow registry. No continue-on-error: a pull it stops fails the run, as
       # any failed pull does, and the candidate is not verified.
       - name: Pull the candidate image
-        if: steps.noop.outputs.skip != 'true'
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type != 'static'
         timeout-minutes: 15
         env:
           IMAGE: ${{ steps.resolve.outputs.image }}
@@ -1278,7 +1296,7 @@ jobs:
       # that needs longer is the wrong shape, so the timeout FAILS the run rather
       # than passing it optimistically.
       - name: Verify the candidate image
-        if: steps.noop.outputs.skip != 'true'
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type != 'static'
         env:
           IMAGE: ${{ steps.resolve.outputs.image }}
           VERIFY_COMMAND: ${{ needs.lookup.outputs.verify-command }}
@@ -1306,6 +1324,24 @@ jobs:
             echo "::error title=Verification failed::$PROJECT_NAME $TAG exited $status from its verify command; this candidate is NOT release-candidate-ready."
             exit 1
           fi
+
+      # The static site's gate (see the comment on this job). BY DIGEST, as
+      # above: the bytes checked are the bytes that promote. A failure fails
+      # the run before the ledger row is written, so promote can never pick up
+      # a candidate whose check did not pass.
+      #
+      # Inside the release-candidate lock, and the image reads under it have
+      # no time limit of their own, so the step has one. It reads the site's
+      # layer whole, which takes seconds for a normal site; fifteen minutes is
+      # the pull step's limit, with room for a large site or a slow registry.
+      # No continue-on-error: a check it stops fails the run, and the candidate
+      # is not verified.
+      - name: Check the candidate site
+        if: steps.noop.outputs.skip != 'true' && needs.lookup.outputs.type == 'static'
+        timeout-minutes: 15
+        uses: ./cru-github-actions/actions/verify-static-site
+        with:
+          image: ${{ steps.resolve.outputs.image }}
 
       # Telemetry parity with a stage deploy: the same event, so the fleet's
       # Datadog deploy timeline and DORA data do not develop a hole where the
@@ -1404,8 +1440,9 @@ jobs:
 
       # The same release event a stage deploy posts, with the same inputs, so a
       # stage-less app's candidates show up on its Flightdeck timeline too. It
-      # runs only after the verify command passed (a failed verification fails
-      # the job before this step) and is skipped with the rest on a no-op run.
+      # runs only after the gate passed, the verify command or the site check
+      # (a failed verification fails the job before this step), and is skipped
+      # with the rest on a no-op run.
       # `staging` here says the candidate passed its release-candidate gate,
       # the same thing it says for a stage deploy; production rows are what
       # decide a production rollback, and this adds none. Same telemetry
