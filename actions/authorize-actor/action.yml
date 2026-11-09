@@ -6,10 +6,17 @@ description: >-
   who pressed re-run, not the account that started the first attempt. It
   passes when that account has admin, maintain or write on the app repo, or
   when it is an allowlisted automation account that also started the run. It
-  fails closed: an API error or an unexpected response is a refusal.
+  fails closed: an API error or an unexpected response is a refusal. Optional
+  inputs add a deploy gate (a signed request, only for an attempt the gate's
+  own account started), a break-glass team and a list of refused accounts, and
+  can turn the push-access path off. With none of them set it behaves exactly
+  as before they existed.
 inputs:
   github-token:
-    description: GitHub token that can read collaborator permissions on the app repo.
+    description: >-
+      GitHub token that can read collaborator permissions on the app repo.
+      With break-glass-team set, it must also be able to read team
+      membership in the app repo's org.
     required: true
   repository:
     description: App repo in "owner/name" form.
@@ -31,12 +38,87 @@ inputs:
       error with no title, as before.
     required: false
     default: ''
+  gate-actor-id:
+    description: >-
+      Numeric GitHub user id of the machine account the deploy gate starts
+      runs as. An attempt that this account started (it started the run and
+      this attempt) must carry a valid signed-request, or it is refused. A
+      re-run that someone else started is checked like any other account.
+      Empty turns the gate check off.
+    required: false
+    default: ''
+  signed-request:
+    description: >-
+      The deploy gate's signed request for this run: a compact JWS signed with
+      ES256. Used only on an attempt the gate-actor-id account started. The
+      format is described in src/v2/signed-request.js.
+    required: false
+    default: ''
+  gate-public-keys:
+    description: >-
+      One or more PEM public keys (P-256, "-----BEGIN PUBLIC KEY-----"), one
+      after another. A signed request passes when any of them verifies it, so
+      a key rotation can list the old key and the new one.
+    required: false
+    default: ''
+  gate-issuer:
+    description: The iss claim a signed request must carry.
+    required: false
+    default: ''
+  gate-audience:
+    description: The aud claim a signed request must carry.
+    required: false
+    default: ''
+  expected-app:
+    description: >-
+      The project name this run changes. A signed request's app claim must
+      equal it.
+    required: false
+    default: ''
+  expected-action:
+    description: >-
+      What this run does, one of promote, rollback or hotfix. A signed
+      request's action claim must equal it. Separate from operation, which is
+      free text for messages.
+    required: false
+    default: ''
+  expected-target:
+    description: >-
+      What this run applies: the candidate tag for a promote, the release tag
+      for a rollback, the commit sha for a hotfix. A signed request's target
+      claim must equal it exactly.
+    required: false
+    default: ''
+  refused-actor-ids:
+    description: >-
+      Comma or newline separated numeric GitHub user ids that may not pass by
+      break-glass or push access, even when they would otherwise. Does not
+      affect the deploy gate or allowlisted automation. An entry that is not a
+      number is a refusal. Empty refuses none.
+    required: false
+    default: ''
+  break-glass-team:
+    description: >-
+      Slug of a team in the app repo's org, e.g. ops-team. An active member
+      passes; a pending invitation does not. Empty turns break-glass off.
+    required: false
+    default: ''
+  allow-push-access:
+    description: >-
+      "true" lets an account with admin, maintain or write on the app repo
+      pass, as before. "false" turns that off, so only the deploy gate,
+      allowlisted automation and break-glass can pass. Anything else is a
+      refusal.
+    required: false
+    default: 'true'
 outputs:
   passed-as:
     description: >-
-      How this attempt passed: "automation" (an allowlisted automation account
-      that started the run and this attempt) or "push-access". Unset on a
-      refusal, since the step fails.
+      How this attempt passed: "gate" (the deploy gate's account with a valid
+      signed request), "automation" (an allowlisted automation account that
+      started the run and this attempt), "break-glass" (an active member of
+      break-glass-team) or "push-access". Unset on a refusal, since the step
+      fails.
 runs:
   using: 'node24'
   main: '../../dist/authorize-actor.js'
