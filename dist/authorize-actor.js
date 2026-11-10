@@ -24315,11 +24315,193 @@ function markAttemptAuthorized(env = process.env) {
   return attempt;
 }
 
+// src/v2/signed-request.js
+var import_node_crypto = require("node:crypto");
+var SIGNED_REQUEST_ALG = "ES256";
+var MAX_LIFETIME_SECONDS = 300;
+var CLOCK_SKEW_SECONDS = 60;
+var MAX_REQUEST_LENGTH = 8192;
+var GATE_ACTIONS = ["promote", "rollback", "hotfix"];
+var GATE_ENVIRONMENT = "production";
+var HEADER_MEMBERS = ["alg", "typ", "kid"];
+var SEGMENT = /^[A-Za-z0-9_-]+$/;
+var PEM_BLOCK = /-----BEGIN PUBLIC KEY-----([\s\S]*?)-----END PUBLIC KEY-----/g;
+var REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+var UNSHOWABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+var UNSHOWABLE_ALL = new RegExp(UNSHOWABLE.source, "gu");
+var EMAIL = /^[^\s@\p{Cc}\p{Cf}\p{Cs}]+@[^\s@\p{Cc}\p{Cf}\p{Cs}]+$/u;
+var InvalidSignedRequest = class extends Error {
+};
+var RequestIdTaken = class extends Error {
+  constructor(message = "the request id is held by another run") {
+    super(message);
+    this.name = "RequestIdTaken";
+  }
+};
+var shown = (text) => String(text).replace(UNSHOWABLE_ALL, (char) => `\\u{${char.codePointAt(0).toString(16)}}`);
+var isP256PublicKey = (key) => key instanceof import_node_crypto.KeyObject && key.type === "public" && key.asymmetricKeyType === "ec" && key.asymmetricKeyDetails?.namedCurve === "prime256v1";
+function decodeSegment(segment, what) {
+  if (!SEGMENT.test(segment)) {
+    throw new InvalidSignedRequest(`the signed request's ${what} is not base64url`);
+  }
+  const bytes = Buffer.from(segment, "base64url");
+  if (bytes.toString("base64url") !== segment) {
+    throw new InvalidSignedRequest(`the signed request's ${what} is not base64url`);
+  }
+  return bytes;
+}
+function decodeJsonObject(segment, what) {
+  let value;
+  try {
+    value = JSON.parse(decodeSegment(segment, what).toString("utf8"));
+  } catch (error2) {
+    if (error2 instanceof InvalidSignedRequest) throw error2;
+    throw new InvalidSignedRequest(`the signed request's ${what} is not JSON`);
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidSignedRequest(`the signed request's ${what} is not a JSON object`);
+  }
+  return value;
+}
+function parsePublicKeys(raw) {
+  const text = String(raw ?? "");
+  const keys = [];
+  for (const match of text.matchAll(PEM_BLOCK)) {
+    let key;
+    try {
+      key = (0, import_node_crypto.createPublicKey)({ key: match[0], format: "pem" });
+    } catch (error2) {
+      throw new InvalidSignedRequest(`gate-public-keys: key ${keys.length + 1} is not a readable PEM public key (${error2.message})`);
+    }
+    if (!isP256PublicKey(key)) {
+      throw new InvalidSignedRequest(`gate-public-keys: key ${keys.length + 1} is not a P-256 key, and ES256 needs one`);
+    }
+    keys.push(key);
+  }
+  if (text.replace(PEM_BLOCK, "").trim() !== "") {
+    throw new InvalidSignedRequest('gate-public-keys holds something other than PEM public keys ("-----BEGIN PUBLIC KEY-----"); a certificate or a private key does not belong there');
+  }
+  if (keys.length === 0) {
+    throw new InvalidSignedRequest("gate-public-keys holds no public key");
+  }
+  return keys;
+}
+var isSeconds = (value) => Number.isSafeInteger(value) && value >= 0;
+function requireString(claims, name, { showable = true } = {}) {
+  const value = claims[name];
+  if (typeof value !== "string" || value === "") {
+    throw new InvalidSignedRequest(`the signed request has no ${name} claim`);
+  }
+  if (showable && UNSHOWABLE.test(value)) {
+    throw new InvalidSignedRequest(`the signed request's ${name} claim holds a control or format character`);
+  }
+  return value;
+}
+function checkClaims(claims, { issuer, audience, expected, nowSeconds, allowExpired }) {
+  const iss = requireString(claims, "iss");
+  if (iss !== issuer) throw new InvalidSignedRequest(`the signed request was issued by '${iss}', not '${issuer}'`);
+  if (typeof claims.aud !== "string") throw new InvalidSignedRequest("the signed request's aud claim is not a single string");
+  if (UNSHOWABLE.test(claims.aud)) throw new InvalidSignedRequest("the signed request's aud claim holds a control or format character");
+  if (claims.aud !== audience) throw new InvalidSignedRequest(`the signed request is for audience '${claims.aud}', not '${audience}'`);
+  const sub = requireString(claims, "sub", { showable: false });
+  if (!EMAIL.test(sub)) throw new InvalidSignedRequest("the signed request's sub claim is not an email address");
+  const jti = requireString(claims, "jti");
+  if (!REQUEST_ID.test(jti)) throw new InvalidSignedRequest(`the signed request's jti claim is not 1 to 128 letters, digits, ".", "_", ":" or "-"`);
+  const environment = requireString(claims, "environment");
+  if (environment !== GATE_ENVIRONMENT) throw new InvalidSignedRequest(`the signed request is for environment '${environment}', not '${GATE_ENVIRONMENT}'`);
+  const action = requireString(claims, "action");
+  if (!GATE_ACTIONS.includes(action)) throw new InvalidSignedRequest(`the signed request's action '${action}' is not one of ${GATE_ACTIONS.join(", ")}`);
+  for (const name of ["app", "action", "target"]) {
+    const value = requireString(claims, name);
+    if (value !== expected[name]) {
+      throw new InvalidSignedRequest(`the signed request is for ${name} '${value}', but this run is for ${name} '${expected[name]}'`);
+    }
+  }
+  const { iat, exp, nbf } = claims;
+  if (!isSeconds(iat)) throw new InvalidSignedRequest("the signed request's iat claim is not a whole number of seconds");
+  if (!isSeconds(exp)) throw new InvalidSignedRequest("the signed request's exp claim is not a whole number of seconds");
+  if (exp <= iat) throw new InvalidSignedRequest("the signed request expires before it was issued (exp is not after iat)");
+  if (exp - iat > MAX_LIFETIME_SECONDS) {
+    throw new InvalidSignedRequest(`the signed request is valid for ${exp - iat} seconds; at most ${MAX_LIFETIME_SECONDS} is allowed`);
+  }
+  if (iat > nowSeconds + CLOCK_SKEW_SECONDS) {
+    throw new InvalidSignedRequest(`the signed request was issued ${iat - nowSeconds} seconds in the future; at most ${CLOCK_SKEW_SECONDS} seconds of clock skew is allowed`);
+  }
+  if (nbf !== void 0) {
+    if (!isSeconds(nbf)) throw new InvalidSignedRequest("the signed request's nbf claim is not a whole number of seconds");
+    if (nbf > nowSeconds + CLOCK_SKEW_SECONDS) throw new InvalidSignedRequest(`the signed request is not valid for another ${nbf - nowSeconds} seconds`);
+  }
+  const secondsPastExpiry = nowSeconds - exp;
+  const expired = nowSeconds >= exp + CLOCK_SKEW_SECONDS;
+  if (expired && !allowExpired) {
+    throw new InvalidSignedRequest(`the signed request expired ${secondsPastExpiry} seconds ago`);
+  }
+  return {
+    claims: { sub, jti, app: claims.app, action, target: claims.target, environment, iat, exp },
+    expired,
+    ...expired ? { secondsPastExpiry } : {}
+  };
+}
+function verifySignedRequest(token, { keys, issuer, audience, expected, now = Date.now(), allowExpired = false }) {
+  issuer = String(issuer ?? "").trim();
+  audience = String(audience ?? "").trim();
+  if (!issuer) throw new InvalidSignedRequest("no gate-issuer was given, so the signed request cannot be checked");
+  if (!audience) throw new InvalidSignedRequest("no gate-audience was given, so the signed request cannot be checked");
+  if (!Array.isArray(keys) || keys.length === 0) throw new InvalidSignedRequest("no gate public key was given, so the signed request cannot be checked");
+  const badKey = keys.findIndex((key) => !isP256PublicKey(key));
+  if (badKey !== -1) {
+    throw new InvalidSignedRequest(`gate public key ${badKey + 1} is not a P-256 public key, and ES256 needs one`);
+  }
+  const want = {};
+  for (const name of ["app", "action", "target"]) {
+    want[name] = String(expected?.[name] ?? "").trim();
+    if (!want[name]) throw new InvalidSignedRequest(`no expected-${name} was given, so the signed request cannot be matched to this run`);
+  }
+  const text = String(token ?? "").trim();
+  if (text === "") throw new InvalidSignedRequest("no signed request was given");
+  if (text.length > MAX_REQUEST_LENGTH) throw new InvalidSignedRequest(`the signed request is longer than ${MAX_REQUEST_LENGTH} characters`);
+  const parts = text.split(".");
+  if (parts.length !== 3) throw new InvalidSignedRequest("the signed request is not a compact JWS (three parts separated by dots)");
+  const [headerPart, payloadPart, signaturePart] = parts;
+  const header = decodeJsonObject(headerPart, "header");
+  if (header.alg !== SIGNED_REQUEST_ALG) {
+    throw new InvalidSignedRequest(`the signed request uses alg ${shown(JSON.stringify(header.alg ?? null))}; only ${SIGNED_REQUEST_ALG} is accepted`);
+  }
+  if (header.typ !== "JWT") throw new InvalidSignedRequest(`the signed request's header typ is not "JWT"`);
+  if (header.kid !== void 0 && typeof header.kid !== "string") throw new InvalidSignedRequest("the signed request's header kid is not a string");
+  if (typeof header.kid === "string" && UNSHOWABLE.test(header.kid)) throw new InvalidSignedRequest("the signed request's header kid holds a control or format character");
+  const extra = Object.keys(header).filter((name) => !HEADER_MEMBERS.includes(name));
+  if (extra.length > 0) {
+    throw new InvalidSignedRequest(`the signed request's header has members this check does not accept: ${extra.map(shown).join(", ")}`);
+  }
+  const signature = decodeSegment(signaturePart, "signature");
+  if (signature.length !== 64) {
+    throw new InvalidSignedRequest(`the signed request's signature is ${signature.length} bytes, not the 64-byte r || s form ES256 uses (a DER signature from a KMS must be converted first)`);
+  }
+  const signed = Buffer.from(`${headerPart}.${payloadPart}`, "ascii");
+  const index = keys.findIndex((key) => {
+    try {
+      return (0, import_node_crypto.verify)("sha256", signed, { key, dsaEncoding: "ieee-p1363" }, signature);
+    } catch {
+      return false;
+    }
+  });
+  if (index === -1) throw new InvalidSignedRequest(`the signed request's signature does not match any of the ${keys.length} gate public key(s)`);
+  const claims = decodeJsonObject(payloadPart, "payload");
+  return {
+    ...checkClaims(claims, { issuer, audience, expected: want, nowSeconds: Math.floor(now / 1e3), allowExpired }),
+    kid: typeof header.kid === "string" ? header.kid : "",
+    keyNumber: index + 1,
+    keyCount: keys.length
+  };
+}
+
 // src/authorize-actor.js
 var ALLOWED_PERMISSIONS = ["admin", "maintain", "write"];
 var ATTEMPTS = 3;
 var RETRY_DELAY_MS = 2e3;
 var REQUEST_TIMEOUT_MS = 1e4;
+var HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY = 2 * 60 * 60;
 var Refusal = class extends Error {
 };
 function parseActorIds(raw) {
@@ -24333,12 +24515,17 @@ function parseActorIds(raw) {
   }
   return { ids, ignored };
 }
-function parseRepo(repository) {
+var REPO_PART = /^[A-Za-z0-9._-]+$/;
+function parseRepo(repository, what = "the app repo") {
   const parts = String(repository ?? "").trim().split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Refusal(`the app repo "${repository ?? ""}" is not in owner/name form`);
+    throw new Refusal(`${what} "${repository ?? ""}" is not in owner/name form`);
   }
-  return { owner: parts[0], repo: parts[1] };
+  const [owner, repo] = parts;
+  if (!REPO_PART.test(owner) || owner.startsWith(".") || !REPO_PART.test(repo) || repo === "." || repo === "..") {
+    throw new Refusal(`${what} "${owner}/${repo}" is not a name GitHub allows (letters, digits, ".", "_" and "-" only; an owner cannot start with "." and a name cannot be "." or "..")`);
+  }
+  return { owner, repo };
 }
 var sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function withRetry(label, call, { sleep, timeoutMs }) {
@@ -24353,6 +24540,27 @@ async function withRetry(label, call, { sleep, timeoutMs }) {
     }
   }
 }
+var TimeLimitReached = class extends Error {
+  constructor(timeoutMs) {
+    super(`no answer within ${timeoutMs / 1e3} seconds`);
+    this.name = "TimeoutError";
+  }
+};
+async function withTimeLimit(call, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  const timedOut = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(new TimeLimitReached(timeoutMs));
+      reject(controller.signal.reason);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve().then(() => call(controller.signal)), timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function describeError(error2, timeoutMs) {
   const names = [error2?.name, error2?.cause?.name];
   if (names.includes("TimeoutError") || names.includes("AbortError")) {
@@ -24361,6 +24569,36 @@ function describeError(error2, timeoutMs) {
   if (error2?.status !== void 0) return `HTTP ${error2.status}: ${error2.message}`;
   return error2?.message || String(error2);
 }
+function parseGateActorId(raw) {
+  const value = String(raw ?? "").trim();
+  if (value === "" || /^[0-9]+$/.test(value)) return value;
+  throw new Refusal(`gate-actor-id must be one numeric GitHub user id, not '${value}'`);
+}
+function parseRefusedActorIds(raw) {
+  const { ids, ignored } = parseActorIds(raw);
+  if (ignored.length > 0) {
+    throw new Refusal(`refused-actor-ids must hold numeric GitHub user ids only; cannot read ${ignored.map((entry) => `'${entry}'`).join(", ")}`);
+  }
+  return ids;
+}
+var ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+var TEAM_SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+function parseTeam(raw) {
+  const value = String(raw ?? "").trim();
+  if (value === "") return null;
+  const parts = value.split("/");
+  if (parts.length === 2 && ORG_NAME.test(parts[0]) && TEAM_SLUG.test(parts[1])) {
+    return { org: parts[0], slug: parts[1], name: value };
+  }
+  throw new Refusal(`break-glass-team must be a team as "org/team-slug", like "example-org/ops-team", not '${value}'`);
+}
+function parseSwitch(raw, name) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (value === "" || value === "true") return true;
+  if (value === "false") return false;
+  throw new Refusal(`${name} must be "true" or "false", not '${String(raw).trim()}'`);
+}
+var errorName = (error2) => typeof error2?.name === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error2.name) ? error2.name : "";
 async function authorize({
   octokit,
   repository,
@@ -24369,7 +24607,22 @@ async function authorize({
   actorId,
   triggeringActor,
   runAttempt,
+  workflowRepository,
+  runId,
   trustedActorIds,
+  gateActorId,
+  signedRequest,
+  gatePublicKeys,
+  gateIssuer,
+  gateAudience,
+  expectedApp,
+  expectedAction,
+  expectedTarget,
+  refusedActorIds,
+  breakGlassTeam,
+  allowPushAccess,
+  claimRequestId,
+  now = Date.now,
   sleep = sleepFor,
   timeoutMs = REQUEST_TIMEOUT_MS
 }) {
@@ -24389,27 +24642,128 @@ async function authorize({
   }
   const thisAttempt = `this run attempt (attempt ${attempt})`;
   const startedBy = actor && actor !== triggeringActor ? `; the run was first started by ${actor}` : "";
+  let gateId, refusedIds, team, pushAccessCounts;
+  try {
+    gateId = parseGateActorId(gateActorId);
+    refusedIds = parseRefusedActorIds(refusedActorIds);
+    team = parseTeam(breakGlassTeam);
+    pushAccessCounts = parseSwitch(allowPushAccess, "allow-push-access");
+  } catch (error2) {
+    if (error2 instanceof Refusal) throw new Refusal(`${error2.message}; refusing to ${operation} ${appRepo}`);
+    throw error2;
+  }
   const { ids, ignored } = parseActorIds(trustedActorIds);
   for (const entry of ignored) {
     warning(`ignoring trusted-automation-actor-ids entry '${entry}' (not a numeric user id)`);
   }
-  if (actorId && ids.includes(actorId)) {
-    if (triggeringActor === actor) {
-      let user;
-      try {
-        user = await withRetry(
+  if (gateId && ids.includes(gateId)) {
+    throw new Refusal(`gate-actor-id ${gateId} is also in trusted-automation-actor-ids. The deploy gate's account may pass only with a signed request, never as plain automation, so take it off the allowlist; refusing to ${operation} ${appRepo}`);
+  }
+  let lookup;
+  async function triggeringUserId(cannot) {
+    let user;
+    try {
+      if (!lookup) {
+        lookup = withRetry(
           `Looking up the user id of ${triggeringActor}`,
           (request2) => octokit.rest.users.getByUsername({ username: triggeringActor, request: request2 }),
           retry
         );
-      } catch (error2) {
-        throw new Refusal(`could not look up the user id of ${triggeringActor} (${describeError(error2, timeoutMs)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be matched to the automation allowlist; refusing to ${operation} ${appRepo}`);
       }
-      const id = user?.data?.id;
-      if (typeof id !== "number" && typeof id !== "string") {
-        throw new Refusal(`the user lookup for ${triggeringActor} returned no user id, so ${triggeringActor}, the account that started ${thisAttempt}, cannot be matched to the automation allowlist; refusing to ${operation} ${appRepo}`);
+      user = await lookup;
+    } catch (error2) {
+      throw new Refusal(`could not look up the user id of ${triggeringActor} (${describeError(error2, timeoutMs)}), so ${triggeringActor}, the account that started ${thisAttempt}, ${cannot}; refusing to ${operation} ${appRepo}`);
+    }
+    const id = user?.data?.id;
+    if (typeof id !== "number" && typeof id !== "string") {
+      throw new Refusal(`the user lookup for ${triggeringActor} returned no user id, so ${triggeringActor}, the account that started ${thisAttempt}, ${cannot}; refusing to ${operation} ${appRepo}`);
+    }
+    return String(id);
+  }
+  const tried = [];
+  const listTried = Boolean(gateId || team || !pushAccessCounts);
+  async function passAsGate() {
+    const why = `${triggeringActor}, the deploy gate's account, started ${thisAttempt}, so it needs a valid signed request`;
+    const refusal = (reason) => new Refusal(`${why}, and ${reason}; refusing to ${operation} ${appRepo}`);
+    let verified;
+    try {
+      verified = verifySignedRequest(signedRequest, {
+        keys: String(gatePublicKeys ?? "").trim() === "" ? [] : parsePublicKeys(gatePublicKeys),
+        issuer: gateIssuer,
+        audience: gateAudience,
+        expected: { app: expectedApp, action: expectedAction, target: expectedTarget },
+        now: now(),
+        allowExpired: true
+      });
+    } catch (error2) {
+      if (error2 instanceof InvalidSignedRequest) throw refusal(error2.message);
+      throw error2;
+    }
+    const { claims, expired, secondsPastExpiry, kid, keyNumber, keyCount } = verified;
+    if (expired && secondsPastExpiry > HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY) {
+      throw refusal(`the signed request expired ${secondsPastExpiry} seconds ago, more than the ${HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY / 3600} hours a run attempt may keep using a request it claimed while it was fresh`);
+    }
+    if (typeof claimRequestId !== "function") {
+      throw refusal("the one-time request id store is not set up, so signed requests cannot be used yet");
+    }
+    let workflowRepo;
+    try {
+      const parsed = parseRepo(workflowRepository, "the repository this workflow runs in (GITHUB_REPOSITORY)");
+      workflowRepo = `${parsed.owner}/${parsed.repo}`;
+    } catch (error2) {
+      if (error2 instanceof Refusal) throw refusal(`${error2.message}, so its request id cannot be claimed for this run`);
+      throw error2;
+    }
+    const id = String(runId ?? "").trim();
+    if (!/^[1-9][0-9]*$/.test(id)) {
+      throw refusal(`the runner did not give a run id (GITHUB_RUN_ID is "${runId ?? ""}"), so its request id cannot be claimed for this run`);
+    }
+    let answer;
+    try {
+      answer = await withTimeLimit((signal) => claimRequestId({
+        claims,
+        expired,
+        run: { repository: workflowRepo, id, attempt },
+        signal
+      }), timeoutMs);
+    } catch (error2) {
+      if (error2 instanceof RequestIdTaken) {
+        throw refusal(expired ? `the signed request expired ${secondsPastExpiry} seconds ago, which is allowed only for the run attempt that claimed its request id ${claims.jti} while it was fresh, and the one-time request id store says ${thisAttempt} is not that attempt` : `its request id ${claims.jti} was already claimed by another run`);
       }
-      if (String(id) === actorId) {
+      const detail = error2 instanceof TimeLimitReached ? error2.message : errorName(error2);
+      throw refusal(`the one-time request id store could not be reached or answered${detail ? ` (${detail})` : ""}`);
+    }
+    const accepted = expired ? ["held"] : ["claimed", "held"];
+    if (!accepted.includes(answer)) {
+      throw refusal(expired && answer === "claimed" ? `the signed request expired ${secondsPastExpiry} seconds ago, and the one-time request id store answered 'claimed' for it, which it must never do for an expired request` : `the one-time request id store gave an answer this check does not know (only ${accepted.map((value) => `'${value}'`).join(" or ")} passes ${expired ? "an expired" : "a fresh"} request)`);
+    }
+    const held = answer === "claimed" ? "claimed for this run attempt" : "already held by this run attempt";
+    const age = expired ? `, expired ${secondsPastExpiry} seconds ago` : "";
+    notice(`${triggeringActor}, the deploy gate's account, started ${thisAttempt} with a signed request from ${claims.sub} to ${claims.action} ${claims.app} at ${claims.target} (request id ${claims.jti}, ${held}${age}; verified with key ${keyNumber} of ${keyCount}${kid ? `, kid ${kid}` : ""}), so the other checks on ${appRepo} do not apply`);
+    return "gate";
+  }
+  if (gateId && actorId === gateId) {
+    if (triggeringActor === actor) {
+      const id = await triggeringUserId("cannot be matched to the deploy gate's account");
+      if (id === gateId) return passAsGate();
+      warning(`the login ${triggeringActor} started ${thisAttempt}, but that login now belongs to user id ${id}, not the deploy gate's user id ${gateId} that started the run, so no signed request is used and ${triggeringActor} is checked like any other account`);
+    } else {
+      notice(`this run was first started by the deploy gate's account ${actor}, but ${thisAttempt} was started by ${triggeringActor}, so no signed request is used and ${triggeringActor} is checked like any other account`);
+    }
+  } else if (String(signedRequest ?? "").trim() !== "") {
+    notice(`a signed request was given, but ${thisAttempt} was not started by the deploy gate's account${gateId ? "" : " (no gate-actor-id is set)"}, so it is not used`);
+  }
+  if (gateId) tried.push("the deploy gate (this attempt was not started by its account)");
+  if (refusedIds.length > 0) {
+    const id = await triggeringUserId("cannot be checked against refused-actor-ids");
+    if (refusedIds.includes(id)) {
+      throw new Refusal(`${triggeringActor} (user id ${id}) is in refused-actor-ids, so it may not ${operation} ${appRepo} as allowlisted automation, by break-glass or by push access. The account checked is ${triggeringActor}, the one that started ${thisAttempt}${startedBy}.`);
+    }
+  }
+  if (actorId && ids.includes(actorId)) {
+    if (triggeringActor === actor) {
+      const id = await triggeringUserId("cannot be matched to the automation allowlist");
+      if (id === actorId) {
         notice(`${triggeringActor} (user id ${actorId}) is an allowlisted automation account and started ${thisAttempt} itself, so the push-access check on ${appRepo} does not apply`);
         return "automation";
       }
@@ -24417,6 +24771,57 @@ async function authorize({
     } else {
       notice(`this run was first started by allowlisted automation account ${actor}, but ${thisAttempt} was started by ${triggeringActor}, so ${triggeringActor}'s own access on ${appRepo} is checked`);
     }
+    tried.push("the automation allowlist (this attempt was not started by the allowlisted account)");
+  }
+  if (team) {
+    const { org, slug, name } = team;
+    let membership = null;
+    try {
+      membership = await withRetry(
+        `Reading the membership of ${triggeringActor} in the break-glass team ${name}`,
+        (request2) => octokit.rest.teams.getMembershipForUserInOrg({ org, team_slug: slug, username: triggeringActor, request: request2 }),
+        retry
+      );
+    } catch (error2) {
+      if (error2?.status !== 404) {
+        throw new Refusal(`could not read the membership of ${triggeringActor} in the break-glass team ${name} (${describeError(error2, timeoutMs)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be checked; refusing to ${operation} ${appRepo}`);
+      }
+    }
+    if (!membership) {
+      try {
+        await octokit.rest.teams.getByName({ org, team_slug: slug, request: { signal: AbortSignal.timeout(timeoutMs) } });
+      } catch (error2) {
+        const detail = describeError(error2, timeoutMs);
+        warning(error2?.status >= 400 && error2.status < 500 ? `the break-glass team ${name} was not found, or this token cannot see it (${detail}); the token needs read:org. Until that is fixed, nobody can pass by break-glass` : `could not check that the break-glass team ${name} exists (${detail})`);
+      }
+    }
+    const state = membership?.data?.state;
+    if (state === "active") {
+      let children;
+      try {
+        children = await withRetry(
+          `Listing the child teams of the break-glass team ${name}`,
+          (request2) => octokit.rest.teams.listChildInOrg({ org, team_slug: slug, per_page: 1, request: request2 }),
+          retry
+        );
+      } catch (error2) {
+        throw new Refusal(`${triggeringActor} is an active member of the break-glass team ${name}, but its child teams could not be listed (${describeError(error2, timeoutMs)}), and a member of a child team counts as a member of the team, so this membership cannot be trusted; refusing to ${operation} ${appRepo}`);
+      }
+      if (!Array.isArray(children?.data)) {
+        throw new Refusal(`${triggeringActor} is an active member of the break-glass team ${name}, but listing its child teams did not return a list, so this membership cannot be trusted; refusing to ${operation} ${appRepo}`);
+      }
+      if (children.data.length > 0) {
+        throw new Refusal(`${triggeringActor} is an active member of the break-glass team ${name}, but that team has child teams. GitHub counts the members of a child team as members of the team, so this does not show ${triggeringActor} was put on ${name} itself. Use a break-glass team with no child teams; refusing to ${operation} ${appRepo}`);
+      }
+      notice(`${triggeringActor} is an active member of the break-glass team ${name} and started ${thisAttempt}${startedBy}, so it may ${operation} ${appRepo}`);
+      return "break-glass";
+    }
+    const why = membership ? `membership state: ${typeof state === "string" && state ? state : "unknown"}` : "GitHub answered 404: not a member, or the team does not exist or this token cannot see it";
+    info(`${triggeringActor} is not an active member of the break-glass team ${name} (${why})`);
+    tried.push(`the break-glass team ${name} (${why})`);
+  }
+  if (!pushAccessCounts) {
+    throw new Refusal(`${triggeringActor} is not authorized to ${operation} ${appRepo}: push access does not count for this run (allow-push-access is false). The account checked is ${triggeringActor}, the one that started ${thisAttempt}${startedBy}. Tried: ${tried.length ? tried.join("; ") : "nothing else is configured"}.`);
   }
   let response;
   try {
@@ -24434,7 +24839,8 @@ async function authorize({
   }
   notice(`${triggeringActor} has '${permission}' on ${appRepo}. ${triggeringActor} is the account that started ${thisAttempt}${startedBy}.`);
   if (!ALLOWED_PERMISSIONS.includes(permission)) {
-    throw new Refusal(`${triggeringActor} is not authorized to ${operation} ${appRepo} (permission: ${permission}). Requires admin, write, or maintain. The account checked is ${triggeringActor}, the one that started ${thisAttempt}${startedBy}.`);
+    tried.push(`push access on ${appRepo} (permission: ${permission})`);
+    throw new Refusal(`${triggeringActor} is not authorized to ${operation} ${appRepo} (permission: ${permission}). Requires admin, write, or maintain. The account checked is ${triggeringActor}, the one that started ${thisAttempt}${startedBy}.${listTried ? ` Tried: ${tried.join("; ")}.` : ""}`);
   }
   return "push-access";
 }
@@ -24446,13 +24852,17 @@ function refuse(message, title) {
   process.exitCode = ExitCode.Failure;
   error(message, { title });
 }
-async function run({ env = process.env, sleep, timeoutMs } = {}) {
+async function run({ env = process.env, sleep, timeoutMs, claimRequestId } = {}) {
   const refusalTitle = getInput("refusal-title").trim();
   try {
     const operation = getInput("operation");
     const token = getInput("github-token");
     if (!token) {
       throw new Refusal(`no github-token was given, so the account that started this run attempt cannot be checked; refusing to ${operation || "change production"}`);
+    }
+    const allowPushAccess = getInput("allow-push-access");
+    if (allowPushAccess === "") {
+      throw new Refusal(`allow-push-access is empty, which happens only when the expression a caller gave it comes out empty; it must be "true" or "false"; refusing to ${operation || "change production"}`);
     }
     const passedAs = await authorize({
       octokit: getOctokit(token),
@@ -24462,7 +24872,21 @@ async function run({ env = process.env, sleep, timeoutMs } = {}) {
       actorId: env.GITHUB_ACTOR_ID,
       triggeringActor: env.GITHUB_TRIGGERING_ACTOR,
       runAttempt: env.GITHUB_RUN_ATTEMPT,
+      workflowRepository: env.GITHUB_REPOSITORY,
+      runId: env.GITHUB_RUN_ID,
       trustedActorIds: getInput("trusted-automation-actor-ids"),
+      gateActorId: getInput("gate-actor-id"),
+      signedRequest: getInput("signed-request"),
+      gatePublicKeys: getInput("gate-public-keys"),
+      gateIssuer: getInput("gate-issuer"),
+      gateAudience: getInput("gate-audience"),
+      expectedApp: getInput("expected-app"),
+      expectedAction: getInput("expected-action"),
+      expectedTarget: getInput("expected-target"),
+      refusedActorIds: getInput("refused-actor-ids"),
+      breakGlassTeam: getInput("break-glass-team"),
+      allowPushAccess,
+      claimRequestId,
       sleep,
       timeoutMs
     });
