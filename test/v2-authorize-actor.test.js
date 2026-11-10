@@ -4,9 +4,10 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import * as yaml from 'js-yaml'
 
-// Mocked octokit + @actions/core. `inputs` backs getInput; the octokit calls
-// are per-test mocks so each case says exactly what GitHub answers.
-const { getByUsername, getCollaboratorPermissionLevel, core, inputs, tokens } = vi.hoisted(() => ({
+// Mocked octokit + @actions/core. `inputs` backs getInput, with the action's
+// declared defaults behind it; the octokit calls are per-test mocks so each
+// case says exactly what GitHub answers.
+const { getByUsername, getCollaboratorPermissionLevel, core, inputs, defaults, tokens } = vi.hoisted(() => ({
   getByUsername: vi.fn(),
   getCollaboratorPermissionLevel: vi.fn(),
   core: {
@@ -19,6 +20,7 @@ const { getByUsername, getCollaboratorPermissionLevel, core, inputs, tokens } = 
     setOutput: vi.fn()
   },
   inputs: {},
+  defaults: {},
   tokens: []
 }))
 
@@ -30,7 +32,7 @@ vi.mock('@actions/github', () => ({
 }))
 
 vi.mock('@actions/core', () => ({
-  getInput: (name) => inputs[name] ?? '',
+  getInput: (name) => inputs[name] ?? defaults[name] ?? '',
   notice: core.notice,
   warning: core.warning,
   info: core.info,
@@ -43,6 +45,11 @@ vi.mock('@actions/core', () => ({
 
 import { authorize, parseActorIds, parseRepo, run, ALLOWED_PERMISSIONS, REQUEST_TIMEOUT_MS } from '../src/authorize-actor.js'
 import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
+
+// The runner gives a step every input its action.yml declares, filling in the
+// default for one the step leaves out, so getInput does the same here.
+const declared = yaml.load(readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../actions/authorize-actor/action.yml'), 'utf8')).inputs
+for (const [name, spec] of Object.entries(declared)) defaults[name] = String(spec.default ?? '')
 
 const noSleep = async () => {}
 const BOT = 'release-helper[bot]'
@@ -108,6 +115,39 @@ describe('parseRepo', () => {
 
   it.each(['', 'some-app', 'a/b/c', '/some-app', 'CruGlobal/', undefined])('refuses %j', (slug) => {
     expect(() => parseRepo(slug)).toThrow(/owner\/name/)
+  })
+
+  it.each([
+    'example-org/.example',
+    'example-org/a.b_c-d',
+    'Example-Org/Example.App',
+    'example_org/example-app',
+    'example-org/...',
+    '0/0'
+  ])('accepts every name GitHub allows, like %j', (slug) => {
+    const [owner, repo] = slug.split('/')
+    expect(parseRepo(slug)).toEqual({ owner, repo })
+  })
+
+  // The parts go into API paths, where "." or ".." would be a different route.
+  it.each([
+    '../example-app',
+    './example-app',
+    'example-org/..',
+    'example-org/.',
+    '.example-org/example-app',
+    'example-org/example app',
+    'example-org/example%2fapp',
+    'example-org/example?app',
+    'example-org/example#app',
+    'example-org/exämple',
+    'example-org/example\napp'
+  ])('refuses %j, which GitHub would not allow', (slug) => {
+    expect(() => parseRepo(slug)).toThrow(/is not a name GitHub allows/)
+  })
+
+  it('names what it was reading', () => {
+    expect(() => parseRepo('../x', 'the repository this workflow runs in')).toThrow(/^the repository this workflow runs in "\.\.\/x" is not a name GitHub allows/)
   })
 })
 
@@ -467,9 +507,11 @@ function resolve (value, context) {
 }
 
 // Run one workflow step's authz action, with the inputs the workflow gives it.
+// A caller that sets no refused list gets the workflow input's default, ''.
 async function runStep (step, context, runnerEnv) {
   for (const key of Object.keys(inputs)) delete inputs[key]
-  for (const [name, value] of Object.entries(step.with)) inputs[name] = resolve(value, context)
+  const withDefaults = { 'inputs.refused-actor-ids': '', ...context }
+  for (const [name, value] of Object.entries(step.with)) inputs[name] = resolve(value, withDefaults)
   await run({ env: runnerEnv, sleep: noSleep })
 }
 
@@ -508,7 +550,13 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     } else {
       expect(step.with['trusted-automation-actor-ids']).toBeUndefined()
     }
+    expect(step.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
     expect(step.with['refusal-title']).toBe(refusalTitle)
+  })
+
+  it('takes a refused list that is off unless the caller sets it', () => {
+    const declared = workflow.on.workflow_call.inputs['refused-actor-ids']
+    expect(declared).toMatchObject({ type: 'string', required: false, default: '' })
   })
 
   it('never makes a check step conditional or allowed to fail', () => {
@@ -544,7 +592,24 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     } else {
       expect(check.with['trusted-automation-actor-ids']).toBeUndefined()
     }
+    expect(check.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
     expect(check.with['refusal-title']).toBe(refusalTitle)
+  })
+
+  // A machine user's token can be read by many repos, and the account has
+  // push access everywhere. On the refused list, push access does not count.
+  it.each(productionJobs.map(([id]) => id))('%s refuses an account on the refused list even with push access', async (id) => {
+    const check = workflow.jobs[id].steps[1]
+    getByUsername.mockResolvedValue(user(Number(BOT_ID)))
+    grant({ [BOT]: 'admin' })
+    await runStep(check, {
+      'secrets.authz-token': 'tok',
+      'needs.lookup.outputs.repository': 'CruGlobal/some-app',
+      'inputs.trusted-automation-actor-ids': '',
+      'inputs.refused-actor-ids': BOT_ID
+    }, env({ actor: BOT, actorId: BOT_ID, triggeringActor: BOT, runAttempt: '1' }))
+    expect(failure()).toMatch(new RegExp(`is in refused-actor-ids, so it may not ${operation} CruGlobal/some-app`))
+    expect(getCollaboratorPermissionLevel).not.toHaveBeenCalled()
   })
 
   it('passes only inputs the action declares, and every required one', () => {

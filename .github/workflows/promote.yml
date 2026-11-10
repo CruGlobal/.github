@@ -102,6 +102,16 @@ on:
           Comma-separated numeric GitHub user ids of automation accounts allowed
           to promote without per-repo push access. One passes only when it
           started the run and also started this attempt. Empty allows none.
+      refused-actor-ids:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Comma or newline separated numeric GitHub user ids that may never
+          promote, even with push access or on the automation allowlist,
+          such as machine users whose tokens many repos can read. Only
+          the deploy gate is checked before this list. An entry that is
+          not a number refuses every run. Empty refuses none.
       expected-candidate:
         type: string
         required: false
@@ -417,6 +427,7 @@ jobs:
           repository: ${{ steps.app-info-prod.outputs.repository }}
           operation: promote
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
           refusal-title: actor_not_allowed
 
       # An automation account may promote one exact candidate, not whatever
@@ -499,6 +510,7 @@ jobs:
           repository: ${{ needs.lookup.outputs.repository }}
           operation: promote
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
           refusal-title: actor_not_allowed
 
       # --- Stale-promote guard (inside the production lock) -----------------
@@ -1379,6 +1391,7 @@ jobs:
           repository: ${{ needs.lookup.outputs.repository }}
           operation: promote
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
           refusal-title: actor_not_allowed
 
       # --- Stale-promote guard (inside the production lock) -----------------

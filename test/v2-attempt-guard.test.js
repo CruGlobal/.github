@@ -195,7 +195,8 @@ describe('a production job, step by step', () => {
     jobEnv({ attempt })
     getCollaboratorPermissionLevel.mockResolvedValue({ data: { permission } })
     if (withCheck) {
-      Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/app', operation: 'promote' })
+      // allow-push-access is the default the runner fills in from action.yml.
+      Object.assign(inputs, { 'github-token': 'tok', repository: 'CruGlobal/app', operation: 'promote', 'allow-push-access': 'true' })
       await authorizeActor({
         env: { GITHUB_ACTOR: 'alice', GITHUB_ACTOR_ID: '1001', GITHUB_TRIGGERING_ACTOR: triggeringActor, GITHUB_RUN_ATTEMPT: attempt },
         sleep: async () => {}
