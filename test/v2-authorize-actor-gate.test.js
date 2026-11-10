@@ -139,12 +139,13 @@ function memoryStore (clock = () => NOW) {
     const sameRun = record && record.repository === run.repository && record.id === run.id
     const sameAttempt = sameRun && record.attempt === run.attempt
     if (!expired) {
+      if (clock() > claims.exp + 60) throw Object.assign(new Error('the request expired by the store\'s clock'), { name: 'RequestExpired' })
       if (!record) {
         records.set(claims.jti, { ...run, at: clock() })
         return 'claimed'
       }
       if (sameAttempt) return 'held'
-      if (sameRun) {
+      if (sameRun && Number(run.attempt) > Number(record.attempt)) {
         records.set(claims.jti, { ...run, at: clock() })
         return 'held'
       }
@@ -410,6 +411,15 @@ describe('authorize: one-time request ids', () => {
     await expect(authorize({ ...base, ...at(clock), ...gate, ...gateRun, runAttempt: '2', signedRequest: request, claimRequestId: store.claim })).resolves.toBe('gate')
     await expect(authorize({ ...base, ...at(clock), ...gate, ...gateRun, runAttempt: '1', signedRequest: request, claimRequestId: store.claim }))
       .rejects.toThrow('is not that attempt')
+  })
+
+  it('refuses a request the store\'s own clock says has expired, even when the runner\'s clock is behind', async () => {
+    github()
+    const store = memoryStore(() => NOW + 400)
+    await expect(authorize({ ...base, ...gate, ...gateRun, signedRequest: signRequest(), claimRequestId: store.claim }))
+      .rejects.toThrow(`${why} the one-time request id store could not be reached or answered (RequestExpired); refusing to promote ${REPO}`)
+    expect(store.claim).toHaveBeenCalledWith(expect.objectContaining({ expired: false }))
+    expect(store.records.size).toBe(0)
   })
 
   it('refuses an expired request that was never claimed', async () => {
