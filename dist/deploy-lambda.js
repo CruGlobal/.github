@@ -37258,7 +37258,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.54",
+      version: "3.998.1",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -37358,7 +37358,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.979.1",
+        "@aws-sdk/core": "^3.980.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.51",
         "@aws-sdk/types": "^3.975.0",
         "@smithy/core": "^3.38.0",
@@ -41384,6 +41384,7 @@ var init_runtimeConfig = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -42273,6 +42274,7 @@ var init_runtimeConfig2 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -43629,6 +43631,7 @@ var init_runtimeConfig3 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         httpAuthSchemes: config?.httpAuthSchemes ?? [
           {
@@ -44688,6 +44691,7 @@ var init_runtimeConfig4 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -45804,7 +45808,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };

@@ -31187,7 +31187,7 @@ var require_package2 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.3.2",
+      version: "11.3.3",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -35314,7 +35314,7 @@ var require_awsrequestsigner = __commonJS({
     async function generateAuthenticationHeaderMap(options) {
       const additionalAmzHeaders = gaxios_1.Gaxios.mergeHeaders(options.additionalAmzHeaders);
       const requestPayload = options.requestPayload || "";
-      const serviceName = options.host.split(".")[0];
+      const serviceName = options.host.split(".")[0].replace(/-fips$/, "");
       const now = /* @__PURE__ */ new Date();
       const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.[0-9]+/, "");
       const dateStamp = now.toISOString().replace(/[-]/g, "").replace(/T.*/, "");
@@ -196077,7 +196077,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.54",
+      version: "3.998.1",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -196177,7 +196177,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.979.1",
+        "@aws-sdk/core": "^3.980.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.51",
         "@aws-sdk/types": "^3.975.0",
         "@smithy/core": "^3.38.0",
@@ -200203,6 +200203,7 @@ var init_runtimeConfig = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -201092,6 +201093,7 @@ var init_runtimeConfig2 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -202448,6 +202450,7 @@ var init_runtimeConfig3 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         httpAuthSchemes: config?.httpAuthSchemes ?? [
           {
@@ -203507,6 +203510,7 @@ var init_runtimeConfig4 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -204554,7 +204558,7 @@ var require_dist_cjs15 = __commonJS({
 // node_modules/@aws-sdk/client-ecr/dist-cjs/index.js
 var require_dist_cjs16 = __commonJS({
   "node_modules/@aws-sdk/client-ecr/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -204622,7 +204626,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -208751,6 +208755,7 @@ var require_dist_cjs16 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),

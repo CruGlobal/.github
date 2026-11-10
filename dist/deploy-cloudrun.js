@@ -60517,7 +60517,7 @@ var require_package3 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.3.2",
+      version: "11.3.3",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -64644,7 +64644,7 @@ var require_awsrequestsigner = __commonJS({
     async function generateAuthenticationHeaderMap(options) {
       const additionalAmzHeaders = gaxios_1.Gaxios.mergeHeaders(options.additionalAmzHeaders);
       const requestPayload = options.requestPayload || "";
-      const serviceName = options.host.split(".")[0];
+      const serviceName = options.host.split(".")[0].replace(/-fips$/, "");
       const now = /* @__PURE__ */ new Date();
       const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.[0-9]+/, "");
       const dateStamp = now.toISOString().replace(/[-]/g, "").replace(/T.*/, "");

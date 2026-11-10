@@ -6162,7 +6162,7 @@ var require_client_h1 = __commonJS({
         } else {
           socket[kReset] = true;
         }
-        const pause = request2.onHeaders(statusCode, headers, this.resume, statusText) === false;
+        const pause2 = request2.onHeaders(statusCode, headers, this.resume, statusText) === false;
         if (request2.aborted) {
           return -1;
         }
@@ -6176,7 +6176,7 @@ var require_client_h1 = __commonJS({
           socket[kBlocking] = false;
           client[kResume]();
         }
-        return pause ? constants3.ERROR.PAUSED : 0;
+        return pause2 ? constants3.ERROR.PAUSED : 0;
       }
       onBody(buf) {
         const { client, socket, statusCode, maxResponseSize } = this;
@@ -20518,6 +20518,9 @@ function exportVariable(name, val) {
   }
   issueCommand("set-env", { name }, convertedVal);
 }
+function setSecret(secret) {
+  issueCommand("add-mask", {}, secret);
+}
 function getInput(name, options) {
   const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
   if (options && options.required && !val) {
@@ -24496,10 +24499,127 @@ function verifySignedRequest(token, { keys, issuer, audience, expected, now = Da
   };
 }
 
+// src/v2/gate-claim.js
+var CLAIM_ATTEMPTS = 2;
+var CLAIM_TRY_TIMEOUT_MS = 6e3;
+var TOKEN_TRY_TIMEOUT_MS = 4e3;
+var RETRY_DELAY_MS = 500;
+var MAX_ANSWER_LENGTH = 64 * 1024;
+var CODE = /^[a-z][a-z0-9_]{0,63}$/;
+var RequestExpired = class extends Error {
+  constructor(message = "the deploy gate says the signed request has expired") {
+    super(message);
+    this.name = "RequestExpired";
+  }
+};
+function failure(name, message) {
+  const error2 = new Error(message);
+  error2.name = name;
+  return error2;
+}
+function untilAborted(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  let onAbort;
+  const aborted = new Promise((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([promise, aborted]).finally(() => signal.removeEventListener("abort", onAbort));
+}
+var pause = (ms, signal) => untilAborted(new Promise((resolve) => setTimeout(resolve, ms)), signal);
+async function send(url, init, { signal, attempts, timeoutMs, what, unreachable }) {
+  for (let attempt = 1; ; attempt++) {
+    if (signal?.aborted) throw signal.reason;
+    const timeout = AbortSignal.timeout(timeoutMs);
+    let answer;
+    try {
+      const response = await globalThis.fetch(url, {
+        ...init,
+        // A redirect is an answer, never followed: the bearer token goes to
+        // this URL only.
+        redirect: "manual",
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+      });
+      const text = await response.text();
+      let body;
+      try {
+        body = text.length > MAX_ANSWER_LENGTH ? void 0 : JSON.parse(text);
+      } catch {
+        body = void 0;
+      }
+      const code = typeof body?.code === "string" && CODE.test(body.code) ? body.code : "";
+      answer = { status: response.status, ok: response.ok, body, code };
+    } catch (error2) {
+      if (signal?.aborted) throw signal.reason;
+      if (attempt < attempts) {
+        info(`${what} did not answer (${error2?.name === "TimeoutError" ? `no answer within ${timeoutMs / 1e3} seconds` : "no answer"}); trying again (${attempt + 1}/${attempts})`);
+        await pause(RETRY_DELAY_MS, signal);
+        continue;
+      }
+      throw failure(unreachable, `${what} did not answer`);
+    }
+    if (answer.status >= 500 && attempt < attempts) {
+      info(`${what} answered HTTP ${answer.status}${answer.code ? ` (${answer.code})` : ""}; trying again (${attempt + 1}/${attempts})`);
+      await pause(RETRY_DELAY_MS, signal);
+      continue;
+    }
+    return answer;
+  }
+}
+async function idToken(audience, { signal, attempts, timeoutMs }) {
+  const base = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!base || !requestToken) {
+    warning("the runner did not hand out a GitHub OIDC token for the deploy gate's claim; the job needs permissions: id-token: write");
+    throw failure("IdTokenUnavailable", "no GitHub OIDC token");
+  }
+  const answer = await send(`${base}&audience=${encodeURIComponent(audience)}`, {
+    method: "GET",
+    headers: { authorization: `Bearer ${requestToken}`, accept: "application/json" }
+  }, { signal, attempts, timeoutMs, what: "the runner's OIDC token service", unreachable: "IdTokenUnavailable" });
+  const token = answer.ok ? answer.body?.value : void 0;
+  if (typeof token !== "string" || token === "") {
+    warning(`the runner did not hand out a GitHub OIDC token for the deploy gate's claim (HTTP ${answer.status})`);
+    throw failure("IdTokenUnavailable", "no GitHub OIDC token");
+  }
+  setSecret(token);
+  return token;
+}
+function gateClaim({ url, audience, attempts = CLAIM_ATTEMPTS, tryTimeoutMs = CLAIM_TRY_TIMEOUT_MS, tokenTryTimeoutMs = TOKEN_TRY_TIMEOUT_MS }) {
+  return async function claimRequestId({ claims, expired, signal }) {
+    if (signal?.aborted) throw signal.reason;
+    const token = await idToken(audience, { signal, attempts, timeoutMs: tokenTryTimeoutMs });
+    const answer = await send(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        requestId: claims.jti,
+        app: claims.app,
+        action: claims.action,
+        target: claims.target,
+        environment: claims.environment,
+        expired: expired === true
+      })
+    }, { signal, attempts, timeoutMs: tryTimeoutMs, what: "the deploy gate's claim route", unreachable: "GateClaimUnreachable" });
+    const { status, code } = answer;
+    if (answer.ok) {
+      const result = answer.body?.result;
+      if (typeof result === "string") return result;
+      warning(`the deploy gate answered the claim with HTTP ${status} and no result it could read`);
+      throw failure("GateClaimUnreadable", "the deploy gate's answer has no result");
+    }
+    if (code === "request_id_taken") throw new RequestIdTaken();
+    if (code === "request_expired") throw new RequestExpired();
+    warning(`the deploy gate refused the claim: HTTP ${status}${code ? `, ${code}` : ""}`);
+    throw failure("GateClaimRefused", "the deploy gate refused the claim");
+  };
+}
+
 // src/authorize-actor.js
 var ALLOWED_PERMISSIONS = ["admin", "maintain", "write"];
 var ATTEMPTS = 3;
-var RETRY_DELAY_MS = 2e3;
+var RETRY_DELAY_MS2 = 2e3;
 var REQUEST_TIMEOUT_MS = 1e4;
 var HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY = 2 * 60 * 60;
 var Refusal = class extends Error {
@@ -24536,7 +24656,7 @@ async function withRetry(label, call, { sleep, timeoutMs }) {
       const retryable = error2?.status === void 0 || error2.status >= 500;
       if (!retryable || attempt >= ATTEMPTS) throw error2;
       info(`${label} failed (${describeError(error2, timeoutMs)}); trying again (${attempt + 1}/${ATTEMPTS})`);
-      await sleep(RETRY_DELAY_MS * attempt);
+      await sleep(RETRY_DELAY_MS2 * attempt);
     }
   }
 }
@@ -24592,6 +24712,34 @@ function parseTeam(raw) {
   }
   throw new Refusal(`break-glass-team must be a team as "org/team-slug", like "example-org/ops-team", not '${value}'`);
 }
+function parseClaimUrl(raw) {
+  const value = String(raw ?? "").trim();
+  if (value === "") return "";
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    url = null;
+  }
+  if (url && (url.username || url.password)) {
+    throw new Refusal("gate-claim-url must be an https URL with no user name or password in it, like https://gate.example.com/gate/claim");
+  }
+  if (!url || url.protocol !== "https:" || !url.hostname || url.hash || value.includes("#")) {
+    throw new Refusal(`gate-claim-url must be an https URL, like https://gate.example.com/gate/claim, not '${value}'`);
+  }
+  return url.href;
+}
+function parseClaimAudience(raw, claimUrl) {
+  const value = String(raw ?? "").trim();
+  if (!claimUrl) return value;
+  if (value === "") {
+    throw new Refusal("gate-claim-audience must be set when gate-claim-url is: it is the audience the deploy gate requires of the job's OIDC token");
+  }
+  if (!/^[\x21-\x7e]{1,256}$/.test(value)) {
+    throw new Refusal(`gate-claim-audience must be one value of printable characters with no spaces, not '${value}'`);
+  }
+  return value;
+}
 function parseSwitch(raw, name) {
   const value = String(raw ?? "").trim().toLowerCase();
   if (value === "" || value === "true") return true;
@@ -24621,6 +24769,8 @@ async function authorize({
   refusedActorIds,
   breakGlassTeam,
   allowPushAccess,
+  gateClaimUrl,
+  gateClaimAudience,
   claimRequestId,
   now = Date.now,
   sleep = sleepFor,
@@ -24642,12 +24792,14 @@ async function authorize({
   }
   const thisAttempt = `this run attempt (attempt ${attempt})`;
   const startedBy = actor && actor !== triggeringActor ? `; the run was first started by ${actor}` : "";
-  let gateId, refusedIds, team, pushAccessCounts;
+  let gateId, refusedIds, team, pushAccessCounts, claimUrl, claimAudience;
   try {
     gateId = parseGateActorId(gateActorId);
     refusedIds = parseRefusedActorIds(refusedActorIds);
     team = parseTeam(breakGlassTeam);
     pushAccessCounts = parseSwitch(allowPushAccess, "allow-push-access");
+    claimUrl = parseClaimUrl(gateClaimUrl);
+    claimAudience = parseClaimAudience(gateClaimAudience, claimUrl);
   } catch (error2) {
     if (error2 instanceof Refusal) throw new Refusal(`${error2.message}; refusing to ${operation} ${appRepo}`);
     throw error2;
@@ -24659,6 +24811,7 @@ async function authorize({
   if (gateId && ids.includes(gateId)) {
     throw new Refusal(`gate-actor-id ${gateId} is also in trusted-automation-actor-ids. The deploy gate's account may pass only with a signed request, never as plain automation, so take it off the allowlist; refusing to ${operation} ${appRepo}`);
   }
+  const claim = typeof claimRequestId === "function" ? claimRequestId : claimUrl ? gateClaim({ url: claimUrl, audience: claimAudience }) : void 0;
   let lookup;
   async function triggeringUserId(cannot) {
     let user;
@@ -24703,8 +24856,8 @@ async function authorize({
     if (expired && secondsPastExpiry > HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY) {
       throw refusal(`the signed request expired ${secondsPastExpiry} seconds ago, more than the ${HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY / 3600} hours a run attempt may keep using a request it claimed while it was fresh`);
     }
-    if (typeof claimRequestId !== "function") {
-      throw refusal("the one-time request id store is not set up, so signed requests cannot be used yet");
+    if (typeof claim !== "function") {
+      throw refusal("the one-time request id store is not set up (no gate-claim-url is set), so signed requests cannot be used");
     }
     let workflowRepo;
     try {
@@ -24720,7 +24873,7 @@ async function authorize({
     }
     let answer;
     try {
-      answer = await withTimeLimit((signal) => claimRequestId({
+      answer = await withTimeLimit((signal) => claim({
         claims,
         expired,
         run: { repository: workflowRepo, id, attempt },
@@ -24729,6 +24882,9 @@ async function authorize({
     } catch (error2) {
       if (error2 instanceof RequestIdTaken) {
         throw refusal(expired ? `the signed request expired ${secondsPastExpiry} seconds ago, which is allowed only for the run attempt that claimed its request id ${claims.jti} while it was fresh, and the one-time request id store says ${thisAttempt} is not that attempt` : `its request id ${claims.jti} was already claimed by another run`);
+      }
+      if (errorName(error2) === "RequestExpired") {
+        throw refusal(`the one-time request id store says the signed request had expired by its own clock before request id ${claims.jti} could be claimed for ${thisAttempt}, so a new request is needed (RequestExpired)`);
       }
       const detail = error2 instanceof TimeLimitReached ? error2.message : errorName(error2);
       throw refusal(`the one-time request id store could not be reached or answered${detail ? ` (${detail})` : ""}`);
@@ -24886,6 +25042,8 @@ async function run({ env = process.env, sleep, timeoutMs, claimRequestId } = {})
       refusedActorIds: getInput("refused-actor-ids"),
       breakGlassTeam: getInput("break-glass-team"),
       allowPushAccess,
+      gateClaimUrl: getInput("gate-claim-url"),
+      gateClaimAudience: getInput("gate-claim-audience"),
       claimRequestId,
       sleep,
       timeoutMs

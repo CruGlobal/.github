@@ -31187,7 +31187,7 @@ var require_package2 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.3.2",
+      version: "11.3.3",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -35314,7 +35314,7 @@ var require_awsrequestsigner = __commonJS({
     async function generateAuthenticationHeaderMap(options) {
       const additionalAmzHeaders = gaxios_1.Gaxios.mergeHeaders(options.additionalAmzHeaders);
       const requestPayload = options.requestPayload || "";
-      const serviceName = options.host.split(".")[0];
+      const serviceName = options.host.split(".")[0].replace(/-fips$/, "");
       const now = /* @__PURE__ */ new Date();
       const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.[0-9]+/, "");
       const dateStamp = now.toISOString().replace(/[-]/g, "").replace(/T.*/, "");
@@ -196077,7 +196077,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.54",
+      version: "3.998.1",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -196177,7 +196177,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.979.1",
+        "@aws-sdk/core": "^3.980.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.51",
         "@aws-sdk/types": "^3.975.0",
         "@smithy/core": "^3.38.0",
@@ -200203,6 +200203,7 @@ var init_runtimeConfig = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -201092,6 +201093,7 @@ var init_runtimeConfig2 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -202448,6 +202450,7 @@ var init_runtimeConfig3 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         httpAuthSchemes: config?.httpAuthSchemes ?? [
           {
@@ -203507,6 +203510,7 @@ var init_runtimeConfig4 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -204554,7 +204558,7 @@ var require_dist_cjs15 = __commonJS({
 // node_modules/@aws-sdk/client-ecs/dist-cjs/index.js
 var require_dist_cjs16 = __commonJS({
   "node_modules/@aws-sdk/client-ecs/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -204622,7 +204626,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -205491,6 +205495,7 @@ var require_dist_cjs16 = __commonJS({
     var _LDTD = "ListDaemonTaskDefinitions";
     var _LDTDR = "ListDaemonTaskDefinitionsRequest";
     var _LDTDRi = "ListDaemonTaskDefinitionsResponse";
+    var _LDVC = "LogDriverVolumeConfiguration";
     var _LEE = "LimitExceededException";
     var _LG = "ListGateways";
     var _LGCA = "ListGatewayClusterAssociations";
@@ -206096,6 +206101,7 @@ var require_dist_cjs16 = __commonJS({
     var _lC = "logConfiguration";
     var _lCi = "linearConfiguration";
     var _lD = "logDriver";
+    var _lDVC = "logDriverVolumeConfiguration";
     var _lG = "logGroups";
     var _lGN = "logGroupName";
     var _lGo = "logGroup";
@@ -207276,8 +207282,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DV,
       0,
-      [_n, _ho],
-      [0, () => HostVolumeProperties$]
+      [_n, _ho, _lDVC],
+      [0, () => HostVolumeProperties$, () => LogDriverVolumeConfiguration$]
     ];
     var DeleteAccountSettingRequest$ = [
       3,
@@ -208745,6 +208751,15 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_lD, _o, _sO],
       [0, 128 | 0, () => SecretList],
+      1
+    ];
+    var LogDriverVolumeConfiguration$ = [
+      3,
+      n05,
+      _LDVC,
+      0,
+      [_dr],
+      [0],
       1
     ];
     var ManagedAgent$ = [
@@ -211722,6 +211737,7 @@ var require_dist_cjs16 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 9e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
@@ -213709,6 +213725,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.LocalStorageType = LocalStorageType;
     exports2.LogConfiguration$ = LogConfiguration$;
     exports2.LogDriver = LogDriver;
+    exports2.LogDriverVolumeConfiguration$ = LogDriverVolumeConfiguration$;
     exports2.ManagedAgent$ = ManagedAgent$;
     exports2.ManagedAgentName = ManagedAgentName;
     exports2.ManagedAgentStateChange$ = ManagedAgentStateChange$;
@@ -214040,7 +214057,7 @@ var require_dist_cjs16 = __commonJS({
 // node_modules/@aws-sdk/client-ssm/dist-cjs/index.js
 var require_dist_cjs17 = __commonJS({
   "node_modules/@aws-sdk/client-ssm/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -214108,7 +214125,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -216585,6 +216602,9 @@ var require_dist_cjs17 = __commonJS({
     var _DCCRe = "DeleteCloudConnectorResult";
     var _DD = "DocumentDescription";
     var _DDC = "DuplicateDocumentContent";
+    var _DDHMC = "DeregisterDefaultHostManagementConfiguration";
+    var _DDHMCR = "DeregisterDefaultHostManagementConfigurationRequest";
+    var _DDHMCRe = "DeregisterDefaultHostManagementConfigurationResult";
     var _DDP = "DescribeDocumentPermission";
     var _DDPR = "DescribeDocumentPermissionRequest";
     var _DDPRe = "DescribeDocumentPermissionResponse";
@@ -217366,6 +217386,7 @@ var require_dist_cjs17 = __commonJS({
     var _PM = "ParameterMetadata";
     var _PML = "ParameterMetadataList";
     var _PMVLE = "ParameterMaxVersionLimitExceeded";
+    var _PMe = "PermissionModel";
     var _PMr = "ProviderMessage";
     var _PN = "ParameterNames";
     var _PNF = "ParameterNotFound";
@@ -217441,6 +217462,9 @@ var require_dist_cjs17 = __commonJS({
     var _RCes = "ResponseCode";
     var _RCu = "RunCommand";
     var _RD = "RegistrationDate";
+    var _RDHMC = "RegisterDefaultHostManagementConfiguration";
+    var _RDHMCR = "RegisterDefaultHostManagementConfigurationRequest";
+    var _RDHMCRe = "RegisterDefaultHostManagementConfigurationResult";
     var _RDPB = "RegisterDefaultPatchBaseline";
     var _RDPBR = "RegisterDefaultPatchBaselineRequest";
     var _RDPBRe = "RegisterDefaultPatchBaselineResult";
@@ -219883,6 +219907,22 @@ var require_dist_cjs17 = __commonJS({
       [],
       []
     ];
+    var DeregisterDefaultHostManagementConfigurationRequest$ = [
+      3,
+      n05,
+      _DDHMCR,
+      0,
+      [],
+      []
+    ];
+    var DeregisterDefaultHostManagementConfigurationResult$ = [
+      3,
+      n05,
+      _DDHMCRe,
+      0,
+      [],
+      []
+    ];
     var DeregisterManagedInstanceRequest$ = [
       3,
       n05,
@@ -222240,6 +222280,23 @@ var require_dist_cjs17 = __commonJS({
       [_PI2, _PH],
       [0, 0]
     ];
+    var RegisterDefaultHostManagementConfigurationRequest$ = [
+      3,
+      n05,
+      _RDHMCR,
+      0,
+      [_PMe, _RA2, _Ov],
+      [0, 0, 2],
+      1
+    ];
+    var RegisterDefaultHostManagementConfigurationResult$ = [
+      3,
+      n05,
+      _RDHMCRe,
+      0,
+      [_RA2],
+      [0]
+    ];
     var RegisterDefaultPatchBaselineRequest$ = [
       3,
       n05,
@@ -224460,6 +224517,14 @@ var require_dist_cjs17 = __commonJS({
       () => DeleteResourcePolicyRequest$,
       () => DeleteResourcePolicyResponse$
     ];
+    var DeregisterDefaultHostManagementConfiguration$ = [
+      9,
+      n05,
+      _DDHMC,
+      2,
+      () => DeregisterDefaultHostManagementConfigurationRequest$,
+      () => DeregisterDefaultHostManagementConfigurationResult$
+    ];
     var DeregisterManagedInstance$ = [
       9,
       n05,
@@ -225188,6 +225253,14 @@ var require_dist_cjs17 = __commonJS({
       () => PutResourcePolicyRequest$,
       () => PutResourcePolicyResponse$
     ];
+    var RegisterDefaultHostManagementConfiguration$ = [
+      9,
+      n05,
+      _RDHMC,
+      2,
+      () => RegisterDefaultHostManagementConfigurationRequest$,
+      () => RegisterDefaultHostManagementConfigurationResult$
+    ];
     var RegisterDefaultPatchBaseline$ = [
       9,
       n05,
@@ -225510,6 +225583,7 @@ var require_dist_cjs17 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 9e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
@@ -225656,6 +225730,8 @@ var require_dist_cjs17 = __commonJS({
     var DeleteResourceDataSyncCommand = class extends command5(_ep05, _mw05, "DeleteResourceDataSync", DeleteResourceDataSync$) {
     };
     var DeleteResourcePolicyCommand = class extends command5(_ep05, _mw05, "DeleteResourcePolicy", DeleteResourcePolicy$) {
+    };
+    var DeregisterDefaultHostManagementConfigurationCommand = class extends command5(_ep05, _mw05, "DeregisterDefaultHostManagementConfiguration", DeregisterDefaultHostManagementConfiguration$) {
     };
     var DeregisterManagedInstanceCommand = class extends command5(_ep05, _mw05, "DeregisterManagedInstance", DeregisterManagedInstance$) {
     };
@@ -225838,6 +225914,8 @@ var require_dist_cjs17 = __commonJS({
     var PutParameterCommand = class extends command5(_ep05, _mw05, "PutParameter", PutParameter$) {
     };
     var PutResourcePolicyCommand = class extends command5(_ep05, _mw05, "PutResourcePolicy", PutResourcePolicy$) {
+    };
+    var RegisterDefaultHostManagementConfigurationCommand = class extends command5(_ep05, _mw05, "RegisterDefaultHostManagementConfiguration", RegisterDefaultHostManagementConfiguration$) {
     };
     var RegisterDefaultPatchBaselineCommand = class extends command5(_ep05, _mw05, "RegisterDefaultPatchBaseline", RegisterDefaultPatchBaseline$) {
     };
@@ -226081,6 +226159,7 @@ var require_dist_cjs17 = __commonJS({
       DeletePatchBaselineCommand,
       DeleteResourceDataSyncCommand,
       DeleteResourcePolicyCommand,
+      DeregisterDefaultHostManagementConfigurationCommand,
       DeregisterManagedInstanceCommand,
       DeregisterPatchBaselineForPatchGroupCommand,
       DeregisterTargetFromMaintenanceWindowCommand,
@@ -226172,6 +226251,7 @@ var require_dist_cjs17 = __commonJS({
       PutInventoryCommand,
       PutParameterCommand,
       PutResourcePolicyCommand,
+      RegisterDefaultHostManagementConfigurationCommand,
       RegisterDefaultPatchBaselineCommand,
       RegisterPatchBaselineForPatchGroupCommand,
       RegisterTargetWithMaintenanceWindowCommand,
@@ -226941,6 +227021,10 @@ var require_dist_cjs17 = __commonJS({
       Complete: "COMPLETE",
       Partial: "PARTIAL"
     };
+    var DHMCPermissionModel = {
+      SELF_MANAGED: "SELF_MANAGED",
+      SERVICE_MANAGED: "SERVICE_MANAGED"
+    };
     var SignalType = {
       APPROVE: "Approve",
       REJECT: "Reject",
@@ -227138,6 +227222,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.Credentials$ = Credentials$2;
     exports2.CustomSchemaCountLimitExceededException = CustomSchemaCountLimitExceededException;
     exports2.CustomSchemaCountLimitExceededException$ = CustomSchemaCountLimitExceededException$;
+    exports2.DHMCPermissionModel = DHMCPermissionModel;
     exports2.DeleteActivation$ = DeleteActivation$;
     exports2.DeleteActivationCommand = DeleteActivationCommand;
     exports2.DeleteActivationRequest$ = DeleteActivationRequest$;
@@ -227191,6 +227276,10 @@ var require_dist_cjs17 = __commonJS({
     exports2.DeleteResourcePolicyRequest$ = DeleteResourcePolicyRequest$;
     exports2.DeleteResourcePolicyResponse$ = DeleteResourcePolicyResponse$;
     exports2.DeletionMode = DeletionMode;
+    exports2.DeregisterDefaultHostManagementConfiguration$ = DeregisterDefaultHostManagementConfiguration$;
+    exports2.DeregisterDefaultHostManagementConfigurationCommand = DeregisterDefaultHostManagementConfigurationCommand;
+    exports2.DeregisterDefaultHostManagementConfigurationRequest$ = DeregisterDefaultHostManagementConfigurationRequest$;
+    exports2.DeregisterDefaultHostManagementConfigurationResult$ = DeregisterDefaultHostManagementConfigurationResult$;
     exports2.DeregisterManagedInstance$ = DeregisterManagedInstance$;
     exports2.DeregisterManagedInstanceCommand = DeregisterManagedInstanceCommand;
     exports2.DeregisterManagedInstanceRequest$ = DeregisterManagedInstanceRequest$;
@@ -227905,6 +227994,10 @@ var require_dist_cjs17 = __commonJS({
     exports2.PutResourcePolicyRequest$ = PutResourcePolicyRequest$;
     exports2.PutResourcePolicyResponse$ = PutResourcePolicyResponse$;
     exports2.RebootOption = RebootOption;
+    exports2.RegisterDefaultHostManagementConfiguration$ = RegisterDefaultHostManagementConfiguration$;
+    exports2.RegisterDefaultHostManagementConfigurationCommand = RegisterDefaultHostManagementConfigurationCommand;
+    exports2.RegisterDefaultHostManagementConfigurationRequest$ = RegisterDefaultHostManagementConfigurationRequest$;
+    exports2.RegisterDefaultHostManagementConfigurationResult$ = RegisterDefaultHostManagementConfigurationResult$;
     exports2.RegisterDefaultPatchBaseline$ = RegisterDefaultPatchBaseline$;
     exports2.RegisterDefaultPatchBaselineCommand = RegisterDefaultPatchBaselineCommand;
     exports2.RegisterDefaultPatchBaselineRequest$ = RegisterDefaultPatchBaselineRequest$;
@@ -229304,7 +229397,7 @@ var require_dist_cjs20 = __commonJS({
 var require_dist_cjs21 = __commonJS({
   "node_modules/@aws-sdk/client-dynamodb/dist-cjs/index.js"(exports2) {
     var { NODE_ACCOUNT_ID_ENDPOINT_MODE_CONFIG_OPTIONS: NODE_ACCOUNT_ID_ENDPOINT_MODE_CONFIG_OPTIONS2, resolveAccountIdEndpointModeConfig: resolveAccountIdEndpointModeConfig2 } = (init_account_id_endpoint(), __toCommonJS(account_id_endpoint_exports));
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { NODE_ENDPOINT_DISCOVERY_CONFIG_OPTIONS, resolveEndpointDiscoveryConfig } = require_dist_cjs19();
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, makeBuilder: makeBuilder2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
@@ -229382,40 +229475,43 @@ var require_dist_cjs21 = __commonJS({
       ResourceArnList: { type: "operationContextParams", get: (input) => Object.keys(input?.RequestItems ?? {}) }
     };
     var _ep2 = {
-      ResourceArn: { type: "contextParams", name: "TableName" }
+      ResourceArn: { type: "contextParams", name: "BulkOperationArn" }
     };
     var _ep3 = {
-      ResourceArn: { type: "contextParams", name: "GlobalTableName" }
+      ResourceArn: { type: "contextParams", name: "TableName" }
     };
     var _ep4 = {
-      ResourceArn: { type: "contextParams", name: "BackupArn" }
+      ResourceArn: { type: "contextParams", name: "GlobalTableName" }
     };
     var _ep5 = {
-      ResourceArn: { type: "contextParams", name: "ResourceArn" }
+      ResourceArn: { type: "contextParams", name: "BackupArn" }
     };
     var _ep6 = {
-      ResourceArn: { type: "contextParams", name: "ExportArn" }
+      ResourceArn: { type: "contextParams", name: "ResourceArn" }
     };
     var _ep7 = {
-      ResourceArn: { type: "contextParams", name: "ImportArn" }
+      ResourceArn: { type: "contextParams", name: "ExportArn" }
     };
     var _ep8 = {
-      ResourceArn: { type: "contextParams", name: "TableArn" }
+      ResourceArn: { type: "contextParams", name: "ImportArn" }
     };
     var _ep9 = {
-      ResourceArn: { type: "operationContextParams", get: (input) => input?.TableCreationParameters?.TableName }
+      ResourceArn: { type: "contextParams", name: "TableArn" }
     };
     var _ep10 = {
-      ResourceArn: { type: "contextParams", name: "TargetTableName" }
+      ResourceArn: { type: "operationContextParams", get: (input) => input?.TableCreationParameters?.TableName }
     };
     var _ep11 = {
+      ResourceArn: { type: "contextParams", name: "TargetTableName" }
+    };
+    var _ep122 = {
       IsSearchOperation: { type: "staticContextParams", value: true },
       ResourceArn: { type: "contextParams", name: "TableName" }
     };
-    var _ep122 = {
+    var _ep13 = {
       ResourceArnList: { type: "operationContextParams", get: (input) => input?.TransactItems?.map((obj) => obj?.Get?.TableName) }
     };
-    var _ep13 = {
+    var _ep14 = {
       ResourceArnList: { type: "operationContextParams", get: (input) => input?.TransactItems?.map((obj) => [obj?.ConditionCheck?.TableName, obj?.Put?.TableName, obj?.Delete?.TableName, obj?.Update?.TableName].filter((i7) => i7)).flat() }
     };
     var _mw05 = (Command3, cs, config, o4) => [];
@@ -229949,7 +230045,20 @@ var require_dist_cjs21 = __commonJS({
     var _BMS = "BillingModeSummary";
     var _BN = "BackupName";
     var _BNFE = "BackupNotFoundException";
+    var _BOA = "BulkOperationArn";
+    var _BOB = "BulkOperationBytes";
+    var _BOD = "BulkOperationDescription";
     var _BOOL = "BOOL";
+    var _BOS = "BulkOperationStatus";
+    var _BOSL = "BulkOperationsSummaryList";
+    var _BOSu = "BulkOperationSummary";
+    var _BOTD = "BulkOperationTableDetail";
+    var _BOTDu = "BulkOperationTableDetails";
+    var _BOU = "BulkOperationUsage";
+    var _BOUM = "BulkOperationUsageMultiple";
+    var _BOVB = "BulkOperationVectorBytes";
+    var _BPB = "BulkPutBytes";
+    var _BPVB = "BulkPutVectorBytes";
     var _BS = "BackupStatus";
     var _BSB = "BackupSizeBytes";
     var _BSBi = "BilledSizeBytes";
@@ -229970,6 +230079,9 @@ var require_dist_cjs21 = __commonJS({
     var _CBD = "ContinuousBackupsDescription";
     var _CBI = "CreateBackupInput";
     var _CBO = "CreateBackupOutput";
+    var _CBOI = "CancelBulkOperationInput";
+    var _CBOO = "CancelBulkOperationOutput";
+    var _CBOa = "CancelBulkOperation";
     var _CBS = "ContinuousBackupsStatus";
     var _CBUE = "ContinuousBackupsUnavailableException";
     var _CC = "ConsumedCapacity";
@@ -230018,7 +230130,10 @@ var require_dist_cjs21 = __commonJS({
     var _DBI = "DeleteBackupInput";
     var _DBIe = "DescribeBackupInput";
     var _DBO = "DeleteBackupOutput";
+    var _DBOI = "DescribeBulkOperationInput";
+    var _DBOO = "DescribeBulkOperationOutput";
     var _DBOe = "DescribeBackupOutput";
+    var _DBOes = "DescribeBulkOperation";
     var _DBe = "DescribeBackup";
     var _DCB = "DescribeContinuousBackups";
     var _DCBI = "DescribeContinuousBackupsInput";
@@ -230134,6 +230249,7 @@ var require_dist_cjs21 = __commonJS({
     var _FCM = "FilterConditionMap";
     var _FE = "FailureException";
     var _FEi = "FilterExpression";
+    var _FIC = "FailedItemCount";
     var _FM = "FailureMessage";
     var _FS = "FilterSpecification";
     var _G = "Get";
@@ -230209,6 +230325,7 @@ var require_dist_cjs21 = __commonJS({
     var _IRTE = "InvalidRestoreTimeException";
     var _IS = "IndexStatus";
     var _ISB = "IndexSizeBytes";
+    var _ISC = "InputS3Configuration";
     var _ISE3 = "InternalServerError";
     var _ISL = "ImportSummaryList";
     var _ISm = "ImportSummary";
@@ -230238,6 +230355,9 @@ var require_dist_cjs21 = __commonJS({
     var _LB = "ListBackups";
     var _LBI = "ListBackupsInput";
     var _LBO = "ListBackupsOutput";
+    var _LBOI = "ListBulkOperationsInput";
+    var _LBOO = "ListBulkOperationsOutput";
+    var _LBOi = "ListBulkOperations";
     var _LCI = "ListContributorInsights";
     var _LCII = "ListContributorInsightsInput";
     var _LCIO = "ListContributorInsightsOutput";
@@ -230293,9 +230413,12 @@ var require_dist_cjs21 = __commonJS({
     var _NULL = "NULL";
     var _ODT = "OnDemandThroughput";
     var _ODTO = "OnDemandThroughputOverride";
+    var _OSC = "OutputS3Configuration";
+    var _OT = "OutputType";
     var _P2 = "Parameters";
     var _PE = "ProjectionExpression";
     var _PI2 = "PutItem";
+    var _PIB = "ProcessedInputBytes";
     var _PIC = "ProcessedItemCount";
     var _PII = "PutItemInput";
     var _PIIAM = "PutItemInputAttributeMap";
@@ -230322,11 +230445,12 @@ var require_dist_cjs21 = __commonJS({
     var _PSP = "PreparedStatementParameters";
     var _PSa = "ParameterizedStatement";
     var _PSar = "ParameterizedStatements";
-    var _PT = "ProvisionedThroughput";
+    var _PT = "PerformanceTier";
     var _PTD = "ProvisionedThroughputDescription";
     var _PTEE = "ProvisionedThroughputExceededException";
     var _PTO = "ProvisionedThroughputOverride";
-    var _PTr = "ProjectionType";
+    var _PTr = "ProvisionedThroughput";
+    var _PTro = "ProjectionType";
     var _PWCASS = "ProvisionedWriteCapacityAutoScalingSettings";
     var _PWCASSU = "ProvisionedWriteCapacityAutoScalingSettingsUpdate";
     var _PWCASU = "ProvisionedWriteCapacityAutoScalingUpdate";
@@ -230419,6 +230543,9 @@ var require_dist_cjs21 = __commonJS({
     var _SB = "S3Bucket";
     var _SBA = "SourceBackupArn";
     var _SBO = "S3BucketOwner";
+    var _SBPI = "StartBulkPutItems";
+    var _SBPII = "StartBulkPutItemsInput";
+    var _SBPIO = "StartBulkPutItemsOutput";
     var _SBS = "S3BucketSource";
     var _SC = "ScannedCount";
     var _SCE = "SearchConditionExpression";
@@ -230427,6 +230554,7 @@ var require_dist_cjs21 = __commonJS({
     var _SERGB = "SizeEstimateRangeGB";
     var _SF = "ScanFilter";
     var _SI2 = "ScanInput";
+    var _SIBBM = "SecondaryIndexesBulkBytesMap";
     var _SIC = "ScaleInCooldown";
     var _SICM = "SecondaryIndexesCapacityMap";
     var _SIF = "ScanIndexForward";
@@ -230479,7 +230607,8 @@ var require_dist_cjs21 = __commonJS({
     var _TCO = "TableClassOverride";
     var _TCP = "TableCreationParameters";
     var _TCS = "TableClassSummary";
-    var _TD = "TableDescription";
+    var _TD = "TableDetails";
+    var _TDa = "TableDescription";
     var _TE = "ThrottlingException";
     var _TGI = "TransactGetItem";
     var _TGII = "TransactGetItemsInput";
@@ -230487,6 +230616,7 @@ var require_dist_cjs21 = __commonJS({
     var _TGIO = "TransactGetItemsOutput";
     var _TGIr = "TransactGetItems";
     var _TI = "TableId";
+    var _TIB = "TotalInputBytes";
     var _TIPE = "TransactionInProgressException";
     var _TIUE = "TableInUseException";
     var _TIr = "TransactItems";
@@ -230565,6 +230695,7 @@ var require_dist_cjs21 = __commonJS({
     var _VAD = "VectorAttributeDefinition";
     var _VC = "VectorCapacity";
     var _VI = "VectorIndexes";
+    var _VIBVBM = "VectorIndexesBulkVectorBytesMap";
     var _VICM = "VectorIndexesCapacityMap";
     var _VID = "VectorIndexDescription";
     var _VIDL = "VectorIndexDescriptionList";
@@ -231104,6 +231235,73 @@ var require_dist_cjs21 = __commonJS({
       [_BM, _LUTPPRDT],
       [0, 4]
     ];
+    var BulkOperationBytes$ = [
+      3,
+      n05,
+      _BOB,
+      0,
+      [_BPB],
+      [1]
+    ];
+    var BulkOperationDescription$ = [
+      3,
+      n05,
+      _BOD,
+      0,
+      [_BOA, _BOS, _TD, _CT2, _ISC, _OSC, _ST2, _ET, _PIC, _PIB, _TIB, _BOU, _FIC, _FC, _FM, _MWRU, _PT],
+      [0, 0, () => BulkOperationTableDetails, 0, () => InputS3Configuration$, () => OutputS3Configuration$, 4, 4, 1, 1, 1, () => BulkOperationUsageMultiple, 1, 0, 0, 1, 0]
+    ];
+    var BulkOperationSummary$ = [
+      3,
+      n05,
+      _BOSu,
+      0,
+      [_BOA, _BOS, _ST2, _ET],
+      [0, 0, 4, 4],
+      3
+    ];
+    var BulkOperationTableDetail$ = [
+      3,
+      n05,
+      _BOTD,
+      0,
+      [_TN, _TI],
+      [0, 0]
+    ];
+    var BulkOperationUsage$ = [
+      3,
+      n05,
+      _BOU,
+      0,
+      [_TN, _BPB, _T2, _LSI, _GSI, _VI],
+      [0, 1, () => BulkOperationBytes$, () => SecondaryIndexesBulkBytesMap, () => SecondaryIndexesBulkBytesMap, () => VectorIndexesBulkVectorBytesMap]
+    ];
+    var BulkOperationVectorBytes$ = [
+      3,
+      n05,
+      _BOVB,
+      0,
+      [_BPVB],
+      [1]
+    ];
+    var CancelBulkOperationInput$ = [
+      3,
+      n05,
+      _CBOI,
+      0,
+      [_BOA],
+      [0],
+      1
+    ];
+    var CancelBulkOperationOutput$ = [
+      3,
+      n05,
+      _CBOO,
+      0,
+      [_BOA, _BOS],
+      [0, 0],
+      2
+    ];
     var CancellationReason$ = [
       3,
       n05,
@@ -231185,7 +231383,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _CGSIA,
       0,
-      [_IN, _KS, _Pr2, _PT, _ODT, _WT],
+      [_IN, _KS, _Pr2, _PTr, _ODT, _WT],
       [0, () => KeySchema, () => Projection$, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => WarmThroughput$],
       3
     ];
@@ -231238,7 +231436,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _CTI,
       0,
-      [_TN, _ADt, _KS, _LSI, _GSI, _BM, _PT, _SS, _SSES, _Ta2, _TC2, _DPE, _WT, _RP, _ODT, _GTSA, _GTSRM, _VI],
+      [_TN, _ADt, _KS, _LSI, _GSI, _BM, _PTr, _SS, _SSES, _Ta2, _TC2, _DPE, _WT, _RP, _ODT, _GTSA, _GTSRM, _VI],
       [0, () => AttributeDefinitions, () => KeySchema, () => LocalSecondaryIndexList, () => GlobalSecondaryIndexList, 0, () => ProvisionedThroughput$, () => StreamSpecification$, () => SSESpecification$, () => TagList, 0, 2, () => WarmThroughput$, 0, () => OnDemandThroughput$, 0, 0, () => VectorIndexList],
       1
     ];
@@ -231247,7 +231445,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _CTO,
       0,
-      [_TD],
+      [_TDa],
       [() => TableDescription$]
     ];
     var CreateVectorIndexAction$ = [
@@ -231386,7 +231584,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _DTO,
       0,
-      [_TD],
+      [_TDa],
       [() => TableDescription$]
     ];
     var DeleteVectorIndexAction$ = [
@@ -231414,6 +231612,24 @@ var require_dist_cjs21 = __commonJS({
       0,
       [_BD],
       [() => BackupDescription$]
+    ];
+    var DescribeBulkOperationInput$ = [
+      3,
+      n05,
+      _DBOI,
+      0,
+      [_BOA],
+      [0],
+      1
+    ];
+    var DescribeBulkOperationOutput$ = [
+      3,
+      n05,
+      _DBOO,
+      0,
+      [_BOD],
+      [() => BulkOperationDescription$],
+      1
     ];
     var DescribeContinuousBackupsInput$ = [
       3,
@@ -231784,7 +232000,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _GSIl,
       0,
-      [_IN, _KS, _Pr2, _PT, _ODT, _WT],
+      [_IN, _KS, _Pr2, _PTr, _ODT, _WT],
       [0, () => KeySchema, () => Projection$, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => WarmThroughput$],
       3
     ];
@@ -231801,7 +232017,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _GSID,
       0,
-      [_IN, _KS, _Pr2, _IS, _B, _PT, _ISB, _IC, _IAn, _ODT, _WT],
+      [_IN, _KS, _Pr2, _IS, _B, _PTr, _ISB, _IC, _IAn, _ODT, _WT],
       [0, () => KeySchema, () => Projection$, 0, 2, () => ProvisionedThroughputDescription$, 1, 1, 0, () => OnDemandThroughput$, () => GlobalSecondaryIndexWarmThroughputDescription$]
     ];
     var GlobalSecondaryIndexInfo$ = [
@@ -231809,7 +232025,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _GSII,
       0,
-      [_IN, _KS, _Pr2, _PT, _ODT],
+      [_IN, _KS, _Pr2, _PTr, _ODT],
       [0, () => KeySchema, () => Projection$, () => ProvisionedThroughput$, () => OnDemandThroughput$]
     ];
     var GlobalSecondaryIndexUpdate$ = [
@@ -231919,6 +232135,15 @@ var require_dist_cjs21 = __commonJS({
       [_Cs],
       [() => CsvOptions$]
     ];
+    var InputS3Configuration$ = [
+      3,
+      n05,
+      _ISC,
+      0,
+      [_SB, _IF, _SBO, _SKP, _ICT],
+      [0, 0, 0, 0, 0],
+      2
+    ];
     var ItemCollectionMetrics$ = [
       3,
       n05,
@@ -231993,6 +232218,22 @@ var require_dist_cjs21 = __commonJS({
       0,
       [_BSac, _LEBA],
       [() => BackupSummaries, 0]
+    ];
+    var ListBulkOperationsInput$ = [
+      3,
+      n05,
+      _LBOI,
+      0,
+      [_MR, _NT],
+      [1, 0]
+    ];
+    var ListBulkOperationsOutput$ = [
+      3,
+      n05,
+      _LBOO,
+      0,
+      [_BOSL, _NT],
+      [() => BulkOperationsSummaryList, 0]
     ];
     var ListContributorInsightsInput$ = [
       3,
@@ -232132,6 +232373,15 @@ var require_dist_cjs21 = __commonJS({
       [_MRRU],
       [1]
     ];
+    var OutputS3Configuration$ = [
+      3,
+      n05,
+      _OSC,
+      0,
+      [_OT, _SBO, _SB, _SKP, _SSA, _SSKKI],
+      [64 | 0, 0, 0, 0, 0, 0],
+      1
+    ];
     var ParameterizedStatement$ = [
       3,
       n05,
@@ -232163,13 +232413,13 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _Pr2,
       0,
-      [_PTr, _NKA],
+      [_PTro, _NKA],
       [0, 64 | 0]
     ];
     var ProvisionedThroughput$ = [
       3,
       n05,
-      _PT,
+      _PTr,
       0,
       [_RCU, _WCU],
       [1, 1],
@@ -232401,7 +232651,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _RTFBO,
       0,
-      [_TD],
+      [_TDa],
       [() => TableDescription$]
     ];
     var RestoreTableToPointInTimeInput$ = [
@@ -232418,7 +232668,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _RTTPITO,
       0,
-      [_TD],
+      [_TDa],
       [() => TableDescription$]
     ];
     var S3BucketSource$ = [
@@ -232486,7 +232736,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _STD,
       0,
-      [_TN, _TI, _KS, _TCDT, _PT, _TA, _TSB, _ODT, _IC, _BM],
+      [_TN, _TI, _KS, _TCDT, _PTr, _TA, _TSB, _ODT, _IC, _BM],
       [0, 0, () => KeySchema, 4, () => ProvisionedThroughput$, 0, 1, () => OnDemandThroughput$, 1, 0],
       5
     ];
@@ -232513,6 +232763,24 @@ var require_dist_cjs21 = __commonJS({
       0,
       [_Ena, _SSETy, _KMSMKI],
       [2, 0, 0]
+    ];
+    var StartBulkPutItemsInput$ = [
+      3,
+      n05,
+      _SBPII,
+      0,
+      [_ISC, _OSC, _TN, _CT2, _MWRU, _PT],
+      [() => InputS3Configuration$, () => OutputS3Configuration$, 0, [0, 4], 1, 0],
+      3
+    ];
+    var StartBulkPutItemsOutput$ = [
+      3,
+      n05,
+      _SBPIO,
+      0,
+      [_BOD],
+      [() => BulkOperationDescription$],
+      1
     ];
     var StreamSpecification$ = [
       3,
@@ -232544,16 +232812,16 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _TCP,
       0,
-      [_TN, _ADt, _KS, _BM, _PT, _ODT, _SSES, _GSI, _VI],
+      [_TN, _ADt, _KS, _BM, _PTr, _ODT, _SSES, _GSI, _VI],
       [0, () => AttributeDefinitions, () => KeySchema, 0, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => SSESpecification$, () => GlobalSecondaryIndexList, () => VectorIndexList],
       3
     ];
     var TableDescription$ = [
       3,
       n05,
-      _TD,
+      _TDa,
       0,
-      [_ADt, _TN, _KS, _TSa, _CDT, _PT, _TSB, _IC, _TA, _TI, _BMS, _LSI, _GSI, _SS, _LSL, _LSA, _GTV, _Rep, _GTW, _GTSRM, _RSes, _SSED, _AS, _TCS, _DPE, _DPEi, _ODT, _WT, _MRC, _VI],
+      [_ADt, _TN, _KS, _TSa, _CDT, _PTr, _TSB, _IC, _TA, _TI, _BMS, _LSI, _GSI, _SS, _LSL, _LSA, _GTV, _Rep, _GTW, _GTSRM, _RSes, _SSED, _AS, _TCS, _DPE, _DPEi, _ODT, _WT, _MRC, _VI],
       [() => AttributeDefinitions, 0, () => KeySchema, 0, 4, () => ProvisionedThroughputDescription$, 1, 1, 0, 0, () => BillingModeSummary$, () => LocalSecondaryIndexDescriptionList, () => GlobalSecondaryIndexDescriptionList, () => StreamSpecification$, 0, 0, 0, () => ReplicaDescriptionList, () => GlobalTableWitnessDescriptionList, 0, () => RestoreSummary$, () => SSEDescription$, () => ArchivalSummary$, () => TableClassSummary$, 2, 2, () => OnDemandThroughput$, () => TableWarmThroughputDescription$, 0, () => VectorIndexDescriptionList]
     ];
     var TableWarmThroughputDescription$ = [
@@ -232715,7 +232983,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _UGSIA,
       0,
-      [_IN, _PT, _ODT, _WT],
+      [_IN, _PTr, _ODT, _WT],
       [0, () => ProvisionedThroughput$, () => OnDemandThroughput$, () => WarmThroughput$],
       1
     ];
@@ -232809,7 +233077,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _UTI,
       0,
-      [_TN, _ADt, _BM, _PT, _GSIUl, _SS, _SSES, _RUe, _TC2, _DPE, _MRC, _GTWU, _ODT, _WT, _GTSRM, _DPEi, _VIU],
+      [_TN, _ADt, _BM, _PTr, _GSIUl, _SS, _SSES, _RUe, _TC2, _DPE, _MRC, _GTWU, _ODT, _WT, _GTSRM, _DPEi, _VIU],
       [0, () => AttributeDefinitions, 0, () => ProvisionedThroughput$, () => GlobalSecondaryIndexUpdateList, () => StreamSpecification$, () => SSESpecification$, () => ReplicationGroupUpdateList, 0, 2, 0, () => GlobalTableWitnessGroupUpdateList, () => OnDemandThroughput$, () => WarmThroughput$, 0, 2, () => VectorIndexUpdateList],
       1
     ];
@@ -232818,7 +233086,7 @@ var require_dist_cjs21 = __commonJS({
       n05,
       _UTO,
       0,
-      [_TD],
+      [_TDa],
       [() => TableDescription$]
     ];
     var UpdateTableReplicaAutoScalingInput$ = [
@@ -232949,6 +233217,27 @@ var require_dist_cjs21 = __commonJS({
       _BSac,
       0,
       () => BackupSummary$
+    ];
+    var BulkOperationsSummaryList = [
+      1,
+      n05,
+      _BOSL,
+      0,
+      () => BulkOperationSummary$
+    ];
+    var BulkOperationTableDetails = [
+      1,
+      n05,
+      _BOTDu,
+      0,
+      () => BulkOperationTableDetail$
+    ];
+    var BulkOperationUsageMultiple = [
+      1,
+      n05,
+      _BOUM,
+      0,
+      () => BulkOperationUsage$
     ];
     var CancellationReasonList = [
       1,
@@ -233447,6 +233736,14 @@ var require_dist_cjs21 = __commonJS({
       0,
       () => AttributeValue$
     ];
+    var SecondaryIndexesBulkBytesMap = [
+      2,
+      n05,
+      _SIBBM,
+      0,
+      0,
+      () => BulkOperationBytes$
+    ];
     var SecondaryIndexesCapacityMap = [
       2,
       n05,
@@ -233454,6 +233751,14 @@ var require_dist_cjs21 = __commonJS({
       0,
       0,
       () => Capacity$
+    ];
+    var VectorIndexesBulkVectorBytesMap = [
+      2,
+      n05,
+      _VIBVBM,
+      0,
+      0,
+      () => BulkOperationVectorBytes$
     ];
     var VectorIndexesCapacityMap = [
       2,
@@ -233494,6 +233799,14 @@ var require_dist_cjs21 = __commonJS({
       0,
       () => BatchWriteItemInput$,
       () => BatchWriteItemOutput$
+    ];
+    var CancelBulkOperation$ = [
+      9,
+      n05,
+      _CBOa,
+      0,
+      () => CancelBulkOperationInput$,
+      () => CancelBulkOperationOutput$
     ];
     var CreateBackup$ = [
       9,
@@ -233558,6 +233871,14 @@ var require_dist_cjs21 = __commonJS({
       0,
       () => DescribeBackupInput$,
       () => DescribeBackupOutput$
+    ];
+    var DescribeBulkOperation$ = [
+      9,
+      n05,
+      _DBOes,
+      0,
+      () => DescribeBulkOperationInput$,
+      () => DescribeBulkOperationOutput$
     ];
     var DescribeContinuousBackups$ = [
       9,
@@ -233727,6 +234048,14 @@ var require_dist_cjs21 = __commonJS({
       () => ListBackupsInput$,
       () => ListBackupsOutput$
     ];
+    var ListBulkOperations$ = [
+      9,
+      n05,
+      _LBOi,
+      0,
+      () => ListBulkOperationsInput$,
+      () => ListBulkOperationsOutput$
+    ];
     var ListContributorInsights$ = [
       9,
       n05,
@@ -233830,6 +234159,14 @@ var require_dist_cjs21 = __commonJS({
       0,
       () => SearchVectorsInput$,
       () => SearchVectorsOutput$
+    ];
+    var StartBulkPutItems$ = [
+      9,
+      n05,
+      _SBPI,
+      0,
+      () => StartBulkPutItemsInput$,
+      () => StartBulkPutItemsOutput$
     ];
     var TagResource$ = [
       9,
@@ -233937,7 +234274,7 @@ var require_dist_cjs21 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -234026,7 +234363,7 @@ var require_dist_cjs21 = __commonJS({
         ["{Endpoint}", G],
         [a5, "Invalid Configuration: FIPS and local endpoint are not supported"],
         [a5, "Invalid Configuration: Dualstack and local endpoint are not supported"],
-        ["http://localhost:8000", { authSchemes: [{ signingRegion: "us-east-1", name: "sigv4", signingName: m4 }] }],
+        ["http://localhost:8000", { authSchemes: [{ name: "sigv4", signingName: m4, signingRegion: "us-east-1" }] }],
         [a5, "Invalid Configuration: AccountIdEndpointMode is required and FIPS is enabled, but FIPS account endpoints are not supported"],
         ["https://search-dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
         ["https://dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", G],
@@ -234405,6 +234742,7 @@ var require_dist_cjs21 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         endpointDiscoveryEnabledProvider: config?.endpointDiscoveryEnabledProvider ?? loadConfig2(NODE_ENDPOINT_DISCOVERY_CONFIG_OPTIONS, loaderConfig),
         maxAttempts: config?.maxAttempts ?? loadConfig2(Retry2.v2026 ? { ...NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, default: 4 } : NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
@@ -234504,120 +234842,184 @@ var require_dist_cjs21 = __commonJS({
     };
     var BatchWriteItemCommand = class extends command5(_ep12, _mw05, "BatchWriteItem", BatchWriteItem$) {
     };
-    var CreateBackupCommand = class extends command5(_ep2, _mw05, "CreateBackup", CreateBackup$) {
+    var CancelBulkOperationCommand = class extends command5(_ep2, _mw05, "CancelBulkOperation", CancelBulkOperation$) {
     };
-    var CreateGlobalTableCommand = class extends command5(_ep3, _mw05, "CreateGlobalTable", CreateGlobalTable$) {
+    var CreateBackupCommand = class extends command5(_ep3, _mw05, "CreateBackup", CreateBackup$) {
     };
-    var CreateTableCommand = class extends command5(_ep2, _mw05, "CreateTable", CreateTable$) {
+    var CreateGlobalTableCommand = class extends command5(_ep4, _mw05, "CreateGlobalTable", CreateGlobalTable$) {
     };
-    var DeleteBackupCommand = class extends command5(_ep4, _mw05, "DeleteBackup", DeleteBackup$) {
+    var CreateTableCommand = class extends command5(_ep3, _mw05, "CreateTable", CreateTable$) {
     };
-    var DeleteItemCommand = class extends command5(_ep2, _mw05, "DeleteItem", DeleteItem$) {
+    var DeleteBackupCommand = class extends command5(_ep5, _mw05, "DeleteBackup", DeleteBackup$) {
     };
-    var DeleteResourcePolicyCommand = class extends command5(_ep5, _mw05, "DeleteResourcePolicy", DeleteResourcePolicy$) {
+    var DeleteItemCommand = class extends command5(_ep3, _mw05, "DeleteItem", DeleteItem$) {
     };
-    var DeleteTableCommand = class extends command5(_ep2, _mw05, "DeleteTable", DeleteTable$) {
+    var DeleteResourcePolicyCommand = class extends command5(_ep6, _mw05, "DeleteResourcePolicy", DeleteResourcePolicy$) {
     };
-    var DescribeBackupCommand = class extends command5(_ep4, _mw05, "DescribeBackup", DescribeBackup$) {
+    var DeleteTableCommand = class extends command5(_ep3, _mw05, "DeleteTable", DeleteTable$) {
     };
-    var DescribeContinuousBackupsCommand = class extends command5(_ep2, _mw05, "DescribeContinuousBackups", DescribeContinuousBackups$) {
+    var DescribeBackupCommand = class extends command5(_ep5, _mw05, "DescribeBackup", DescribeBackup$) {
     };
-    var DescribeContributorInsightsCommand = class extends command5(_ep2, _mw05, "DescribeContributorInsights", DescribeContributorInsights$) {
+    var DescribeBulkOperationCommand = class extends command5(_ep2, _mw05, "DescribeBulkOperation", DescribeBulkOperation$) {
     };
-    var DescribeExportCommand = class extends command5(_ep6, _mw05, "DescribeExport", DescribeExport$) {
+    var DescribeContinuousBackupsCommand = class extends command5(_ep3, _mw05, "DescribeContinuousBackups", DescribeContinuousBackups$) {
     };
-    var DescribeGlobalTableCommand = class extends command5(_ep3, _mw05, "DescribeGlobalTable", DescribeGlobalTable$) {
+    var DescribeContributorInsightsCommand = class extends command5(_ep3, _mw05, "DescribeContributorInsights", DescribeContributorInsights$) {
     };
-    var DescribeGlobalTableSettingsCommand = class extends command5(_ep3, _mw05, "DescribeGlobalTableSettings", DescribeGlobalTableSettings$) {
+    var DescribeExportCommand = class extends command5(_ep7, _mw05, "DescribeExport", DescribeExport$) {
     };
-    var DescribeImportCommand = class extends command5(_ep7, _mw05, "DescribeImport", DescribeImport$) {
+    var DescribeGlobalTableCommand = class extends command5(_ep4, _mw05, "DescribeGlobalTable", DescribeGlobalTable$) {
     };
-    var DescribeKinesisStreamingDestinationCommand = class extends command5(_ep2, _mw05, "DescribeKinesisStreamingDestination", DescribeKinesisStreamingDestination$) {
+    var DescribeGlobalTableSettingsCommand = class extends command5(_ep4, _mw05, "DescribeGlobalTableSettings", DescribeGlobalTableSettings$) {
+    };
+    var DescribeImportCommand = class extends command5(_ep8, _mw05, "DescribeImport", DescribeImport$) {
+    };
+    var DescribeKinesisStreamingDestinationCommand = class extends command5(_ep3, _mw05, "DescribeKinesisStreamingDestination", DescribeKinesisStreamingDestination$) {
     };
     var DescribeLimitsCommand = class extends command5(_ep05, _mw05, "DescribeLimits", DescribeLimits$) {
     };
-    var DescribeTableCommand = class extends command5(_ep2, _mw05, "DescribeTable", DescribeTable$) {
+    var DescribeTableCommand = class extends command5(_ep3, _mw05, "DescribeTable", DescribeTable$) {
     };
-    var DescribeTableReplicaAutoScalingCommand = class extends command5(_ep2, _mw05, "DescribeTableReplicaAutoScaling", DescribeTableReplicaAutoScaling$) {
+    var DescribeTableReplicaAutoScalingCommand = class extends command5(_ep3, _mw05, "DescribeTableReplicaAutoScaling", DescribeTableReplicaAutoScaling$) {
     };
-    var DescribeTimeToLiveCommand = class extends command5(_ep2, _mw05, "DescribeTimeToLive", DescribeTimeToLive$) {
+    var DescribeTimeToLiveCommand = class extends command5(_ep3, _mw05, "DescribeTimeToLive", DescribeTimeToLive$) {
     };
-    var DisableKinesisStreamingDestinationCommand = class extends command5(_ep2, _mw05, "DisableKinesisStreamingDestination", DisableKinesisStreamingDestination$) {
+    var DisableKinesisStreamingDestinationCommand = class extends command5(_ep3, _mw05, "DisableKinesisStreamingDestination", DisableKinesisStreamingDestination$) {
     };
-    var EnableKinesisStreamingDestinationCommand = class extends command5(_ep2, _mw05, "EnableKinesisStreamingDestination", EnableKinesisStreamingDestination$) {
+    var EnableKinesisStreamingDestinationCommand = class extends command5(_ep3, _mw05, "EnableKinesisStreamingDestination", EnableKinesisStreamingDestination$) {
     };
     var ExecuteStatementCommand = class extends command5(_ep05, _mw05, "ExecuteStatement", ExecuteStatement$) {
     };
     var ExecuteTransactionCommand = class extends command5(_ep05, _mw05, "ExecuteTransaction", ExecuteTransaction$) {
     };
-    var ExportTableToPointInTimeCommand = class extends command5(_ep8, _mw05, "ExportTableToPointInTime", ExportTableToPointInTime$) {
+    var ExportTableToPointInTimeCommand = class extends command5(_ep9, _mw05, "ExportTableToPointInTime", ExportTableToPointInTime$) {
     };
-    var GetItemCommand2 = class extends command5(_ep2, _mw05, "GetItem", GetItem$) {
+    var GetItemCommand2 = class extends command5(_ep3, _mw05, "GetItem", GetItem$) {
     };
-    var GetResourcePolicyCommand = class extends command5(_ep5, _mw05, "GetResourcePolicy", GetResourcePolicy$) {
+    var GetResourcePolicyCommand = class extends command5(_ep6, _mw05, "GetResourcePolicy", GetResourcePolicy$) {
     };
-    var ImportTableCommand = class extends command5(_ep9, _mw05, "ImportTable", ImportTable$) {
+    var ImportTableCommand = class extends command5(_ep10, _mw05, "ImportTable", ImportTable$) {
     };
-    var ListBackupsCommand = class extends command5(_ep2, _mw05, "ListBackups", ListBackups$) {
+    var ListBackupsCommand = class extends command5(_ep3, _mw05, "ListBackups", ListBackups$) {
     };
-    var ListContributorInsightsCommand = class extends command5(_ep2, _mw05, "ListContributorInsights", ListContributorInsights$) {
+    var ListBulkOperationsCommand = class extends command5(_ep05, _mw05, "ListBulkOperations", ListBulkOperations$) {
     };
-    var ListExportsCommand = class extends command5(_ep8, _mw05, "ListExports", ListExports$) {
+    var ListContributorInsightsCommand = class extends command5(_ep3, _mw05, "ListContributorInsights", ListContributorInsights$) {
+    };
+    var ListExportsCommand = class extends command5(_ep9, _mw05, "ListExports", ListExports$) {
     };
     var ListGlobalTablesCommand = class extends command5(_ep05, _mw05, "ListGlobalTables", ListGlobalTables$) {
     };
-    var ListImportsCommand = class extends command5(_ep8, _mw05, "ListImports", ListImports$) {
+    var ListImportsCommand = class extends command5(_ep9, _mw05, "ListImports", ListImports$) {
     };
     var ListTablesCommand = class extends command5(_ep05, _mw05, "ListTables", ListTables$) {
     };
-    var ListTagsOfResourceCommand = class extends command5(_ep5, _mw05, "ListTagsOfResource", ListTagsOfResource$) {
+    var ListTagsOfResourceCommand = class extends command5(_ep6, _mw05, "ListTagsOfResource", ListTagsOfResource$) {
     };
-    var PutItemCommand = class extends command5(_ep2, _mw05, "PutItem", PutItem$) {
+    var PutItemCommand = class extends command5(_ep3, _mw05, "PutItem", PutItem$) {
     };
-    var PutResourcePolicyCommand = class extends command5(_ep5, _mw05, "PutResourcePolicy", PutResourcePolicy$) {
+    var PutResourcePolicyCommand = class extends command5(_ep6, _mw05, "PutResourcePolicy", PutResourcePolicy$) {
     };
-    var QueryCommand = class extends command5(_ep2, _mw05, "Query", Query$) {
+    var QueryCommand = class extends command5(_ep3, _mw05, "Query", Query$) {
     };
-    var RestoreTableFromBackupCommand = class extends command5(_ep10, _mw05, "RestoreTableFromBackup", RestoreTableFromBackup$) {
+    var RestoreTableFromBackupCommand = class extends command5(_ep11, _mw05, "RestoreTableFromBackup", RestoreTableFromBackup$) {
     };
-    var RestoreTableToPointInTimeCommand = class extends command5(_ep10, _mw05, "RestoreTableToPointInTime", RestoreTableToPointInTime$) {
+    var RestoreTableToPointInTimeCommand = class extends command5(_ep11, _mw05, "RestoreTableToPointInTime", RestoreTableToPointInTime$) {
     };
-    var ScanCommand = class extends command5(_ep2, _mw05, "Scan", Scan$) {
+    var ScanCommand = class extends command5(_ep3, _mw05, "Scan", Scan$) {
     };
-    var SearchVectorsCommand = class extends command5(_ep11, _mw05, "SearchVectors", SearchVectors$) {
+    var SearchVectorsCommand = class extends command5(_ep122, _mw05, "SearchVectors", SearchVectors$) {
     };
-    var TagResourceCommand = class extends command5(_ep5, _mw05, "TagResource", TagResource$) {
+    var StartBulkPutItemsCommand = class extends command5(_ep3, _mw05, "StartBulkPutItems", StartBulkPutItems$) {
     };
-    var TransactGetItemsCommand = class extends command5(_ep122, _mw05, "TransactGetItems", TransactGetItems$) {
+    var TagResourceCommand = class extends command5(_ep6, _mw05, "TagResource", TagResource$) {
     };
-    var TransactWriteItemsCommand = class extends command5(_ep13, _mw05, "TransactWriteItems", TransactWriteItems$) {
+    var TransactGetItemsCommand = class extends command5(_ep13, _mw05, "TransactGetItems", TransactGetItems$) {
     };
-    var UntagResourceCommand = class extends command5(_ep5, _mw05, "UntagResource", UntagResource$) {
+    var TransactWriteItemsCommand = class extends command5(_ep14, _mw05, "TransactWriteItems", TransactWriteItems$) {
     };
-    var UpdateContinuousBackupsCommand = class extends command5(_ep2, _mw05, "UpdateContinuousBackups", UpdateContinuousBackups$) {
+    var UntagResourceCommand = class extends command5(_ep6, _mw05, "UntagResource", UntagResource$) {
     };
-    var UpdateContributorInsightsCommand = class extends command5(_ep2, _mw05, "UpdateContributorInsights", UpdateContributorInsights$) {
+    var UpdateContinuousBackupsCommand = class extends command5(_ep3, _mw05, "UpdateContinuousBackups", UpdateContinuousBackups$) {
     };
-    var UpdateGlobalTableCommand = class extends command5(_ep3, _mw05, "UpdateGlobalTable", UpdateGlobalTable$) {
+    var UpdateContributorInsightsCommand = class extends command5(_ep3, _mw05, "UpdateContributorInsights", UpdateContributorInsights$) {
     };
-    var UpdateGlobalTableSettingsCommand = class extends command5(_ep3, _mw05, "UpdateGlobalTableSettings", UpdateGlobalTableSettings$) {
+    var UpdateGlobalTableCommand = class extends command5(_ep4, _mw05, "UpdateGlobalTable", UpdateGlobalTable$) {
     };
-    var UpdateItemCommand = class extends command5(_ep2, _mw05, "UpdateItem", UpdateItem$) {
+    var UpdateGlobalTableSettingsCommand = class extends command5(_ep4, _mw05, "UpdateGlobalTableSettings", UpdateGlobalTableSettings$) {
     };
-    var UpdateKinesisStreamingDestinationCommand = class extends command5(_ep2, _mw05, "UpdateKinesisStreamingDestination", UpdateKinesisStreamingDestination$) {
+    var UpdateItemCommand = class extends command5(_ep3, _mw05, "UpdateItem", UpdateItem$) {
     };
-    var UpdateTableCommand = class extends command5(_ep2, _mw05, "UpdateTable", UpdateTable$) {
+    var UpdateKinesisStreamingDestinationCommand = class extends command5(_ep3, _mw05, "UpdateKinesisStreamingDestination", UpdateKinesisStreamingDestination$) {
     };
-    var UpdateTableReplicaAutoScalingCommand = class extends command5(_ep2, _mw05, "UpdateTableReplicaAutoScaling", UpdateTableReplicaAutoScaling$) {
+    var UpdateTableCommand = class extends command5(_ep3, _mw05, "UpdateTable", UpdateTable$) {
     };
-    var UpdateTimeToLiveCommand = class extends command5(_ep2, _mw05, "UpdateTimeToLive", UpdateTimeToLive$) {
+    var UpdateTableReplicaAutoScalingCommand = class extends command5(_ep3, _mw05, "UpdateTableReplicaAutoScaling", UpdateTableReplicaAutoScaling$) {
     };
+    var UpdateTimeToLiveCommand = class extends command5(_ep3, _mw05, "UpdateTimeToLive", UpdateTimeToLive$) {
+    };
+    var paginateListBulkOperations = createPaginator2(DynamoDBClient2, ListBulkOperationsCommand, "NextToken", "NextToken", "MaxResults");
     var paginateListContributorInsights = createPaginator2(DynamoDBClient2, ListContributorInsightsCommand, "NextToken", "NextToken", "MaxResults");
     var paginateListExports = createPaginator2(DynamoDBClient2, ListExportsCommand, "NextToken", "NextToken", "MaxResults");
     var paginateListImports = createPaginator2(DynamoDBClient2, ListImportsCommand, "NextToken", "NextToken", "PageSize");
     var paginateListTables = createPaginator2(DynamoDBClient2, ListTablesCommand, "ExclusiveStartTableName", "LastEvaluatedTableName", "Limit");
     var paginateQuery = createPaginator2(DynamoDBClient2, QueryCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
     var paginateScan = createPaginator2(DynamoDBClient2, ScanCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
+    var checkState$6 = async (client, input) => {
+      let reason;
+      try {
+        let result = await client.send(new DescribeBulkOperationCommand(input));
+        reason = result;
+        try {
+          const returnComparator = () => {
+            return result.BulkOperationDescription.BulkOperationStatus;
+          };
+          if (returnComparator() === "COMPLETED") {
+            return { state: WaiterState2.SUCCESS, reason };
+          }
+        } catch (e7) {
+        }
+        try {
+          const returnComparator = () => {
+            return result.BulkOperationDescription.BulkOperationStatus;
+          };
+          if (returnComparator() === "COMPLETED_WITH_ERRORS") {
+            return { state: WaiterState2.SUCCESS, reason };
+          }
+        } catch (e7) {
+        }
+        try {
+          const returnComparator = () => {
+            return result.BulkOperationDescription.BulkOperationStatus;
+          };
+          if (returnComparator() === "CANCELLED") {
+            return { state: WaiterState2.FAILURE, reason };
+          }
+        } catch (e7) {
+        }
+        try {
+          const returnComparator = () => {
+            return result.BulkOperationDescription.BulkOperationStatus;
+          };
+          if (returnComparator() === "FAILED") {
+            return { state: WaiterState2.FAILURE, reason };
+          }
+        } catch (e7) {
+        }
+      } catch (exception) {
+        reason = exception;
+      }
+      return { state: WaiterState2.RETRY, reason };
+    };
+    var waitForBulkOperationCompleted = async (params, input) => {
+      const serviceDefaults = { minDelay: 20, maxDelay: 120 };
+      return createWaiter2({ ...serviceDefaults, ...params }, input, checkState$6);
+    };
+    var waitUntilBulkOperationCompleted = async (params, input) => {
+      const serviceDefaults = { minDelay: 20, maxDelay: 120 };
+      const result = await createWaiter2({ ...serviceDefaults, ...params }, input, checkState$6);
+      return checkExceptions2(result);
+    };
     var checkState$5 = async (client, input) => {
       let reason;
       try {
@@ -234841,6 +235243,7 @@ var require_dist_cjs21 = __commonJS({
       BatchExecuteStatementCommand,
       BatchGetItemCommand,
       BatchWriteItemCommand,
+      CancelBulkOperationCommand,
       CreateBackupCommand,
       CreateGlobalTableCommand,
       CreateTableCommand,
@@ -234849,6 +235252,7 @@ var require_dist_cjs21 = __commonJS({
       DeleteResourcePolicyCommand,
       DeleteTableCommand,
       DescribeBackupCommand,
+      DescribeBulkOperationCommand,
       DescribeContinuousBackupsCommand,
       DescribeContributorInsightsCommand,
       DescribeEndpointsCommand,
@@ -234870,6 +235274,7 @@ var require_dist_cjs21 = __commonJS({
       GetResourcePolicyCommand,
       ImportTableCommand,
       ListBackupsCommand,
+      ListBulkOperationsCommand,
       ListContributorInsightsCommand,
       ListExportsCommand,
       ListGlobalTablesCommand,
@@ -234883,6 +235288,7 @@ var require_dist_cjs21 = __commonJS({
       RestoreTableToPointInTimeCommand,
       ScanCommand,
       SearchVectorsCommand,
+      StartBulkPutItemsCommand,
       TagResourceCommand,
       TransactGetItemsCommand,
       TransactWriteItemsCommand,
@@ -234898,6 +235304,7 @@ var require_dist_cjs21 = __commonJS({
       UpdateTimeToLiveCommand
     };
     var paginators = {
+      paginateListBulkOperations,
       paginateListContributorInsights,
       paginateListExports,
       paginateListImports,
@@ -234906,6 +235313,7 @@ var require_dist_cjs21 = __commonJS({
       paginateScan
     };
     var waiters = {
+      waitUntilBulkOperationCompleted,
       waitUntilContributorInsightsEnabled,
       waitUntilExportCompleted,
       waitUntilImportCompleted,
@@ -235016,6 +235424,35 @@ var require_dist_cjs21 = __commonJS({
     var ReturnItemCollectionMetrics = {
       NONE: "NONE",
       SIZE: "SIZE"
+    };
+    var BulkOperationStatus = {
+      CANCELLED: "CANCELLED",
+      CANCELLING: "CANCELLING",
+      COMPLETED: "COMPLETED",
+      COMPLETED_WITH_ERRORS: "COMPLETED_WITH_ERRORS",
+      FAILED: "FAILED",
+      IN_PROGRESS: "IN_PROGRESS"
+    };
+    var InputCompressionType = {
+      GZIP: "GZIP",
+      NONE: "NONE",
+      ZSTD: "ZSTD"
+    };
+    var BulkOperationInputFormat = {
+      DYNAMODB_JSON: "DYNAMODB_JSON",
+      ION: "ION"
+    };
+    var OutputTypeEnum = {
+      CONDITION_CHECK_FAILURE: "CONDITION_CHECK_FAILURE",
+      ERROR: "ERROR"
+    };
+    var S3SseAlgorithm = {
+      AES256: "AES256",
+      KMS: "KMS"
+    };
+    var BulkOperationPerformanceTier = {
+      ACCELERATED: "ACCELERATED",
+      STANDARD: "STANDARD"
     };
     var ComparisonOperator = {
       BEGINS_WITH: "BEGINS_WITH",
@@ -235135,21 +235572,12 @@ var require_dist_cjs21 = __commonJS({
       NEW_AND_OLD_IMAGES: "NEW_AND_OLD_IMAGES",
       NEW_IMAGE: "NEW_IMAGE"
     };
-    var S3SseAlgorithm = {
-      AES256: "AES256",
-      KMS: "KMS"
-    };
     var ImportStatus = {
       CANCELLED: "CANCELLED",
       CANCELLING: "CANCELLING",
       COMPLETED: "COMPLETED",
       FAILED: "FAILED",
       IN_PROGRESS: "IN_PROGRESS"
-    };
-    var InputCompressionType = {
-      GZIP: "GZIP",
-      NONE: "NONE",
-      ZSTD: "ZSTD"
     };
     var InputFormat = {
       CSV: "CSV",
@@ -235213,6 +235641,19 @@ var require_dist_cjs21 = __commonJS({
     exports2.BatchWriteItemOutput$ = BatchWriteItemOutput$;
     exports2.BillingMode = BillingMode;
     exports2.BillingModeSummary$ = BillingModeSummary$;
+    exports2.BulkOperationBytes$ = BulkOperationBytes$;
+    exports2.BulkOperationDescription$ = BulkOperationDescription$;
+    exports2.BulkOperationInputFormat = BulkOperationInputFormat;
+    exports2.BulkOperationPerformanceTier = BulkOperationPerformanceTier;
+    exports2.BulkOperationStatus = BulkOperationStatus;
+    exports2.BulkOperationSummary$ = BulkOperationSummary$;
+    exports2.BulkOperationTableDetail$ = BulkOperationTableDetail$;
+    exports2.BulkOperationUsage$ = BulkOperationUsage$;
+    exports2.BulkOperationVectorBytes$ = BulkOperationVectorBytes$;
+    exports2.CancelBulkOperation$ = CancelBulkOperation$;
+    exports2.CancelBulkOperationCommand = CancelBulkOperationCommand;
+    exports2.CancelBulkOperationInput$ = CancelBulkOperationInput$;
+    exports2.CancelBulkOperationOutput$ = CancelBulkOperationOutput$;
     exports2.CancellationReason$ = CancellationReason$;
     exports2.Capacity$ = Capacity$;
     exports2.ComparisonOperator = ComparisonOperator;
@@ -235275,6 +235716,10 @@ var require_dist_cjs21 = __commonJS({
     exports2.DescribeBackupCommand = DescribeBackupCommand;
     exports2.DescribeBackupInput$ = DescribeBackupInput$;
     exports2.DescribeBackupOutput$ = DescribeBackupOutput$;
+    exports2.DescribeBulkOperation$ = DescribeBulkOperation$;
+    exports2.DescribeBulkOperationCommand = DescribeBulkOperationCommand;
+    exports2.DescribeBulkOperationInput$ = DescribeBulkOperationInput$;
+    exports2.DescribeBulkOperationOutput$ = DescribeBulkOperationOutput$;
     exports2.DescribeContinuousBackups$ = DescribeContinuousBackups$;
     exports2.DescribeContinuousBackupsCommand = DescribeContinuousBackupsCommand;
     exports2.DescribeContinuousBackupsInput$ = DescribeContinuousBackupsInput$;
@@ -235409,6 +235854,7 @@ var require_dist_cjs21 = __commonJS({
     exports2.InputCompressionType = InputCompressionType;
     exports2.InputFormat = InputFormat;
     exports2.InputFormatOptions$ = InputFormatOptions$;
+    exports2.InputS3Configuration$ = InputS3Configuration$;
     exports2.InternalServerError = InternalServerError;
     exports2.InternalServerError$ = InternalServerError$;
     exports2.InvalidEndpointException = InvalidEndpointException;
@@ -235433,6 +235879,10 @@ var require_dist_cjs21 = __commonJS({
     exports2.ListBackupsCommand = ListBackupsCommand;
     exports2.ListBackupsInput$ = ListBackupsInput$;
     exports2.ListBackupsOutput$ = ListBackupsOutput$;
+    exports2.ListBulkOperations$ = ListBulkOperations$;
+    exports2.ListBulkOperationsCommand = ListBulkOperationsCommand;
+    exports2.ListBulkOperationsInput$ = ListBulkOperationsInput$;
+    exports2.ListBulkOperationsOutput$ = ListBulkOperationsOutput$;
     exports2.ListContributorInsights$ = ListContributorInsights$;
     exports2.ListContributorInsightsCommand = ListContributorInsightsCommand;
     exports2.ListContributorInsightsInput$ = ListContributorInsightsInput$;
@@ -235463,6 +235913,8 @@ var require_dist_cjs21 = __commonJS({
     exports2.MultiRegionConsistency = MultiRegionConsistency;
     exports2.OnDemandThroughput$ = OnDemandThroughput$;
     exports2.OnDemandThroughputOverride$ = OnDemandThroughputOverride$;
+    exports2.OutputS3Configuration$ = OutputS3Configuration$;
+    exports2.OutputTypeEnum = OutputTypeEnum;
     exports2.ParameterizedStatement$ = ParameterizedStatement$;
     exports2.PointInTimeRecoveryDescription$ = PointInTimeRecoveryDescription$;
     exports2.PointInTimeRecoverySpecification$ = PointInTimeRecoverySpecification$;
@@ -235553,6 +236005,10 @@ var require_dist_cjs21 = __commonJS({
     exports2.Select = Select;
     exports2.SourceTableDetails$ = SourceTableDetails$;
     exports2.SourceTableFeatureDetails$ = SourceTableFeatureDetails$;
+    exports2.StartBulkPutItems$ = StartBulkPutItems$;
+    exports2.StartBulkPutItemsCommand = StartBulkPutItemsCommand;
+    exports2.StartBulkPutItemsInput$ = StartBulkPutItemsInput$;
+    exports2.StartBulkPutItemsOutput$ = StartBulkPutItemsOutput$;
     exports2.StreamSpecification$ = StreamSpecification$;
     exports2.StreamViewType = StreamViewType;
     exports2.TableAlreadyExistsException = TableAlreadyExistsException;
@@ -235648,18 +236104,21 @@ var require_dist_cjs21 = __commonJS({
     exports2.WitnessStatus = WitnessStatus;
     exports2.WriteRequest$ = WriteRequest$;
     exports2.errorTypeRegistries = errorTypeRegistries5;
+    exports2.paginateListBulkOperations = paginateListBulkOperations;
     exports2.paginateListContributorInsights = paginateListContributorInsights;
     exports2.paginateListExports = paginateListExports;
     exports2.paginateListImports = paginateListImports;
     exports2.paginateListTables = paginateListTables;
     exports2.paginateQuery = paginateQuery;
     exports2.paginateScan = paginateScan;
+    exports2.waitForBulkOperationCompleted = waitForBulkOperationCompleted;
     exports2.waitForContributorInsightsEnabled = waitForContributorInsightsEnabled;
     exports2.waitForExportCompleted = waitForExportCompleted;
     exports2.waitForImportCompleted = waitForImportCompleted;
     exports2.waitForKinesisStreamingDestinationActive = waitForKinesisStreamingDestinationActive;
     exports2.waitForTableExists = waitForTableExists;
     exports2.waitForTableNotExists = waitForTableNotExists;
+    exports2.waitUntilBulkOperationCompleted = waitUntilBulkOperationCompleted;
     exports2.waitUntilContributorInsightsEnabled = waitUntilContributorInsightsEnabled;
     exports2.waitUntilExportCompleted = waitUntilExportCompleted;
     exports2.waitUntilImportCompleted = waitUntilImportCompleted;
@@ -235672,7 +236131,7 @@ var require_dist_cjs21 = __commonJS({
 // node_modules/@aws-sdk/client-eventbridge/dist-cjs/index.js
 var require_dist_cjs22 = __commonJS({
   "node_modules/@aws-sdk/client-eventbridge/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -235978,7 +236437,7 @@ var require_dist_cjs22 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -238940,6 +239399,7 @@ var require_dist_cjs22 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
@@ -239663,7 +240123,7 @@ var require_dist_cjs22 = __commonJS({
 // node_modules/@aws-sdk/client-ecr/dist-cjs/index.js
 var require_dist_cjs23 = __commonJS({
   "node_modules/@aws-sdk/client-ecr/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -239731,7 +240191,7 @@ var require_dist_cjs23 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -243860,6 +244320,7 @@ var require_dist_cjs23 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
@@ -244935,7 +245396,7 @@ var require_dist_cjs24 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -263163,7 +263624,7 @@ var require_dist_cjs25 = __commonJS({
     ];
     var CreateSessionCommand = class extends command5(_ep4, _mw05, "CreateSession", CreateSession$) {
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -264932,7 +265393,7 @@ var require_dist_cjs25 = __commonJS({
 // node_modules/@aws-sdk/client-cloudfront/dist-cjs/index.js
 var require_dist_cjs26 = __commonJS({
   "node_modules/@aws-sdk/client-cloudfront/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -265000,7 +265461,7 @@ var require_dist_cjs26 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -276562,6 +277023,7 @@ var require_dist_cjs26 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),

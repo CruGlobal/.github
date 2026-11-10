@@ -37258,7 +37258,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.997.54",
+      version: "3.998.1",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -37358,7 +37358,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.979.1",
+        "@aws-sdk/core": "^3.980.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.51",
         "@aws-sdk/types": "^3.975.0",
         "@smithy/core": "^3.38.0",
@@ -41384,6 +41384,7 @@ var init_runtimeConfig = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -42273,6 +42274,7 @@ var init_runtimeConfig2 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -43629,6 +43631,7 @@ var init_runtimeConfig3 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         httpAuthSchemes: config?.httpAuthSchemes ?? [
           {
@@ -44688,6 +44691,7 @@ var init_runtimeConfig4 = __esm({
         defaultsMode,
         authSchemePreference: config?.authSchemePreference ?? loadConfig(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength,
+        defaultSocketTimeout: getDefaultSocketTimeout(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider({ serviceId: clientSharedValues.serviceId, clientVersion: package_default.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig(NODE_MAX_ATTEMPT_CONFIG_OPTIONS, config),
         region: config?.region ?? loadConfig(NODE_REGION_CONFIG_OPTIONS, { ...NODE_REGION_CONFIG_FILE_OPTIONS, ...loaderConfig }),
@@ -45735,7 +45739,7 @@ var require_dist_cjs15 = __commonJS({
 // node_modules/@aws-sdk/client-ecs/dist-cjs/index.js
 var require_dist_cjs16 = __commonJS({
   "node_modules/@aws-sdk/client-ecs/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -45803,7 +45807,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -46672,6 +46676,7 @@ var require_dist_cjs16 = __commonJS({
     var _LDTD = "ListDaemonTaskDefinitions";
     var _LDTDR = "ListDaemonTaskDefinitionsRequest";
     var _LDTDRi = "ListDaemonTaskDefinitionsResponse";
+    var _LDVC = "LogDriverVolumeConfiguration";
     var _LEE = "LimitExceededException";
     var _LG = "ListGateways";
     var _LGCA = "ListGatewayClusterAssociations";
@@ -47277,6 +47282,7 @@ var require_dist_cjs16 = __commonJS({
     var _lC = "logConfiguration";
     var _lCi = "linearConfiguration";
     var _lD = "logDriver";
+    var _lDVC = "logDriverVolumeConfiguration";
     var _lG = "logGroups";
     var _lGN = "logGroupName";
     var _lGo = "logGroup";
@@ -48457,8 +48463,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DV,
       0,
-      [_n, _ho],
-      [0, () => HostVolumeProperties$]
+      [_n, _ho, _lDVC],
+      [0, () => HostVolumeProperties$, () => LogDriverVolumeConfiguration$]
     ];
     var DeleteAccountSettingRequest$ = [
       3,
@@ -49926,6 +49932,15 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_lD, _o, _sO],
       [0, 128 | 0, () => SecretList],
+      1
+    ];
+    var LogDriverVolumeConfiguration$ = [
+      3,
+      n05,
+      _LDVC,
+      0,
+      [_dr],
+      [0],
       1
     ];
     var ManagedAgent$ = [
@@ -52903,6 +52918,7 @@ var require_dist_cjs16 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 9e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
@@ -54890,6 +54906,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.LocalStorageType = LocalStorageType;
     exports2.LogConfiguration$ = LogConfiguration$;
     exports2.LogDriver = LogDriver;
+    exports2.LogDriverVolumeConfiguration$ = LogDriverVolumeConfiguration$;
     exports2.ManagedAgent$ = ManagedAgent$;
     exports2.ManagedAgentName = ManagedAgentName;
     exports2.ManagedAgentStateChange$ = ManagedAgentStateChange$;
@@ -55221,7 +55238,7 @@ var require_dist_cjs16 = __commonJS({
 // node_modules/@aws-sdk/client-ssm/dist-cjs/index.js
 var require_dist_cjs17 = __commonJS({
   "node_modules/@aws-sdk/client-ssm/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createWaiter: createWaiter2, checkExceptions: checkExceptions2, WaiterState: WaiterState2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -55289,7 +55306,7 @@ var require_dist_cjs17 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -57766,6 +57783,9 @@ var require_dist_cjs17 = __commonJS({
     var _DCCRe = "DeleteCloudConnectorResult";
     var _DD = "DocumentDescription";
     var _DDC = "DuplicateDocumentContent";
+    var _DDHMC = "DeregisterDefaultHostManagementConfiguration";
+    var _DDHMCR = "DeregisterDefaultHostManagementConfigurationRequest";
+    var _DDHMCRe = "DeregisterDefaultHostManagementConfigurationResult";
     var _DDP = "DescribeDocumentPermission";
     var _DDPR = "DescribeDocumentPermissionRequest";
     var _DDPRe = "DescribeDocumentPermissionResponse";
@@ -58547,6 +58567,7 @@ var require_dist_cjs17 = __commonJS({
     var _PM = "ParameterMetadata";
     var _PML = "ParameterMetadataList";
     var _PMVLE = "ParameterMaxVersionLimitExceeded";
+    var _PMe = "PermissionModel";
     var _PMr = "ProviderMessage";
     var _PN = "ParameterNames";
     var _PNF = "ParameterNotFound";
@@ -58622,6 +58643,9 @@ var require_dist_cjs17 = __commonJS({
     var _RCes = "ResponseCode";
     var _RCu = "RunCommand";
     var _RD = "RegistrationDate";
+    var _RDHMC = "RegisterDefaultHostManagementConfiguration";
+    var _RDHMCR = "RegisterDefaultHostManagementConfigurationRequest";
+    var _RDHMCRe = "RegisterDefaultHostManagementConfigurationResult";
     var _RDPB = "RegisterDefaultPatchBaseline";
     var _RDPBR = "RegisterDefaultPatchBaselineRequest";
     var _RDPBRe = "RegisterDefaultPatchBaselineResult";
@@ -61064,6 +61088,22 @@ var require_dist_cjs17 = __commonJS({
       [],
       []
     ];
+    var DeregisterDefaultHostManagementConfigurationRequest$ = [
+      3,
+      n05,
+      _DDHMCR,
+      0,
+      [],
+      []
+    ];
+    var DeregisterDefaultHostManagementConfigurationResult$ = [
+      3,
+      n05,
+      _DDHMCRe,
+      0,
+      [],
+      []
+    ];
     var DeregisterManagedInstanceRequest$ = [
       3,
       n05,
@@ -63421,6 +63461,23 @@ var require_dist_cjs17 = __commonJS({
       [_PI2, _PH],
       [0, 0]
     ];
+    var RegisterDefaultHostManagementConfigurationRequest$ = [
+      3,
+      n05,
+      _RDHMCR,
+      0,
+      [_PMe, _RA2, _Ov],
+      [0, 0, 2],
+      1
+    ];
+    var RegisterDefaultHostManagementConfigurationResult$ = [
+      3,
+      n05,
+      _RDHMCRe,
+      0,
+      [_RA2],
+      [0]
+    ];
     var RegisterDefaultPatchBaselineRequest$ = [
       3,
       n05,
@@ -65641,6 +65698,14 @@ var require_dist_cjs17 = __commonJS({
       () => DeleteResourcePolicyRequest$,
       () => DeleteResourcePolicyResponse$
     ];
+    var DeregisterDefaultHostManagementConfiguration$ = [
+      9,
+      n05,
+      _DDHMC,
+      2,
+      () => DeregisterDefaultHostManagementConfigurationRequest$,
+      () => DeregisterDefaultHostManagementConfigurationResult$
+    ];
     var DeregisterManagedInstance$ = [
       9,
       n05,
@@ -66369,6 +66434,14 @@ var require_dist_cjs17 = __commonJS({
       () => PutResourcePolicyRequest$,
       () => PutResourcePolicyResponse$
     ];
+    var RegisterDefaultHostManagementConfiguration$ = [
+      9,
+      n05,
+      _RDHMC,
+      2,
+      () => RegisterDefaultHostManagementConfigurationRequest$,
+      () => RegisterDefaultHostManagementConfigurationResult$
+    ];
     var RegisterDefaultPatchBaseline$ = [
       9,
       n05,
@@ -66691,6 +66764,7 @@ var require_dist_cjs17 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 9e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
@@ -66837,6 +66911,8 @@ var require_dist_cjs17 = __commonJS({
     var DeleteResourceDataSyncCommand = class extends command5(_ep05, _mw05, "DeleteResourceDataSync", DeleteResourceDataSync$) {
     };
     var DeleteResourcePolicyCommand = class extends command5(_ep05, _mw05, "DeleteResourcePolicy", DeleteResourcePolicy$) {
+    };
+    var DeregisterDefaultHostManagementConfigurationCommand = class extends command5(_ep05, _mw05, "DeregisterDefaultHostManagementConfiguration", DeregisterDefaultHostManagementConfiguration$) {
     };
     var DeregisterManagedInstanceCommand = class extends command5(_ep05, _mw05, "DeregisterManagedInstance", DeregisterManagedInstance$) {
     };
@@ -67019,6 +67095,8 @@ var require_dist_cjs17 = __commonJS({
     var PutParameterCommand = class extends command5(_ep05, _mw05, "PutParameter", PutParameter$) {
     };
     var PutResourcePolicyCommand = class extends command5(_ep05, _mw05, "PutResourcePolicy", PutResourcePolicy$) {
+    };
+    var RegisterDefaultHostManagementConfigurationCommand = class extends command5(_ep05, _mw05, "RegisterDefaultHostManagementConfiguration", RegisterDefaultHostManagementConfiguration$) {
     };
     var RegisterDefaultPatchBaselineCommand = class extends command5(_ep05, _mw05, "RegisterDefaultPatchBaseline", RegisterDefaultPatchBaseline$) {
     };
@@ -67262,6 +67340,7 @@ var require_dist_cjs17 = __commonJS({
       DeletePatchBaselineCommand,
       DeleteResourceDataSyncCommand,
       DeleteResourcePolicyCommand,
+      DeregisterDefaultHostManagementConfigurationCommand,
       DeregisterManagedInstanceCommand,
       DeregisterPatchBaselineForPatchGroupCommand,
       DeregisterTargetFromMaintenanceWindowCommand,
@@ -67353,6 +67432,7 @@ var require_dist_cjs17 = __commonJS({
       PutInventoryCommand,
       PutParameterCommand,
       PutResourcePolicyCommand,
+      RegisterDefaultHostManagementConfigurationCommand,
       RegisterDefaultPatchBaselineCommand,
       RegisterPatchBaselineForPatchGroupCommand,
       RegisterTargetWithMaintenanceWindowCommand,
@@ -68122,6 +68202,10 @@ var require_dist_cjs17 = __commonJS({
       Complete: "COMPLETE",
       Partial: "PARTIAL"
     };
+    var DHMCPermissionModel = {
+      SELF_MANAGED: "SELF_MANAGED",
+      SERVICE_MANAGED: "SERVICE_MANAGED"
+    };
     var SignalType = {
       APPROVE: "Approve",
       REJECT: "Reject",
@@ -68319,6 +68403,7 @@ var require_dist_cjs17 = __commonJS({
     exports2.Credentials$ = Credentials$2;
     exports2.CustomSchemaCountLimitExceededException = CustomSchemaCountLimitExceededException;
     exports2.CustomSchemaCountLimitExceededException$ = CustomSchemaCountLimitExceededException$;
+    exports2.DHMCPermissionModel = DHMCPermissionModel;
     exports2.DeleteActivation$ = DeleteActivation$;
     exports2.DeleteActivationCommand = DeleteActivationCommand;
     exports2.DeleteActivationRequest$ = DeleteActivationRequest$;
@@ -68372,6 +68457,10 @@ var require_dist_cjs17 = __commonJS({
     exports2.DeleteResourcePolicyRequest$ = DeleteResourcePolicyRequest$;
     exports2.DeleteResourcePolicyResponse$ = DeleteResourcePolicyResponse$;
     exports2.DeletionMode = DeletionMode;
+    exports2.DeregisterDefaultHostManagementConfiguration$ = DeregisterDefaultHostManagementConfiguration$;
+    exports2.DeregisterDefaultHostManagementConfigurationCommand = DeregisterDefaultHostManagementConfigurationCommand;
+    exports2.DeregisterDefaultHostManagementConfigurationRequest$ = DeregisterDefaultHostManagementConfigurationRequest$;
+    exports2.DeregisterDefaultHostManagementConfigurationResult$ = DeregisterDefaultHostManagementConfigurationResult$;
     exports2.DeregisterManagedInstance$ = DeregisterManagedInstance$;
     exports2.DeregisterManagedInstanceCommand = DeregisterManagedInstanceCommand;
     exports2.DeregisterManagedInstanceRequest$ = DeregisterManagedInstanceRequest$;
@@ -69086,6 +69175,10 @@ var require_dist_cjs17 = __commonJS({
     exports2.PutResourcePolicyRequest$ = PutResourcePolicyRequest$;
     exports2.PutResourcePolicyResponse$ = PutResourcePolicyResponse$;
     exports2.RebootOption = RebootOption;
+    exports2.RegisterDefaultHostManagementConfiguration$ = RegisterDefaultHostManagementConfiguration$;
+    exports2.RegisterDefaultHostManagementConfigurationCommand = RegisterDefaultHostManagementConfigurationCommand;
+    exports2.RegisterDefaultHostManagementConfigurationRequest$ = RegisterDefaultHostManagementConfigurationRequest$;
+    exports2.RegisterDefaultHostManagementConfigurationResult$ = RegisterDefaultHostManagementConfigurationResult$;
     exports2.RegisterDefaultPatchBaseline$ = RegisterDefaultPatchBaseline$;
     exports2.RegisterDefaultPatchBaselineCommand = RegisterDefaultPatchBaselineCommand;
     exports2.RegisterDefaultPatchBaselineRequest$ = RegisterDefaultPatchBaselineRequest$;
@@ -69393,7 +69486,7 @@ var require_dist_cjs17 = __commonJS({
 // node_modules/@aws-sdk/client-eventbridge/dist-cjs/index.js
 var require_dist_cjs18 = __commonJS({
   "node_modules/@aws-sdk/client-eventbridge/dist-cjs/index.js"(exports2) {
-    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
+    var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, getDefaultSocketTimeout: getDefaultSocketTimeout2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
     var { Command: $Command } = (init_client2(), __toCommonJS(client_exports));
@@ -69699,7 +69792,7 @@ var require_dist_cjs18 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1160.0";
+    var version = "3.1163.0";
     var packageInfo = {
       version
     };
@@ -72661,6 +72754,7 @@ var require_dist_cjs18 = __commonJS({
         authSchemePreference: config?.authSchemePreference ?? loadConfig2(NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2, loaderConfig),
         bodyLengthChecker: config?.bodyLengthChecker ?? calculateBodyLength2,
         credentialDefaultProvider: config?.credentialDefaultProvider ?? defaultProvider,
+        defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         maxAttempts: config?.maxAttempts ?? loadConfig2(NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
