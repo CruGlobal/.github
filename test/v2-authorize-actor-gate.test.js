@@ -55,7 +55,7 @@ vi.mock('@actions/core', () => ({
   ExitCode: { Success: 0, Failure: 1 }
 }))
 
-import { authorize, run, HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY } from '../src/authorize-actor.js'
+import { authorize, authorizeAttempt, run, HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY } from '../src/authorize-actor.js'
 import { RequestIdTaken } from '../src/v2/signed-request.js'
 import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
 
@@ -310,6 +310,19 @@ describe('authorize: the deploy gate', () => {
     await expect(authorize({ ...base, gateActorId: GATE, actor: 'alice', actorId: '2001', triggeringActor: 'alice' }))
       .rejects.toThrow(`gate-actor-id must be one numeric GitHub user id, not '${GATE}'; refusing to promote ${REPO}`)
     expect(api.getCollaboratorPermissionLevel).not.toHaveBeenCalled()
+  })
+})
+
+describe('authorizeAttempt', () => {
+  it('returns the verified claims with a gate pass, and none with any other', async () => {
+    github({ permissions: { alice: 'write' } })
+    const store = memoryStore()
+    const gatePass = await authorizeAttempt({ ...base, ...gate, ...gateRun, signedRequest: signRequest(), claimRequestId: store.claim })
+    expect(gatePass).toEqual({
+      passedAs: 'gate',
+      request: expect.objectContaining({ sub: 'requester@example.com', target: 'candidate-12345', action: 'promote', app: 'example-app', jti: 'req-0001-abcdef' })
+    })
+    await expect(authorizeAttempt({ ...base, actor: 'alice', actorId: '2001', triggeringActor: 'alice' })).resolves.toEqual({ passedAs: 'push-access', request: null })
   })
 })
 
@@ -783,6 +796,25 @@ describe('run with the new inputs', () => {
     expect(store.claim).toHaveBeenCalledWith(expect.objectContaining({ run: { repository: WORKFLOW_REPO, id: RUN_ID, attempt: '1' } }))
     expect(core.setOutput).toHaveBeenCalledWith('passed-as', 'gate')
     expect(core.exportVariable).toHaveBeenCalledWith(AUTHORIZED_ATTEMPT_MARKER, '1')
+  })
+
+  // A workflow names the person who asked the gate, and pins what the gate
+  // approved, from these. No other pass sets them.
+  it('outputs the requester and the approved target on a gate pass, and only then', async () => {
+    github({ permissions: { alice: 'write' } })
+    Object.assign(inputs, gateInputs())
+    const store = memoryStore(() => Math.floor(Date.now() / 1000))
+    await run({ env: env(GATE, GATE_ID), sleep: noSleep, claimRequestId: store.claim })
+    expect(core.setOutput.mock.calls).toEqual([
+      ['passed-as', 'gate'],
+      ['requester', 'requester@example.com'],
+      ['request-target', 'candidate-12345'],
+      ['request-id', 'req-0001-abcdef']
+    ])
+
+    for (const fn of Object.values(core)) fn.mockReset()
+    await run({ env: env('alice', '2001'), sleep: noSleep, claimRequestId: store.claim })
+    expect(core.setOutput.mock.calls).toEqual([['passed-as', 'push-access']])
   })
 
   it('refuses the gate account with a titled error when the request is missing', async () => {

@@ -268,7 +268,8 @@ const errorName = (error) => (typeof error?.name === 'string' && /^[A-Za-z][A-Za
 
 // Decide whether this attempt may go ahead. Returns how it passed ('gate',
 // 'automation', 'break-glass' or 'push-access') or throws a Refusal saying
-// why not.
+// why not. authorizeAttempt below is the same check, and also returns the
+// signed request's claims when the attempt passed as the deploy gate.
 //
 // workflowRepository and runId name the run this check is part of (the
 // runner's GITHUB_REPOSITORY and GITHUB_RUN_ID), as opposed to `repository`,
@@ -277,7 +278,14 @@ const errorName = (error) => (typeof error?.name === 'string' && /^[A-Za-z][A-Za
 // gateClaimUrl and gateClaimAudience set up the one-time request id store:
 // the deploy gate's claim route (src/v2/gate-claim.js). claimRequestId, when
 // given, is used instead of it; tests pass their own.
-export async function authorize ({
+export async function authorize (args) {
+  return (await authorizeAttempt(args)).passedAs
+}
+
+// The same check as authorize. Resolves { passedAs, request }, where request
+// is the verified signed request's claims when passedAs is 'gate' and null
+// otherwise, so run() can name the person who asked the gate.
+export async function authorizeAttempt ({
   octokit,
   repository,
   operation,
@@ -534,7 +542,7 @@ export async function authorize ({
     const held = answer === 'claimed' ? 'claimed for this run attempt' : 'already held by this run attempt'
     const age = expired ? `, expired ${secondsPastExpiry} seconds ago` : ''
     core.notice(`${triggeringActor}, the deploy gate's account, started ${thisAttempt} with a signed request from ${claims.sub} to ${claims.action} ${claims.app} at ${claims.target} (request id ${claims.jti}, ${held}${age}; verified with key ${keyNumber} of ${keyCount}${kid ? `, kid ${kid}` : ''}), so the other checks on ${appRepo} do not apply`)
-    return 'gate'
+    return { passedAs: 'gate', request: claims }
   }
 
   // 1. The deploy gate.
@@ -565,7 +573,7 @@ export async function authorize ({
       const id = await triggeringUserId('cannot be matched to the automation allowlist')
       if (id === actorId) {
         core.notice(`${triggeringActor} (user id ${actorId}) is an allowlisted automation account and started ${thisAttempt} itself, so the push-access check on ${appRepo} does not apply`)
-        return 'automation'
+        return { passedAs: 'automation', request: null }
       }
       core.warning(`the login ${triggeringActor} started ${thisAttempt}, but that login now belongs to user id ${id}, not the allowlisted user id ${actorId} that started the run, so ${triggeringActor}'s own access on ${appRepo} is checked`)
     } else {
@@ -626,7 +634,7 @@ export async function authorize ({
         throw new Refusal(`${triggeringActor} is an active member of the break-glass team ${name}, but that team has child teams. GitHub counts the members of a child team as members of the team, so this does not show ${triggeringActor} was put on ${name} itself. Use a break-glass team with no child teams; refusing to ${operation} ${appRepo}`)
       }
       core.notice(`${triggeringActor} is an active member of the break-glass team ${name} and started ${thisAttempt}${startedBy}, so it may ${operation} ${appRepo}`)
-      return 'break-glass'
+      return { passedAs: 'break-glass', request: null }
     }
     const why = membership
       ? `membership state: ${typeof state === 'string' && state ? state : 'unknown'}`
@@ -656,7 +664,7 @@ export async function authorize ({
     tried.push(`push access on ${appRepo} (permission: ${permission})`)
     throw new Refusal(`${triggeringActor} is not authorized to ${operation} ${appRepo} (permission: ${permission}). Requires admin, write, or maintain. The account checked is ${triggeringActor}, the one that started ${thisAttempt}${startedBy}.${listTried ? ` Tried: ${tried.join('; ')}.` : ''}`)
   }
-  return 'push-access'
+  return { passedAs: 'push-access', request: null }
 }
 
 // Fail the step with `message`. With a title, the error annotation carries it,
@@ -690,7 +698,7 @@ export async function run ({ env = process.env, sleep, timeoutMs, claimRequestId
     if (allowPushAccess === '') {
       throw new Refusal(`allow-push-access is empty, which happens only when the expression a caller gave it comes out empty; it must be "true" or "false"; refusing to ${operation || 'change production'}`)
     }
-    const passedAs = await authorize({
+    const { passedAs, request } = await authorizeAttempt({
       octokit: getOctokit(token),
       repository: core.getInput('repository'),
       operation,
@@ -723,6 +731,15 @@ export async function run ({ env = process.env, sleep, timeoutMs, claimRequestId
     // account than of a person.
     markAttemptAuthorized(env)
     core.setOutput('passed-as', passedAs)
+    // Only on the gate's pass, so every other pass sets exactly the outputs
+    // it always has. The claims come from a request whose signature
+    // verified, and src/v2/signed-request.js has already refused a sub or a
+    // target that holds a line break or a control character.
+    if (passedAs === 'gate') {
+      core.setOutput('requester', request.sub)
+      core.setOutput('request-target', request.target)
+      core.setOutput('request-id', request.jti)
+    }
   } catch (error) {
     // Anything that is not a pass is a refusal, including a bug in this code.
     refuse(error instanceof Refusal || error instanceof AttemptNotAuthorized

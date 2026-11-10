@@ -131,18 +131,25 @@ describe('hotfix.yml', () => {
 
   it('takes the inputs the wrapper passes, with defaults that change nothing for others', () => {
     const { inputs, secrets } = workflow.on.workflow_call
-    expect(Object.keys(inputs).sort()).toEqual(['commit', 'expected-release', 'gate-claim-audience', 'gate-claim-url', 'project-name', 'refused-actor-ids', 'trusted-automation-actor-ids', 'workflow-ref'])
+    expect(Object.keys(inputs).sort()).toEqual(['commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
     for (const name of ['commit', 'expected-release', 'project-name']) expect(inputs[name].required, name).toBe(true)
     expect(inputs['trusted-automation-actor-ids']).toMatchObject({ required: false, default: '' })
     expect(inputs['refused-actor-ids']).toMatchObject({ type: 'string', required: false, default: '' })
     expect(inputs['gate-claim-url']).toMatchObject({ type: 'string', required: false, default: '' })
     expect(inputs['gate-claim-audience']).toMatchObject({ type: 'string', required: false, default: '' })
+    for (const name of ['gate-actor-id', 'signed-request', 'gate-public-keys', 'gate-issuer', 'gate-audience']) {
+      expect(inputs[name], name).toMatchObject({ type: 'string', required: false, default: '' })
+    }
     expect(inputs['workflow-ref']).toMatchObject({ required: false, default: 'main' })
     expect(secrets).toEqual({ 'authz-token': expect.objectContaining({ required: true }) })
   })
 
   it('runs one hotfix per app at a time, never cancelling one in flight, and not in the production lock', () => {
-    expect(Object.keys(workflow.jobs)).toEqual(['hotfix'])
+    // The authorize job runs first, outside the lock (see
+    // v2-gate-wiring.test.js), and the hotfix job waits for it.
+    expect(Object.keys(workflow.jobs)).toEqual(['authorize', 'hotfix'])
+    expect(job.needs).toBe('authorize')
+    expect(workflow.jobs.authorize.concurrency).toBeUndefined()
     expect(job.concurrency).toEqual({ group: 'hotfix-${{ inputs.project-name }}', 'cancel-in-progress': false })
     expect(job.permissions).toEqual({ 'id-token': 'write', contents: 'read' })
   })
@@ -168,6 +175,14 @@ describe('hotfix.yml', () => {
         'refused-actor-ids': '${{ inputs.refused-actor-ids }}',
         'gate-claim-url': '${{ inputs.gate-claim-url }}',
         'gate-claim-audience': '${{ inputs.gate-claim-audience }}',
+        'gate-actor-id': '${{ inputs.gate-actor-id }}',
+        'signed-request': '${{ inputs.signed-request }}',
+        'gate-public-keys': '${{ inputs.gate-public-keys }}',
+        'gate-issuer': '${{ inputs.gate-issuer }}',
+        'gate-audience': '${{ inputs.gate-audience }}',
+        'expected-app': '${{ inputs.project-name }}',
+        'expected-action': 'hotfix',
+        'expected-target': '${{ inputs.commit }}',
         'refusal-title': 'actor_not_allowed'
       }
     })
