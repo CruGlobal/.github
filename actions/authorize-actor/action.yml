@@ -47,7 +47,8 @@ inputs:
       request ids is not set up yet, so for now every such attempt is refused.
       A re-run that someone else started is checked like any other account.
       This id may not also be in trusted-automation-actor-ids. Empty turns the
-      gate check off.
+      gate check off; listing the gate's id in refused-actor-ids does not,
+      because the gate is checked before that list.
     required: false
     default: ''
   signed-request:

@@ -84,8 +84,10 @@ export const REQUEST_TIMEOUT_MS = 10000
 // runs, which can take longer than the request's five minutes. Two hours
 // covers a long wait behind a slow deploy. A job that waited longer than that
 // is better started again from the gate, with a fresh request, than shipped
-// on an approval that old. The request id store applies the same limit by its
-// own clock.
+// on an approval that old. Two clocks apply it, counted from different
+// points: this check counts two hours from the request's exp, by the
+// runner's clock, and the request id store counts two hours from the time it
+// recorded the claim, by its own clock. A request must pass both.
 export const HELD_REQUEST_MAX_SECONDS_PAST_EXPIRY = 2 * 60 * 60
 
 class Refusal extends Error {}
@@ -383,33 +385,55 @@ export async function authorize ({
     // claimRequestId({ claims, expired, run: { repository, id, attempt },
     // signal }) resolves 'claimed' or 'held', or throws. `run` is this
     // workflow's repository, run id and attempt, all strings. The store behind
-    // it is not built yet; this is the contract it is built against:
+    // it is not built yet; this is the contract it is built against.
+    //
+    // "The same run" means the same (repository, run id). A run's attempt
+    // numbers only go up, so an id only ever moves to a higher attempt.
     //   - Fresh (expired is false): if nothing holds the jti, record it for
     //     (repository, id, attempt) and answer 'claimed'. If this run attempt
-    //     holds it, answer 'held'. If the same run id holds it at another
+    //     holds it, answer 'held'. If the same run holds it at a lower
     //     attempt, move it to this attempt, with a new claim time, and answer
-    //     'held'. If another run holds it, throw RequestIdTaken.
+    //     'held'. Otherwise (another run, or a higher attempt of this one),
+    //     throw RequestIdTaken.
+    //   - The store's own clock decides "fresh" too. Refuse a create or a move
+    //     once the store's clock is past claims.exp plus 60 seconds of skew
+    //     (and a small allowance of its own), by throwing an error named for
+    //     the reason, such as RequestExpired. Do not trust `expired` alone: a
+    //     move starts a new two-hour window, and a runner whose clock is
+    //     behind must not be able to start one with an old request.
     //   - Expired: never write. Answer 'held' only if this exact run attempt
     //     holds the jti and claimed it no more than two hours ago by the
     //     store's own clock. Otherwise throw RequestIdTaken: the id is not this
     //     attempt's to use.
+    //   - Keep each record at least two hours after its latest claim. Deleting
+    //     it sooner would let another run claim a request that is still fresh,
+    //     and would turn away this attempt's later jobs. A lazy expiry that
+    //     deletes it some time after that is fine.
     //   - Every write is conditional (create only if absent, move only from
     //     the record just read), so two runs racing for one id cannot both
-    //     win. Only the deploy workflows can write to the store.
+    //     win.
+    //   - Only the deploy workflows can write. The role that writes trusts only
+    //     the deploy reusable workflows, through the OIDC job_workflow_ref
+    //     claim, never a role that any workflow in the repository can assume.
     //   - The record is keyed on the jti claim alone, never on the request's
     //     text: an ECDSA signature and its high-S twin both verify, so one
     //     request can arrive as two strings.
+    //   - Throw the RequestIdTaken class exported from src/v2/signed-request.js.
+    //     An error that only has the same name is treated as the store failing.
     //   - Throw any other error when the store cannot answer. Its text is never
     //     shown, since it may hold a connection string; only its name is.
-    //   - Stop when `signal` aborts. This check stops waiting then anyway.
+    //   - Stop when `signal` aborts, and give the store client its own request
+    //     timeouts as well. This check stops waiting when the signal aborts,
+    //     but a socket the client leaves open keeps Node running, and with it
+    //     the step, inside the production lock.
     //
     // Why the attempt, and not just the run: "Re-run failed jobs" keeps the
     // earlier attempt's lookup result and runs only the production jobs, with
     // the old request. Bound to the run alone, anyone holding the gate App's
-    // key could start that re-run days later, and the production job would
-    // accept the old, expired request and ship its old target again. Bound to
-    // the attempt, an id moves to a new attempt only with a fresh request, and
-    // only the gate can make one of those.
+    // GitHub credentials could start that re-run days later, and the
+    // production job would accept the old, expired request and ship its old
+    // target again. Bound to the attempt, an id moves to a new attempt only
+    // with a fresh request, and only the gate can make one of those.
     let answer
     try {
       answer = await withTimeLimit((signal) => claimRequestId({
@@ -487,7 +511,9 @@ export async function authorize ({
     } catch (error) {
       // GitHub answers 404 for "not a member". It answers the same when the
       // team does not exist or the token cannot see it, so a typo in the slug
-      // looks like nobody being on the team. That is checked just below.
+      // looks like nobody being on the team. That is checked just below. An
+      // org owner who is not on the team gets the same 404, so being an owner
+      // does not pass break-glass.
       if (error?.status !== 404) {
         throw new Refusal(`could not read the membership of ${triggeringActor} in the break-glass team ${name} (${describeError(error, timeoutMs)}), so ${triggeringActor}, the account that started ${thisAttempt}, cannot be checked; refusing to ${operation} ${appRepo}`)
       }
