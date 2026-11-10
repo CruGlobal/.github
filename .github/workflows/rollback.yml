@@ -71,19 +71,23 @@ on:
         required: false
         default: ''
         description: >-
-          The deploy gate's claim route (https). On an attempt the deploy
-          gate's account started, authorize-actor claims the signed
-          request's one-time request id there for this run attempt, with
-          the job's GitHub OIDC token. Every job that runs authorize-actor
-          already has id-token: write. Empty claims nothing, so a signed
-          request is refused.
+          The deploy gate's claim route (https), passed to every
+          authorize-actor step. authorize-actor claims a signed request's
+          one-time request id there, with the job's GitHub OIDC token,
+          only on an attempt it treats as the deploy gate's. This workflow
+          does not pass the gate's other inputs yet, so for now it only
+          checks the value: one that is not an https URL refuses every
+          run. Every job that runs authorize-actor already has id-token:
+          write. Set it from a fixed value in the caller, never a dispatch
+          input. Empty claims nothing.
       gate-claim-audience:
         type: string
         required: false
         default: ''
         description: >-
           The audience of the OIDC token sent to gate-claim-url, which the
-          deploy gate requires. Needed with gate-claim-url.
+          deploy gate requires. Needed with gate-claim-url. A fixed value
+          in the caller, never a dispatch input.
       expected-current-release:
         type: string
         required: false

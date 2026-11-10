@@ -65,7 +65,8 @@ inputs:
     description: >-
       One or more PEM public keys (P-256, "-----BEGIN PUBLIC KEY-----"), one
       after another. A signed request passes when any of them verifies it, so
-      a key rotation can list the old key and the new one.
+      a key rotation can list the old key and the new one. A fixed value in
+      the calling workflow, never a workflow_dispatch input.
     required: false
     default: ''
   gate-issuer:
@@ -105,7 +106,10 @@ inputs:
       gate-claim-audience, so the job needs permissions: id-token: write.
       The gate takes the run from the token. Empty sets up no claim, so every
       signed request is refused. A value that is not an https URL refuses
-      every run.
+      every run. Set it, gate-claim-audience and gate-public-keys as fixed
+      values in the calling workflow, never from a workflow_dispatch input:
+      whoever can choose them can choose a claim route that says yes to
+      anything, or keys of their own.
     required: false
     default: ''
   gate-claim-audience:

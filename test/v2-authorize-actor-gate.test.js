@@ -417,7 +417,7 @@ describe('authorize: one-time request ids', () => {
     github()
     const store = memoryStore(() => NOW + 400)
     await expect(authorize({ ...base, ...gate, ...gateRun, signedRequest: signRequest(), claimRequestId: store.claim }))
-      .rejects.toThrow(`${why} the one-time request id store could not be reached or answered (RequestExpired); refusing to promote ${REPO}`)
+      .rejects.toThrow(`${why} the one-time request id store says the signed request had expired by its own clock before request id req-0001-abcdef could be claimed for this run attempt (attempt 1), so a new request is needed (RequestExpired); refusing to promote ${REPO}`)
     expect(store.claim).toHaveBeenCalledWith(expect.objectContaining({ expired: false }))
     expect(store.records.size).toBe(0)
   })

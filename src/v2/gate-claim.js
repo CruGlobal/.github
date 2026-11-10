@@ -9,8 +9,8 @@ import { RequestIdTaken } from './signed-request.js'
 // the gate writes its table.
 //
 // The run is not named in the request. The job asks the runner for a GitHub
-// OIDC token for the gate's audience (core.getIDToken), and sends it as a
-// bearer token. GitHub signs the token's repository, run id, run attempt and
+// OIDC token for the gate's audience, and sends it as a bearer token. GitHub
+// signs the token's repository, run id, run attempt, workflow_ref and
 // job_workflow_ref, so the gate takes the run from there, and checks the
 // workflow is a deploy workflow for the request's action. The job needs
 // `permissions: id-token: write`; without it the runner hands out no token,
@@ -27,7 +27,7 @@ import { RequestIdTaken } from './signed-request.js'
 //   code request_id_taken               throws RequestIdTaken
 //   code request_expired                throws RequestExpired
 //   anything else                       throws GateClaimRefused, or
-//                                       GateClaimUnreadable for an answer it
+//                                       GateClaimUnreadable for a 2xx it
 //                                       cannot read
 //
 // authorize-actor shows only an error's name, so each failure here is named
@@ -36,23 +36,29 @@ import { RequestIdTaken } from './signed-request.js'
 // from its answer is shown.
 //
 // Time: authorize-actor gives the whole claim a time limit and aborts
-// `signal` when it runs out. Each request to the gate also has its own
-// timeout, so a socket is not left open to hold the step, and with it the
-// production lock. A request that gets no answer, or a 5xx, is tried once
-// more within that limit: a claim is safe to repeat, since a repeat of a
-// claim that landed answers held.
+// `signal` when it runs out. Each request here also has its own timeout, so
+// a socket is not left open to hold the step, and with it the production
+// lock. A request that gets no answer, or a 5xx, is tried once more within
+// that limit: a claim is safe to repeat, since a repeat of a claim that
+// landed answers held.
 //
-// Two sockets can outlive an abort, each for a bounded time. Node's fetch
-// keeps a connection it is still setting up (TCP or TLS) until its own
-// 10-second connect timeout, abort or not; a connection that is up ends at
-// once. The octokit requests in authorize-actor share that. And the OIDC
-// token request is the toolkit's own (core.getIDToken), which takes no
-// signal: the claim stops waiting for it when the signal aborts, and the
-// toolkit's request ends on its own socket timeout. Both only delay the end
-// of a step that has already refused.
+// The OIDC token is asked for the way core.getIDToken asks for it (the
+// runner's ACTIONS_ID_TOKEN_REQUEST_URL with &audience=, the bearer
+// ACTIONS_ID_TOKEN_REQUEST_TOKEN, the token in the answer's value, masked at
+// once), but with fetch, so it takes the signal. The toolkit's own request
+// takes none, and its socket outlives an abort: three minutes, or until the
+// job's timeout when the other end stops reading, all inside the production
+// lock.
+//
+// One delay is left, and it is bounded: Node's fetch keeps a connection it
+// is still setting up (TCP or TLS) until its own 10-second connect timeout,
+// abort or not. A connection that is up ends at once. The octokit requests
+// in authorize-actor share that. It only delays the end of a step that has
+// already refused.
 
 export const CLAIM_ATTEMPTS = 2
-export const CLAIM_TRY_TIMEOUT_MS = 4000
+export const CLAIM_TRY_TIMEOUT_MS = 6000
+export const TOKEN_TRY_TIMEOUT_MS = 4000
 const RETRY_DELAY_MS = 500
 const MAX_ANSWER_LENGTH = 64 * 1024
 const CODE = /^[a-z][a-z0-9_]{0,63}$/
@@ -86,96 +92,102 @@ function untilAborted (promise, signal) {
 
 const pause = (ms, signal) => untilAborted(new Promise((resolve) => setTimeout(resolve, ms)), signal)
 
-async function idToken (audience, signal) {
-  let token
-  try {
-    token = await untilAborted(Promise.resolve().then(() => core.getIDToken(audience)), signal)
-  } catch {
+// One request, tried up to `attempts` times, each with its own timeout as
+// well as `signal`. Resolves { status, ok, body, code } for any answer, with
+// body the parsed JSON (undefined when it is not JSON). Tries again only
+// when there was no answer (no response, or a body that could not be read)
+// or a 5xx. Throws signal.reason when the signal aborts, and a failure named
+// unreachable when no try got an answer.
+async function send (url, init, { signal, attempts, timeoutMs, what, unreachable }) {
+  for (let attempt = 1; ; attempt++) {
     if (signal?.aborted) throw signal.reason
-    core.warning(process.env.ACTIONS_ID_TOKEN_REQUEST_URL
-      ? 'the runner did not hand out a GitHub OIDC token for the deploy gate\'s claim'
-      : 'the runner did not hand out a GitHub OIDC token for the deploy gate\'s claim; the job needs permissions: id-token: write')
-    throw failure('IdTokenUnavailable', 'no GitHub OIDC token')
+    const timeout = AbortSignal.timeout(timeoutMs)
+    let answer
+    try {
+      const response = await globalThis.fetch(url, {
+        ...init,
+        // A redirect is an answer, never followed: the bearer token goes to
+        // this URL only.
+        redirect: 'manual',
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+      })
+      const text = await response.text()
+      let body
+      try {
+        body = text.length > MAX_ANSWER_LENGTH ? undefined : JSON.parse(text)
+      } catch {
+        body = undefined
+      }
+      const code = typeof body?.code === 'string' && CODE.test(body.code) ? body.code : ''
+      answer = { status: response.status, ok: response.ok, body, code }
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason
+      if (attempt < attempts) {
+        core.info(`${what} did not answer (${error?.name === 'TimeoutError' ? `no answer within ${timeoutMs / 1000} seconds` : 'no answer'}); trying again (${attempt + 1}/${attempts})`)
+        await pause(RETRY_DELAY_MS, signal)
+        continue
+      }
+      throw failure(unreachable, `${what} did not answer`)
+    }
+    if (answer.status >= 500 && attempt < attempts) {
+      core.info(`${what} answered HTTP ${answer.status}${answer.code ? ` (${answer.code})` : ''}; trying again (${attempt + 1}/${attempts})`)
+      await pause(RETRY_DELAY_MS, signal)
+      continue
+    }
+    return answer
   }
-  if (typeof token !== 'string' || token === '') {
-    throw failure('IdTokenUnavailable', 'the GitHub OIDC token is empty')
-  }
-  return token
 }
 
-// The answer's status, its JSON (or undefined) and the refusal code in it.
-async function readAnswer (response) {
-  let text
-  try {
-    text = await response.text()
-  } catch {
-    return { status: response.status }
+// The runner's OIDC token for audience. See the notes above.
+async function idToken (audience, { signal, attempts, timeoutMs }) {
+  const base = process.env.ACTIONS_ID_TOKEN_REQUEST_URL
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
+  if (!base || !requestToken) {
+    core.warning('the runner did not hand out a GitHub OIDC token for the deploy gate\'s claim; the job needs permissions: id-token: write')
+    throw failure('IdTokenUnavailable', 'no GitHub OIDC token')
   }
-  if (text.length > MAX_ANSWER_LENGTH) return { status: response.status }
-  let body
-  try {
-    body = JSON.parse(text)
-  } catch {
-    return { status: response.status }
+  const answer = await send(`${base}&audience=${encodeURIComponent(audience)}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${requestToken}`, accept: 'application/json' }
+  }, { signal, attempts, timeoutMs, what: 'the runner\'s OIDC token service', unreachable: 'IdTokenUnavailable' })
+  const token = answer.ok ? answer.body?.value : undefined
+  if (typeof token !== 'string' || token === '') {
+    core.warning(`the runner did not hand out a GitHub OIDC token for the deploy gate's claim (HTTP ${answer.status})`)
+    throw failure('IdTokenUnavailable', 'no GitHub OIDC token')
   }
-  const code = typeof body?.code === 'string' && CODE.test(body.code) ? body.code : ''
-  return { status: response.status, body, code }
+  core.setSecret(token)
+  return token
 }
 
 // The claimRequestId hook authorize-actor calls, for the gate at url (an
 // https URL, checked by the caller) and an OIDC token for audience.
-export function gateClaim ({ url, audience, attempts = CLAIM_ATTEMPTS, tryTimeoutMs = CLAIM_TRY_TIMEOUT_MS }) {
+export function gateClaim ({ url, audience, attempts = CLAIM_ATTEMPTS, tryTimeoutMs = CLAIM_TRY_TIMEOUT_MS, tokenTryTimeoutMs = TOKEN_TRY_TIMEOUT_MS }) {
   return async function claimRequestId ({ claims, expired, signal }) {
-    const token = await idToken(audience, signal)
-    const body = JSON.stringify({
-      requestId: claims.jti,
-      app: claims.app,
-      action: claims.action,
-      target: claims.target,
-      environment: claims.environment,
-      expired: expired === true
-    })
-    for (let attempt = 1; ; attempt++) {
-      if (signal?.aborted) throw signal.reason
-      const timeout = AbortSignal.timeout(tryTimeoutMs)
-      let response, answer
-      try {
-        response = await globalThis.fetch(url, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
-          body,
-          // The bearer token goes to this URL only, never where a redirect
-          // points.
-          redirect: 'error',
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout
-        })
-        answer = await readAnswer(response)
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason
-        if (attempt < attempts) {
-          core.info(`the deploy gate's claim route did not answer (${error?.name === 'TimeoutError' ? `no answer within ${tryTimeoutMs / 1000} seconds` : 'no answer'}); trying again (${attempt + 1}/${attempts})`)
-          await pause(RETRY_DELAY_MS, signal)
-          continue
-        }
-        throw failure('GateClaimUnreachable', 'the deploy gate did not answer')
-      }
+    if (signal?.aborted) throw signal.reason
+    const token = await idToken(audience, { signal, attempts, timeoutMs: tokenTryTimeoutMs })
+    const answer = await send(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        requestId: claims.jti,
+        app: claims.app,
+        action: claims.action,
+        target: claims.target,
+        environment: claims.environment,
+        expired: expired === true
+      })
+    }, { signal, attempts, timeoutMs: tryTimeoutMs, what: 'the deploy gate\'s claim route', unreachable: 'GateClaimUnreachable' })
 
-      const { status, code } = answer
-      if (response.ok) {
-        const result = answer.body?.result
-        if (typeof result === 'string') return result
-        core.warning(`the deploy gate answered the claim with HTTP ${status} and no result it could read`)
-        throw failure('GateClaimUnreadable', 'the deploy gate\'s answer has no result')
-      }
-      if (code === 'request_id_taken') throw new RequestIdTaken()
-      if (code === 'request_expired') throw new RequestExpired()
-      if (status >= 500 && attempt < attempts) {
-        core.info(`the deploy gate's claim route answered HTTP ${status}${code ? ` (${code})` : ''}; trying again (${attempt + 1}/${attempts})`)
-        await pause(RETRY_DELAY_MS, signal)
-        continue
-      }
-      core.warning(`the deploy gate refused the claim: HTTP ${status}${code ? `, ${code}` : ''}`)
-      throw failure('GateClaimRefused', 'the deploy gate refused the claim')
+    const { status, code } = answer
+    if (answer.ok) {
+      const result = answer.body?.result
+      if (typeof result === 'string') return result
+      core.warning(`the deploy gate answered the claim with HTTP ${status} and no result it could read`)
+      throw failure('GateClaimUnreadable', 'the deploy gate\'s answer has no result')
     }
+    if (code === 'request_id_taken') throw new RequestIdTaken()
+    if (code === 'request_expired') throw new RequestExpired()
+    core.warning(`the deploy gate refused the claim: HTTP ${status}${code ? `, ${code}` : ''}`)
+    throw failure('GateClaimRefused', 'the deploy gate refused the claim')
   }
 }

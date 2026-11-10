@@ -230,7 +230,12 @@ function parseClaimUrl (raw) {
   } catch {
     url = null
   }
-  if (!url || url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.hash || value.includes('#')) {
+  // A user name or password is refused without showing the value, which
+  // would print it.
+  if (url && (url.username || url.password)) {
+    throw new Refusal('gate-claim-url must be an https URL with no user name or password in it, like https://gate.example.com/gate/claim')
+  }
+  if (!url || url.protocol !== 'https:' || !url.hostname || url.hash || value.includes('#')) {
     throw new Refusal(`gate-claim-url must be an https URL, like https://gate.example.com/gate/claim, not '${value}'`)
   }
   return url.href
@@ -510,6 +515,11 @@ export async function authorize ({
         throw refusal(expired
           ? `the signed request expired ${secondsPastExpiry} seconds ago, which is allowed only for the run attempt that claimed its request id ${claims.jti} while it was fresh, and the one-time request id store says ${thisAttempt} is not that attempt`
           : `its request id ${claims.jti} was already claimed by another run`)
+      }
+      // An expired request is an answer, not an outage, and someone reading
+      // a failed deploy should not take it for one.
+      if (errorName(error) === 'RequestExpired') {
+        throw refusal(`the one-time request id store says the signed request had expired by its own clock before request id ${claims.jti} could be claimed for ${thisAttempt}, so a new request is needed (RequestExpired)`)
       }
       const detail = error instanceof TimeLimitReached ? error.message : errorName(error)
       throw refusal(`the one-time request id store could not be reached or answered${detail ? ` (${detail})` : ''}`)
