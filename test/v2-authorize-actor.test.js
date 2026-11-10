@@ -507,9 +507,11 @@ function resolve (value, context) {
 }
 
 // Run one workflow step's authz action, with the inputs the workflow gives it.
+// A caller that sets no refused list gets the workflow input's default, ''.
 async function runStep (step, context, runnerEnv) {
   for (const key of Object.keys(inputs)) delete inputs[key]
-  for (const [name, value] of Object.entries(step.with)) inputs[name] = resolve(value, context)
+  const withDefaults = { 'inputs.refused-actor-ids': '', ...context }
+  for (const [name, value] of Object.entries(step.with)) inputs[name] = resolve(value, withDefaults)
   await run({ env: runnerEnv, sleep: noSleep })
 }
 
@@ -548,7 +550,13 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     } else {
       expect(step.with['trusted-automation-actor-ids']).toBeUndefined()
     }
+    expect(step.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
     expect(step.with['refusal-title']).toBe(refusalTitle)
+  })
+
+  it('takes a refused list that is off unless the caller sets it', () => {
+    const declared = workflow.on.workflow_call.inputs['refused-actor-ids']
+    expect(declared).toMatchObject({ type: 'string', required: false, default: '' })
   })
 
   it('never makes a check step conditional or allowed to fail', () => {
@@ -584,7 +592,24 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
     } else {
       expect(check.with['trusted-automation-actor-ids']).toBeUndefined()
     }
+    expect(check.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
     expect(check.with['refusal-title']).toBe(refusalTitle)
+  })
+
+  // A machine user's token can be read by many repos, and the account has
+  // push access everywhere. On the refused list, push access does not count.
+  it.each(productionJobs.map(([id]) => id))('%s refuses an account on the refused list even with push access', async (id) => {
+    const check = workflow.jobs[id].steps[1]
+    getByUsername.mockResolvedValue(user(Number(BOT_ID)))
+    grant({ [BOT]: 'admin' })
+    await runStep(check, {
+      'secrets.authz-token': 'tok',
+      'needs.lookup.outputs.repository': 'CruGlobal/some-app',
+      'inputs.trusted-automation-actor-ids': '',
+      'inputs.refused-actor-ids': BOT_ID
+    }, env({ actor: BOT, actorId: BOT_ID, triggeringActor: BOT, runAttempt: '1' }))
+    expect(failure()).toMatch(new RegExp(`is in refused-actor-ids, so it may not ${operation} CruGlobal/some-app`))
+    expect(getCollaboratorPermissionLevel).not.toHaveBeenCalled()
   })
 
   it('passes only inputs the action declares, and every required one', () => {

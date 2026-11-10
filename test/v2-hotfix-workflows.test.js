@@ -131,9 +131,10 @@ describe('hotfix.yml', () => {
 
   it('takes the inputs the wrapper passes, with defaults that change nothing for others', () => {
     const { inputs, secrets } = workflow.on.workflow_call
-    expect(Object.keys(inputs).sort()).toEqual(['commit', 'expected-release', 'project-name', 'trusted-automation-actor-ids', 'workflow-ref'])
+    expect(Object.keys(inputs).sort()).toEqual(['commit', 'expected-release', 'project-name', 'refused-actor-ids', 'trusted-automation-actor-ids', 'workflow-ref'])
     for (const name of ['commit', 'expected-release', 'project-name']) expect(inputs[name].required, name).toBe(true)
     expect(inputs['trusted-automation-actor-ids']).toMatchObject({ required: false, default: '' })
+    expect(inputs['refused-actor-ids']).toMatchObject({ type: 'string', required: false, default: '' })
     expect(inputs['workflow-ref']).toMatchObject({ required: false, default: 'main' })
     expect(secrets).toEqual({ 'authz-token': expect.objectContaining({ required: true }) })
   })
@@ -162,6 +163,7 @@ describe('hotfix.yml', () => {
         'github-token': '${{ secrets.authz-token }}',
         repository: '${{ steps.app-info.outputs.repository }}',
         'trusted-automation-actor-ids': '${{ inputs.trusted-automation-actor-ids }}',
+        'refused-actor-ids': '${{ inputs.refused-actor-ids }}',
         'refusal-title': 'actor_not_allowed'
       }
     })

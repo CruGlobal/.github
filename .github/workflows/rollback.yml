@@ -56,6 +56,16 @@ on:
         description: >-
           Comma-separated numeric GitHub user ids of automation accounts allowed
           to roll back without per-repo push access. Empty allows none.
+      refused-actor-ids:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Comma or newline separated numeric GitHub user ids that may never
+          roll back, even with push access or on the automation allowlist,
+          such as machine users whose tokens many repos can read. Only
+          the deploy gate is checked before this list. An entry that is
+          not a number refuses every run. Empty refuses none.
       expected-current-release:
         type: string
         required: false
@@ -247,6 +257,7 @@ jobs:
           repository: ${{ steps.app-info.outputs.repository }}
           operation: roll back
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
       # prefix, or just the build number: resolve-image finds a dated release by
@@ -311,6 +322,7 @@ jobs:
           repository: ${{ needs.lookup.outputs.repository }}
           operation: roll back
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
 
       # --- Stale-rollback guard (inside the production lock) ---------------
       # Runs right after the authz check and before anything is resolved or
@@ -880,6 +892,7 @@ jobs:
           repository: ${{ needs.lookup.outputs.repository }}
           operation: roll back
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
 
       # --- Stale-rollback guard (inside the production lock) ---------------
       # Runs right after the authz check and before anything is resolved or

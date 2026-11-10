@@ -152,6 +152,16 @@ on:
           allowed to cut a hotfix without push access on the app repo. One
           passes only when it started the run and also started this attempt.
           Empty allows none.
+      refused-actor-ids:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Comma or newline separated numeric GitHub user ids that may never
+          cut a hotfix, even with push access or on the automation allowlist,
+          such as machine users whose tokens many repos can read. Only
+          the deploy gate is checked before this list. An entry that is
+          not a number refuses every run. Empty refuses none.
     secrets:
       authz-token:
         required: true
@@ -244,6 +254,7 @@ jobs:
           repository: ${{ steps.app-info.outputs.repository }}
           operation: cut a hotfix for
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
           refusal-title: actor_not_allowed
 
       # Full history: the cut checks ancestry against the default branch and
