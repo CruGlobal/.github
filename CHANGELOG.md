@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.19.0](https://github.com/CruGlobal/.github/compare/v2.18.0...v2.19.0) (2026-11-10)
+
+
+### Features
+
+* **v2:** let authorize-actor accept a signed request from a deploy gate ([#568](https://github.com/CruGlobal/.github/issues/568)) ([f7d3afc](https://github.com/CruGlobal/.github/commit/f7d3afc9cfc07aa8247d17f5b29ccc8d444ed6d0))
+
 ## [2.18.0](https://github.com/CruGlobal/.github/compare/v2.17.0...v2.18.0) (2026-11-05)
 
 
