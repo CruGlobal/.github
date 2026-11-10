@@ -4,9 +4,10 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import * as yaml from 'js-yaml'
 
-// Mocked octokit + @actions/core. `inputs` backs getInput; the octokit calls
-// are per-test mocks so each case says exactly what GitHub answers.
-const { getByUsername, getCollaboratorPermissionLevel, core, inputs, tokens } = vi.hoisted(() => ({
+// Mocked octokit + @actions/core. `inputs` backs getInput, with the action's
+// declared defaults behind it; the octokit calls are per-test mocks so each
+// case says exactly what GitHub answers.
+const { getByUsername, getCollaboratorPermissionLevel, core, inputs, defaults, tokens } = vi.hoisted(() => ({
   getByUsername: vi.fn(),
   getCollaboratorPermissionLevel: vi.fn(),
   core: {
@@ -19,6 +20,7 @@ const { getByUsername, getCollaboratorPermissionLevel, core, inputs, tokens } = 
     setOutput: vi.fn()
   },
   inputs: {},
+  defaults: {},
   tokens: []
 }))
 
@@ -30,7 +32,7 @@ vi.mock('@actions/github', () => ({
 }))
 
 vi.mock('@actions/core', () => ({
-  getInput: (name) => inputs[name] ?? '',
+  getInput: (name) => inputs[name] ?? defaults[name] ?? '',
   notice: core.notice,
   warning: core.warning,
   info: core.info,
@@ -43,6 +45,11 @@ vi.mock('@actions/core', () => ({
 
 import { authorize, parseActorIds, parseRepo, run, ALLOWED_PERMISSIONS, REQUEST_TIMEOUT_MS } from '../src/authorize-actor.js'
 import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
+
+// The runner gives a step every input its action.yml declares, filling in the
+// default for one the step leaves out, so getInput does the same here.
+const declared = yaml.load(readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../actions/authorize-actor/action.yml'), 'utf8')).inputs
+for (const [name, spec] of Object.entries(declared)) defaults[name] = String(spec.default ?? '')
 
 const noSleep = async () => {}
 const BOT = 'release-helper[bot]'
@@ -108,6 +115,39 @@ describe('parseRepo', () => {
 
   it.each(['', 'some-app', 'a/b/c', '/some-app', 'CruGlobal/', undefined])('refuses %j', (slug) => {
     expect(() => parseRepo(slug)).toThrow(/owner\/name/)
+  })
+
+  it.each([
+    'example-org/.example',
+    'example-org/a.b_c-d',
+    'Example-Org/Example.App',
+    'example_org/example-app',
+    'example-org/...',
+    '0/0'
+  ])('accepts every name GitHub allows, like %j', (slug) => {
+    const [owner, repo] = slug.split('/')
+    expect(parseRepo(slug)).toEqual({ owner, repo })
+  })
+
+  // The parts go into API paths, where "." or ".." would be a different route.
+  it.each([
+    '../example-app',
+    './example-app',
+    'example-org/..',
+    'example-org/.',
+    '.example-org/example-app',
+    'example-org/example app',
+    'example-org/example%2fapp',
+    'example-org/example?app',
+    'example-org/example#app',
+    'example-org/exämple',
+    'example-org/example\napp'
+  ])('refuses %j, which GitHub would not allow', (slug) => {
+    expect(() => parseRepo(slug)).toThrow(/is not a name GitHub allows/)
+  })
+
+  it('names what it was reading', () => {
+    expect(() => parseRepo('../x', 'the repository this workflow runs in')).toThrow(/^the repository this workflow runs in "\.\.\/x" is not a name GitHub allows/)
   })
 })
 

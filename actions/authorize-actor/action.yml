@@ -15,8 +15,8 @@ inputs:
   github-token:
     description: >-
       GitHub token that can read collaborator permissions on the app repo.
-      With break-glass-team set, it must also be able to read team
-      membership in the app repo's org.
+      With break-glass-team set, it must also be able to read that team, its
+      membership and its child teams (read:org).
     required: true
   repository:
     description: App repo in "owner/name" form.
@@ -42,16 +42,22 @@ inputs:
     description: >-
       Numeric GitHub user id of the machine account the deploy gate starts
       runs as. An attempt that this account started (it started the run and
-      this attempt) must carry a valid signed-request, or it is refused. A
-      re-run that someone else started is checked like any other account.
-      Empty turns the gate check off.
+      this attempt) must carry a valid signed-request whose one-time request
+      id this run attempt can claim, or it is refused. The store that records
+      request ids is not set up yet, so for now every such attempt is refused.
+      A re-run that someone else started is checked like any other account.
+      This id may not also be in trusted-automation-actor-ids. Empty turns the
+      gate check off.
     required: false
     default: ''
   signed-request:
     description: >-
       The deploy gate's signed request for this run: a compact JWS signed with
       ES256. Used only on an attempt the gate-actor-id account started. The
-      format is described in src/v2/signed-request.js.
+      format is described in src/v2/signed-request.js. A request that has
+      expired still passes in a later job of the run attempt that claimed it
+      while it was fresh, for up to two hours past its expiry, so a job that
+      waited for the production lock can go ahead.
     required: false
     default: ''
   gate-public-keys:
@@ -91,24 +97,27 @@ inputs:
     default: ''
   refused-actor-ids:
     description: >-
-      Comma or newline separated numeric GitHub user ids that may not pass by
-      break-glass or push access, even when they would otherwise. Does not
-      affect the deploy gate or allowlisted automation. An entry that is not a
-      number is a refusal. Empty refuses none.
+      Comma or newline separated numeric GitHub user ids that may not pass as
+      allowlisted automation, by break-glass or by push access, even when they
+      would otherwise. Only the deploy gate is checked before this list. An
+      entry that is not a number is a refusal. Empty refuses none.
     required: false
     default: ''
   break-glass-team:
     description: >-
-      Slug of a team in the app repo's org, e.g. ops-team. An active member
-      passes; a pending invitation does not. Empty turns break-glass off.
+      A team as "org/team-slug", e.g. example-org/ops-team. An active member
+      passes; a pending invitation does not. A team with child teams is
+      refused, because GitHub counts the members of a child team as members of
+      the team. A team that cannot be found, or that the token cannot see,
+      posts a warning each time it is checked. Empty turns break-glass off.
     required: false
     default: ''
   allow-push-access:
     description: >-
       "true" lets an account with admin, maintain or write on the app repo
       pass, as before. "false" turns that off, so only the deploy gate,
-      allowlisted automation and break-glass can pass. Anything else is a
-      refusal.
+      allowlisted automation and break-glass can pass. Anything else, an
+      empty value included, is a refusal.
     required: false
     default: 'true'
 outputs:
