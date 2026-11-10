@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createHmac, generateKeyPairSync, sign } from 'node:crypto'
+import { createHmac, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
 import {
   CLOCK_SKEW_SECONDS,
   GATE_ACTIONS,
@@ -54,10 +54,12 @@ const keys = parsePublicKeys(pem(gateKeys))
 const check = (token, options = {}) => verifySignedRequest(token, { keys, issuer: ISSUER, audience: AUDIENCE, expected, now, ...options })
 
 describe('verifySignedRequest: a good request', () => {
-  it('passes and returns the claims and the key id', () => {
-    const { kid, claims: verified } = check(signRequest())
+  it('passes and returns the claims, the kid and which configured key verified it', () => {
+    const { kid, claims: verified, expired, keyNumber, keyCount } = check(signRequest())
     expect(kid).toBe('gate-1')
     expect(verified).toMatchObject({ sub: 'requester@example.com', jti: '0b6f2a1e-5c3d-4e2f-9a7b-1c2d3e4f5a6b', app: 'example-app', action: 'promote', target: 'candidate-12345' })
+    expect(expired).toBe(false)
+    expect({ keyNumber, keyCount }).toEqual({ keyNumber: 1, keyCount: 1 })
   })
 
   it.each(GATE_ACTIONS)('passes for action %s', (action) => {
@@ -70,10 +72,10 @@ describe('verifySignedRequest: a good request', () => {
     expect(check(token).kid).toBe('')
   })
 
-  it('tries every key, so a request signed by the second of two keys passes', () => {
+  it('tries every key, so a request signed by the second of two keys passes, and says it was the second', () => {
     const both = parsePublicKeys(pem(otherKeys) + pem(gateKeys))
     expect(both).toHaveLength(2)
-    expect(check(signRequest(), { keys: both }).claims.sub).toBe('requester@example.com')
+    expect(check(signRequest(), { keys: both })).toMatchObject({ claims: { sub: 'requester@example.com' }, keyNumber: 2, keyCount: 2, kid: 'gate-1' })
   })
 })
 
@@ -121,6 +123,38 @@ describe('verifySignedRequest: time', () => {
 
   it('refuses a request whose nbf is in the future', () => {
     expect(() => check(signRequest({ payload: claims({ nbf: NOW + 120 }) }))).toThrow(/not valid for another 120 seconds/)
+  })
+})
+
+describe('verifySignedRequest: allowExpired', () => {
+  const expiredAt = (seconds) => signRequest({ payload: claims({ iat: NOW - seconds - 300, exp: NOW - seconds }) })
+
+  it('returns an expired request, saying how long ago it expired, instead of refusing it', () => {
+    const result = check(expiredAt(4000), { allowExpired: true })
+    expect(result).toMatchObject({ expired: true, secondsPastExpiry: 4000, kid: 'gate-1', keyNumber: 1, keyCount: 1 })
+    expect(result.claims.jti).toBe('0b6f2a1e-5c3d-4e2f-9a7b-1c2d3e4f5a6b')
+    expect(() => check(expiredAt(4000))).toThrow('the signed request expired 4000 seconds ago')
+  })
+
+  it('counts a request as expired from 60 seconds past exp, as without it', () => {
+    expect(check(expiredAt(59), { allowExpired: true })).toMatchObject({ expired: false })
+    expect(check(expiredAt(59), { allowExpired: true })).not.toHaveProperty('secondsPastExpiry')
+    expect(check(expiredAt(60), { allowExpired: true })).toMatchObject({ expired: true, secondsPastExpiry: 60 })
+  })
+
+  it('returns a fresh request as not expired', () => {
+    expect(check(signRequest(), { allowExpired: true })).toMatchObject({ expired: false })
+  })
+
+  it.each([
+    ['another key\'s signature', { privateKey: otherKeys.privateKey }, /signature does not match/],
+    ['another target', { payload: claims({ target: 'candidate-99999', iat: NOW - 4300, exp: NOW - 4000 }) }, /for target 'candidate-99999'/],
+    ['another issuer', { payload: claims({ iss: 'https://other.example.com', iat: NOW - 4300, exp: NOW - 4000 }) }, /issued by/],
+    ['a lifetime over 300 seconds', { payload: claims({ iat: NOW - 4400, exp: NOW - 4000 }) }, /valid for 400 seconds/],
+    ['an nbf that is not a number', { payload: claims({ nbf: 'soon', iat: NOW - 4300, exp: NOW - 4000 }) }, /nbf claim is not a whole number/],
+    ['alg none', { header: { alg: 'none', typ: 'JWT' }, payload: claims({ iat: NOW - 4300, exp: NOW - 4000 }) }, /uses alg "none"/]
+  ])('still refuses an expired request with %s', (_label, options, message) => {
+    expect(() => check(signRequest(options), { allowExpired: true })).toThrow(message)
   })
 })
 
@@ -232,6 +266,107 @@ describe('verifySignedRequest: algorithm and signature', () => {
 
   it('throws only InvalidSignedRequest for a bad request', () => {
     expect(() => check('a.b.c')).toThrow(InvalidSignedRequest)
+  })
+
+  it('refuses a __proto__ header member, which JSON.parse keeps as an ordinary member', () => {
+    expect(() => check(signRequest({ header: '{"alg":"ES256","typ":"JWT","__proto__":{"x":1}}' }))).toThrow('header has members this check does not accept: __proto__')
+  })
+
+  it('does not take a missing claim from a __proto__ member of the payload', () => {
+    const { app, ...rest } = claims()
+    expect(app).toBe('example-app')
+    const payload = JSON.stringify(rest).replace('{', '{"__proto__":{"app":"example-app"},')
+    expect(() => check(signRequest({ payload }))).toThrow('the signed request has no app claim')
+  })
+
+  it('refuses a signature whose last character carries stray low bits', () => {
+    const [header, payload, signature] = signRequest().split('.')
+    // 64 bytes is 86 characters, and the last one has 2 bits to spare.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+    const bumped = signature.slice(0, -1) + alphabet[alphabet.indexOf(signature.at(-1)) ^ 1]
+    expect(Buffer.from(bumped, 'base64url')).toEqual(Buffer.from(signature, 'base64url'))
+    expect(() => check(`${header}.${payload}.${bumped}`)).toThrow("the signed request's signature is not base64url")
+  })
+
+  it('accepts the high-S twin of a signature, so a replay record must be keyed on jti, not on the request text', () => {
+    // A KMS signer does not normalize s, so high-S signatures are genuine.
+    const n = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551')
+    const token = signRequest()
+    const [header, payload, signature] = token.split('.')
+    const raw = Buffer.from(signature, 'base64url')
+    const s = BigInt(`0x${raw.subarray(32).toString('hex')}`)
+    const twin = Buffer.concat([raw.subarray(0, 32), Buffer.from((n - s).toString(16).padStart(64, '0'), 'hex')])
+    const other = `${header}.${payload}.${twin.toString('base64url')}`
+    expect(other).not.toBe(token)
+    expect(check(other).claims.jti).toBe(check(token).claims.jti)
+  })
+})
+
+describe('verifySignedRequest: keys handed to it directly', () => {
+  it('refuses an RSA key, whose 64-byte signature Node would verify under an ES256 header', () => {
+    // dsaEncoding means nothing to an RSA key, and a 512-bit RSA key makes a
+    // signature of exactly 64 bytes.
+    const rsa = generateKeyPairSync('rsa', { modulusLength: 512 })
+    const data = `${b64({ alg: 'ES256', typ: 'JWT' })}.${b64(claims())}`
+    const signature = sign('sha256', Buffer.from(data), rsa.privateKey)
+    expect(signature).toHaveLength(64)
+    expect(verify('sha256', Buffer.from(data), { key: rsa.publicKey, dsaEncoding: 'ieee-p1363' }, signature)).toBe(true)
+    expect(() => check(`${data}.${signature.toString('base64url')}`, { keys: [rsa.publicKey] }))
+      .toThrow('gate public key 1 is not a P-256 public key, and ES256 needs one')
+  })
+
+  it.each([
+    ['a P-384 key', () => generateKeyPairSync('ec', { namedCurve: 'secp384r1' }).publicKey],
+    ['an Ed25519 key', () => generateKeyPairSync('ed25519').publicKey],
+    ['a P-256 private key', () => gateKeys.privateKey],
+    ['a PEM string', () => pem(gateKeys)],
+    ['nothing', () => undefined]
+  ])('refuses %s', (_label, make) => {
+    expect(() => check(signRequest(), { keys: [make()] })).toThrow('gate public key 1 is not a P-256 public key')
+  })
+
+  it('refuses the whole list when any key in it is not P-256, and names which', () => {
+    const keysWithOneBad = [createPublicKey(pem(gateKeys)), generateKeyPairSync('ec', { namedCurve: 'secp384r1' }).publicKey]
+    expect(() => check(signRequest(), { keys: keysWithOneBad })).toThrow('gate public key 2 is not a P-256 public key')
+  })
+})
+
+describe('verifySignedRequest: what ends up in a log line', () => {
+  it.each([
+    ['a right-to-left override', '\u202e'],
+    ['a zero-width space', '\u200b'],
+    ['a byte order mark', '\ufeff'],
+    ['a C1 control', '\u0085'],
+    ['another C1 control', '\u009b'],
+    ['a line separator', '\u2028'],
+    ['a lone surrogate', '\ud800']
+  ])('refuses a sub with %s', (_label, char) => {
+    expect(() => check(signRequest({ payload: claims({ sub: `requester${char}@example.com` }) }))).toThrow('sub claim is not an email address')
+  })
+
+  it.each(['iss', 'aud', 'app', 'action', 'target', 'environment'])('refuses a %s claim with a format or C1 character, without showing it', (name) => {
+    for (const char of ['\u202e', '\u0085']) {
+      let message
+      try {
+        check(signRequest({ payload: claims({ [name]: `x${char}y` }) }))
+      } catch (error) {
+        message = error.message
+      }
+      expect(message).toBe(`the signed request's ${name} claim holds a control or format character`)
+    }
+  })
+
+  it('refuses a header kid with a format character', () => {
+    expect(() => check(signRequest({ header: { alg: 'ES256', typ: 'JWT', kid: 'gate-1\u202e' } }))).toThrow("the signed request's header kid holds a control or format character")
+  })
+
+  it('writes the control and format characters of header member names as code points', () => {
+    const header = { alg: 'ES256', typ: 'JWT', 'x\n::error::fake': 1, 'y\u202ez': 1 }
+    expect(() => check(signRequest({ header }))).toThrow("the signed request's header has members this check does not accept: x\\u{a}::error::fake, y\\u{202e}z")
+  })
+
+  it('writes the control and format characters of an alg it refuses as code points', () => {
+    expect(() => check(signRequest({ header: { alg: 'ES256\u202e', typ: 'JWT' } }))).toThrow('the signed request uses alg "ES256\\u{202e}"; only ES256 is accepted')
   })
 })
 
