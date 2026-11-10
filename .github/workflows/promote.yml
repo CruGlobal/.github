@@ -112,6 +112,24 @@ on:
           such as machine users whose tokens many repos can read. Only
           the deploy gate is checked before this list. An entry that is
           not a number refuses every run. Empty refuses none.
+      gate-claim-url:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The deploy gate's claim route (https). On an attempt the deploy
+          gate's account started, authorize-actor claims the signed
+          request's one-time request id there for this run attempt, with
+          the job's GitHub OIDC token. Every job that runs authorize-actor
+          already has id-token: write. Empty claims nothing, so a signed
+          request is refused.
+      gate-claim-audience:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The audience of the OIDC token sent to gate-claim-url, which the
+          deploy gate requires. Needed with gate-claim-url.
       expected-candidate:
         type: string
         required: false
@@ -177,9 +195,11 @@ jobs:
     # default. Nothing here changes production, and when this job stops the
     # provider jobs after it are skipped, so stopping it early is safe.
     timeout-minutes: 10
-    # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB.
-    # contents: read lets it check this repo out for the authz action, which
-    # reads permissions with the authz-token PAT.
+    # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB,
+    # and the authz action's claim at gate-claim-url sends an OIDC token too,
+    # as it does in every job that runs that action. contents: read lets it
+    # check this repo out for the authz action, which reads permissions with
+    # the authz-token PAT.
     permissions:
       id-token: write
       contents: read
@@ -428,6 +448,8 @@ jobs:
           operation: promote
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          gate-claim-url: ${{ inputs.gate-claim-url }}
+          gate-claim-audience: ${{ inputs.gate-claim-audience }}
           refusal-title: actor_not_allowed
 
       # An automation account may promote one exact candidate, not whatever
@@ -511,6 +533,8 @@ jobs:
           operation: promote
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          gate-claim-url: ${{ inputs.gate-claim-url }}
+          gate-claim-audience: ${{ inputs.gate-claim-audience }}
           refusal-title: actor_not_allowed
 
       # --- Stale-promote guard (inside the production lock) -----------------
@@ -1392,6 +1416,8 @@ jobs:
           operation: promote
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          gate-claim-url: ${{ inputs.gate-claim-url }}
+          gate-claim-audience: ${{ inputs.gate-claim-audience }}
           refusal-title: actor_not_allowed
 
       # --- Stale-promote guard (inside the production lock) -----------------

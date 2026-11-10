@@ -510,7 +510,7 @@ function resolve (value, context) {
 // A caller that sets no refused list gets the workflow input's default, ''.
 async function runStep (step, context, runnerEnv) {
   for (const key of Object.keys(inputs)) delete inputs[key]
-  const withDefaults = { 'inputs.refused-actor-ids': '', ...context }
+  const withDefaults = { 'inputs.refused-actor-ids': '', 'inputs.gate-claim-url': '', 'inputs.gate-claim-audience': '', ...context }
   for (const [name, value] of Object.entries(step.with)) inputs[name] = resolve(value, withDefaults)
   await run({ env: runnerEnv, sleep: noSleep })
 }
@@ -551,12 +551,25 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
       expect(step.with['trusted-automation-actor-ids']).toBeUndefined()
     }
     expect(step.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
+    expect(step.with['gate-claim-url']).toBe('${{ inputs.gate-claim-url }}')
+    expect(step.with['gate-claim-audience']).toBe('${{ inputs.gate-claim-audience }}')
     expect(step.with['refusal-title']).toBe(refusalTitle)
   })
 
-  it('takes a refused list that is off unless the caller sets it', () => {
-    const declared = workflow.on.workflow_call.inputs['refused-actor-ids']
+  it.each(['refused-actor-ids', 'gate-claim-url', 'gate-claim-audience'])('takes %s, off unless the caller sets it', (name) => {
+    const declared = workflow.on.workflow_call.inputs[name]
     expect(declared).toMatchObject({ type: 'string', required: false, default: '' })
+  })
+
+  // The claim at gate-claim-url sends the job's OIDC token, which a job gets
+  // only with id-token: write. Every job that runs the check has it already,
+  // for AWS or Google Cloud, and every caller grants it, so passing
+  // gate-claim-url asks for no permission a caller does not grant today.
+  it('runs the check only in jobs that can get an OIDC token', () => {
+    for (const [id, job] of jobs) {
+      if (!job.steps?.some((step) => step.uses === ACTION)) continue
+      expect(job.permissions?.['id-token'], id).toBe('write')
+    }
   })
 
   it('never makes a check step conditional or allowed to fail', () => {
@@ -593,6 +606,8 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
       expect(check.with['trusted-automation-actor-ids']).toBeUndefined()
     }
     expect(check.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
+    expect(check.with['gate-claim-url']).toBe('${{ inputs.gate-claim-url }}')
+    expect(check.with['gate-claim-audience']).toBe('${{ inputs.gate-claim-audience }}')
     expect(check.with['refusal-title']).toBe(refusalTitle)
   })
 

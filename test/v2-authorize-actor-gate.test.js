@@ -319,7 +319,7 @@ describe('authorize: one-time request ids', () => {
   it('refuses every signed request while no store is set up', async () => {
     github({ permissions: { [GATE]: 'admin' } })
     await expect(authorize({ ...base, ...gate, ...gateRun, signedRequest: signRequest() }))
-      .rejects.toThrow(`${why} the one-time request id store is not set up, so signed requests cannot be used yet; refusing to promote ${REPO}`)
+      .rejects.toThrow(`${why} the one-time request id store is not set up (no gate-claim-url is set), so signed requests cannot be used; refusing to promote ${REPO}`)
     expect(api.getCollaboratorPermissionLevel).not.toHaveBeenCalled()
   })
 
@@ -765,11 +765,11 @@ describe('run with the new inputs', () => {
     'expected-target': 'candidate-12345'
   })
 
-  it('refuses the gate account, as the action runs today, because no request id store is set up', async () => {
+  it('refuses the gate account when no gate-claim-url sets up a request id store', async () => {
     github({ permissions: { [GATE]: 'admin' } })
     Object.assign(inputs, gateInputs())
     await run({ env: env(GATE, GATE_ID), sleep: noSleep })
-    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('the one-time request id store is not set up, so signed requests cannot be used yet'))
+    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('the one-time request id store is not set up (no gate-claim-url is set), so signed requests cannot be used'))
     expect(core.exportVariable).not.toHaveBeenCalled()
     expect(core.setOutput).not.toHaveBeenCalled()
   })
@@ -834,7 +834,9 @@ describe('authorize-actor action inputs', () => {
     ['expected-target', ''],
     ['refused-actor-ids', ''],
     ['break-glass-team', ''],
-    ['allow-push-access', 'true']
+    ['allow-push-access', 'true'],
+    ['gate-claim-url', ''],
+    ['gate-claim-audience', '']
   ])('declares %s as optional with a default of %j', (name, value) => {
     expect(action.inputs[name]).toMatchObject({ required: false, default: value })
   })

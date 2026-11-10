@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { getOctokit } from '@actions/github'
 import { AttemptNotAuthorized, currentRunAttempt, markAttemptAuthorized } from './v2/attempt-guard.js'
+import { gateClaim } from './v2/gate-claim.js'
 import { InvalidSignedRequest, RequestIdTaken, parsePublicKeys, verifySignedRequest } from './v2/signed-request.js'
 
 // authorize-actor: refuse a production change unless the account that started
@@ -25,11 +26,12 @@ import { InvalidSignedRequest, RequestIdTaken, parsePublicKeys, verifySignedRequ
 //      whose user id is gate-actor-id, and this attempt by that same account
 //      (same account as in 3). Such an attempt must carry a valid signed
 //      request for this app, action and target (src/v2/signed-request.js),
-//      whose one-time request id this run attempt can claim, or it is refused
-//      here, with no fall through: the gate's account has no other way in,
-//      and a gate run that lost its request must not pass some other way. A
-//      re-run that a person started is not the gate's attempt, so it skips
-//      this check and that person is checked by 2 to 5.
+//      whose one-time request id this run attempt can claim through the
+//      gate's claim route (gate-claim-url), or it is refused here, with no
+//      fall through: the gate's account has no other way in, and a gate run
+//      that lost its request must not pass some other way. A re-run that a
+//      person started is not the gate's attempt, so it skips this check and
+//      that person is checked by 2 to 5.
 //   2. Refused accounts (refused-actor-ids). The account that started this
 //      attempt is refused when its user id is listed, even if 3, 4 or 5 would
 //      let it through. Only the gate comes before it, because the gate's own
@@ -51,9 +53,9 @@ import { InvalidSignedRequest, RequestIdTaken, parsePublicKeys, verifySignedRequ
 //      off, so only 1, 3 and 4 can pass.
 //
 // A new input set to something this check cannot read (a gate-actor-id that
-// is not a number, a break-glass-team without its org) is a refusal, not a
-// warning: the input was set on purpose, and ignoring it would quietly change
-// who passes.
+// is not a number, a break-glass-team without its org, a gate-claim-url that
+// is not https) is a refusal, not a warning: the input was set on purpose,
+// and ignoring it would quietly change who passes.
 //
 // On a pass it sets the authorized-attempt marker for the rest of the job
 // (src/v2/attempt-guard.js). The deploy, tag-image and release-event actions
@@ -217,6 +219,37 @@ function parseTeam (raw) {
   throw new Refusal(`break-glass-team must be a team as "org/team-slug", like "example-org/ops-team", not '${value}'`)
 }
 
+// The deploy gate's claim route. Only https: the request carries the job's
+// OIDC token. No user name, password or fragment, which have no place in it.
+function parseClaimUrl (raw) {
+  const value = String(raw ?? '').trim()
+  if (value === '') return ''
+  let url
+  try {
+    url = new URL(value)
+  } catch {
+    url = null
+  }
+  if (!url || url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.hash || value.includes('#')) {
+    throw new Refusal(`gate-claim-url must be an https URL, like https://gate.example.com/gate/claim, not '${value}'`)
+  }
+  return url.href
+}
+
+// The aud of the OIDC token the claim sends, which the gate requires. Needed
+// with a claim URL, and one plain value, since the gate compares it exactly.
+function parseClaimAudience (raw, claimUrl) {
+  const value = String(raw ?? '').trim()
+  if (!claimUrl) return value
+  if (value === '') {
+    throw new Refusal('gate-claim-audience must be set when gate-claim-url is: it is the audience the deploy gate requires of the job\'s OIDC token')
+  }
+  if (!/^[\x21-\x7e]{1,256}$/.test(value)) {
+    throw new Refusal(`gate-claim-audience must be one value of printable characters with no spaces, not '${value}'`)
+  }
+  return value
+}
+
 function parseSwitch (raw, name) {
   const value = String(raw ?? '').trim().toLowerCase()
   if (value === '' || value === 'true') return true
@@ -235,6 +268,10 @@ const errorName = (error) => (typeof error?.name === 'string' && /^[A-Za-z][A-Za
 // workflowRepository and runId name the run this check is part of (the
 // runner's GITHUB_REPOSITORY and GITHUB_RUN_ID), as opposed to `repository`,
 // the app repo it changes. Only the gate needs them.
+//
+// gateClaimUrl and gateClaimAudience set up the one-time request id store:
+// the deploy gate's claim route (src/v2/gate-claim.js). claimRequestId, when
+// given, is used instead of it; tests pass their own.
 export async function authorize ({
   octokit,
   repository,
@@ -257,6 +294,8 @@ export async function authorize ({
   refusedActorIds,
   breakGlassTeam,
   allowPushAccess,
+  gateClaimUrl,
+  gateClaimAudience,
   claimRequestId,
   now = Date.now,
   sleep = sleepFor,
@@ -282,12 +321,14 @@ export async function authorize ({
     ? `; the run was first started by ${actor}`
     : ''
 
-  let gateId, refusedIds, team, pushAccessCounts
+  let gateId, refusedIds, team, pushAccessCounts, claimUrl, claimAudience
   try {
     gateId = parseGateActorId(gateActorId)
     refusedIds = parseRefusedActorIds(refusedActorIds)
     team = parseTeam(breakGlassTeam)
     pushAccessCounts = parseSwitch(allowPushAccess, 'allow-push-access')
+    claimUrl = parseClaimUrl(gateClaimUrl)
+    claimAudience = parseClaimAudience(gateClaimAudience, claimUrl)
   } catch (error) {
     if (error instanceof Refusal) throw new Refusal(`${error.message}; refusing to ${operation} ${appRepo}`)
     throw error
@@ -300,6 +341,9 @@ export async function authorize ({
   if (gateId && ids.includes(gateId)) {
     throw new Refusal(`gate-actor-id ${gateId} is also in trusted-automation-actor-ids. The deploy gate's account may pass only with a signed request, never as plain automation, so take it off the allowlist; refusing to ${operation} ${appRepo}`)
   }
+  const claim = typeof claimRequestId === 'function'
+    ? claimRequestId
+    : claimUrl ? gateClaim({ url: claimUrl, audience: claimAudience }) : undefined
 
   // The gate, the refused list and the allowlist may each need the user id of
   // the login that started this attempt. Ask GitHub once.
@@ -356,8 +400,8 @@ export async function authorize ({
 
     // Without a store, nothing stops one request from being used twice, so
     // signed requests are not accepted at all.
-    if (typeof claimRequestId !== 'function') {
-      throw refusal('the one-time request id store is not set up, so signed requests cannot be used yet')
+    if (typeof claim !== 'function') {
+      throw refusal('the one-time request id store is not set up (no gate-claim-url is set), so signed requests cannot be used')
     }
 
     // The run this check is part of, which the request id is claimed for.
@@ -384,37 +428,56 @@ export async function authorize ({
     //
     // claimRequestId({ claims, expired, run: { repository, id, attempt },
     // signal }) resolves 'claimed' or 'held', or throws. `run` is this
-    // workflow's repository, run id and attempt, all strings. The store behind
-    // it is not built yet; this is the contract it is built against.
+    // workflow's repository, run id and attempt, all strings. The store is
+    // the deploy gate itself (src/v2/gate-claim.js, set up by gate-claim-url),
+    // and this is the contract the gate keeps.
+    //
+    // The record. The gate writes one record per request when it signs it,
+    // before it starts the run, keyed on the jti, with the app, action,
+    // target and environment it signed and the request's exp. A claim only
+    // ever updates that record: one the gate never wrote is refused, and so
+    // is one whose app, action, target or environment differ from the
+    // request's. A request the gate never recorded cannot run.
+    //
+    // The claim. The job sends the gate a GitHub OIDC token for the gate's
+    // audience (gate-claim-audience), with the verified claims in the body.
+    // The gate takes the run's repository, id and attempt from the token,
+    // never from the body, so a claim can only be for the run it comes from.
+    // It accepts only runs in the deploy repository, in a job of the deploy
+    // workflow for the request's action, at an allowed ref. Only the gate's
+    // role writes the table: no workflow can write it, so none can pre-claim
+    // ids to block deploys, and the gate's clock, not a runner's, decides
+    // what is fresh. `run` is still passed here, for a store in a test.
     //
     // "The same run" means the same (repository, run id). A run's attempt
     // numbers only go up, so an id only ever moves to a higher attempt.
-    //   - Fresh (expired is false): if nothing holds the jti, record it for
+    //   - Fresh (expired is false): if nothing holds the jti, bind it to
     //     (repository, id, attempt) and answer 'claimed'. If this run attempt
     //     holds it, answer 'held'. If the same run holds it at a lower
     //     attempt, move it to this attempt, with a new claim time, and answer
     //     'held'. Otherwise (another run, or a higher attempt of this one),
     //     throw RequestIdTaken.
-    //   - The store's own clock decides "fresh" too. Refuse a create or a move
+    //   - The store's own clock decides "fresh" too. Refuse a bind or a move
     //     once the store's clock is past claims.exp plus 60 seconds of skew
     //     (and a small allowance of its own), by throwing an error named for
-    //     the reason, such as RequestExpired. Do not trust `expired` alone: a
-    //     move starts a new two-hour window, and a runner whose clock is
-    //     behind must not be able to start one with an old request.
+    //     the reason, RequestExpired. Do not trust `expired` alone: a move
+    //     starts a new two-hour window, and a runner whose clock is behind
+    //     must not be able to start one with an old request. `expired` can
+    //     only make the claim stricter.
     //   - Expired: never write. Answer 'held' only if this exact run attempt
     //     holds the jti and claimed it no more than two hours ago by the
     //     store's own clock. Otherwise throw RequestIdTaken: the id is not this
     //     attempt's to use.
-    //   - Keep each record at least two hours after its latest claim. Deleting
-    //     it sooner would let another run claim a request that is still fresh,
-    //     and would turn away this attempt's later jobs. A lazy expiry that
-    //     deletes it some time after that is fine.
-    //   - Every write is conditional (create only if absent, move only from
-    //     the record just read), so two runs racing for one id cannot both
-    //     win.
-    //   - Only the deploy workflows can write. The role that writes trusts only
-    //     the deploy reusable workflows, through the OIDC job_workflow_ref
-    //     claim, never a role that any workflow in the repository can assume.
+    //   - Keep each record at least two hours after its latest claim: every
+    //     bind and move raises the record's expiry to at least the claim time
+    //     plus two hours. Deleting it sooner would let another run claim a
+    //     request that is still fresh, and would turn away this attempt's
+    //     later jobs. A lazy expiry that deletes it some time after that is
+    //     fine.
+    //   - Reads are strongly consistent, and every write is conditional on
+    //     the record just read (bind only if unbound, move only from the
+    //     attempt and claim time just read), so two runs racing for one id
+    //     cannot both win.
     //   - The record is keyed on the jti claim alone, never on the request's
     //     text: an ECDSA signature and its high-S twin both verify, so one
     //     request can arrive as two strings.
@@ -422,10 +485,10 @@ export async function authorize ({
     //     An error that only has the same name is treated as the store failing.
     //   - Throw any other error when the store cannot answer. Its text is never
     //     shown, since it may hold a connection string; only its name is.
-    //   - Stop when `signal` aborts, and give the store client its own request
-    //     timeouts as well. This check stops waiting when the signal aborts,
-    //     but a socket the client leaves open keeps Node running, and with it
-    //     the step, inside the production lock.
+    //   - Stop when `signal` aborts, and give each request of its own a
+    //     timeout as well. This check stops waiting when the signal aborts,
+    //     but a socket left open keeps Node running, and with it the step,
+    //     inside the production lock.
     //
     // Why the attempt, and not just the run: "Re-run failed jobs" keeps the
     // earlier attempt's lookup result and runs only the production jobs, with
@@ -436,7 +499,7 @@ export async function authorize ({
     // with a fresh request, and only the gate can make one of those.
     let answer
     try {
-      answer = await withTimeLimit((signal) => claimRequestId({
+      answer = await withTimeLimit((signal) => claim({
         claims,
         expired,
         run: { repository: workflowRepo, id, attempt },
@@ -598,9 +661,10 @@ function refuse (message, title) {
   core.error(message, { title })
 }
 
-// claimRequestId is for tests only. The entry point passes nothing, so until
-// the one-time request id store exists, every attempt the deploy gate's
-// account starts is refused (see authorize()).
+// claimRequestId is for tests only. The entry point passes nothing, so the
+// store is the deploy gate's claim route when gate-claim-url is set, and with
+// no gate-claim-url every attempt the deploy gate's account starts is refused
+// (see authorize()).
 export async function run ({ env = process.env, sleep, timeoutMs, claimRequestId } = {}) {
   const refusalTitle = core.getInput('refusal-title').trim()
   try {
@@ -638,6 +702,8 @@ export async function run ({ env = process.env, sleep, timeoutMs, claimRequestId
       refusedActorIds: core.getInput('refused-actor-ids'),
       breakGlassTeam: core.getInput('break-glass-team'),
       allowPushAccess,
+      gateClaimUrl: core.getInput('gate-claim-url'),
+      gateClaimAudience: core.getInput('gate-claim-audience'),
       claimRequestId,
       sleep,
       timeoutMs

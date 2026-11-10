@@ -43,9 +43,9 @@ inputs:
       Numeric GitHub user id of the machine account the deploy gate starts
       runs as. An attempt that this account started (it started the run and
       this attempt) must carry a valid signed-request whose one-time request
-      id this run attempt can claim, or it is refused. The store that records
-      request ids is not set up yet, so for now every such attempt is refused.
-      A re-run that someone else started is checked like any other account.
+      id this run attempt can claim through gate-claim-url, or it is refused.
+      Without gate-claim-url, every such attempt is refused. A re-run that
+      someone else started is checked like any other account.
       This id may not also be in trusted-automation-actor-ids. Empty turns the
       gate check off; listing the gate's id in refused-actor-ids does not,
       because the gate is checked before that list.
@@ -94,6 +94,25 @@ inputs:
       What this run applies: the candidate tag for a promote, the release tag
       for a rollback, the commit sha for a hotfix. A signed request's target
       claim must equal it exactly.
+    required: false
+    default: ''
+  gate-claim-url:
+    description: >-
+      The deploy gate's claim route, an https URL such as
+      https://gate.example.com/gate/claim. On an attempt the gate-actor-id
+      account started, the signed request's one-time request id is claimed
+      for this run attempt there, with a GitHub OIDC token for
+      gate-claim-audience, so the job needs permissions: id-token: write.
+      The gate takes the run from the token. Empty sets up no claim, so every
+      signed request is refused. A value that is not an https URL refuses
+      every run.
+    required: false
+    default: ''
+  gate-claim-audience:
+    description: >-
+      The audience of the OIDC token sent to gate-claim-url, which the deploy
+      gate requires. Needed when gate-claim-url is set; ignored when it is
+      not.
     required: false
     default: ''
   refused-actor-ids:
