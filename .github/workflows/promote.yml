@@ -1310,8 +1310,10 @@ jobs:
       # All three are display-only. The action leaves out any value Flightdeck
       # would refuse, so none of them can cost the event. actor stays that
       # account on a run the deploy gate started too: Flightdeck takes only a
-      # GitHub login there, and the person who asked the gate is known only
-      # by email, which Flightdeck would refuse.
+      # GitHub login there. The person who asked the gate goes in
+      # requested-by instead, by their full email, since Flightdeck needs a
+      # sign-in to read. It is display-only like the rest, and empty, so no
+      # key is sent, on every run the gate did not start.
       #
       # kind is hotfix when the "Tell a hotfix from a deploy" step found the
       # candidate came from a hotfix branch, and deploy for every other
@@ -1331,6 +1333,7 @@ jobs:
           rollback-safety: ${{ steps.rollback-safety.outputs.verdict }}
           rollback-safety-reasons: ${{ steps.rollback-safety.outputs.reasons }}
           actor: ${{ github.triggering_actor }}
+          requested-by: ${{ steps.authz.outputs.requester }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           image-digest: ${{ steps.resolve.outputs.digest }}
 
@@ -2262,8 +2265,10 @@ jobs:
       # All three are display-only. The action leaves out any value Flightdeck
       # would refuse, so none of them can cost the event. actor stays that
       # account on a run the deploy gate started too: Flightdeck takes only a
-      # GitHub login there, and the person who asked the gate is known only
-      # by email, which Flightdeck would refuse.
+      # GitHub login there. The person who asked the gate goes in
+      # requested-by instead, by their full email, since Flightdeck needs a
+      # sign-in to read. It is display-only like the rest, and empty, so no
+      # key is sent, on every run the gate did not start.
       #
       # kind is hotfix when the "Tell a hotfix from a deploy" step found the
       # candidate came from a hotfix branch, and deploy for every other
@@ -2283,6 +2288,7 @@ jobs:
           rollback-safety: ${{ steps.rollback-safety.outputs.verdict }}
           rollback-safety-reasons: ${{ steps.rollback-safety.outputs.reasons }}
           actor: ${{ github.triggering_actor }}
+          requested-by: ${{ steps.authz.outputs.requester }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           image-digest: ${{ steps.resolve.outputs.digest }}
 

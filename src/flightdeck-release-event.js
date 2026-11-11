@@ -17,15 +17,17 @@ import { assertAttemptAuthorized, deployRunVerifiedFor } from './v2/attempt-guar
 // Telemetry policy, same as the ledger and Slack steps: this NEVER fails the
 // run. Unset token/project => skipped; any error => warning + status=failed.
 //
-// Three fields are display-only: actor, run_url and image_digest. Flightdeck
-// checks each one's shape and refuses the WHOLE post when one is wrong, which
-// would leave the release off the timeline. So each is sent only when it is
-// non-blank and passes Flightdeck's rule (DISPLAY_FIELDS below). One that
-// would fail is left out with a warning, and the event is still posted.
+// Four fields are display-only: actor, requested_by, run_url and
+// image_digest. Flightdeck checks each one's shape and refuses the WHOLE post
+// when one is wrong, which would leave the release off the timeline. So each
+// is sent only when it is non-blank and passes Flightdeck's rule
+// (DISPLAY_FIELDS below). One that would fail is left out with a warning, and
+// the event is still posted.
 //
-// A Flightdeck older than these fields refuses them as unknown keys, which
-// would refuse every event after a Flightdeck rollback. So a 422 that names
-// them as unknown is retried once without them (postReleaseEvent below).
+// A Flightdeck older than a field refuses it as an unknown key, which would
+// refuse every event after a Flightdeck rollback, or before Flightdeck has
+// shipped a new field. So a 422 that names display fields as unknown is
+// retried once without the ones it names (postReleaseEvent below).
 //
 // One exception. A production release event is a trusted record, so it is
 // refused, and the step fails, unless the authorize-actor check passed earlier
@@ -62,6 +64,10 @@ export const NON_PRODUCTION_ENVIRONMENTS = Object.freeze(['staging', 'release-ca
 //
 //   actor         a GitHub login: 1 to 39 letters, digits or hyphens, starting
 //                 with a letter or digit, optionally followed by "[bot]".
+//   requested_by  an email address by the HTML form rule ("valid email
+//                 address"), any domain, 254 characters at most: the person
+//                 who asked the deploy gate for this change. Flightdeck needs
+//                 a sign-in to read, so this is the full address.
 //   run_url       https://github.com/<owner>/<repo>/actions/runs/<id>, optionally
 //                 followed by /attempts/<n>, and nothing else: no other host or
 //                 scheme, no query, fragment, port or trailing slash. <owner>
@@ -72,6 +78,12 @@ export const DISPLAY_FIELDS = Object.freeze({
   actor: {
     format: /^(?=[A-Za-z0-9-]{1,39}(?:\[bot\])?$)[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?$/,
     rule: 'a GitHub login (1-39 letters, digits or hyphens, starting with a letter or digit, optionally followed by [bot])'
+  },
+  // Flightdeck's pattern as given, except that the "/" in the first class is
+  // not escaped. It means the same there, and lint refuses the escape.
+  requested_by: {
+    format: /^(?=.{1,254}$)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/,
+    rule: 'an email address (the HTML form rule, at most 254 characters)'
   },
   run_url: {
     format: /^https:\/\/github\.com\/(?=[A-Za-z0-9-]{1,39}\/)[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?\/)[A-Za-z0-9._-]{1,100}\/actions\/runs\/[0-9]{1,20}(?:\/attempts\/[0-9]{1,20})?$/,
@@ -126,6 +138,7 @@ export async function run () {
       rollbackSafetyReasons: core.getInput('rollback-safety-reasons'),
       deployedAt: core.getInput('deployed-at'),
       actor: core.getInput('actor'),
+      requestedBy: core.getInput('requested-by'),
       runUrl: core.getInput('run-url'),
       imageDigest: core.getInput('image-digest')
     }, { warn: core.warning })
@@ -167,7 +180,7 @@ export function normalizeEndpoint (endpoint) {
 // than sent empty: the /api/v1 side is strict, and an absent key means "no
 // opinion" for every field but environment. `warn` hears about each
 // display-only field left out because Flightdeck would refuse it.
-export function buildEvent ({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt, actor, runUrl, imageDigest }, { warn = () => {} } = {}) {
+export function buildEvent ({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt, actor, requestedBy, runUrl, imageDigest }, { warn = () => {} } = {}) {
   environment = (environment || '').trim()
   if (!environment) throw new Error('environment is required')
   kind = (kind || 'deploy').trim()
@@ -205,7 +218,7 @@ export function buildEvent ({ app, environment, kind, releaseTag, buildNumber, s
   }
   deployedAt = (deployedAt || '').trim()
   if (deployedAt) event.deployed_at = deployedAt
-  Object.assign(event, displayFields({ actor, run_url: runUrl, image_digest: imageDigest }, warn))
+  Object.assign(event, displayFields({ actor, requested_by: requestedBy, run_url: runUrl, image_digest: imageDigest }, warn))
   return event
 }
 
@@ -245,12 +258,13 @@ export function shaFromTags (imageTags) {
   return ''
 }
 
-// Post the event. A Flightdeck from before the display-only fields answers
-// 422 invalid_attribute with "unknown key(s): <names> (settable: ...)" for
-// them. The display fields are nice to have and the rest of the event is
-// not, so on that answer, and only that one, the event is posted once more
-// without them. Any other refusal, and a refusal of the retry, is thrown as
-// it is.
+// Post the event. A Flightdeck from before a display-only field answers 422
+// invalid_attribute with "unknown key(s): <names> (settable: ...)" for it.
+// The display fields are nice to have and the rest of the event is not, so on
+// that answer, and only that one, the event is posted once more without the
+// display fields it names. The rest of the event, other display fields
+// included, goes again as it was. Any other refusal, and a refusal of the
+// retry, is thrown as it is.
 export async function postReleaseEvent (client, projectId, event, warn = () => {}) {
   try {
     return await client.postReleaseEvent(projectId, event)
@@ -258,15 +272,28 @@ export async function postReleaseEvent (client, projectId, event, warn = () => {
     const dropped = refusedDisplayFields(error, event)
     if (dropped.length === 0) throw error
     const retry = Object.fromEntries(Object.entries(event).filter(([key]) => !dropped.includes(key)))
-    warn(`Flightdeck release event: Flightdeck does not accept ${dropped.join(', ')} yet (${error.message}). Posting the event again without ${dropped.length === 1 ? 'it' : 'them'}.`)
+    warn(`Flightdeck release event: Flightdeck refused keys it does not know (${error.message}). Posting the event again without ${dropped.join(', ')}.`)
     return client.postReleaseEvent(projectId, retry)
   }
 }
 
-// The display-only fields in `event` to drop when `error` is Flightdeck
-// refusing unknown keys and it names at least one of those fields; [] for
-// any other error. Every display field the event carries is dropped, not just
-// the named ones, so the retry cannot fail the same way over another.
+// The display-only fields in `event` to leave out of the retry when `error`
+// is Flightdeck refusing unknown keys. [] for any other error, and for a
+// refusal that names only keys that are not display fields, which no retry
+// could fix.
+//
+// Flightdeck says "unknown key: a (settable: ...)" or "unknown keys: a, b
+// (settable: ...)": the unknown keys sorted, at most five of them, "and N
+// more" when there were more, and then every key it does accept. Only the
+// part before the "(" names unknown keys. The settable list names display
+// fields Flightdeck takes, so reading it would drop good ones. The list is
+// also cut at the word "settable", in case a later Flightdeck drops the "(".
+//
+// Usually that part names exactly the display fields to drop, and only those
+// are dropped, so a Flightdeck that lacks one field still gets the others.
+// When it cannot say which, because the list ends in "and N more" or holds
+// no name at all, every display field the event carries is dropped, so the
+// retry cannot fail the same way over one the message did not name.
 export function refusedDisplayFields (error, event) {
   if (error?.status !== 422) return []
   const code = error.body?.code
@@ -274,9 +301,13 @@ export function refusedDisplayFields (error, event) {
   const message = typeof error.body?.error === 'string' ? error.body.error : ''
   const match = /^\s*unknown keys?:\s*([^(]*)/i.exec(message)
   if (!match) return []
-  const named = match[1].split(/,|\s+and\s+/).map((name) => name.trim())
   const carried = Object.keys(DISPLAY_FIELDS).filter((key) => key in event)
-  return carried.some((key) => named.includes(key)) ? carried : []
+  if (carried.length === 0) return []
+  const MORE = /(?:^|\s)and\s+\d+\s+more\s*$/i
+  const list = match[1].split(/\bsettable\b/i)[0].replace(/[\s;.,:]+$/, '').trim()
+  const names = list.replace(MORE, '').split(/,|\s+and\s+/).map((name) => name.trim()).filter(Boolean)
+  if (MORE.test(list) || names.length === 0) return carried
+  return carried.filter((key) => names.includes(key))
 }
 
 // The release that came before `event`, from `events` (one environment's

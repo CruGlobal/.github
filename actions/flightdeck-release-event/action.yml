@@ -6,12 +6,13 @@ description: >-
   /api/v1/projects/:id/release-events as the CruDeploy service user. Telemetry
   policy: the action NEVER fails the run. An unset token or project is a
   silent skip, every error is a warning, and `status` says what happened. A
-  display-only field (actor, run-url, image-digest) that Flightdeck would
-  refuse is left out with a warning, so it never costs the event. One
-  exception: a production event fails the step unless the authorize-actor
-  check passed earlier in the same job for this run attempt, or, for a deploy
-  event only, verify-deploy-run passed earlier in the same job for this
-  attempt and exactly this project, app, environment and sha.
+  display-only field (actor, requested-by, run-url, image-digest) that
+  Flightdeck would refuse is left out with a warning, and one that Flightdeck
+  does not know yet is dropped on a single retry, so it never costs the
+  event. One exception: a production event fails the step unless the
+  authorize-actor check passed earlier in the same job for this run attempt,
+  or, for a deploy event only, verify-deploy-run passed earlier in the same
+  job for this attempt and exactly this project, app, environment and sha.
 inputs:
   token:
     description: >-
@@ -70,6 +71,18 @@ inputs:
       event over a value that is not a GitHub login, so such a value is left
       out with a warning and the event is still posted. Unset sends no key.
     required: false
+  requested-by:
+    description: >-
+      Email of the person who asked the deploy gate for this change
+      (authorize-actor's requester output), sent as `requested_by` beside
+      actor. Flightdeck needs a sign-in to read, so this is the full address.
+      Flightdeck refuses the whole event over a value that is not a valid
+      email address (the HTML form rule, at most 254 characters), so such a
+      value is left out with a warning and the event is still posted. A
+      Flightdeck that does not know the key yet refuses it as unknown, and
+      the event is posted again without it. Unset sends no key.
+    required: false
+    default: ''
   run-url:
     description: >-
       The GitHub Actions run, https://github.com/<owner>/<repo>/actions/runs/<id>,

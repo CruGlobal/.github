@@ -810,8 +810,10 @@ jobs:
       # display-only, and the action leaves out any value Flightdeck would
       # refuse, so none of them can cost the event. actor stays that account
       # on a run the deploy gate started too: Flightdeck takes only a GitHub
-      # login there, and the person who asked the gate is known only by
-      # email, which Flightdeck would refuse.
+      # login there. The person who asked the gate goes in requested-by
+      # instead, by their full email, since Flightdeck needs a sign-in to
+      # read. It is display-only like the rest, and empty, so no key is sent,
+      # on every run the gate did not start.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -825,6 +827,7 @@ jobs:
           release-tag: ${{ steps.actual-release.outputs.tag }}
           image-tags: ${{ steps.resolve.outputs.tags }}
           actor: ${{ github.triggering_actor }}
+          requested-by: ${{ steps.authz.outputs.requester }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           image-digest: ${{ steps.resolve.outputs.digest }}
 
@@ -1430,8 +1433,10 @@ jobs:
       # display-only, and the action leaves out any value Flightdeck would
       # refuse, so none of them can cost the event. actor stays that account
       # on a run the deploy gate started too: Flightdeck takes only a GitHub
-      # login there, and the person who asked the gate is known only by
-      # email, which Flightdeck would refuse.
+      # login there. The person who asked the gate goes in requested-by
+      # instead, by their full email, since Flightdeck needs a sign-in to
+      # read. It is display-only like the rest, and empty, so no key is sent,
+      # on every run the gate did not start.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -1445,6 +1450,7 @@ jobs:
           release-tag: ${{ steps.actual-release.outputs.tag }}
           image-tags: ${{ steps.resolve.outputs.tags }}
           actor: ${{ github.triggering_actor }}
+          requested-by: ${{ steps.authz.outputs.requester }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           image-digest: ${{ steps.resolve.outputs.digest }}
 

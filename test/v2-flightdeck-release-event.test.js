@@ -491,9 +491,37 @@ describe('display-only fields', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('leaving out image_digest'))
   })
 
+  // Flightdeck's rule is the HTML form's "valid email address", any domain,
+  // 254 characters at most. The deploy gate's own check is looser (any
+  // characters but spaces, controls and a second @), so a requester that
+  // passes the gate can still be left out here.
+  it.each([
+    'someone@example.org', 'first.last+tag@example.co.uk', "o'neil@example.org", 'a@b', 'x_y-z@sub-1.example.org',
+    "!#$%&'*+/=?^_`{|}~-@example.org", 'a/b@example.org',
+    `${'x'.repeat(250)}@a.b`, `${'x'.repeat(64)}@${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(61)}`
+  ])('accepts the requester %j', (requester) => {
+    expect(displayFields({ requested_by: requester })).toEqual({ requested_by: requester })
+  })
+
+  it.each([
+    'someone', '@example.org', 'someone@', 'a@b@example.org', 'some one@example.org', 'zoë@example.org', 'a<b>@example.org',
+    'a@-example.org', 'a@example-.org', 'a@example..org', 'a@.example.org', 'a@example.org.', `a@${'x'.repeat(64)}.org`,
+    `${'x'.repeat(251)}@a.b`, 'a@exa_mple.org', 'some\none@example.org'
+  ])('leaves out the requester %j with a warning', (requester) => {
+    const warn = vi.fn()
+    expect(displayFields({ requested_by: requester }, warn)).toEqual({})
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('leaving out requested_by'))
+  })
+
+  it('sends the requester trimmed, beside actor', () => {
+    const event = buildEvent({ environment: 'production', actor: 'octo-dev', requestedBy: '  someone@example.org \n' })
+    expect(event).toMatchObject({ actor: 'octo-dev', requested_by: 'someone@example.org' })
+  })
+
   it('leaves out blank values quietly: they are no opinion, not a mistake', () => {
     const warn = vi.fn()
-    expect(displayFields({ actor: '', run_url: '   ', image_digest: undefined }, warn)).toEqual({})
+    expect(displayFields({ actor: '', requested_by: ' ', run_url: '   ', image_digest: undefined }, warn)).toEqual({})
     expect(buildEvent({ environment: 'production' }, { warn })).toEqual({ environment: 'production', kind: 'deploy' })
     expect(warn).not.toHaveBeenCalled()
   })
@@ -534,6 +562,7 @@ describe('run: display-only fields', () => {
 
   it.each([
     ['actor', 'actor', 'not a login'],
+    ['requested-by', 'requested_by', 'zoë@example.org'],
     ['run-url', 'run_url', 'https://github.com/o/r/actions/runs/1?x=1'],
     ['image-digest', 'image_digest', 'sha256:ABC']
   ])('still posts the event when %s is invalid, without that field and with a warning', async (input, key, value) => {
@@ -546,11 +575,30 @@ describe('run: display-only fields', () => {
     const sent = body(fetchMock)
     expect(sent).not.toHaveProperty(key)
     for (const other of ['actor', 'run_url', 'image_digest'].filter((k) => k !== key)) expect(sent).toHaveProperty(other)
+    if (key !== 'requested_by') expect(sent).not.toHaveProperty('requested_by')
     expect(sent).toMatchObject({ environment: 'production', release_tag: 'release-2026-09-04-10123', rollback_safe: true })
     expect(warningMock).toHaveBeenCalledTimes(1)
     expect(warningMock).toHaveBeenCalledWith(expect.stringContaining(`leaving out ${key}`))
     expect(setFailedMock).not.toHaveBeenCalled()
     expect(output('status')).toBe('created')
+  })
+
+  it('posts requested_by beside actor when it is a valid address', async () => {
+    happyInputs()
+    validDisplayInputs()
+    inputs['requested-by'] = 'someone@example.org'
+    const fetchMock = posted()
+    await run()
+    expect(body(fetchMock)).toMatchObject({ actor: 'octo-dev', requested_by: 'someone@example.org', run_url: `${RUN_URL}/attempts/1`, image_digest: DIGEST })
+    expect(warningMock).not.toHaveBeenCalled()
+  })
+
+  it('sends no requested_by key when the input is unset', async () => {
+    happyInputs()
+    validDisplayInputs()
+    const fetchMock = posted()
+    await run()
+    expect(body(fetchMock)).not.toHaveProperty('requested_by')
   })
 
   it('still posts the event with all three invalid, as the body it sent before these fields existed', async () => {
@@ -576,13 +624,17 @@ describe('run: display-only fields', () => {
 })
 
 // ---------------------------------------------------------------------------
-// A Flightdeck from before the display-only fields refuses them as unknown
-// keys: 422 invalid_attribute, "unknown key(s): <sorted names> (settable:
-// ...)". Without a retry, a Flightdeck rollback past those fields would get
-// every release event refused, so that refusal, and only that one, is
-// retried once without them.
+// A Flightdeck from before a display-only field refuses it as an unknown key:
+// 422 invalid_attribute, "unknown key(s): <sorted names> (settable: ...)".
+// Without a retry, a Flightdeck rollback past a field, or one that has not
+// shipped a new field yet, would get every release event refused. So that
+// refusal, and only that one, is retried once without the fields it names.
 
 const SETTABLE = '(settable: environment, kind, release_tag, build_number, sha, rollback_safe, rollback_safe_reasons, deployed_at, app)'
+// What a Flightdeck that has the first three display fields, but not
+// requested_by, lists as settable. Its list names actor, run_url and
+// image_digest, which must not be read as unknown.
+const SETTABLE_WITH_DISPLAY = '(settable: environment, kind, release_tag, build_number, sha, rollback_safe, rollback_safe_reasons, deployed_at, app, actor, run_url, image_digest)'
 const unknownKeys = (names) => jsonResponse(422, { error: `unknown key${names.includes(',') ? 's' : ''}: ${names} ${SETTABLE}`, code: 'invalid_attribute' })
 
 describe('run: a Flightdeck that does not know the display-only fields', () => {
@@ -619,7 +671,7 @@ describe('run: a Flightdeck that does not know the display-only fields', () => {
     expect(posted(fetchMock, 2)).toEqual(BASE_EVENT)
     expect(fetchMock.mock.calls[2][0]).toBe('https://flightdeck.cru.org/api/v1/projects/42/release-events')
     expect(warningMock).toHaveBeenCalledTimes(1)
-    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('does not accept actor, run_url, image_digest yet'))
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('Posting the event again without actor, run_url, image_digest.'))
     expect(setFailedMock).not.toHaveBeenCalled()
     expect(output('status')).toBe('created')
     expect(output('event-id')).toBe('902')
@@ -633,8 +685,35 @@ describe('run: a Flightdeck that does not know the display-only fields', () => {
     await run()
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(posted(fetchMock, 2)).toEqual(BASE_EVENT)
-    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('does not accept run_url yet'))
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('Posting the event again without run_url.'))
     expect(output('status')).toBe('updated')
+  })
+
+  // The case this retry exists for today: requested_by ships here before
+  // Flightdeck takes it. Only requested_by is dropped, and the event keeps
+  // the display fields Flightdeck does take.
+  it('drops only requested_by when a Flightdeck that lacks it refuses it, and keeps the other display fields', async () => {
+    displayInputs()
+    inputs['requested-by'] = 'someone@example.org'
+    const refusedRequester = jsonResponse(422, { error: `unknown key: requested_by ${SETTABLE_WITH_DISPLAY}`, code: 'invalid_attribute' })
+    const fetchMock = answers(refusedRequester, jsonResponse(201, { id: 904 }))
+    await run()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(posted(fetchMock, 1)).toMatchObject({ requested_by: 'someone@example.org' })
+    expect(posted(fetchMock, 2)).toEqual({ ...BASE_EVENT, actor: 'octo-dev', run_url: `${RUN_URL}/attempts/1`, image_digest: DIGEST })
+    expect(warningMock).toHaveBeenCalledTimes(1)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('Posting the event again without requested_by.'))
+    expect(output('status')).toBe('created')
+    expect(output('event-id')).toBe('904')
+  })
+
+  it('drops only the fields named when an older Flightdeck lacks several', async () => {
+    displayInputs()
+    inputs['requested-by'] = 'someone@example.org'
+    const fetchMock = answers(unknownKeys('image_digest, requested_by'), jsonResponse(201, { id: 905 }))
+    await run()
+    expect(posted(fetchMock, 2)).toEqual({ ...BASE_EVENT, actor: 'octo-dev', run_url: `${RUN_URL}/attempts/1` })
+    expect(output('status')).toBe('created')
   })
 
   it('does not retry a second time when the retry is refused too', async () => {
@@ -676,16 +755,50 @@ describe('run: a Flightdeck that does not know the display-only fields', () => {
 
 describe('refusedDisplayFields', () => {
   const refusal = (status, body) => Object.assign(new Error('x'), { status, body })
-  const event = { environment: 'production', actor: 'a', run_url: RUN_URL, image_digest: DIGEST }
+  const event = { environment: 'production', actor: 'a', requested_by: 'someone@example.org', run_url: RUN_URL, image_digest: DIGEST }
+  const unknown = (list, settable = SETTABLE_WITH_DISPLAY) => refusal(422, { error: `unknown key${list.includes(',') ? 's' : ''}: ${list} ${settable}`, code: 'invalid_attribute' })
 
-  it('drops every display field the event carries when any of them is named', () => {
-    expect(refusedDisplayFields(refusal(422, { error: `unknown key: image_digest ${SETTABLE}`, code: 'invalid_attribute' }), event))
-      .toEqual(['actor', 'run_url', 'image_digest'])
+  it('drops only the display fields the message names', () => {
+    expect(refusedDisplayFields(unknown('requested_by'), event)).toEqual(['requested_by'])
+    expect(refusedDisplayFields(unknown('image_digest'), event)).toEqual(['image_digest'])
+    expect(refusedDisplayFields(unknown('actor, image_digest, requested_by, run_url'), event)).toEqual(['actor', 'requested_by', 'run_url', 'image_digest'])
   })
 
-  it('reads the list loosely: case, spacing, no settable part, no code', () => {
-    expect(refusedDisplayFields(refusal(422, { error: 'Unknown Keys:  actor ,run_url' }), event)).toEqual(['actor', 'run_url', 'image_digest'])
-    expect(refusedDisplayFields(refusal(422, { error: 'unknown keys: a, b, c, d, run_url and 2 more (settable: x)' }), event)).toEqual(['actor', 'run_url', 'image_digest'])
+  // The settable list names display fields Flightdeck takes. Reading it would
+  // drop good fields from the retry.
+  it('never reads the settable list as unknown keys', () => {
+    const settable = '(settable: actor, requested_by, run_url, image_digest)'
+    expect(refusedDisplayFields(unknown('requested_by', '(settable: actor, run_url, image_digest)'), event)).toEqual(['requested_by'])
+    expect(refusedDisplayFields(unknown('frobnicate', settable), event)).toEqual([])
+  })
+
+  it('drops only fields the event carries', () => {
+    const withoutRequester = { ...event }
+    delete withoutRequester.requested_by
+    expect(refusedDisplayFields(unknown('requested_by, run_url'), withoutRequester)).toEqual(['run_url'])
+  })
+
+  it('reads the list loosely: case, spacing, "and", no settable part, no code', () => {
+    expect(refusedDisplayFields(refusal(422, { error: 'Unknown Keys:  actor ,run_url' }), event)).toEqual(['actor', 'run_url'])
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown keys: actor and run_url' }), event)).toEqual(['actor', 'run_url'])
+  })
+
+  // Not Flightdeck's wording today, but a settable list without its "("
+  // must still not be read as unknown keys.
+  it('stops the list at the word settable even without a "("', () => {
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown key: requested_by; settable: actor, run_url, image_digest' }), event)).toEqual(['requested_by'])
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown key: requested_by. Settable: actor, run_url' }), event)).toEqual(['requested_by'])
+  })
+
+  // When the message cannot say which keys were unknown, the retry leaves
+  // out every display field, as it always did, so it cannot fail the same way
+  // over one the message left unnamed.
+  it('drops every display field the event carries when the list is cut short or names nothing', () => {
+    const all = ['actor', 'requested_by', 'run_url', 'image_digest']
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown keys: a, b, c, d, run_url and 2 more (settable: x)' }), event)).toEqual(all)
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown keys: a, b, c, d, e and 1 more (settable: x)' }), event)).toEqual(all)
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown key:  (settable: x)', code: 'invalid_attribute' }), event)).toEqual(all)
+    expect(refusedDisplayFields(refusal(422, { error: 'unknown keys:' }), event)).toEqual(all)
   })
 
   it('matches whole key names only', () => {
@@ -746,6 +859,8 @@ const runnerContext = () => ({
   'github.repository': 'example-org/deploy-wrappers',
   'github.run_id': '9001',
   'github.run_attempt': '2',
+  // A run the deploy gate did not start: authorize-actor sets no requester.
+  'steps.authz.outputs.requester': '',
   // promote's kind: hotfix only when its release-kind step said so.
   [PROMOTE_KIND]: 'deploy'
 })
@@ -813,8 +928,37 @@ describe('release event wiring', () => {
         image_digest: RESOLVED_DIGEST,
         sha: TARGET_SHA
       })
+      expect(event).not.toHaveProperty('requested_by')
       expect(event.environment).toBe(workflow === 'deploy-candidate' ? 'staging' : 'production')
     })
+
+    // Only promote and rollback run authorize-actor, so only their events
+    // can name who asked the deploy gate. The requester comes from the check
+    // in the same job, which runs before the event step.
+    if (workflow === 'deploy-candidate') {
+      it('sends no requester: nothing in this job asks the deploy gate', () => {
+        expect(step.with).not.toHaveProperty('requested-by')
+      })
+    } else {
+      it('sends the requester from the authorize-actor check earlier in the same job', () => {
+        expect(step.with['requested-by']).toBe('${{ steps.authz.outputs.requester }}')
+        const check = job.steps.findIndex((s) => s.id === 'authz')
+        expect(check).toBeGreaterThanOrEqual(0)
+        expect(job.steps[check].uses).toBe('./cru-github-actions/actions/authorize-actor')
+        expect(check).toBeLessThan(job.steps.indexOf(step))
+      })
+
+      // The person's full email, not masked: Flightdeck needs a sign-in to
+      // read. actor still names the account that started the attempt.
+      it('names the person who asked the deploy gate, by their full email, and leaves actor alone', async () => {
+        const event = await postFrom(step, {
+          'steps.authz.outputs.requester': 'someone@example.org',
+          'github.actor': 'deploy-gate[bot]',
+          'github.triggering_actor': 'deploy-gate[bot]'
+        })
+        expect(event).toMatchObject({ actor: 'deploy-gate[bot]', requested_by: 'someone@example.org' })
+      })
+    }
 
     it('stays telemetry: it can never fail the job', () => {
       expect(step['continue-on-error']).toBe(true)
