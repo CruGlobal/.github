@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.20.0](https://github.com/CruGlobal/.github/compare/v2.19.0...v2.20.0) (2026-11-11)
+
+
+### Features
+
+* **v2:** claim the deploy gate's one-time request ids through the gate ([#571](https://github.com/CruGlobal/.github/issues/571)) ([dd24e45](https://github.com/CruGlobal/.github/commit/dd24e451a55d5d179d689b8c874658190e81c686))
+* **v2:** pass the deploy gate's signed request through promote, rollback and hotfix ([#573](https://github.com/CruGlobal/.github/issues/573)) ([49ea0fc](https://github.com/CruGlobal/.github/commit/49ea0fcfcf9fdb754feaea59b40b973c50e94f6a))
+
 ## [2.19.0](https://github.com/CruGlobal/.github/compare/v2.18.0...v2.19.0) (2026-11-10)
 
 
