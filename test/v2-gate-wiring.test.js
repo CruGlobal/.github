@@ -13,12 +13,20 @@ import { loadYaml, findStep, runShellStep, removeFakes, resolveExpressions } fro
 const { api, octokit, core, inputs, defaults } = vi.hoisted(() => {
   const api = {
     getByUsername: vi.fn(),
-    getCollaboratorPermissionLevel: vi.fn()
+    getCollaboratorPermissionLevel: vi.fn(),
+    getTeamMembership: vi.fn(),
+    getTeamByName: vi.fn(),
+    listChildTeams: vi.fn()
   }
   const octokit = {
     rest: {
       users: { getByUsername: api.getByUsername },
-      repos: { getCollaboratorPermissionLevel: api.getCollaboratorPermissionLevel }
+      repos: { getCollaboratorPermissionLevel: api.getCollaboratorPermissionLevel },
+      teams: {
+        getMembershipForUserInOrg: api.getTeamMembership,
+        getByName: api.getTeamByName,
+        listChildInOrg: api.listChildTeams
+      }
     }
   }
   return {
@@ -79,6 +87,8 @@ const EXPECTED = {
 const NEW_INPUTS = ['gate-actor-id', 'gate-public-keys', 'gate-issuer', 'gate-audience', 'signed-request']
 // Every gate input a check step reads, the claim inputs from before included.
 const GATE_WITH = ['gate-claim-url', 'gate-claim-audience', ...NEW_INPUTS]
+// The break-glass settings each workflow passes to every check.
+const BREAK_GLASS_WITH = ['break-glass-team', 'allow-push-access']
 
 const checksIn = (workflow) => Object.entries(workflow.jobs).flatMap(([jobId, job]) =>
   job.steps.filter((step) => step.uses === ACTION).map((step) => ({ jobId, job, step })))
@@ -239,6 +249,48 @@ describe.each(Object.keys(FILES))('%s.yml', (workflowName) => {
     }
   })
 
+  // The break-glass settings, as the action takes them: strings, with the
+  // action's own defaults, so a caller that sets neither is checked as before.
+  it('takes break-glass-team and allow-push-access, off and on unless the caller sets them', () => {
+    expect(declared['break-glass-team']).toMatchObject({ type: 'string', required: false, default: '' })
+    expect(declared['allow-push-access']).toMatchObject({ type: 'string', required: false, default: 'true' })
+    for (const name of BREAK_GLASS_WITH) expect(declared[name].default, name).toBe(action.inputs[name].default)
+  })
+
+  it('gives every check break-glass-team and allow-push-access', () => {
+    for (const { jobId, step } of checks) {
+      for (const name of BREAK_GLASS_WITH) expect(step.with[name], `${jobId}: ${name}`).toBe(`\${{ inputs.${name} }}`)
+    }
+  })
+
+  it.each(checks.map(({ jobId }, index) => [jobId, index]))('%s: lets an active member of break-glass-team through without push access', async (_jobId, index) => {
+    const { step } = checks[index]
+    api.getTeamMembership.mockResolvedValue({ data: { state: 'active' } })
+    api.listChildTeams.mockResolvedValue({ data: [] })
+    await runCheck(step, callerContext(workflowName, { 'inputs.break-glass-team': 'example-org/ops-team' }), runnerEnv('mallory', '2003'))
+    expect(refusal()).toBe('')
+    expect(core.setOutput.mock.calls).toEqual([['passed-as', 'break-glass']])
+    expect(api.getTeamMembership).toHaveBeenCalledWith(expect.objectContaining({ org: 'example-org', team_slug: 'ops-team', username: 'mallory' }))
+    expect(api.getCollaboratorPermissionLevel).not.toHaveBeenCalled()
+  })
+
+  it.each(checks.map(({ jobId }, index) => [jobId, index]))('%s: refuses an account with push access when allow-push-access is false', async (_jobId, index) => {
+    const { step } = checks[index]
+    await runCheck(step, callerContext(workflowName, { 'inputs.allow-push-access': 'false' }), runnerEnv('alice', '2001'))
+    expect(refusal()).toContain('push access does not count for this run (allow-push-access is false)')
+    expect(core.setOutput).not.toHaveBeenCalled()
+    expect(api.getCollaboratorPermissionLevel).not.toHaveBeenCalled()
+  })
+
+  // A caller whose expression for it comes out empty is refused, not let
+  // through: the workflow passes the value on as it is.
+  it.each(checks.map(({ jobId }, index) => [jobId, index]))('%s: refuses an allow-push-access that comes out empty', async (_jobId, index) => {
+    const { step } = checks[index]
+    await runCheck(step, callerContext(workflowName, { 'inputs.allow-push-access': '' }), runnerEnv('alice', '2001'))
+    expect(refusal()).toContain('allow-push-access is empty')
+    expect(core.setOutput).not.toHaveBeenCalled()
+  })
+
   it.each(checks.map(({ jobId }, index) => [jobId, index]))('%s: passes the gate\'s attempt with a signed request, and names the requester', async (_jobId, index) => {
     const { step } = checks[index]
     const store = memoryStore()
@@ -272,11 +324,14 @@ describe.each(Object.keys(FILES))('%s.yml', (workflowName) => {
     const { step } = checks[index]
     const context = callerContext(workflowName)
     for (const name of GATE_WITH) expect(resolveExpressions(step.with[name], context), name).toBe('')
+    expect(resolveExpressions(step.with['break-glass-team'], context)).toBe('')
+    expect(resolveExpressions(step.with['allow-push-access'], context)).toBe('true')
 
     await runCheck(step, context, runnerEnv('alice', '2001'))
     expect(refusal()).toBe('')
     expect(core.setOutput.mock.calls).toEqual([['passed-as', 'push-access']])
     expect(api.getByUsername).not.toHaveBeenCalled()
+    expect(api.getTeamMembership).not.toHaveBeenCalled()
 
     // The gate's account, with no gate-actor-id set, is any other account,
     // and a signed request it carries is not used.

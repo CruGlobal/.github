@@ -510,12 +510,14 @@ function resolve (value, context) {
 const GATE_INPUTS = ['gate-claim-url', 'gate-claim-audience', 'gate-actor-id', 'signed-request', 'gate-public-keys', 'gate-issuer', 'gate-audience']
 
 // Run one workflow step's authz action, with the inputs the workflow gives it.
-// A caller that sets no refused list and no gate input gets each workflow
-// input's default, ''.
+// A caller that sets no refused list, no break-glass setting and no gate input
+// gets each workflow input's default: '', and 'true' for allow-push-access.
 async function runStep (step, context, runnerEnv) {
   for (const key of Object.keys(inputs)) delete inputs[key]
   const withDefaults = {
     'inputs.refused-actor-ids': '',
+    'inputs.break-glass-team': '',
+    'inputs.allow-push-access': 'true',
     ...Object.fromEntries(GATE_INPUTS.map((name) => [`inputs.${name}`, ''])),
     'inputs.project-name': 'some-app',
     'inputs.expected-candidate': '',
@@ -562,14 +564,23 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
       expect(step.with['trusted-automation-actor-ids']).toBeUndefined()
     }
     expect(step.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
+    expect(step.with['break-glass-team']).toBe('${{ inputs.break-glass-team }}')
+    expect(step.with['allow-push-access']).toBe('${{ inputs.allow-push-access }}')
     expect(step.with['gate-claim-url']).toBe('${{ inputs.gate-claim-url }}')
     expect(step.with['gate-claim-audience']).toBe('${{ inputs.gate-claim-audience }}')
     expect(step.with['refusal-title']).toBe(refusalTitle)
   })
 
-  it.each(['refused-actor-ids', 'gate-claim-url', 'gate-claim-audience'])('takes %s, off unless the caller sets it', (name) => {
+  it.each(['refused-actor-ids', 'break-glass-team', 'gate-claim-url', 'gate-claim-audience'])('takes %s, off unless the caller sets it', (name) => {
     const declared = workflow.on.workflow_call.inputs[name]
     expect(declared).toMatchObject({ type: 'string', required: false, default: '' })
+  })
+
+  // A string, as the action takes it, so the action's own reading of it (and
+  // its refusal of anything but "true" or "false") is the only one.
+  it('takes allow-push-access, on unless the caller turns it off', () => {
+    const declared = workflow.on.workflow_call.inputs['allow-push-access']
+    expect(declared).toMatchObject({ type: 'string', required: false, default: 'true' })
   })
 
   // The claim at gate-claim-url sends the job's OIDC token, which a job gets
@@ -617,6 +628,8 @@ describe.each(Object.entries(workflows))('%s workflow wiring', (workflowName, { 
       expect(check.with['trusted-automation-actor-ids']).toBeUndefined()
     }
     expect(check.with['refused-actor-ids']).toBe('${{ inputs.refused-actor-ids }}')
+    expect(check.with['break-glass-team']).toBe('${{ inputs.break-glass-team }}')
+    expect(check.with['allow-push-access']).toBe('${{ inputs.allow-push-access }}')
     expect(check.with['gate-claim-url']).toBe('${{ inputs.gate-claim-url }}')
     expect(check.with['gate-claim-audience']).toBe('${{ inputs.gate-claim-audience }}')
     expect(check.with['refusal-title']).toBe(refusalTitle)
