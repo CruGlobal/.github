@@ -431,6 +431,9 @@ describe.concurrent.each(JOBS)('%s: Notify Slack (failure)', (job) => {
       'secrets.slack-bot-token': 'xoxb-test',
       'github.actor': 'release-helper[bot]',
       'github.triggering_actor': 'release-helper[bot]',
+      'steps.authz.outputs.requester': '',
+      'steps.authz.outputs.request-id': '',
+      'steps.authz.outputs.passed-as': 'push-access',
       "steps.release.outputs.release || ''": release,
       'job.status': status
     },

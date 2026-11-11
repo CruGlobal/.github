@@ -11,9 +11,12 @@ name: Hotfix
 # checks, and this workflow cherry-picks that commit onto the branch:
 #
 #   1. Authorize the account that started this attempt, the same check
-#      promote and rollback run: push access on the app repo, or an
-#      allowlisted automation account that started both the run and this
-#      attempt.
+#      promote and rollback run: push access on the app repo, an allowlisted
+#      automation account that started both the run and this attempt, or the
+#      deploy gate's account with a signed request for this project, hotfix
+#      and this commit. The check runs twice: in the authorize job, before
+#      the run waits for the hotfix lock, and again in the hotfix job once it
+#      has the lock (see the authorize job for why).
 #   2. Read the release production runs from the deployment ledger, the way
 #      promote's stale-promote guard does, and refuse unless it is
 #      expected-release.
@@ -56,7 +59,8 @@ name: Hotfix
 # other (the concurrency group below), so the second sees the first's commit
 # and adds to it. GitHub keeps only one run waiting, and a newer one cancels
 # the one already waiting; a cancelled run changed nothing and can be started
-# again.
+# again. A run the deploy gate started has used up its signed request by
+# then, so starting it again takes a new request from the gate.
 #
 # Production can move after the push. A hotfix only ever ships on top of the
 # release production runs: build-candidate refuses to build a hotfix branch
@@ -170,12 +174,11 @@ on:
           The deploy gate's claim route (https), passed to every
           authorize-actor step. authorize-actor claims a signed request's
           one-time request id there, with the job's GitHub OIDC token,
-          only on an attempt it treats as the deploy gate's. This workflow
-          does not pass the gate's other inputs yet, so for now it only
-          checks the value: one that is not an https URL refuses every
-          run. Every job that runs authorize-actor already has id-token:
-          write. Set it from a fixed value in the caller, never a dispatch
-          input. Empty claims nothing.
+          only on an attempt it treats as the deploy gate's. A value that
+          is not an https URL refuses every run. Every job that runs
+          authorize-actor already has id-token: write. Set it from a fixed
+          value in the caller, never a dispatch input. Empty claims
+          nothing, so the gate's attempts are refused.
       gate-claim-audience:
         type: string
         required: false
@@ -184,6 +187,51 @@ on:
           The audience of the OIDC token sent to gate-claim-url, which the
           deploy gate requires. Needed with gate-claim-url. A fixed value
           in the caller, never a dispatch input.
+      gate-actor-id:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Numeric GitHub user id of the account the deploy gate starts runs
+          as, passed to every authorize-actor step. An attempt that account
+          started must carry a signed-request that verifies against
+          gate-public-keys and whose one-time id it can claim at
+          gate-claim-url, or it is refused. It may not also be in
+          trusted-automation-actor-ids. A fixed value in the caller, never
+          a dispatch input. Empty turns the gate check off.
+      gate-public-keys:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The deploy gate's PEM public keys (P-256), one after another. A
+          signed request passes when any of them verifies it, so a key
+          rotation can list the old key and the new one. A fixed value in
+          the caller, never a dispatch input.
+      gate-issuer:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The iss claim a signed request must carry. A fixed value in the
+          caller, never a dispatch input.
+      gate-audience:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The aud claim a signed request must carry. A fixed value in the
+          caller, never a dispatch input.
+      signed-request:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The deploy gate's signed request for this run, which the gate
+          sends as a dispatch input. It is used only on an attempt the
+          gate-actor-id account started, and ignored on any other. It must
+          name project-name, the action hotfix and, as its target, commit
+          exactly as given. Empty on every run the gate did not start.
     secrets:
       authz-token:
         required: true
@@ -206,8 +254,86 @@ on:
         value: ${{ jobs.hotfix.outputs.pushed }}
 
 jobs:
+  # The same check as the one in the hotfix job, run first and outside the
+  # hotfix-<project> lock. The deploy gate's signed request is good for five
+  # minutes, and the hotfix job can wait longer than that behind another
+  # hotfix of the same app. This job claims the request's one-time id for this
+  # run attempt while it is fresh, so the hotfix job's own check, once it gets
+  # the lock, finds the id held by this attempt and goes ahead (see
+  # src/authorize-actor.js). Every other account is checked here too, so a run
+  # that would be refused stops before it waits for the lock.
+  #
+  # It is not the check that guards the push. "Re-run failed jobs" reuses this
+  # job's earlier result and runs only the hotfix job, whose own check, as its
+  # first step after the checkouts, is the one that counts for a re-run.
+  authorize:
+    name: Authorize before waiting for the hotfix lock
+    runs-on: ubuntu-latest
+    # A backstop, as for promote's lookup. Nothing here changes anything, and
+    # when this job stops the hotfix job is skipped.
+    timeout-minutes: 10
+    # OIDC: app-info from DynamoDB and the claim at gate-claim-url, as in the
+    # hotfix job below.
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PROJECT_NAME: ${{ inputs.project-name }}
+    steps:
+      - name: Configure AWS credentials for app-info
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::056154071827:role/GitHubDeployECS
+
+      # The same lookup as the hotfix job's, kept the same by a test.
+      - name: Look up app info (production)
+        id: app-info
+        run: |
+          info=$(aws dynamodb get-item --region us-east-1 --output json \
+            --table-name CruApplicationInfo \
+            --key "$(jq -n --arg project "$PROJECT_NAME" --arg environment production \
+              '{Project: {S: $project}, Environment: {S: $environment}}')")
+          item=$(echo "$info" | jq -c '.Item // empty')
+          if [ -z "$item" ]; then
+            echo "::error title=no_production::${PROJECT_NAME//[$'\r\n']/ } has no CruApplicationInfo row for 'production', so there is no production release to hotfix. Nothing was pushed"
+            exit 1
+          fi
+          # Repository is written only when the app repo is not named after the project.
+          repository=$(echo "$item" | jq -r --arg default "CruGlobal/$PROJECT_NAME" '.Repository.S // $default')
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "::notice::app-info $PROJECT_NAME/production -> repository=$repository"
+
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Authorize actor
+        uses: ./cru-github-actions/actions/authorize-actor
+        with:
+          github-token: ${{ secrets.authz-token }}
+          repository: ${{ steps.app-info.outputs.repository }}
+          operation: cut a hotfix for
+          trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
+          refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          gate-claim-url: ${{ inputs.gate-claim-url }}
+          gate-claim-audience: ${{ inputs.gate-claim-audience }}
+          gate-actor-id: ${{ inputs.gate-actor-id }}
+          signed-request: ${{ inputs.signed-request }}
+          gate-public-keys: ${{ inputs.gate-public-keys }}
+          gate-issuer: ${{ inputs.gate-issuer }}
+          gate-audience: ${{ inputs.gate-audience }}
+          expected-app: ${{ inputs.project-name }}
+          expected-action: hotfix
+          expected-target: ${{ inputs.commit }}
+          refusal-title: actor_not_allowed
+
   hotfix:
     name: Cut the hotfix branch and build it
+    needs: authorize
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # One hotfix run per app at a time, so two fixes for one release never race
@@ -268,9 +394,12 @@ jobs:
           path: cru-github-actions
 
       # The same check promote and rollback run, and the first thing that
-      # touches the app repo. It is in the one job that does everything, so
-      # "Re-run failed jobs" runs it again for whoever pressed re-run. The cut
-      # step below refuses to push unless it passed in this job.
+      # touches the app repo. It is in the job that does everything, so "Re-run
+      # failed jobs" runs it again for whoever pressed re-run. The cut step
+      # below refuses to push unless it passed in this job. On a run the deploy
+      # gate started, the authorize job claimed the request's one-time id
+      # before this job waited for the lock, so here the claim answers that
+      # this attempt already holds it, even if the request has expired since.
       - name: Authorize actor
         uses: ./cru-github-actions/actions/authorize-actor
         with:
@@ -281,6 +410,14 @@ jobs:
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
+          gate-actor-id: ${{ inputs.gate-actor-id }}
+          signed-request: ${{ inputs.signed-request }}
+          gate-public-keys: ${{ inputs.gate-public-keys }}
+          gate-issuer: ${{ inputs.gate-issuer }}
+          gate-audience: ${{ inputs.gate-audience }}
+          expected-app: ${{ inputs.project-name }}
+          expected-action: hotfix
+          expected-target: ${{ inputs.commit }}
           refusal-title: actor_not_allowed
 
       # Full history: the cut checks ancestry against the default branch and

@@ -576,7 +576,10 @@ describe('reads inside the deploy lock, run', () => {
           'inputs.flightdeck-url': '',
           'vars.FLIGHTDECK_WORKSPACE': '',
           'github.actor': 'example-user',
-          'github.triggering_actor': 'example-user'
+          'github.triggering_actor': 'example-user',
+          'steps.authz.outputs.requester': '',
+          'steps.authz.outputs.request-id': '',
+          'steps.authz.outputs.passed-as': 'push-access'
         }
       })
       expect(result.status, result.stderr).toBe(0)
@@ -694,6 +697,9 @@ describe('failure notices reach a job that timed out', () => {
       'inputs.tag': 'candidate-2026-10-21-10150',
       'github.actor': 'example-user',
       'github.triggering_actor': triggering,
+      'steps.authz.outputs.requester': '',
+      'steps.authz.outputs.request-id': '',
+      'steps.authz.outputs.passed-as': 'push-access',
       'job.status': status
     }
   })

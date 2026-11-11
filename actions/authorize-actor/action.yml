@@ -87,7 +87,8 @@ inputs:
     description: >-
       What this run does, one of promote, rollback or hotfix. A signed
       request's action claim must equal it. Separate from operation, which is
-      free text for messages.
+      free text for messages. A fixed value in the calling workflow, never an
+      input of it.
     required: false
     default: ''
   expected-target:
@@ -152,6 +153,24 @@ outputs:
       started the run and this attempt), "break-glass" (an active member of
       break-glass-team) or "push-access". Unset on a refusal, since the step
       fails.
+  requester:
+    description: >-
+      The email of the person who asked the deploy gate for this change, the
+      signed request's sub claim. Set only when passed-as is "gate", so a
+      workflow can name that person instead of the gate's account. Unset on
+      every other pass.
+  request-target:
+    description: >-
+      What the signed request approved, its target claim (the candidate tag
+      for a promote, the release tag for a rollback, the commit sha for a
+      hotfix). The check refuses any target but expected-target, with
+      surrounding whitespace trimmed, so this is that value. Set only when
+      passed-as is "gate".
+  request-id:
+    description: >-
+      The signed request's one-time id, its jti claim, so a record of the run
+      can be joined to the deploy gate's record of the request. Set only when
+      passed-as is "gate".
 runs:
   using: 'node24'
   main: '../../dist/authorize-actor.js'

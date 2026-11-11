@@ -74,12 +74,11 @@ on:
           The deploy gate's claim route (https), passed to every
           authorize-actor step. authorize-actor claims a signed request's
           one-time request id there, with the job's GitHub OIDC token,
-          only on an attempt it treats as the deploy gate's. This workflow
-          does not pass the gate's other inputs yet, so for now it only
-          checks the value: one that is not an https URL refuses every
-          run. Every job that runs authorize-actor already has id-token:
-          write. Set it from a fixed value in the caller, never a dispatch
-          input. Empty claims nothing.
+          only on an attempt it treats as the deploy gate's. A value that
+          is not an https URL refuses every run. Every job that runs
+          authorize-actor already has id-token: write. Set it from a fixed
+          value in the caller, never a dispatch input. Empty claims
+          nothing, so the gate's attempts are refused.
       gate-claim-audience:
         type: string
         required: false
@@ -88,6 +87,51 @@ on:
           The audience of the OIDC token sent to gate-claim-url, which the
           deploy gate requires. Needed with gate-claim-url. A fixed value
           in the caller, never a dispatch input.
+      gate-actor-id:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          Numeric GitHub user id of the account the deploy gate starts runs
+          as, passed to every authorize-actor step. An attempt that account
+          started must carry a signed-request that verifies against
+          gate-public-keys and whose one-time id it can claim at
+          gate-claim-url, or it is refused. It may not also be in
+          trusted-automation-actor-ids. A fixed value in the caller, never
+          a dispatch input. Empty turns the gate check off.
+      gate-public-keys:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The deploy gate's PEM public keys (P-256), one after another. A
+          signed request passes when any of them verifies it, so a key
+          rotation can list the old key and the new one. A fixed value in
+          the caller, never a dispatch input.
+      gate-issuer:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The iss claim a signed request must carry. A fixed value in the
+          caller, never a dispatch input.
+      gate-audience:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The aud claim a signed request must carry. A fixed value in the
+          caller, never a dispatch input.
+      signed-request:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The deploy gate's signed request for this run, which the gate
+          sends as a dispatch input. It is used only on an attempt the
+          gate-actor-id account started, and ignored on any other. It must
+          name project-name, the action rollback and, as its target, release
+          exactly as given. Empty on every run the gate did not start.
       expected-current-release:
         type: string
         required: false
@@ -273,6 +317,11 @@ jobs:
       #      matters. That is also why a re-run of an allowlisted actor's run by
       #      anyone else falls through to this check.
       #
+      # With gate-actor-id set, an attempt the deploy gate's account started
+      # is checked before both, and passes only with a signed request for
+      # this project, rollback and release. src/authorize-actor.js has the
+      # whole order, refused-actor-ids included.
+      #
       # TODO: replace PAT with a dedicated GitHub App.
       - name: Authorize actor
         uses: ./cru-github-actions/actions/authorize-actor
@@ -284,6 +333,14 @@ jobs:
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
+          gate-actor-id: ${{ inputs.gate-actor-id }}
+          signed-request: ${{ inputs.signed-request }}
+          gate-public-keys: ${{ inputs.gate-public-keys }}
+          gate-issuer: ${{ inputs.gate-issuer }}
+          gate-audience: ${{ inputs.gate-audience }}
+          expected-app: ${{ inputs.project-name }}
+          expected-action: rollback
+          expected-target: ${{ inputs.release }}
 
       # Accept "release-2026-07-23-10056", the same without the "release-"
       # prefix, or just the build number: resolve-image finds a dated release by
@@ -342,6 +399,7 @@ jobs:
       # `lookup`. The checkout above only fetches this repo and holds no
       # production credentials.
       - name: Authorize the account that started this attempt
+        id: authz
         uses: ./cru-github-actions/actions/authorize-actor
         with:
           github-token: ${{ secrets.authz-token }}
@@ -351,6 +409,14 @@ jobs:
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
+          gate-actor-id: ${{ inputs.gate-actor-id }}
+          signed-request: ${{ inputs.signed-request }}
+          gate-public-keys: ${{ inputs.gate-public-keys }}
+          gate-issuer: ${{ inputs.gate-issuer }}
+          gate-audience: ${{ inputs.gate-audience }}
+          expected-app: ${{ inputs.project-name }}
+          expected-action: rollback
+          expected-target: ${{ inputs.release }}
 
       # --- Stale-rollback guard (inside the production lock) ---------------
       # Runs right after the authz check and before anything is resolved or
@@ -679,7 +745,13 @@ jobs:
       # attempt. TriggeringActor is github.triggering_actor, the account that
       # started THIS attempt, which is the one the Flightdeck release event
       # names. Both go on every row, and they differ only when another account
-      # re-ran the run.
+      # re-ran the run. On an attempt that passed as the deploy gate, both are
+      # the person who asked the gate (the signed request's sub, an email)
+      # instead of the gate's account, which starts every such run. They are
+      # kept equal because the deploys dashboard reads a row whose two differ
+      # as a re-run. GateRequestId, the request's one-time id, goes only on
+      # such a row: it marks the row as the gate's and joins it to the gate's
+      # record of the request.
       - name: Record deployment in ledger
         continue-on-error: true
         env:
@@ -687,6 +759,8 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
+          REQUEST_ID: ${{ steps.authz.outputs.request-id }}
           REVISION: ${{ steps.actual-release.outputs.tag }}
         run: |
           now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
@@ -705,17 +779,21 @@ jobs:
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
               --arg triggeringactor "$TRIGGERING_ACTOR" \
+              --arg requester "$REQUESTER" \
+              --arg requestid "$REQUEST_ID" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg provider gcp \
               --arg type cloudrun \
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
-                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
-                TriggeringActor: {S: $triggeringactor},
+                Revision: {S: $revision}, Digest: {S: $digest},
+                Actor: {S: (if $requester != "" then $requester else $actor end)},
+                TriggeringActor: {S: (if $requester != "" then $requester else $triggeringactor end)},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
-                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)
+                + (if $requester != "" and $requestid != "" then {GateRequestId: {S: $requestid}} else {} end)')" \
             || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       # Record the release on the app's Flightdeck project timeline (GateOps
@@ -730,7 +808,10 @@ jobs:
       # attempt (github.triggering_actor, not github.actor), run-url names this
       # attempt, and image-digest is the digest now running. Those three are
       # display-only, and the action leaves out any value Flightdeck would
-      # refuse, so none of them can cost the event.
+      # refuse, so none of them can cost the event. actor stays that account
+      # on a run the deploy gate started too: Flightdeck takes only a GitHub
+      # login there, and the person who asked the gate is known only by
+      # email, which Flightdeck would refuse.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -784,6 +865,7 @@ jobs:
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
@@ -801,6 +883,7 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg requester "$REQUESTER" \
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
             --arg safety "$SAFETY_LINE" \
@@ -819,7 +902,11 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              {channel: $channel,
-              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by "
+                     + (if $requester != ""
+                        then ($requester | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) + " through the deploy gate"
+                        else $actor + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+                        end)
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + (if $previous != "" and $previous != $release
                         then "\n<" + changelog($release; $previous) + "|what this rollback reverts>"
@@ -836,8 +923,9 @@ jobs:
       # a run's outcome, in either direction). Deliberately plain: no AppUrl link
       # (a failed rollback means production is still on the bad release) and no
       # changelog link -- the run URL is the reader's next step, so it is the
-      # whole second line. References no earlier step's output at all, so it
-      # renders whichever step failed.
+      # whole second line. The only earlier step output it reads is the
+      # requester from the authz step, which runs first and is empty when it
+      # refused, so it renders whichever step failed.
       #
       # It also runs when the job is cancelled, because that is how a job ends
       # when it hits its time limit: GitHub cancels it, so failure() is false
@@ -859,6 +947,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
           JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
@@ -869,13 +958,17 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg requester "$REQUESTER" \
             --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '(if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
+            '(if $requester != ""
+               then ($requester | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) + " through the deploy gate"
+               else $actor + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+               end) as $who
              | {channel: $channel,
                 text: ((if $status == "cancelled"
-                        then ":octagonal_sign: *\($project) rollback in production by \($actor)\($rerun) stopped before it finished*: it was cancelled, or it ran past its time limit"
-                        else ":x: *\($project) rollback in production FAILED* by \($actor)\($rerun)" end)
+                        then ":octagonal_sign: *\($project) rollback in production by \($who) stopped before it finished*: it was cancelled, or it ran past its time limit"
+                        else ":x: *\($project) rollback in production FAILED* by \($who)" end)
                        + "\n\($runurl)")}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -914,6 +1007,7 @@ jobs:
       # --- Authz for this attempt (inside the production lock) --------------
       # FIRST real step on purpose; same reasoning as in rollback-gcp.
       - name: Authorize the account that started this attempt
+        id: authz
         uses: ./cru-github-actions/actions/authorize-actor
         with:
           github-token: ${{ secrets.authz-token }}
@@ -923,6 +1017,14 @@ jobs:
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
+          gate-actor-id: ${{ inputs.gate-actor-id }}
+          signed-request: ${{ inputs.signed-request }}
+          gate-public-keys: ${{ inputs.gate-public-keys }}
+          gate-issuer: ${{ inputs.gate-issuer }}
+          gate-audience: ${{ inputs.gate-audience }}
+          expected-app: ${{ inputs.project-name }}
+          expected-action: rollback
+          expected-target: ${{ inputs.release }}
 
       # --- Stale-rollback guard (inside the production lock) ---------------
       # Runs right after the authz check and before anything is resolved or
@@ -1262,7 +1364,13 @@ jobs:
       # attempt. TriggeringActor is github.triggering_actor, the account that
       # started THIS attempt, which is the one the Flightdeck release event
       # names. Both go on every row, and they differ only when another account
-      # re-ran the run.
+      # re-ran the run. On an attempt that passed as the deploy gate, both are
+      # the person who asked the gate (the signed request's sub, an email)
+      # instead of the gate's account, which starts every such run. They are
+      # kept equal because the deploys dashboard reads a row whose two differ
+      # as a re-run. GateRequestId, the request's one-time id, goes only on
+      # such a row: it marks the row as the gate's and joins it to the gate's
+      # record of the request.
       - name: Record deployment in ledger
         continue-on-error: true
         env:
@@ -1270,6 +1378,8 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
+          REQUEST_ID: ${{ steps.authz.outputs.request-id }}
           REVISION: ${{ steps.actual-release.outputs.tag }}
           TYPE: ${{ needs.lookup.outputs.type }}
         run: |
@@ -1289,17 +1399,21 @@ jobs:
               --arg sha "$gitsha" \
               --arg actor "$ACTOR" \
               --arg triggeringactor "$TRIGGERING_ACTOR" \
+              --arg requester "$REQUESTER" \
+              --arg requestid "$REQUEST_ID" \
               --arg runid "$GITHUB_RUN_ID" \
               --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               --arg provider aws \
               --arg type "$TYPE" \
               '{Project: {S: $project}, EventAt: {S: $eventat}, EventDate: {S: $eventdate},
                 Environment: {S: $environment}, Action: {S: $action}, Source: {S: $source},
-                Revision: {S: $revision}, Digest: {S: $digest}, Actor: {S: $actor},
-                TriggeringActor: {S: $triggeringactor},
+                Revision: {S: $revision}, Digest: {S: $digest},
+                Actor: {S: (if $requester != "" then $requester else $actor end)},
+                TriggeringActor: {S: (if $requester != "" then $requester else $triggeringactor end)},
                 RunId: {S: $runid}, RunUrl: {S: $runurl}, Provider: {S: $provider},
                 Type: {S: $type}}
-                + (if $sha != "" then {Sha: {S: $sha}} else {} end)')" \
+                + (if $sha != "" then {Sha: {S: $sha}} else {} end)
+                + (if $requester != "" and $requestid != "" then {GateRequestId: {S: $requestid}} else {} end)')" \
             || echo "::warning title=Ledger write failed::rollback event for $PROJECT_NAME $REVISION not recorded in ledger (non-blocking)"
 
       # Record the release on the app's Flightdeck project timeline (GateOps
@@ -1314,7 +1428,10 @@ jobs:
       # attempt (github.triggering_actor, not github.actor), run-url names this
       # attempt, and image-digest is the digest now running. Those three are
       # display-only, and the action leaves out any value Flightdeck would
-      # refuse, so none of them can cost the event.
+      # refuse, so none of them can cost the event. actor stays that account
+      # on a run the deploy gate started too: Flightdeck takes only a GitHub
+      # login there, and the person who asked the gate is known only by
+      # email, which Flightdeck would refuse.
       - name: Record release event in Flightdeck
         continue-on-error: true
         uses: ./cru-github-actions/actions/flightdeck-release-event
@@ -1368,6 +1485,7 @@ jobs:
           APP_URL: ${{ needs.lookup.outputs.app-url }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
           RELEASE: ${{ steps.actual-release.outputs.tag || needs.lookup.outputs.release-tag }}
           PREVIOUS: ${{ steps.rollback-safety.outputs.previous-revision }}
           SAFETY_LINE: ${{ steps.rollback-safety.outputs.slack }}
@@ -1385,6 +1503,7 @@ jobs:
             --arg release "$RELEASE" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg requester "$REQUESTER" \
             --arg appurl "$APP_URL" \
             --arg previous "$PREVIOUS" \
             --arg safety "$SAFETY_LINE" \
@@ -1403,7 +1522,11 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              {channel: $channel,
-              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by \($actor)" + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+              text: (":rewind: *\($project) rolled back to `\($release)` in \(if $appurl != "" then "<" + $appurl + "|production>" else "production" end)* by "
+                     + (if $requester != ""
+                        then ($requester | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) + " through the deploy gate"
+                        else $actor + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+                        end)
                      + (if $safety != "" then "\n\($safety)" else "" end)
                      + (if $previous != "" and $previous != $release
                         then "\n<" + changelog($release; $previous) + "|what this rollback reverts>"
@@ -1420,8 +1543,9 @@ jobs:
       # a run's outcome, in either direction). Deliberately plain: no AppUrl link
       # (a failed rollback means production is still on the bad release) and no
       # changelog link -- the run URL is the reader's next step, so it is the
-      # whole second line. References no earlier step's output at all, so it
-      # renders whichever step failed.
+      # whole second line. The only earlier step output it reads is the
+      # requester from the authz step, which runs first and is empty when it
+      # refused, so it renders whichever step failed.
       #
       # It also runs when the job is cancelled, because that is how a job ends
       # when it hits its time limit: GitHub cancels it, so failure() is false
@@ -1443,6 +1567,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.slack-bot-token }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
           JOB_STATUS: ${{ job.status }}
         run: |
           if [ -z "$SLACK_CHANNEL" ] || [ -z "$SLACK_BOT_TOKEN" ]; then
@@ -1453,13 +1578,17 @@ jobs:
             --arg project "$PROJECT_NAME" \
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
+            --arg requester "$REQUESTER" \
             --arg status "$JOB_STATUS" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '(if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end) as $rerun
+            '(if $requester != ""
+               then ($requester | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) + " through the deploy gate"
+               else $actor + (if $triggering != "" and $triggering != $actor then " (re-run by \($triggering))" else "" end)
+               end) as $who
              | {channel: $channel,
                 text: ((if $status == "cancelled"
-                        then ":octagonal_sign: *\($project) rollback in production by \($actor)\($rerun) stopped before it finished*: it was cancelled, or it ran past its time limit"
-                        else ":x: *\($project) rollback in production FAILED* by \($actor)\($rerun)" end)
+                        then ":octagonal_sign: *\($project) rollback in production by \($who) stopped before it finished*: it was cancelled, or it ran past its time limit"
+                        else ":x: *\($project) rollback in production FAILED* by \($who)" end)
                        + "\n\($runurl)")}')
           response=$(curl -fsS --max-time 20 https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \

@@ -506,11 +506,22 @@ function resolve (value, context) {
   })
 }
 
+// The workflow inputs that feed the gate, all optional with '' as default.
+const GATE_INPUTS = ['gate-claim-url', 'gate-claim-audience', 'gate-actor-id', 'signed-request', 'gate-public-keys', 'gate-issuer', 'gate-audience']
+
 // Run one workflow step's authz action, with the inputs the workflow gives it.
-// A caller that sets no refused list gets the workflow input's default, ''.
+// A caller that sets no refused list and no gate input gets each workflow
+// input's default, ''.
 async function runStep (step, context, runnerEnv) {
   for (const key of Object.keys(inputs)) delete inputs[key]
-  const withDefaults = { 'inputs.refused-actor-ids': '', 'inputs.gate-claim-url': '', 'inputs.gate-claim-audience': '', ...context }
+  const withDefaults = {
+    'inputs.refused-actor-ids': '',
+    ...Object.fromEntries(GATE_INPUTS.map((name) => [`inputs.${name}`, ''])),
+    'inputs.project-name': 'some-app',
+    'inputs.expected-candidate': '',
+    'inputs.release': 'release-10012',
+    ...context
+  }
   for (const [name, value] of Object.entries(step.with)) inputs[name] = resolve(value, withDefaults)
   await run({ env: runnerEnv, sleep: noSleep })
 }
