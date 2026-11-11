@@ -12,7 +12,9 @@ name: Rollback
 # it again as its first step, because "Re-run failed jobs" re-runs only the
 # failed jobs and reuses a `lookup` that passed in an earlier attempt. Without
 # the second check, that kind of re-run would change production with no check
-# of who started it.
+# of who started it. A caller can let the members of a team pass
+# (break-glass-team), and stop push access from counting
+# (allow-push-access: false), as in promote and hotfix.
 #
 # The check also marks the attempt as checked for the rest of its job. The
 # deploy, tag-image (release tags) and flightdeck-release-event actions refuse
@@ -66,6 +68,48 @@ on:
           such as machine users whose tokens many repos can read. Only
           the deploy gate is checked before this list. An entry that is
           not a number refuses every run. Empty refuses none.
+      break-glass-team:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          A GitHub team as "org/team-slug", like example-org/ops-team, passed
+          to every authorize-actor step. An active member of the team may roll
+          back without push access on the app repo. The account checked is the
+          one that started this attempt (on a re-run, the person who pressed
+          re-run). A pending invitation is not membership, and
+          refused-actor-ids still applies. If the team has child teams, an
+          active member of it is refused, even one with push access, because
+          GitHub counts the members of a child team as members of the team.
+          Anyone else is checked as before. authz-token must also be able to
+          read the team, its membership and its child teams: read:org for a
+          classic token, or Members read on the organization for a
+          fine-grained token or a GitHub App. GitHub answers 404 both for an
+          account that is not a member and for a team it cannot find or the
+          token cannot see. That account is then checked as before, and a team
+          that cannot be found posts a warning each time: nobody can pass by
+          break-glass until that is fixed. Any other error reading the
+          membership, such as a 403 from a token without that permission or a
+          GitHub outage, refuses the run, even for an account with push
+          access. A value that is not "org/team-slug" refuses every run. The
+          actions read it from v2.19.0 on, so workflow-ref must be that or
+          later. A fixed value in the caller, never a dispatch input. Empty
+          turns break-glass off.
+      allow-push-access:
+        type: string
+        required: false
+        default: 'true'
+        description: >-
+          Whether push access on the app repo is enough to roll back, passed
+          to every authorize-actor step. "true", the default, keeps the rule
+          as it is: an account with admin, maintain or write on the app repo
+          passes. "false" turns that off, so only the deploy gate, allowlisted
+          automation and members of break-glass-team can pass. Case and
+          surrounding spaces do not matter. Anything else, an empty value
+          included, refuses every run. The actions read it from v2.19.0 on:
+          with workflow-ref set to an older release, "false" is ignored and
+          push access still counts. A fixed value in the caller, never a
+          dispatch input.
       gate-claim-url:
         type: string
         required: false
@@ -175,7 +219,11 @@ on:
         description: DataDog API key.
       authz-token:
         required: true
-        description: GitHub token used to verify the triggering actor has push access to the app repo.
+        description: >-
+          GitHub token used to verify the triggering actor has push access
+          to the app repo. With break-glass-team set, it must also be able
+          to read that team, its membership and its child teams (read:org,
+          or Members read for a fine-grained token or a GitHub App).
       slack-bot-token:
         required: false
         description: Slack bot token for pipeline notifications; unset disables posting.
@@ -319,7 +367,9 @@ jobs:
       #
       # With gate-actor-id set, an attempt the deploy gate's account started
       # is checked before both, and passes only with a signed request for
-      # this project, rollback and release. src/authorize-actor.js has the
+      # this project, rollback and release. With break-glass-team set, an
+      # active member of that team passes after 1 and before 2, and
+      # allow-push-access: false turns 2 off. src/authorize-actor.js has the
       # whole order, refused-actor-ids included.
       #
       # TODO: replace PAT with a dedicated GitHub App.
@@ -331,6 +381,8 @@ jobs:
           operation: roll back
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          break-glass-team: ${{ inputs.break-glass-team }}
+          allow-push-access: ${{ inputs.allow-push-access }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
           gate-actor-id: ${{ inputs.gate-actor-id }}
@@ -407,6 +459,8 @@ jobs:
           operation: roll back
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          break-glass-team: ${{ inputs.break-glass-team }}
+          allow-push-access: ${{ inputs.allow-push-access }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
           gate-actor-id: ${{ inputs.gate-actor-id }}
@@ -1015,6 +1069,8 @@ jobs:
           operation: roll back
           trusted-automation-actor-ids: ${{ inputs.trusted-automation-actor-ids }}
           refused-actor-ids: ${{ inputs.refused-actor-ids }}
+          break-glass-team: ${{ inputs.break-glass-team }}
+          allow-push-access: ${{ inputs.allow-push-access }}
           gate-claim-url: ${{ inputs.gate-claim-url }}
           gate-claim-audience: ${{ inputs.gate-claim-audience }}
           gate-actor-id: ${{ inputs.gate-actor-id }}

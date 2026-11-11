@@ -131,10 +131,12 @@ describe('hotfix.yml', () => {
 
   it('takes the inputs the wrapper passes, with defaults that change nothing for others', () => {
     const { inputs, secrets } = workflow.on.workflow_call
-    expect(Object.keys(inputs).sort()).toEqual(['commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
+    expect(Object.keys(inputs).sort()).toEqual(['allow-push-access', 'break-glass-team', 'commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
     for (const name of ['commit', 'expected-release', 'project-name']) expect(inputs[name].required, name).toBe(true)
     expect(inputs['trusted-automation-actor-ids']).toMatchObject({ required: false, default: '' })
     expect(inputs['refused-actor-ids']).toMatchObject({ type: 'string', required: false, default: '' })
+    expect(inputs['break-glass-team']).toMatchObject({ type: 'string', required: false, default: '' })
+    expect(inputs['allow-push-access']).toMatchObject({ type: 'string', required: false, default: 'true' })
     expect(inputs['gate-claim-url']).toMatchObject({ type: 'string', required: false, default: '' })
     expect(inputs['gate-claim-audience']).toMatchObject({ type: 'string', required: false, default: '' })
     for (const name of ['gate-actor-id', 'signed-request', 'gate-public-keys', 'gate-issuer', 'gate-audience']) {
@@ -173,6 +175,8 @@ describe('hotfix.yml', () => {
         repository: '${{ steps.app-info.outputs.repository }}',
         'trusted-automation-actor-ids': '${{ inputs.trusted-automation-actor-ids }}',
         'refused-actor-ids': '${{ inputs.refused-actor-ids }}',
+        'break-glass-team': '${{ inputs.break-glass-team }}',
+        'allow-push-access': '${{ inputs.allow-push-access }}',
         'gate-claim-url': '${{ inputs.gate-claim-url }}',
         'gate-claim-audience': '${{ inputs.gate-claim-audience }}',
         'gate-actor-id': '${{ inputs.gate-actor-id }}',
