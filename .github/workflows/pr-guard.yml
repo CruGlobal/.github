@@ -1,0 +1,115 @@
+name: PR Guard
+
+# Reusable pull request check: work item and spec links in the description, a
+# size limit, and a one-way-door or two-way-door label from the paths the pull
+# request touches. See actions/pr-guard for every input.
+#
+# Call it on pull_request with the edited, labeled and unlabeled types too, so
+# a fixed description or an added override label runs the check again:
+#
+#   on:
+#     pull_request:
+#       types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+#
+# The caller's job must grant pull-requests: write and issues: write for the
+# label. A pull request from a fork gets a read-only token, so it is checked
+# but not labeled.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at. Use the same ref as the `uses:` line, such as v2.
+      work-item-pattern:
+        type: string
+        required: false
+        default: ''
+        description: Regular expression the description must match for the work item link. Empty uses the action's default.
+      spec-pattern:
+        type: string
+        required: false
+        default: ''
+        description: Regular expression the description must match for the spec link. Empty uses the action's default.
+      require-work-item:
+        type: boolean
+        required: false
+        default: true
+        description: Fail when the description has no work item link.
+      require-spec:
+        type: boolean
+        required: false
+        default: true
+        description: Fail when the description has no spec link.
+      warn-lines:
+        type: number
+        required: false
+        default: 300
+        description: Changed lines over which the check warns.
+      fail-lines:
+        type: number
+        required: false
+        default: 800
+        description: Changed lines over which the check fails, unless the override label is set.
+      size-override-label:
+        type: string
+        required: false
+        default: size-override
+        description: Label that lets a pull request over fail-lines pass.
+      size-ignore:
+        type: string
+        required: false
+        default: ''
+        description: Paths not counted toward the size, one .gitignore-style pattern per line. Empty uses the action's default list.
+      tier-paths-file:
+        type: string
+        required: false
+        default: .github/one-way-door-paths
+        description: One-way-door path list, read from the base branch. With no such file, no tier label is set.
+      apply-tier-label:
+        type: boolean
+        required: false
+        default: true
+        description: Add the one-way-door or two-way-door label.
+    outputs:
+      tier:
+        description: one-way-door or two-way-door. Empty when there is no path list.
+        value: ${{ jobs.guard.outputs.tier }}
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  guard:
+    name: PR guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.guard.outputs.tier }}
+    steps:
+      - name: Checkout Cru Actions & Workflows
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Check the pull request
+        id: guard
+        uses: ./cru-github-actions/actions/pr-guard
+        with:
+          github-token: ${{ github.token }}
+          work-item-pattern: ${{ inputs.work-item-pattern }}
+          spec-pattern: ${{ inputs.spec-pattern }}
+          require-work-item: ${{ inputs.require-work-item }}
+          require-spec: ${{ inputs.require-spec }}
+          warn-lines: ${{ inputs.warn-lines }}
+          fail-lines: ${{ inputs.fail-lines }}
+          size-override-label: ${{ inputs.size-override-label }}
+          size-ignore: ${{ inputs.size-ignore }}
+          tier-paths-file: ${{ inputs.tier-paths-file }}
+          apply-tier-label: ${{ inputs.apply-tier-label }}

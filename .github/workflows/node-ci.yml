@@ -1,0 +1,170 @@
+name: Node CI
+
+# Reusable lint, typecheck and unit test check for a Node app. npm, yarn
+# (classic or berry) and pnpm are told apart by the lockfile. Each script is
+# run by name from package.json; a script name set to an empty string is
+# skipped, and a name that is set but not in package.json fails the check,
+# because a check that quietly runs nothing passes every pull request.
+#
+# With coverage-command set, that command runs instead of the test script and
+# must write an istanbul json-summary report. Coverage is then reported for the
+# files the pull request changed. It is report-only unless min-coverage is set,
+# so a repo with thin tests can turn it on now and raise the bar later.
+
+on:
+  workflow_call:
+    inputs:
+      workflow-ref:
+        type: string
+        required: false
+        default: main
+        description: Branch, tag or commit of CruGlobal/.github to check the actions out at. Use the same ref as the `uses:` line, such as v2.
+      working-directory:
+        type: string
+        required: false
+        default: '.'
+        description: Folder that holds package.json.
+      node-version-file:
+        type: string
+        required: false
+        default: '.tool-versions'
+        description: File setup-node reads the Node version from, relative to working-directory.
+      lint-script:
+        type: string
+        required: false
+        default: lint
+        description: package.json script that lints. Empty skips lint.
+      typecheck-script:
+        type: string
+        required: false
+        default: ''
+        description: package.json script that typechecks, such as typecheck or lint:ts. Empty skips it.
+      test-script:
+        type: string
+        required: false
+        default: test
+        description: package.json script that runs the unit tests. Not run when coverage-command is set. Empty skips it.
+      coverage-command:
+        type: string
+        required: false
+        default: ''
+        description: Shell command that runs the tests with coverage and writes an istanbul json-summary report, such as `npx jest --coverage --coverageReporters=json-summary`. Empty turns coverage off.
+      coverage-summary-file:
+        type: string
+        required: false
+        default: coverage/coverage-summary.json
+        description: Where coverage-command writes the json-summary report, relative to working-directory.
+      min-coverage:
+        type: string
+        required: false
+        default: '0'
+        description: Minimum line coverage, 0 to 100, for each changed file the report lists. 0 reports only.
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if [ -f pnpm-lock.yaml ]; then pm=pnpm
+          elif [ -f yarn.lock ]; then pm=yarn
+          elif [ -f package-lock.json ]; then pm=npm
+          else
+            echo "::error::no package-lock.json, yarn.lock or pnpm-lock.yaml in ${PWD}, so dependencies cannot be installed the same way every time"
+            exit 1
+          fi
+          echo "name=$pm" >> "$GITHUB_OUTPUT"
+
+      - name: Enable corepack
+        if: steps.pm.outputs.name != 'npm'
+        run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
+
+      - name: Install dependencies
+        env:
+          PM: ${{ steps.pm.outputs.name }}
+        run: |
+          case "$PM" in
+            npm) npm ci ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            yarn)
+              if yarn --version | grep -q '^1\.'; then yarn install --frozen-lockfile
+              else yarn install --immutable
+              fi
+              ;;
+          esac
+
+      - name: Lint, typecheck and test
+        env:
+          PM: ${{ steps.pm.outputs.name }}
+          LINT_SCRIPT: ${{ inputs.lint-script }}
+          TYPECHECK_SCRIPT: ${{ inputs.typecheck-script }}
+          TEST_SCRIPT: ${{ inputs.coverage-command == '' && inputs.test-script || '' }}
+        run: |
+          has_script () {
+            node -e 'const s = require("./package.json").scripts || {}; process.exit(Object.hasOwn(s, process.argv[1]) ? 0 : 1)' "$1"
+          }
+          for pair in "lint:$LINT_SCRIPT" "typecheck:$TYPECHECK_SCRIPT" "test:$TEST_SCRIPT"; do
+            what="${pair%%:*}"
+            script="${pair#*:}"
+            if [ -z "$script" ]; then
+              echo "Skipping $what: no script set"
+              continue
+            fi
+            if ! has_script "$script"; then
+              echo "::error::the $what script \"$script\" is not in package.json. Set ${what}-script to the right name, or to an empty string to skip it."
+              exit 1
+            fi
+            echo "::group::$what ($script)"
+            "$PM" run "$script"
+            echo "::endgroup::"
+          done
+
+      - name: Test with coverage
+        if: inputs.coverage-command != ''
+        env:
+          COVERAGE_COMMAND: ${{ inputs.coverage-command }}
+        run: bash -eo pipefail -c "$COVERAGE_COMMAND"
+
+      - name: List changed files
+        if: inputs.coverage-command != '' && github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Paths relative to working-directory, to match the coverage report.
+          git diff --name-only --diff-filter=AMR --relative "$BASE...$HEAD" > "$RUNNER_TEMP/changed-files.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/changed-files.txt") changed files"
+
+      - name: Checkout Cru Actions & Workflows
+        if: inputs.coverage-command != '' && github.event_name == 'pull_request'
+        uses: actions/checkout@v7
+        with:
+          repository: CruGlobal/.github
+          ref: ${{ inputs.workflow-ref }}
+          path: cru-github-actions
+
+      - name: Coverage on changed files
+        if: inputs.coverage-command != '' && github.event_name == 'pull_request'
+        uses: ./cru-github-actions/actions/changed-coverage
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          summary-file: ${{ inputs.coverage-summary-file }}
+          changed-files-file: ${{ runner.temp }}/changed-files.txt
+          min-coverage: ${{ inputs.min-coverage }}
