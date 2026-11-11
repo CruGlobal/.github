@@ -1116,10 +1116,20 @@ jobs:
       #
       # The body is deliberately a short header — digest, promoted-by, run link,
       # changelog link for the range. On a run that passed as the deploy gate,
-      # promoted-by says so instead of naming the gate's account. It does not
-      # name the person who asked the gate: that is an email, and many app
-      # repos are public. Slack and the ledger name them. It does NOT restate
-      # the commit list: the
+      # promoted-by says so instead of naming the gate's account, and names
+      # the person who asked the gate by the part of their email before the
+      # @. Never the whole address: many app repos are public. Slack and the
+      # ledger keep the full email. The name is cut at the first @, so a value
+      # with more than one (the check refuses those) shows the least, and a
+      # value with no @ is shown whole. It gets no @ in front: it is not a
+      # GitHub login, and "@name" would mention whoever owns that login. The
+      # body is Markdown, so every ASCII punctuation mark in the name is
+      # backslash-escaped, which Markdown shows as the mark itself: no link,
+      # HTML or emphasis can come from it. The escapes alone do not stop
+      # GitHub's own extras, such as #1 issue links and :smile: emoji, so the
+      # name also goes inside <code>, where GitHub leaves text as it is.
+      # When the name comes out empty, the line names no one, as it did
+      # before. It does NOT restate the commit list: the
       # changelog page is the canonical rendering of "what's in this release"
       # (it resolves release names through to shas), and a second copy here
       # would only drift from it. Same dead-link rule as
@@ -1164,6 +1174,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           PASSED_AS: ${{ steps.authz.outputs.passed-as }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
@@ -1180,6 +1191,7 @@ jobs:
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
             --arg passedas "$PASSED_AS" \
+            --arg requestername "${REQUESTER%%@*}" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
@@ -1200,7 +1212,11 @@ jobs:
              {tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
               body: ((if $passedas == "gate"
-                      then "Promoted to production through the deploy gate"
+                      then "Promoted to production"
+                           + (if $requestername != ""
+                              then " by <code>" + ($requestername | gsub("(?<c>[!-/:-@\\[-`{-~])"; "\\\(.c)")) + "</code>"
+                              else "" end)
+                           + " through the deploy gate"
                       else "Promoted to production by @\($actor)"
                            + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
                       end)
@@ -2082,10 +2098,20 @@ jobs:
       #
       # The body is deliberately a short header — digest, promoted-by, run link,
       # changelog link for the range. On a run that passed as the deploy gate,
-      # promoted-by says so instead of naming the gate's account. It does not
-      # name the person who asked the gate: that is an email, and many app
-      # repos are public. Slack and the ledger name them. It does NOT restate
-      # the commit list: the
+      # promoted-by says so instead of naming the gate's account, and names
+      # the person who asked the gate by the part of their email before the
+      # @. Never the whole address: many app repos are public. Slack and the
+      # ledger keep the full email. The name is cut at the first @, so a value
+      # with more than one (the check refuses those) shows the least, and a
+      # value with no @ is shown whole. It gets no @ in front: it is not a
+      # GitHub login, and "@name" would mention whoever owns that login. The
+      # body is Markdown, so every ASCII punctuation mark in the name is
+      # backslash-escaped, which Markdown shows as the mark itself: no link,
+      # HTML or emphasis can come from it. The escapes alone do not stop
+      # GitHub's own extras, such as #1 issue links and :smile: emoji, so the
+      # name also goes inside <code>, where GitHub leaves text as it is.
+      # When the name comes out empty, the line names no one, as it did
+      # before. It does NOT restate the commit list: the
       # changelog page is the canonical rendering of "what's in this release"
       # (it resolves release names through to shas), and a second copy here
       # would only drift from it. Same dead-link rule as
@@ -2130,6 +2156,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           PASSED_AS: ${{ steps.authz.outputs.passed-as }}
+          REQUESTER: ${{ steps.authz.outputs.requester }}
           FLIGHTDECK_URL: ${{ inputs.flightdeck-url }}
           FLIGHTDECK_WORKSPACE: ${{ vars.FLIGHTDECK_WORKSPACE }}
           FLIGHTDECK_PROJECT: ${{ needs.lookup.outputs.flightdeck-project }}
@@ -2146,6 +2173,7 @@ jobs:
             --arg actor "$ACTOR" \
             --arg triggering "$TRIGGERING_ACTOR" \
             --arg passedas "$PASSED_AS" \
+            --arg requestername "${REQUESTER%%@*}" \
             --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
@@ -2166,7 +2194,11 @@ jobs:
              {tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
               body: ((if $passedas == "gate"
-                      then "Promoted to production through the deploy gate"
+                      then "Promoted to production"
+                           + (if $requestername != ""
+                              then " by <code>" + ($requestername | gsub("(?<c>[!-/:-@\\[-`{-~])"; "\\\(.c)")) + "</code>"
+                              else "" end)
+                           + " through the deploy gate"
                       else "Promoted to production by @\($actor)"
                            + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
                       end)

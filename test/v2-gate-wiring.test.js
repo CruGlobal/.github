@@ -527,9 +527,10 @@ describe('hotfix: the check before the lock', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Naming the person. On a run the gate started, the ledger row, the GitHub
-// Release and the Slack notices name the requester; on every other run they
-// read exactly as before (the other tests pin that wording).
+// Naming the person. On a run the gate started, the ledger row and the Slack
+// notices name the requester by their full email, and the GitHub Release,
+// which can be public, by the part before the @. On every other run they read
+// exactly as before (the other tests pin that wording).
 
 const SHA = 'c0ffee0000000000000000000000000000000001'
 const RUN_URL = 'https://github.com/example-org/deploy-wrappers/actions/runs/9001'
@@ -597,7 +598,12 @@ describe.each(PRODUCTION_JOBS)('%s: %s names the requester', (workflowName, jobI
     if (workflowName === 'promote') {
       const release = step('Publish GitHub Release on the app repo').step
       expect(release.env.PASSED_AS).toBe('${{ steps.authz.outputs.passed-as }}')
-      expect(release.env.REQUESTER).toBeUndefined()
+      expect(release.env.REQUESTER).toBe('${{ steps.authz.outputs.requester }}')
+      expect(release.run).not.toContain('steps.authz')
+      // The full address never reaches the payload, only the part before
+      // the @.
+      expect(release.run).toContain('--arg requestername "${REQUESTER%%@*}"')
+      expect(release.run.match(/\$REQUESTER\b|\$\{REQUESTER\b/g)).toEqual(['${REQUESTER'])
     }
   })
 
@@ -647,17 +653,75 @@ describe.each(PRODUCTION_JOBS)('%s: %s names the requester', (workflowName, jobI
 describe.each(['promote-gcp', 'promote-aws'])('promote: %s GitHub Release', (jobId) => {
   const release = (requester) => runShellStep(findStep(workflows.promote, jobId, 'Publish GitHub Release on the app repo'), { context: namingContext(requester) })
 
-  // Many app repos are public, so the Release says the gate approved it and
-  // leaves the requester's email to Slack and the ledger.
-  it('says it went through the deploy gate, without the requester\'s email', async () => {
+  const firstLine = (result) => result.release.body.split('\n')[0]
+
+  // Many app repos are public, so the Release names the requester by the part
+  // of their email before the @, and leaves the full address to Slack and the
+  // ledger.
+  it('names the requester by the part of their email before the @', async () => {
     const result = await release(REQUESTER)
     expect(result.status, result.stderr).toBe(0)
-    expect(result.release.body).toMatch(/^Promoted to production through the deploy gate\.\n\n/)
-    expect(JSON.stringify(result.release)).not.toContain(REQUESTER)
+    expect(result.release.body).toMatch(/^Promoted to production by <code>requester<\/code> through the deploy gate\.\n\n/)
+    expect(JSON.stringify(result.release)).not.toContain('example.com')
+    expect(JSON.stringify(result.release)).not.toContain('@')
   })
 
   it('names the account as before when no requester is set', async () => {
     const result = await release('')
     expect(result.release.body).toMatch(new RegExp(`^Promoted to production by @${GATE.replace(/[[\]]/g, '\\$&')}\\.\\n\\n`))
+  })
+
+  // A gate pass with no requester (an action bundle from before the output),
+  // or one whose part before the @ is empty, names no one, as before.
+  it.each(['', '@example.com'])('says only that it went through the deploy gate for a requester of %j', async (requester) => {
+    const result = await runShellStep(findStep(workflows.promote, jobId, 'Publish GitHub Release on the app repo'), {
+      context: { ...namingContext(requester), 'steps.authz.outputs.passed-as': 'gate' }
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(firstLine(result)).toBe('Promoted to production through the deploy gate.')
+  })
+
+  // The check refuses a sub that is not one address with one @, so these
+  // only show what the step does if one ever got through: the least that
+  // could identify the person, and never an @ that GitHub would read as a
+  // mention.
+  it.each([
+    ['no @, shown whole', 'requester', 'requester'],
+    ['more than one @, cut at the first', 'requester@example.com@example.org', 'requester'],
+    ['a trailing @', 'requester@', 'requester']
+  ])('names a requester with %s', async (_why, requester, name) => {
+    const result = await release(requester)
+    expect(result.status, result.stderr).toBe(0)
+    expect(firstLine(result)).toBe(`Promoted to production by <code>${name}</code> through the deploy gate.`)
+  })
+
+  // The body is Markdown. Each ASCII punctuation mark is backslash-escaped,
+  // which Markdown shows as the mark itself, so no link, HTML or emphasis can
+  // come from the name, and a < can never close the <code> around it. The
+  // <code> keeps GitHub's own extras (#1 issue links, :smile: emoji, $math$)
+  // off it, which the escapes alone do not. Checked against GitHub's Markdown
+  // renderer when this was written; these tests pin the text sent.
+  it('escapes everything Markdown or HTML would read in the name', async () => {
+    const result = await release('a<b>&c*d_e`f[g](h)!i~j|k\\l#m@example.com')
+    expect(result.status, result.stderr).toBe(0)
+    expect(firstLine(result)).toBe('Promoted to production by <code>a\\<b\\>\\&c\\*d\\_e\\`f\\[g\\]\\(h\\)\\!i\\~j\\|k\\\\l\\#m</code> through the deploy gate.')
+  })
+
+  it.each([
+    ['an issue reference', '#1', '\\#1'],
+    ['a cross-repo issue reference', 'example-org/example-app#1', 'example\\-org\\/example\\-app\\#1'],
+    ['an emoji shortcode', ':smile:', '\\:smile\\:'],
+    ['math', '$x^2$', '\\$x\\^2\\$'],
+    ['a closing tag', 'x</code><b>y', 'x\\<\\/code\\>\\<b\\>y'],
+    ['a www. link', 'www.example.com', 'www\\.example\\.com'],
+    ['first.last, whose dot GitHub shows as a dot', 'first.last', 'first\\.last']
+  ])('keeps %s in the name inside <code>, escaped', async (_why, name, sent) => {
+    const result = await release(`${name}@example.com`)
+    expect(firstLine(result)).toBe(`Promoted to production by <code>${sent}</code> through the deploy gate.`)
+  })
+
+  it('keeps a name that is not ASCII as it is', async () => {
+    const result = await release('zoë@example.com')
+    expect(firstLine(result)).toBe('Promoted to production by <code>zoë</code> through the deploy gate.')
   })
 })
