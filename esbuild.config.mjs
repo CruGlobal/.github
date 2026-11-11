@@ -21,7 +21,10 @@ const handlerMap = {
     './src/entry/flightdeck-release-event.js': 'flightdeck-release-event',
     './src/entry/authorize-actor.js': 'authorize-actor',
     './src/entry/verify-deploy-run.js': 'verify-deploy-run',
-    './src/entry/hotfix.js': 'hotfix'
+    './src/entry/hotfix.js': 'hotfix',
+    // pull request checks
+    './src/entry/pr-guard.js': 'pr-guard',
+    './src/entry/changed-coverage.js': 'changed-coverage'
 }
 
 // Build each action as a separate bundle with flat output

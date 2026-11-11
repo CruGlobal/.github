@@ -1,0 +1,26 @@
+name: Changed Files Coverage
+description: >-
+  Report line coverage for the files a pull request changed, from an istanbul
+  json-summary report. It fails only when a changed file is under
+  min-coverage; the default of 0 never fails.
+inputs:
+  working-directory:
+    description: Folder, relative to the workspace, that the report's paths and the changed files list are relative to.
+    required: false
+    default: '.'
+  summary-file:
+    description: Path to the istanbul json-summary report, relative to working-directory.
+    required: true
+  changed-files-file:
+    description: Path to a file listing the changed files, one path per line relative to working-directory. An absolute path is read as is.
+    required: true
+  min-coverage:
+    description: Minimum line coverage, 0 to 100, for each changed file the report lists. 0 reports only.
+    required: false
+    default: '0'
+outputs:
+  measured-files:
+    description: How many changed files the report listed.
+runs:
+  using: 'node24'
+  main: '../../dist/changed-coverage.js'
