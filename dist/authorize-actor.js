@@ -24747,7 +24747,7 @@ function parseSwitch(raw, name) {
   throw new Refusal(`${name} must be "true" or "false", not '${String(raw).trim()}'`);
 }
 var errorName = (error2) => typeof error2?.name === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error2.name) ? error2.name : "";
-async function authorize({
+async function authorizeAttempt({
   octokit,
   repository,
   operation,
@@ -24896,7 +24896,7 @@ async function authorize({
     const held = answer === "claimed" ? "claimed for this run attempt" : "already held by this run attempt";
     const age = expired ? `, expired ${secondsPastExpiry} seconds ago` : "";
     notice(`${triggeringActor}, the deploy gate's account, started ${thisAttempt} with a signed request from ${claims.sub} to ${claims.action} ${claims.app} at ${claims.target} (request id ${claims.jti}, ${held}${age}; verified with key ${keyNumber} of ${keyCount}${kid ? `, kid ${kid}` : ""}), so the other checks on ${appRepo} do not apply`);
-    return "gate";
+    return { passedAs: "gate", request: claims };
   }
   if (gateId && actorId === gateId) {
     if (triggeringActor === actor) {
@@ -24921,7 +24921,7 @@ async function authorize({
       const id = await triggeringUserId("cannot be matched to the automation allowlist");
       if (id === actorId) {
         notice(`${triggeringActor} (user id ${actorId}) is an allowlisted automation account and started ${thisAttempt} itself, so the push-access check on ${appRepo} does not apply`);
-        return "automation";
+        return { passedAs: "automation", request: null };
       }
       warning(`the login ${triggeringActor} started ${thisAttempt}, but that login now belongs to user id ${id}, not the allowlisted user id ${actorId} that started the run, so ${triggeringActor}'s own access on ${appRepo} is checked`);
     } else {
@@ -24970,7 +24970,7 @@ async function authorize({
         throw new Refusal(`${triggeringActor} is an active member of the break-glass team ${name}, but that team has child teams. GitHub counts the members of a child team as members of the team, so this does not show ${triggeringActor} was put on ${name} itself. Use a break-glass team with no child teams; refusing to ${operation} ${appRepo}`);
       }
       notice(`${triggeringActor} is an active member of the break-glass team ${name} and started ${thisAttempt}${startedBy}, so it may ${operation} ${appRepo}`);
-      return "break-glass";
+      return { passedAs: "break-glass", request: null };
     }
     const why = membership ? `membership state: ${typeof state === "string" && state ? state : "unknown"}` : "GitHub answered 404: not a member, or the team does not exist or this token cannot see it";
     info(`${triggeringActor} is not an active member of the break-glass team ${name} (${why})`);
@@ -24998,7 +24998,7 @@ async function authorize({
     tried.push(`push access on ${appRepo} (permission: ${permission})`);
     throw new Refusal(`${triggeringActor} is not authorized to ${operation} ${appRepo} (permission: ${permission}). Requires admin, write, or maintain. The account checked is ${triggeringActor}, the one that started ${thisAttempt}${startedBy}.${listTried ? ` Tried: ${tried.join("; ")}.` : ""}`);
   }
-  return "push-access";
+  return { passedAs: "push-access", request: null };
 }
 function refuse(message, title) {
   if (!title) {
@@ -25020,7 +25020,7 @@ async function run({ env = process.env, sleep, timeoutMs, claimRequestId } = {})
     if (allowPushAccess === "") {
       throw new Refusal(`allow-push-access is empty, which happens only when the expression a caller gave it comes out empty; it must be "true" or "false"; refusing to ${operation || "change production"}`);
     }
-    const passedAs = await authorize({
+    const { passedAs, request: request2 } = await authorizeAttempt({
       octokit: getOctokit(token),
       repository: getInput("repository"),
       operation,
@@ -25050,6 +25050,11 @@ async function run({ env = process.env, sleep, timeoutMs, claimRequestId } = {})
     });
     markAttemptAuthorized(env);
     setOutput("passed-as", passedAs);
+    if (passedAs === "gate") {
+      setOutput("requester", request2.sub);
+      setOutput("request-target", request2.target);
+      setOutput("request-id", request2.jti);
+    }
   } catch (error2) {
     refuse(
       error2 instanceof Refusal || error2 instanceof AttemptNotAuthorized ? error2.message : `could not check the account that started this run attempt (${describeError(error2, timeoutMs ?? REQUEST_TIMEOUT_MS)}); refusing to go ahead`,
