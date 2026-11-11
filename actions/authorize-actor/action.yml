@@ -158,7 +158,8 @@ outputs:
       The email of the person who asked the deploy gate for this change, the
       signed request's sub claim. Set only when passed-as is "gate", so a
       workflow can name that person instead of the gate's account. Unset on
-      every other pass.
+      every other pass. Anywhere the public may read, such as a Release on
+      an app repo, show only the part before the @, never the whole address.
   request-target:
     description: >-
       What the signed request approved, its target claim (the candidate tag
