@@ -725,3 +725,96 @@ describe.each(['promote-gcp', 'promote-aws'])('promote: %s GitHub Release', (job
     expect(firstLine(result)).toBe('Promoted to production by <code>zoë</code> through the deploy gate.')
   })
 })
+
+// The same candidate can be promoted again after a rollback, and a run can be
+// re-run, which deploys again too, so the release name can already be on the
+// app repo. The step then adds a line naming who promoted it this time,
+// worded and escaped like the first line, linking this run (the attempt, on a
+// re-run), and marks it latest again. It never fails the promote over it.
+describe.each(['promote-gcp', 'promote-aws'])('promote: %s GitHub Release that already exists', (jobId) => {
+  const releaseStep = () => findStep(workflows.promote, jobId, 'Publish GitHub Release on the app repo')
+  const FIRST = 'Promoted to production by <code>first</code> through the deploy gate.\n\n' +
+    '- Image digest: `sha256:aaaa`\n' +
+    '- Promote run: https://github.com/example-org/deploy-wrappers/actions/runs/8000\n'
+  const existing = (body) => ({ id: 77, tag_name: 'release-2026-11-10-10200', body })
+  const promoteAgain = (requester, options = {}) => runShellStep(releaseStep(), {
+    context: namingContext(requester),
+    ghExistingRelease: existing(FIRST),
+    ...options
+  })
+  const added = (name, link = RUN_URL) => `Promoted to production again by <code>${name}</code> through the deploy gate. Promote run: ${link}`
+  const lastLine = (result) => result.releaseUpdate.body.split('\n').at(-2)
+
+  it('adds a line naming who promoted it this time, and marks it latest again', async () => {
+    const result = await promoteAgain(REQUESTER)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.releaseReadPath).toBe(`repos/${APP_REPO}/releases/tags/release-2026-11-10-10200`)
+    expect(result.releaseUpdatePath).toBe(`repos/${APP_REPO}/releases/77`)
+    expect(result.releaseUpdate).toEqual({ body: `${FIRST}\n${added('requester')}\n`, make_latest: 'true' })
+    expect(result.stdout).toContain('::notice title=Release updated::')
+  })
+
+  it('keeps what a person added to the Release, blank lines included', async () => {
+    const notes = `${FIRST}\nKnown issue: the export button is slow.\n\n`
+    const result = await promoteAgain(REQUESTER, { ghExistingRelease: existing(notes) })
+    expect(result.releaseUpdate.body).toBe(`${notes}\n${added('requester')}\n`)
+  })
+
+  it('puts a blank line before the added line when the body does not end in a newline', async () => {
+    const result = await promoteAgain(REQUESTER, { ghExistingRelease: existing('Shipped.') })
+    expect(result.releaseUpdate.body).toBe(`Shipped.\n\n${added('requester')}\n`)
+  })
+
+  it.each([null, ''])('writes only the added line when the body is %j', async (body) => {
+    const result = await promoteAgain(REQUESTER, { ghExistingRelease: existing(body) })
+    expect(result.releaseUpdate.body).toBe(`${added('requester')}\n`)
+  })
+
+  it('links the attempt on a re-run, and names who re-ran it', async () => {
+    const result = await promoteAgain('', {
+      context: { ...namingContext(''), 'github.actor': 'example-dev', 'github.triggering_actor': 'other-dev' },
+      ghExistingRelease: existing(`Promoted to production by @example-dev.\n\n- Promote run: ${RUN_URL}\n`),
+      runnerEnv: { GITHUB_RUN_ATTEMPT: '2' }
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(lastLine(result)).toBe(`Promoted to production again by @example-dev (re-run by @other-dev). Promote run: ${RUN_URL}/attempts/2`)
+  })
+
+  it('names who re-ran it in the first line of a new Release, as before', async () => {
+    const result = await runShellStep(releaseStep(), {
+      context: { ...namingContext(''), 'github.actor': 'example-dev', 'github.triggering_actor': 'other-dev' }
+    })
+    expect(result.release.body.split('\n')[0]).toBe('Promoted to production by @example-dev (re-run by @other-dev).')
+  })
+
+  it('words the added line like the first one for a person\'s promote', async () => {
+    const result = await promoteAgain('', {
+      context: { ...namingContext(''), 'github.actor': 'example-dev', 'github.triggering_actor': 'example-dev' }
+    })
+    expect(lastLine(result)).toBe(`Promoted to production again by @example-dev. Promote run: ${RUN_URL}`)
+  })
+
+  it('escapes the name in the added line the same way as the first line', async () => {
+    const result = await promoteAgain('a*b_c<d>@example.com')
+    expect(lastLine(result)).toBe(added('a\\*b\\_c\\<d\\>'))
+    expect(result.releaseUpdate.body).not.toContain('example.com')
+  })
+
+  it.each([
+    ['the Release cannot be read', { ghExistingRelease: 'FAIL' }, 'could not be read to add who promoted it'],
+    ['the reply has no id', { ghExistingRelease: { tag_name: 'release-2026-11-10-10200', body: FIRST } }, 'its id could not be read'],
+    ['the reply is not JSON', { ghExistingRelease: 'not json' }, 'its id could not be read'],
+    ['the update is refused', { ghUpdateFails: true }, 'adding who promoted it this time failed']
+  ])('warns and lets the promote go on when %s', async (_why, options, warning) => {
+    const result = await promoteAgain(REQUESTER, options)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('::warning title=GitHub Release not updated::')
+    expect(result.stdout).toContain(warning)
+  })
+
+  it('treats a body that is not text as empty', async () => {
+    const result = await promoteAgain(REQUESTER, { ghExistingRelease: { id: 77, body: { not: 'text' } } })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.releaseUpdate.body).toBe(`${added('requester')}\n`)
+  })
+})

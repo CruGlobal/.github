@@ -110,14 +110,38 @@ printf '%s' "$FAKE_AWS"
 const FAKE_GH = `#!/bin/bash
 # Fake gh: answers a commit comparison read from FAKE_GH_COMPARE (failing like
 # gh does on an HTTP error when FAKE_GH_COMPARE_FAILS is set), and records the
-# release body a step sends on stdin.
+# release body a step sends on stdin. With FAKE_GH_EXISTING_RELEASE set, the
+# release already exists: creating it answers 422 already_exists the way gh
+# does (the error body on stdout, exit 1), reading it by tag answers that
+# value ("FAIL" fails the read like a 404), and an update is recorded.
 if [ "$1" = api ] && [[ "$2" == */compare/* ]]; then
   printf '%s' "$2" > "$FAKE_OUT/gh-compare-path"
   if [ -n "$FAKE_GH_COMPARE_FAILS" ]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
   printf '%s' "$FAKE_GH_COMPARE"
   exit 0
 fi
+if [ "$1" = api ] && [[ "$2" == */releases/tags/* ]]; then
+  printf '%s' "$2" > "$FAKE_OUT/gh-release-read-path"
+  if [ "$FAKE_GH_EXISTING_RELEASE" = FAIL ]; then echo '{"message":"Not Found","status":"404"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+  printf '%s' "$FAKE_GH_EXISTING_RELEASE"
+  exit 0
+fi
+if [[ " $* " != *" --input - "* ]] && { [ "$2" = -X ] || [[ "$2" == */releases ]]; }; then
+  echo "fake gh: a release write must send its body with --input -" >&2; exit 2
+fi
+if [ "$1" = api ] && [ "$2" = -X ] && [ "$3" = PATCH ]; then
+  printf '%s' "$4" > "$FAKE_OUT/gh-release-update-path"
+  cat > "$FAKE_OUT/release-update.json"
+  if [ -n "$FAKE_GH_UPDATE_FAILS" ]; then echo '{"message":"Resource not accessible by integration","status":"403"}'; echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1; fi
+  echo '{"html_url":"https://github.example.test/release"}'
+  exit 0
+fi
 cat > "$FAKE_OUT/release.json"
+if [ -n "$FAKE_GH_EXISTING_RELEASE" ]; then
+  echo '{"message":"Validation Failed","errors":[{"resource":"Release","code":"already_exists","field":"tag_name"}],"status":"422"}'
+  echo "gh: Validation Failed (HTTP 422)" >&2
+  exit 1
+fi
 echo '{"html_url":"https://github.example.test/release"}'
 `
 
@@ -187,13 +211,17 @@ function readOutputs (file) {
 // each app-info get-item by its key's Environment instead (a missing one
 // answers {}, and "FAIL" makes that read fail the way the aws CLI does on a
 // refusal). `ghCompare` is what a `gh api .../compare/...` read answers, and
-// `ghCompareFails` makes it fail. Resolves to the exit status, the output,
-// the step's outputs, the variables it set for later steps ($GITHUB_ENV),
-// what was sent to Slack and to the GitHub releases API, the path a
-// comparison asked for, the table and item a DynamoDB put-item wrote (each
-// null when nothing was), and the arguments of each ledger read
-// (`ledgerCalls`, one string per read).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, ghCompare = {}, ghCompareFails = false, runnerEnv = {} }) {
+// `ghCompareFails` makes it fail. `ghExistingRelease`, when given, is the
+// release that already has the tag (an object, or "FAIL" for a read that
+// fails), and `ghUpdateFails` makes updating it fail. Resolves to the exit
+// status, the output, the step's outputs, the variables it set for later
+// steps ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API
+// (`release` for a new one; `releaseReadPath`, `releaseUpdatePath` and
+// `releaseUpdate` for one that already exists), the path a comparison asked
+// for, the table and item a DynamoDB put-item wrote (each null when nothing
+// was), and the arguments of each ledger read (`ledgerCalls`, one string per
+// read).
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, ghCompare = {}, ghCompareFails = false, ghExistingRelease = null, ghUpdateFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -221,7 +249,9 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       FAKE_AWS: JSON.stringify(aws),
       FAKE_AWS_BY_ENVIRONMENT: awsByEnvironment ? JSON.stringify(awsByEnvironment) : '',
       FAKE_GH_COMPARE: JSON.stringify(ghCompare),
-      FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : ''
+      FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : '',
+      FAKE_GH_EXISTING_RELEASE: ghExistingRelease === null ? '' : typeof ghExistingRelease === 'string' ? ghExistingRelease : JSON.stringify(ghExistingRelease),
+      FAKE_GH_UPDATE_FAILS: ghUpdateFails ? '1' : ''
     }
     const result = await spawnBash(script, env)
     return {
@@ -232,6 +262,9 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       env: readOutputs(path.join(out, 'github-env')),
       slack: readJson(path.join(out, 'slack.json')),
       release: readJson(path.join(out, 'release.json')),
+      releaseReadPath: existsSync(path.join(out, 'gh-release-read-path')) ? readFileSync(path.join(out, 'gh-release-read-path'), 'utf8') : null,
+      releaseUpdate: readJson(path.join(out, 'release-update.json')),
+      releaseUpdatePath: existsSync(path.join(out, 'gh-release-update-path')) ? readFileSync(path.join(out, 'gh-release-update-path'), 'utf8') : null,
       comparePath: existsSync(path.join(out, 'gh-compare-path')) ? readFileSync(path.join(out, 'gh-compare-path'), 'utf8') : null,
       putItem: readPutItem(out),
       ledgerCalls: existsSync(path.join(out, 'ledger-calls')) ? readFileSync(path.join(out, 'ledger-calls'), 'utf8').split('\n').filter(Boolean) : []
