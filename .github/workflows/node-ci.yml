@@ -88,13 +88,13 @@ jobs:
           fi
           echo "name=$pm" >> "$GITHUB_OUTPUT"
 
-      - name: Enable corepack
-        if: steps.pm.outputs.name != 'npm'
-        run: corepack enable
-
       - uses: actions/setup-node@v7
         with:
           node-version-file: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
+
+      - name: Enable corepack
+        if: steps.pm.outputs.name != 'npm'
+        run: corepack enable
 
       - name: Install dependencies
         env:
@@ -149,7 +149,7 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # Paths relative to working-directory, to match the coverage report.
-          git diff --name-only --diff-filter=AMR --relative "$BASE...$HEAD" > "$RUNNER_TEMP/changed-files.txt"
+          git -c core.quotepath=off diff --name-only --diff-filter=AMR --relative "$BASE...$HEAD" > "$RUNNER_TEMP/changed-files.txt"
           echo "$(wc -l < "$RUNNER_TEMP/changed-files.txt") changed files"
 
       - name: Checkout Cru Actions & Workflows
