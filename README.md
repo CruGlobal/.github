@@ -73,11 +73,16 @@ make any of them a required status check. Every input is listed at the top of ea
 `.github/one-way-door-paths` lists one `.gitignore`-style pattern per line. A pull request that touches any of them is
 one-way-door. Without the file, pr-guard sets no tier label.
 
+pr-guard goes in its own file, so editing the description or a label re-runs only the guard. `concurrency` cancels a
+run when a newer push comes in, so two quick pushes don't pay for two reviews.
+
 ```yaml
+# .github/workflows/pr-checks.yml
 name: Pull request checks
-on:
-  pull_request:
-    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+on: pull_request
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   ci:
@@ -90,6 +95,47 @@ jobs:
   security:
     uses: CruGlobal/.github/.github/workflows/security.yml@v2
 
+  # Only reads the tier; the pr-guard file below does the checking.
+  tier:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    uses: CruGlobal/.github/.github/workflows/pr-guard.yml@v2
+    with:
+      workflow-ref: v2
+      require-work-item: false
+      require-spec: false
+      fail-lines: 1000000
+      apply-tier-label: false
+
+  review-agent:
+    needs: tier
+    # Run even if tier failed: with no tier the review runs, never the reverse.
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: write
+    uses: CruGlobal/.github/.github/workflows/review-agent.yml@v2
+    with:
+      # Review every pull request with `true`, or only one-way-door ones:
+      enabled: ${{ needs.tier.outputs.tier != 'two-way-door' }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+```yaml
+# .github/workflows/pr-guard.yml
+name: PR guard
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+concurrency:
+  group: pr-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
   pr-guard:
     permissions:
       contents: read
@@ -98,16 +144,6 @@ jobs:
     uses: CruGlobal/.github/.github/workflows/pr-guard.yml@v2
     with:
       workflow-ref: v2
-
-  review-agent:
-    permissions:
-      contents: read
-      checks: read
-      pull-requests: write
-      actions: read
-    uses: CruGlobal/.github/.github/workflows/review-agent.yml@v2
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ## Actions
