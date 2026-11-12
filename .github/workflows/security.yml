@@ -20,6 +20,8 @@ name: Security
 #
 # gitleaks and Semgrep are pinned, and the gitleaks download is checked
 # against a pinned checksum, because this job reads every line of the code.
+#
+# pull_request_target is not supported: checkout gets the base branch there.
 
 on:
   workflow_call:
@@ -80,7 +82,7 @@ jobs:
           fetch-depth: 0
 
       - name: Use the base branch's scanner allowlists
-        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -107,7 +109,7 @@ jobs:
           PUSH_AFTER: ${{ github.event.after }}
         run: |
           zero=0000000000000000000000000000000000000000
-          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+          if [ "$EVENT" = pull_request ]; then
             range="$PR_BASE..$PR_HEAD"
           elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
             range="$PUSH_BEFORE..$PUSH_AFTER"
@@ -179,7 +181,7 @@ jobs:
           fetch-depth: 0
 
       - name: Use the base branch's scanner allowlists
-        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -199,7 +201,7 @@ jobs:
           zero=0000000000000000000000000000000000000000
           args=()
           for config in $CONFIG; do args+=(--config "$config"); done
-          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+          if [ "$EVENT" = pull_request ]; then
             args+=(--baseline-commit "$PR_BASE" --disable-nosem)
           elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
             args+=(--baseline-commit "$PUSH_BEFORE")
