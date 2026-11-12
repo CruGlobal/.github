@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.22.0](https://github.com/CruGlobal/.github/compare/v2.21.0...v2.22.0) (2026-11-12)
+
+
+### Features
+
+* add reusable pull request check workflows ([#577](https://github.com/CruGlobal/.github/issues/577)) ([76254ae](https://github.com/CruGlobal/.github/commit/76254ae5f537f46c74890213cd83cf551271d8e8))
+
+
+### Bug Fixes
+
+* **v2:** name who promoted a release again in its GitHub Release ([#579](https://github.com/CruGlobal/.github/issues/579)) ([657e6de](https://github.com/CruGlobal/.github/commit/657e6dee25c1c44fa5293c5bf53d95dd2fb53372))
+
 ## [2.21.0](https://github.com/CruGlobal/.github/compare/v2.20.0...v2.21.0) (2026-11-12)
 
 
