@@ -12,6 +12,12 @@ name: Security
 #     it fails only on findings the pull request adds, so existing findings do
 #     not block anyone.
 #
+# On a pull request, the scanners' own allowlists (.gitleaksignore,
+# .gitleaks.toml, .semgrepignore) are taken from the base branch, and Semgrep
+# ignores nosemgrep comments, so a pull request cannot allowlist its own
+# finding. An inline gitleaks:allow comment cannot be turned off; a person
+# reviewing the change has to catch that one.
+#
 # gitleaks and Semgrep are pinned, and the gitleaks download is checked
 # against a pinned checksum, because this job reads every line of the code.
 
@@ -72,6 +78,17 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Use the base branch's scanner allowlists
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          for file in .gitleaksignore .gitleaks.toml; do
+            if git cat-file -e "$BASE:$file" 2>/dev/null; then git show "$BASE:$file" > "$file"
+            else rm -f "$file"
+            fi
+          done
 
       - name: Install gitleaks
         run: |
@@ -161,15 +178,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Use the base branch's scanner allowlists
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          for file in .semgrepignore; do
+            if git cat-file -e "$BASE:$file" 2>/dev/null; then git show "$BASE:$file" > "$file"
+            else rm -f "$file"
+            fi
+          done
+
       - name: Semgrep
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
           CONFIG: ${{ inputs.semgrep-config }}
         run: |
+          zero=0000000000000000000000000000000000000000
           args=()
           for config in $CONFIG; do args+=(--config "$config"); done
           if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
-            args+=(--baseline-commit "$PR_BASE")
+            args+=(--baseline-commit "$PR_BASE" --disable-nosem)
+          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            args+=(--baseline-commit "$PUSH_BEFORE")
           fi
+          # A new branch or a manual run has no baseline, so it reports every
+          # finding in the repo.
           pipx run "semgrep==${SEMGREP_VERSION}" scan --error --metrics off --disable-version-check "${args[@]}"
