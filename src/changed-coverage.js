@@ -93,8 +93,10 @@ export async function run ({ readFile = readFileSync, workspace = process.env.GI
     const low = belowMinimum(rows, min)
     const measured = rows.filter((row) => row.measured).length
 
+    const table = renderTable(rows)
+    core.info(table)
     await core.summary
-      .addRaw(`## Coverage on changed files\n\n${renderTable(rows)}\n\n${min > 0 ? `Minimum: ${min}%` : 'No minimum set; report only.'}\n`)
+      .addRaw(`## Coverage on changed files\n\n${table}\n\n${min > 0 ? `Minimum: ${min}%` : 'No minimum set; report only.'}\n`)
       .write()
     core.setOutput('measured-files', String(measured))
 

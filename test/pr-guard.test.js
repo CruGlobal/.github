@@ -15,6 +15,7 @@ vi.mock('@actions/core', () => ({
   warning: warningMock,
   notice: noticeMock,
   setOutput: outputMock,
+  info: vi.fn(),
   summary: {
     addRaw (text) { summaryText.value += text; return this },
     write: async () => {}

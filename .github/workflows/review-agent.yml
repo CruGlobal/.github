@@ -85,7 +85,7 @@ jobs:
       - name: Read the run's cost
         id: cost
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: agent-review-evidence-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/review-evidence

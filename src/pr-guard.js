@@ -250,6 +250,7 @@ export async function run ({ context = github.context, getOctokit = github.getOc
     }
 
     core.setOutput('changed-lines', String(lines))
+    core.info(summary.join('\n'))
     await core.summary.addRaw(`## PR guard\n\n${summary.join('\n\n')}\n`).write()
 
     if (problems.length > 0) core.setFailed(problems.join('\n'))
