@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.21.0](https://github.com/CruGlobal/.github/compare/v2.20.0...v2.21.0) (2026-11-12)
+
+
+### Features
+
+* **v2:** pass break-glass-team and allow-push-access through promote, rollback and hotfix ([#575](https://github.com/CruGlobal/.github/issues/575)) ([cb243c6](https://github.com/CruGlobal/.github/commit/cb243c63bb2cc612e6f66cd94c209aff8d99efc1))
+* **v2:** send the deploy gate requester to Flightdeck release events as requested_by ([#576](https://github.com/CruGlobal/.github/issues/576)) ([6d6060d](https://github.com/CruGlobal/.github/commit/6d6060d5f3f3e83e5a8d602b79335d0f1a0210e5))
+
+
+### Bug Fixes
+
+* **v2:** name a deploy gate requester without their email domain in public release notes ([#574](https://github.com/CruGlobal/.github/issues/574)) ([740637a](https://github.com/CruGlobal/.github/commit/740637a3042401786b46ee0e71278c363fb1cb8e))
+
 ## [2.20.0](https://github.com/CruGlobal/.github/compare/v2.19.0...v2.20.0) (2026-11-11)
 
 
