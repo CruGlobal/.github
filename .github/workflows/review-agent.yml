@@ -11,8 +11,14 @@ name: Review Agent
 # key as the anthropic-api-key secret. This workflow never approves a pull
 # request; approval stays with the repo's own rules.
 #
-# The caller's job must grant contents: read, checks: read, pull-requests:
-# write and actions: read.
+# To review only some pull requests, set enabled from an earlier job, such as
+# pr-guard's tier output (see the README). Labels are not read here: the
+# event's labels are from when the run was queued, and a label added by a
+# workflow token never starts a new run. With enabled false the check passes
+# and says the review was not required, so it can still be a required check.
+#
+# The caller's job must grant contents: read, checks: read and pull-requests:
+# write.
 
 on:
   workflow_call:
@@ -27,11 +33,11 @@ on:
         required: false
         default: advisory
         description: Must match rollout.mode in the repo's .claude/review/config.yml, or agent-review refuses to run.
-      only-with-label:
-        type: string
+      enabled:
+        type: boolean
         required: false
-        default: ''
-        description: Run only on pull requests that carry this label, such as one-way-door. Empty reviews every pull request.
+        default: true
+        description: Run the review. When false the check passes without one, such as for a two-way-door pull request.
       blocker-severity:
         type: number
         required: false
@@ -56,11 +62,10 @@ permissions:
   contents: read
   checks: read
   pull-requests: write
-  actions: read
 
 jobs:
   review:
-    if: inputs.only-with-label == '' || contains(github.event.pull_request.labels.*.name, inputs.only-with-label)
+    if: inputs.enabled
     uses: CruGlobal/agent-review/.github/workflows/review.yml@v1.1.8
     with:
       mode: ${{ inputs.mode }}
@@ -73,17 +78,23 @@ jobs:
   gate:
     name: Review blockers
     needs: review
-    # Runs after a failed review too, so a review that never reported fails
-    # this check with a reason instead of leaving it skipped.
-    if: always() && needs.review.result != 'skipped'
+    # Always runs, so the check is never left skipped: it passes when the
+    # caller turned the review off, and fails with a reason when the review
+    # never reported.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       blockers: ${{ steps.gate.outputs.blockers }}
       cost-usd: ${{ steps.cost-value.outputs.cost-usd }}
     steps:
+      - name: Review not required
+        if: ${{ !inputs.enabled }}
+        run: echo "::notice::the caller turned the review off for this pull request, so there is nothing to check"
+
       - name: Read the run's cost
         id: cost
+        if: inputs.enabled
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
@@ -92,7 +103,7 @@ jobs:
 
       - name: Record the cost
         id: cost-value
-        if: always()
+        if: inputs.enabled
         run: |
           # The execution log is a list of messages; the last "result" one
           # carries the total. A run that never got that far has none.
@@ -104,6 +115,7 @@ jobs:
 
       - name: Check for blockers
         id: gate
+        if: inputs.enabled
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -111,11 +123,16 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           MIN: ${{ inputs.blocker-severity }}
           REVIEW_RESULT: ${{ needs.review.result }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           # Only the bot's own report for this exact commit counts. A comment
           # anyone else wrote, or a report on an older commit, is ignored.
           body=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            | jq -sr --arg head "$HEAD" '[.[][] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- agent-review -->")) | select(.body | contains("<!-- agent-review-head: " + $head + " -->")) | .body] | last // empty')
+            | jq -sr --arg head "$HEAD" '[.[][] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- agent-review -->")) | select(.body | contains("<!-- agent-review-head: " + $head + " -->")) | .body] | first // empty')
+          if [ -z "$body" ] && [ "$FORK" = true ]; then
+            echo "::error::no review report for commit $HEAD. A pull request from a fork gets no secrets, so the review cannot run on it; a maintainer has to review it."
+            exit 1
+          fi
           if [ -z "$body" ]; then
             echo "::error::no review report for commit $HEAD (the review job finished as $REVIEW_RESULT). Re-run the review."
             exit 1
