@@ -1154,9 +1154,16 @@ jobs:
       # NEVER fails the promote. Production is already updated by the time this
       # runs, so a missing Releases entry is a bookkeeping loss, not an incident:
       # continue-on-error, plus in-step handling that turns any non-2xx into a
-      # warning naming the likely fix. A re-run of an already-promoted candidate
-      # re-POSTs the same release name and gets 422 already_exists — that is the
-      # correct end state, so it degrades to a notice instead of a warning.
+      # warning naming the likely fix.
+      #
+      # The release name can already be on the app repo: the same candidate
+      # promoted again after a rollback, or this run re-run, which deploys
+      # again too. The POST then gets 422 already_exists, and the step adds a
+      # line to the end of that Release naming who promoted it this time, in
+      # the same words as the first line, with a link to this run (to the
+      # attempt, on a re-run). It also marks it latest again, since it is what
+      # production runs. The earlier lines and anything a person added stay, so
+      # the Release does not go on naming only whoever promoted it first.
       - name: Publish GitHub Release on the app repo
         continue-on-error: true
         # gh api has no time limit of its own, and the ledger write comes
@@ -1183,16 +1190,28 @@ jobs:
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
             exit 0
           fi
+          runurl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          promoted=$(jq -rn \
+            --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
+            --arg passedas "$PASSED_AS" \
+            --arg requestername "${REQUESTER%%@*}" \
+            'if $passedas == "gate"
+             then "Promoted to production"
+                  + (if $requestername != ""
+                     then " by <code>" + ($requestername | gsub("(?<c>[!-/:-@\\[-`{-~])"; "\\\(.c)")) + "</code>"
+                     else "" end)
+                  + " through the deploy gate"
+             else "Promoted to production by @\($actor)"
+                  + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
+             end')
           # make_latest is a string enum ("true"/"false"/"legacy"), not a boolean.
           payload=$(jq -n \
             --arg tag "$RELEASE" \
             --arg target "$COMMIT_SHA" \
             --arg digest "$DIGEST" \
-            --arg actor "$ACTOR" \
-            --arg triggering "$TRIGGERING_ACTOR" \
-            --arg passedas "$PASSED_AS" \
-            --arg requestername "${REQUESTER%%@*}" \
-            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg promoted "$promoted" \
+            --arg runurl "$runurl" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
             --arg fdurl "$FLIGHTDECK_URL" \
@@ -1211,15 +1230,7 @@ jobs:
                  end;
              {tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
-              body: ((if $passedas == "gate"
-                      then "Promoted to production"
-                           + (if $requestername != ""
-                              then " by <code>" + ($requestername | gsub("(?<c>[!-/:-@\\[-`{-~])"; "\\\(.c)")) + "</code>"
-                              else "" end)
-                           + " through the deploy gate"
-                      else "Promoted to production by @\($actor)"
-                           + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
-                      end)
+              body: ($promoted
                      + ".\n\n"
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
@@ -1234,7 +1245,37 @@ jobs:
           else
             case "$response" in
               *already_exists*)
-                echo "::notice title=Release already published::$RELEASE already exists on $APP_REPO; left as-is"
+                if ! existing=$(gh api "repos/$APP_REPO/releases/tags/$RELEASE"); then
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, but it could not be read to add who promoted it this time (non-blocking)"
+                  exit 0
+                fi
+                release_id=$(printf '%s' "$existing" | jq -r '.id // empty' 2>/dev/null) || release_id=""
+                if [ -z "$release_id" ]; then
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, but its id could not be read (non-blocking)"
+                  exit 0
+                fi
+                link="$runurl"
+                if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]; then
+                  link="$runurl/attempts/$GITHUB_RUN_ATTEMPT"
+                fi
+                # No regex on the old body: it can be long, and the new line
+                # only needs a blank line before it.
+                if ! patch=$(printf '%s' "$existing" | jq --arg promoted "$promoted" --arg link "$link" \
+                  '(if (.body | type) == "string" then .body else "" end) as $body
+                   | {body: ((if $body == "" then ""
+                              elif ($body | endswith("\n")) then $body + "\n"
+                              else $body + "\n\n" end)
+                             + ($promoted | sub("\\APromoted to production"; "Promoted to production again"))
+                             + ". Promote run: " + $link + "\n"),
+                      make_latest: "true"}' 2>/dev/null); then
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, but its body could not be read (non-blocking)"
+                  exit 0
+                fi
+                if response=$(printf '%s' "$patch" | gh api -X PATCH "repos/$APP_REPO/releases/$release_id" --input -); then
+                  echo "::notice title=Release updated::$RELEASE was already on $APP_REPO; added who promoted it this time: $(echo "$response" | jq -r '.html_url // empty')"
+                else
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, and adding who promoted it this time failed (non-blocking). A 403/404 here means authz-token lacks contents:write on the app repo."
+                fi
                 ;;
               *)
                 echo "::warning title=GitHub Release failed::could not publish $RELEASE on $APP_REPO (non-blocking). A 403/404 here means authz-token lacks contents:write on the app repo — see this step's credential note."
@@ -2139,9 +2180,16 @@ jobs:
       # NEVER fails the promote. Production is already updated by the time this
       # runs, so a missing Releases entry is a bookkeeping loss, not an incident:
       # continue-on-error, plus in-step handling that turns any non-2xx into a
-      # warning naming the likely fix. A re-run of an already-promoted candidate
-      # re-POSTs the same release name and gets 422 already_exists — that is the
-      # correct end state, so it degrades to a notice instead of a warning.
+      # warning naming the likely fix.
+      #
+      # The release name can already be on the app repo: the same candidate
+      # promoted again after a rollback, or this run re-run, which deploys
+      # again too. The POST then gets 422 already_exists, and the step adds a
+      # line to the end of that Release naming who promoted it this time, in
+      # the same words as the first line, with a link to this run (to the
+      # attempt, on a re-run). It also marks it latest again, since it is what
+      # production runs. The earlier lines and anything a person added stay, so
+      # the Release does not go on naming only whoever promoted it first.
       - name: Publish GitHub Release on the app repo
         continue-on-error: true
         # gh api has no time limit of its own, and the ledger write comes
@@ -2168,16 +2216,28 @@ jobs:
             echo "::warning title=GitHub Release skipped::the promoted digest carries no sha- tag, so there is no commit for $RELEASE to point at on $APP_REPO (non-blocking)"
             exit 0
           fi
+          runurl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          promoted=$(jq -rn \
+            --arg actor "$ACTOR" \
+            --arg triggering "$TRIGGERING_ACTOR" \
+            --arg passedas "$PASSED_AS" \
+            --arg requestername "${REQUESTER%%@*}" \
+            'if $passedas == "gate"
+             then "Promoted to production"
+                  + (if $requestername != ""
+                     then " by <code>" + ($requestername | gsub("(?<c>[!-/:-@\\[-`{-~])"; "\\\(.c)")) + "</code>"
+                     else "" end)
+                  + " through the deploy gate"
+             else "Promoted to production by @\($actor)"
+                  + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
+             end')
           # make_latest is a string enum ("true"/"false"/"legacy"), not a boolean.
           payload=$(jq -n \
             --arg tag "$RELEASE" \
             --arg target "$COMMIT_SHA" \
             --arg digest "$DIGEST" \
-            --arg actor "$ACTOR" \
-            --arg triggering "$TRIGGERING_ACTOR" \
-            --arg passedas "$PASSED_AS" \
-            --arg requestername "${REQUESTER%%@*}" \
-            --arg runurl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg promoted "$promoted" \
+            --arg runurl "$runurl" \
             --arg project "$PROJECT_NAME" \
             --arg prevsha "$PREV_SHA" \
             --arg fdurl "$FLIGHTDECK_URL" \
@@ -2196,15 +2256,7 @@ jobs:
                  end;
              {tag_name: $tag, target_commitish: $target, name: $tag,
               draft: false, prerelease: false, make_latest: "true",
-              body: ((if $passedas == "gate"
-                      then "Promoted to production"
-                           + (if $requestername != ""
-                              then " by <code>" + ($requestername | gsub("(?<c>[!-/:-@\\[-`{-~])"; "\\\(.c)")) + "</code>"
-                              else "" end)
-                           + " through the deploy gate"
-                      else "Promoted to production by @\($actor)"
-                           + (if $triggering != "" and $triggering != $actor then " (re-run by @\($triggering))" else "" end)
-                      end)
+              body: ($promoted
                      + ".\n\n"
                      + "- Image digest: `\($digest)`\n"
                      + "- Promote run: \($runurl)\n"
@@ -2219,7 +2271,37 @@ jobs:
           else
             case "$response" in
               *already_exists*)
-                echo "::notice title=Release already published::$RELEASE already exists on $APP_REPO; left as-is"
+                if ! existing=$(gh api "repos/$APP_REPO/releases/tags/$RELEASE"); then
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, but it could not be read to add who promoted it this time (non-blocking)"
+                  exit 0
+                fi
+                release_id=$(printf '%s' "$existing" | jq -r '.id // empty' 2>/dev/null) || release_id=""
+                if [ -z "$release_id" ]; then
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, but its id could not be read (non-blocking)"
+                  exit 0
+                fi
+                link="$runurl"
+                if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]; then
+                  link="$runurl/attempts/$GITHUB_RUN_ATTEMPT"
+                fi
+                # No regex on the old body: it can be long, and the new line
+                # only needs a blank line before it.
+                if ! patch=$(printf '%s' "$existing" | jq --arg promoted "$promoted" --arg link "$link" \
+                  '(if (.body | type) == "string" then .body else "" end) as $body
+                   | {body: ((if $body == "" then ""
+                              elif ($body | endswith("\n")) then $body + "\n"
+                              else $body + "\n\n" end)
+                             + ($promoted | sub("\\APromoted to production"; "Promoted to production again"))
+                             + ". Promote run: " + $link + "\n"),
+                      make_latest: "true"}' 2>/dev/null); then
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, but its body could not be read (non-blocking)"
+                  exit 0
+                fi
+                if response=$(printf '%s' "$patch" | gh api -X PATCH "repos/$APP_REPO/releases/$release_id" --input -); then
+                  echo "::notice title=Release updated::$RELEASE was already on $APP_REPO; added who promoted it this time: $(echo "$response" | jq -r '.html_url // empty')"
+                else
+                  echo "::warning title=GitHub Release not updated::$RELEASE already exists on $APP_REPO, and adding who promoted it this time failed (non-blocking). A 403/404 here means authz-token lacks contents:write on the app repo."
+                fi
                 ;;
               *)
                 echo "::warning title=GitHub Release failed::could not publish $RELEASE on $APP_REPO (non-blocking). A 403/404 here means authz-token lacks contents:write on the app repo — see this step's credential note."
