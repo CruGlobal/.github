@@ -256,6 +256,13 @@ describe('run', () => {
     expect(failedMock).toHaveBeenCalledWith('Server Error')
   })
 
+  it('fails when the path list is too large for the contents API', async () => {
+    octokit.rest.repos.getContent.mockResolvedValue({ data: { type: 'file', encoding: 'none', content: '' } })
+    await go()
+    expect(failedMock).toHaveBeenCalledWith(expect.stringContaining('.github/one-way-door-paths'))
+    expect(output('tier')).toBeUndefined()
+  })
+
   it('reports missing links and an oversized PR together', async () => {
     pr.body = 'no links'
     files = [{ filename: 'src/a.ts', additions: 900, deletions: 0 }]

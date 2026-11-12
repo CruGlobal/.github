@@ -159,6 +159,10 @@ async function readBasePathList (octokit, { owner, repo, ref, path }) {
     if (Array.isArray(data) || data.type !== 'file') {
       throw new Error(`tier-paths-file ${path} is not a file on the base branch`)
     }
+    // The contents API leaves out the body of a file over 1 MB, which would read as an empty list.
+    if (data.encoding === 'none') {
+      throw new Error(`tier-paths-file ${path} is too large to read from the base branch`)
+    }
     return Buffer.from(data.content, data.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8')
   } catch (error) {
     if (error.status === 404) return null
