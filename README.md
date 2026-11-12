@@ -60,21 +60,20 @@ should only be run in the [cru-deploy](https://github.com/CruGlobal/cru-deploy) 
 | build-number | [x]      | Build Number/Tag                                                                                                  |
 
 ### Pull request checks
-Four reusable workflows that check a pull request before it merges. Each job shows as its own check, so a repo can
-make any of them a required status check. Every input is listed at the top of each workflow file.
+Three reusable workflows that check a pull request before it merges. Each job shows as its own check, so a repo can
+make any of them a required status check. Every input is listed at the top of each workflow file. Workflows named
+`node-*` are for Node apps; the others work for any language.
 
 | Workflow | Checks |
 |----------|--------|
 | [node-ci.yml](.github/workflows/node-ci.yml) | Lint, typecheck and unit tests for a Node app (npm, yarn or pnpm). With `coverage-command`, line coverage for the changed files only, report-only unless `min-coverage` is set. |
-| [security.yml](.github/workflows/security.yml) | gitleaks on the new commits, a dependency audit that fails at `audit-level` (default `high`), and Semgrep (default `p/owasp-top-ten`) that fails only on findings the pull request adds. |
+| [node-security.yml](.github/workflows/node-security.yml) | gitleaks on the new commits, a dependency audit that fails at `audit-level` (default `high`), and Semgrep (default `p/owasp-top-ten`) that fails only on findings the pull request adds. |
 | [pr-guard.yml](.github/workflows/pr-guard.yml) | The description links a work item and a spec. A warning over 300 changed lines, a failure over 800 unless the `size-override` label is set. A `one-way-door` or `two-way-door` label from the paths in `.github/one-way-door-paths` on the base branch. |
-| [review-agent.yml](.github/workflows/review-agent.yml) | Runs the AI review from [agent-review](https://github.com/CruGlobal/agent-review) and fails while a finding at severity 7 or higher is open. Records the run's cost. Needs agent-review set up in the repo and an `anthropic-api-key` secret. |
-
 `.github/one-way-door-paths` lists one `.gitignore`-style pattern per line. A pull request that touches any of them is
 one-way-door. Without the file, pr-guard sets no tier label.
 
 pr-guard goes in its own file, so editing the description or a label re-runs only the guard. `concurrency` cancels a
-run when a newer push comes in, so two quick pushes don't pay for two reviews.
+run when a newer push comes in. The tier is also a `tier` output of pr-guard.yml, for a later job to read.
 
 ```yaml
 # .github/workflows/pr-checks.yml
@@ -93,35 +92,7 @@ jobs:
       coverage-command: npx jest --coverage --coverageReporters=json-summary
 
   security:
-    uses: CruGlobal/.github/.github/workflows/security.yml@v2
-
-  # Only reads the tier; the pr-guard file below does the checking.
-  tier:
-    permissions:
-      contents: read
-      pull-requests: read
-    uses: CruGlobal/.github/.github/workflows/pr-guard.yml@v2
-    with:
-      workflow-ref: v2
-      require-work-item: false
-      require-spec: false
-      fail-lines: 1000000
-      apply-tier-label: false
-
-  review-agent:
-    needs: tier
-    # Run even if tier failed: with no tier the review runs, never the reverse.
-    if: ${{ always() }}
-    permissions:
-      contents: read
-      checks: read
-      pull-requests: write
-    uses: CruGlobal/.github/.github/workflows/review-agent.yml@v2
-    with:
-      # Review every pull request with `true`, or only one-way-door ones:
-      enabled: ${{ needs.tier.outputs.tier != 'two-way-door' }}
-    secrets:
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    uses: CruGlobal/.github/.github/workflows/node-security.yml@v2
 ```
 
 ```yaml

@@ -57,7 +57,6 @@ const NOT_COVERED = [
   'node-security.yml',
   'open-pr.yml',
   'pr-guard.yml',
-  'review-agent.yml',
   'update-sub-repo.yml'
 ]
 
