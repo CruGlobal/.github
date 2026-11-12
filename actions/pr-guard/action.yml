@@ -1,0 +1,71 @@
+name: PR Guard
+description: >-
+  Check a pull request before anyone reads its code. The description must link
+  a work item and a spec. A pull request over warn-lines changed lines gets a
+  warning, and one over fail-lines fails unless it carries the override label.
+  The pull request is labeled one-way-door when it touches a path in the
+  one-way-door list on the base branch, and two-way-door otherwise. Every
+  problem is reported in one run.
+inputs:
+  github-token:
+    description: >-
+      Token that can read the pull request and its files, read the path list on
+      the base branch, and add labels (pull-requests: write, issues: write).
+    required: true
+  work-item-pattern:
+    description: >-
+      Regular expression (case-insensitive, multiline) the description must
+      match. The default needs a line with "work item" followed by a URL.
+    required: false
+    default: ''
+  spec-pattern:
+    description: >-
+      Regular expression (case-insensitive, multiline) the description must
+      match. The default needs a line with "spec" followed by a URL.
+    required: false
+    default: ''
+  require-work-item:
+    description: Fail when the description has no work item link.
+    required: false
+    default: 'true'
+  require-spec:
+    description: Fail when the description has no spec link.
+    required: false
+    default: 'true'
+  warn-lines:
+    description: Changed lines (additions plus deletions) over which the check warns.
+    required: false
+    default: '300'
+  fail-lines:
+    description: Changed lines over which the check fails, unless the override label is set.
+    required: false
+    default: '800'
+  size-override-label:
+    description: Label that lets a pull request over fail-lines pass.
+    required: false
+    default: 'size-override'
+  size-ignore:
+    description: >-
+      Paths not counted toward the size, one pattern per line, in .gitignore
+      style. Empty uses the default list of lockfiles, dist/ and snapshots.
+    required: false
+    default: ''
+  tier-paths-file:
+    description: >-
+      Path list file, read from the base branch, of one-way-door paths, one
+      .gitignore-style pattern per line. When the base branch has no such
+      file, no tier label is set.
+    required: false
+    default: '.github/one-way-door-paths'
+  apply-tier-label:
+    description: Add the one-way-door or two-way-door label to the pull request.
+    required: false
+    default: 'true'
+outputs:
+  tier:
+    description: one-way-door or two-way-door. Empty when there is no path list.
+  changed-lines:
+    description: Changed lines counted toward the size limit.
+runs:
+  using: 'node24'
+  main: '../../dist/pr-guard.js'

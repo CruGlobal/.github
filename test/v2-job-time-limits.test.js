@@ -53,7 +53,10 @@ const NOT_COVERED = [
   'docker-build.yml',
   'generate-build-meta.yml',
   'get-pr-release-label.yml',
+  'node-ci.yml',
+  'node-security.yml',
   'open-pr.yml',
+  'pr-guard.yml',
   'update-sub-repo.yml'
 ]
 

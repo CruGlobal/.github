@@ -1,0 +1,212 @@
+name: Node security
+
+# Reusable security checks for a Node app, each its own job so each shows as
+# its own check:
+#
+#   - Secrets: gitleaks over the commits a pull request or push adds. Old
+#     findings are baselined in the repo's own .gitleaksignore or
+#     .gitleaks.toml, which gitleaks reads on its own.
+#   - Dependency audit: the package manager's audit, failing at audit-level or
+#     above. npm, yarn (classic or berry) and pnpm are told apart by the
+#     lockfile.
+#   - Static scan: Semgrep with the rules in semgrep-config. On a pull request
+#     it fails only on findings the pull request adds, so existing findings do
+#     not block anyone.
+#
+# On a pull request, the scanners' own allowlists (.gitleaksignore,
+# .gitleaks.toml, .semgrepignore) are taken from the base branch, and Semgrep
+# ignores nosemgrep comments, so a pull request cannot allowlist its own
+# finding. An inline gitleaks:allow comment cannot be turned off; a person
+# reviewing the change has to catch that one.
+#
+# gitleaks and Semgrep are pinned, and the gitleaks download is checked
+# against a pinned checksum, because this job reads every line of the code.
+#
+# pull_request_target is not supported: checkout gets the base branch there.
+
+on:
+  workflow_call:
+    inputs:
+      secrets-scan:
+        type: boolean
+        required: false
+        default: true
+        description: Run the gitleaks job.
+      dependency-audit:
+        type: boolean
+        required: false
+        default: true
+        description: Run the dependency audit job.
+      static-scan:
+        type: boolean
+        required: false
+        default: true
+        description: Run the Semgrep job.
+      working-directory:
+        type: string
+        required: false
+        default: '.'
+        description: Folder that holds the lockfile, for the dependency audit.
+      audit-level:
+        type: string
+        required: false
+        default: high
+        description: Lowest severity that fails the audit, one of low, moderate, high or critical.
+      audit-production-only:
+        type: boolean
+        required: false
+        default: true
+        description: Audit only the dependencies that ship, not devDependencies.
+      semgrep-config:
+        type: string
+        required: false
+        default: p/owasp-top-ten
+        description: Semgrep rules, as passed to --config. Several can be given, separated by spaces.
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  SEMGREP_VERSION: 1.183.0
+
+jobs:
+  secrets:
+    name: Secrets scan
+    if: inputs.secrets-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Use the base branch's scanner allowlists
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          for file in .gitleaksignore .gitleaks.toml; do
+            if git cat-file -e "$BASE:$file" 2>/dev/null; then git show "$BASE:$file" > "$file"
+            else rm -f "$file"
+            fi
+          done
+
+      - name: Install gitleaks
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Scan new commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          zero=0000000000000000000000000000000000000000
+          if [ "$EVENT" = pull_request ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          else
+            # A new branch, a force push past history this clone has, or a
+            # manual run: scan everything, with the repo's baseline applied.
+            range=""
+          fi
+          echo "Scanning ${range:-all history}"
+          gitleaks git --no-banner --redact --exit-code 1 ${range:+--log-opts="$range"} .
+
+  dependencies:
+    name: Dependency audit
+    if: inputs.dependency-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Audit
+        env:
+          LEVEL: ${{ inputs.audit-level }}
+          PROD_ONLY: ${{ inputs.audit-production-only }}
+        run: |
+          case "$LEVEL" in
+            low|moderate|high|critical) ;;
+            *) echo "::error::audit-level must be low, moderate, high or critical, got \"$LEVEL\""; exit 1 ;;
+          esac
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            extra=(); [ "$PROD_ONLY" = true ] && extra=(--prod)
+            pnpm audit --audit-level "$LEVEL" "${extra[@]}"
+          elif [ -f yarn.lock ]; then
+            corepack enable
+            if yarn --version | grep -q '^1\.'; then
+              # yarn classic exits with a bitmask of every severity it found
+              # (1 info, 2 low, 4 moderate, 8 high, 16 critical), so only the
+              # bits at or over the level count.
+              case "$LEVEL" in low) mask=30 ;; moderate) mask=28 ;; high) mask=24 ;; critical) mask=16 ;; esac
+              set +e
+              extra=(); [ "$PROD_ONLY" = true ] && extra=(--groups dependencies)
+              yarn audit --level "$LEVEL" "${extra[@]}"
+              status=$?
+              set -e
+              [ $((status & mask)) -eq 0 ]
+            else
+              extra=(); [ "$PROD_ONLY" = true ] && extra=(--environment production)
+              yarn npm audit --all --recursive --severity "$LEVEL" "${extra[@]}"
+            fi
+          elif [ -f package-lock.json ]; then
+            extra=(); [ "$PROD_ONLY" = true ] && extra=(--omit=dev)
+            npm audit --audit-level="$LEVEL" "${extra[@]}"
+          else
+            echo "::error::no package-lock.json, yarn.lock or pnpm-lock.yaml in ${PWD}, so there is nothing to audit. Set dependency-audit to false for a repo with no Node dependencies."
+            exit 1
+          fi
+
+  static:
+    name: Static security scan
+    if: inputs.static-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Use the base branch's scanner allowlists
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          for file in .semgrepignore; do
+            if git cat-file -e "$BASE:$file" 2>/dev/null; then git show "$BASE:$file" > "$file"
+            else rm -f "$file"
+            fi
+          done
+
+      - name: Semgrep
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          CONFIG: ${{ inputs.semgrep-config }}
+        run: |
+          zero=0000000000000000000000000000000000000000
+          args=()
+          for config in $CONFIG; do args+=(--config "$config"); done
+          if [ "$EVENT" = pull_request ]; then
+            args+=(--baseline-commit "$PR_BASE" --disable-nosem)
+          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            args+=(--baseline-commit "$PUSH_BEFORE")
+          fi
+          # A new branch or a manual run has no baseline, so it reports every
+          # finding in the repo.
+          pipx run "semgrep==${SEMGREP_VERSION}" scan --error --metrics off --disable-version-check "${args[@]}"
