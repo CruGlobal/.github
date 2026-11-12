@@ -54,10 +54,10 @@ const NOT_COVERED = [
   'generate-build-meta.yml',
   'get-pr-release-label.yml',
   'node-ci.yml',
+  'node-security.yml',
   'open-pr.yml',
   'pr-guard.yml',
   'review-agent.yml',
-  'security.yml',
   'update-sub-repo.yml'
 ]
 

@@ -1,6 +1,7 @@
-name: Security
+name: Node security
 
-# Reusable security checks, each its own job so each shows as its own check:
+# Reusable security checks for a Node app, each its own job so each shows as
+# its own check:
 #
 #   - Secrets: gitleaks over the commits a pull request or push adds. Old
 #     findings are baselined in the repo's own .gitleaksignore or

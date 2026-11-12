@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { loadYaml, findStep, runShellStep, removeFakes } from './support/workflow-steps.js'
 
-// The dependency audit step in security.yml, run under bash with fake yarn,
-// npm and corepack on PATH. Each fake records the arguments it was given and
+// The dependency audit step in node-security.yml, run under bash with fake
+// yarn, npm and corepack on PATH. Each fake records the arguments it was given and
 // exits with FAKE_AUDIT_STATUS, so the step's own pass/fail logic is what is
 // checked, including yarn classic's severity bitmask.
 
-const { job, step } = findStep(loadYaml('.github/workflows/security.yml'), 'dependencies', 'Audit')
+const { job, step } = findStep(loadYaml('.github/workflows/node-security.yml'), 'dependencies', 'Audit')
 
 const FAKE_PACKAGE_MANAGER = `#!/bin/bash
 if [ "$1" = --version ]; then echo "$FAKE_YARN_VERSION"; exit 0; fi
@@ -57,7 +57,7 @@ async function audit ({ lockfile, level, prodOnly = 'false', status = 0, yarnVer
   }
 }
 
-describe('security.yml dependency audit', () => {
+describe('node-security.yml dependency audit', () => {
   it('fails on an audit-level it does not know, naming the input', async () => {
     const result = await audit({ lockfile: 'package-lock.json', level: 'severe' })
     expect(result.status).not.toBe(0)
