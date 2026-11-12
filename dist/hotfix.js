@@ -24326,6 +24326,12 @@ var DISPLAY_FIELDS = Object.freeze({
     format: /^(?=[A-Za-z0-9-]{1,39}(?:\[bot\])?$)[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?$/,
     rule: "a GitHub login (1-39 letters, digits or hyphens, starting with a letter or digit, optionally followed by [bot])"
   },
+  // Flightdeck's pattern as given, except that the "/" in the first class is
+  // not escaped. It means the same there, and lint refuses the escape.
+  requested_by: {
+    format: /^(?=.{1,254}$)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/,
+    rule: "an email address (the HTML form rule, at most 254 characters)"
+  },
   run_url: {
     format: /^https:\/\/github\.com\/(?=[A-Za-z0-9-]{1,39}\/)[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?\/)[A-Za-z0-9._-]{1,100}\/actions\/runs\/[0-9]{1,20}(?:\/attempts\/[0-9]{1,20})?$/,
     rule: "a GitHub Actions run URL (https://github.com/<owner>/<repo>/actions/runs/<id>, optionally followed by /attempts/<n>)"

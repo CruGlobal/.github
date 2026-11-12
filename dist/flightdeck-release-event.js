@@ -19690,6 +19690,12 @@ var DISPLAY_FIELDS = Object.freeze({
     format: /^(?=[A-Za-z0-9-]{1,39}(?:\[bot\])?$)[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?$/,
     rule: "a GitHub login (1-39 letters, digits or hyphens, starting with a letter or digit, optionally followed by [bot])"
   },
+  // Flightdeck's pattern as given, except that the "/" in the first class is
+  // not escaped. It means the same there, and lint refuses the escape.
+  requested_by: {
+    format: /^(?=.{1,254}$)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/,
+    rule: "an email address (the HTML form rule, at most 254 characters)"
+  },
   run_url: {
     format: /^https:\/\/github\.com\/(?=[A-Za-z0-9-]{1,39}\/)[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?\/)[A-Za-z0-9._-]{1,100}\/actions\/runs\/[0-9]{1,20}(?:\/attempts\/[0-9]{1,20})?$/,
     rule: "a GitHub Actions run URL (https://github.com/<owner>/<repo>/actions/runs/<id>, optionally followed by /attempts/<n>)"
@@ -19740,6 +19746,7 @@ async function run() {
       rollbackSafetyReasons: getInput("rollback-safety-reasons"),
       deployedAt: getInput("deployed-at"),
       actor: getInput("actor"),
+      requestedBy: getInput("requested-by"),
       runUrl: getInput("run-url"),
       imageDigest: getInput("image-digest")
     }, { warn: warning });
@@ -19774,7 +19781,7 @@ async function run() {
 function normalizeEndpoint(endpoint) {
   return endpoint.trim().replace(/\/+$/, "");
 }
-function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt, actor, runUrl, imageDigest }, { warn = () => {
+function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imageTags, rollbackSafety, rollbackSafetyReasons, deployedAt, actor, requestedBy, runUrl, imageDigest }, { warn = () => {
 } } = {}) {
   environment = (environment || "").trim();
   if (!environment) throw new Error("environment is required");
@@ -19799,7 +19806,7 @@ function buildEvent({ app, environment, kind, releaseTag, buildNumber, sha, imag
   }
   deployedAt = (deployedAt || "").trim();
   if (deployedAt) event.deployed_at = deployedAt;
-  Object.assign(event, displayFields({ actor, run_url: runUrl, image_digest: imageDigest }, warn));
+  Object.assign(event, displayFields({ actor, requested_by: requestedBy, run_url: runUrl, image_digest: imageDigest }, warn));
   return event;
 }
 function displayFields(values, warn = () => {
@@ -19835,7 +19842,7 @@ async function postReleaseEvent(client, projectId, event, warn = () => {
     const dropped = refusedDisplayFields(error2, event);
     if (dropped.length === 0) throw error2;
     const retry = Object.fromEntries(Object.entries(event).filter(([key]) => !dropped.includes(key)));
-    warn(`Flightdeck release event: Flightdeck does not accept ${dropped.join(", ")} yet (${error2.message}). Posting the event again without ${dropped.length === 1 ? "it" : "them"}.`);
+    warn(`Flightdeck release event: Flightdeck refused keys it does not know (${error2.message}). Posting the event again without ${dropped.join(", ")}.`);
     return client.postReleaseEvent(projectId, retry);
   }
 }
@@ -19846,9 +19853,13 @@ function refusedDisplayFields(error2, event) {
   const message = typeof error2.body?.error === "string" ? error2.body.error : "";
   const match = /^\s*unknown keys?:\s*([^(]*)/i.exec(message);
   if (!match) return [];
-  const named = match[1].split(/,|\s+and\s+/).map((name) => name.trim());
   const carried = Object.keys(DISPLAY_FIELDS).filter((key) => key in event);
-  return carried.some((key) => named.includes(key)) ? carried : [];
+  if (carried.length === 0) return [];
+  const MORE = /(?:^|\s)and\s+\d+\s+more\s*$/i;
+  const list = match[1].split(/\bsettable\b/i)[0].replace(/[\s;.,:]+$/, "").trim();
+  const names = list.replace(MORE, "").split(/,|\s+and\s+/).map((name) => name.trim()).filter(Boolean);
+  if (MORE.test(list) || names.length === 0) return carried;
+  return carried.filter((key) => names.includes(key));
 }
 function previousReleaseEvent(events, event) {
   const stated = event.deployed_at ? Date.parse(event.deployed_at) : NaN;
