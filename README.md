@@ -99,8 +99,7 @@ jobs:
   tier:
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
+      pull-requests: read
     uses: CruGlobal/.github/.github/workflows/pr-guard.yml@v2
     with:
       workflow-ref: v2

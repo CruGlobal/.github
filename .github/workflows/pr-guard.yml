@@ -11,9 +11,10 @@ name: PR Guard
 #     pull_request:
 #       types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 #
-# The caller's job must grant pull-requests: write and issues: write for the
-# label. A pull request from a fork gets a read-only token, so it is checked
-# but not labeled.
+# The caller's job grants the token's permissions. contents: read and
+# pull-requests: read are enough for the checks; add pull-requests: write and
+# issues: write to set the label. A pull request from a fork gets a read-only
+# token, so it is checked but not labeled.
 
 on:
   workflow_call:
@@ -77,11 +78,6 @@ on:
       tier:
         description: one-way-door or two-way-door. Empty when there is no path list.
         value: ${{ jobs.guard.outputs.tier }}
-
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
 
 jobs:
   guard:
