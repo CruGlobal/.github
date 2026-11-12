@@ -104,6 +104,10 @@ describe('checkLinks', () => {
     expect(checkLinks('Work item: https://x.example.com/1', patterns)).toEqual(['spec link'])
   })
 
+  it('needs the whole word', () => {
+    expect(checkLinks('Work item: https://x.example.com/1\nInspected https://x.example.com/s', patterns)).toEqual(['spec link'])
+  })
+
   it('needs a URL, not just the label', () => {
     expect(checkLinks('Work item: TBD\nSpec: n/a', patterns)).toEqual(['work item link', 'spec link'])
   })
@@ -132,14 +136,16 @@ describe('countChangedLines', () => {
       { filename: 'src/a.ts', additions: 10, deletions: 5 },
       { filename: 'yarn.lock', additions: 900, deletions: 900 },
       { filename: 'dist/index.js', additions: 400, deletions: 0 },
+      { filename: 'src/dist/real.js', additions: 2, deletions: 0 },
       { filename: 'src/__snapshots__/a.snap', additions: 50, deletions: 0 },
       { filename: 'src/b.ts' }
     ]
-    expect(countChangedLines(files, ignore)).toBe(15)
+    expect(countChangedLines(files, ignore)).toBe(17)
   })
 
-  it('skips a rename when either side is ignored', () => {
-    expect(countChangedLines([{ filename: 'src/x.lock', previous_filename: 'yarn.lock', additions: 3, deletions: 0 }], ignore)).toBe(0)
+  it('counts a file by where it ends up', () => {
+    expect(countChangedLines([{ filename: 'src/x.js', previous_filename: 'dist/x.js', additions: 3, deletions: 0 }], ignore)).toBe(3)
+    expect(countChangedLines([{ filename: 'dist/x.js', previous_filename: 'src/x.js', additions: 3, deletions: 0 }], ignore)).toBe(0)
   })
 })
 
@@ -271,6 +277,14 @@ describe('run', () => {
     await go()
     expect(failedMock).not.toHaveBeenCalled()
     expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('400 changed lines is over 300'))
+  })
+
+  it('refuses a pull request bigger than the files API can list', async () => {
+    pr.changed_files = 3001
+    files = Array.from({ length: 3000 }, (_, i) => ({ filename: `aaa/${i}.txt`, additions: 1, deletions: 0 }))
+    await go()
+    expect(failedMock).toHaveBeenCalledWith(expect.stringContaining('changes 3001 files, but GitHub lists only the first 3000'))
+    expect(octokit.rest.issues.addLabels).not.toHaveBeenCalled()
   })
 
   it('warns instead of failing when it cannot label, as on a fork', async () => {

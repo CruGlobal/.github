@@ -23,8 +23,8 @@ import * as github from '@actions/github'
 export const ONE_WAY = 'one-way-door'
 export const TWO_WAY = 'two-way-door'
 
-export const DEFAULT_WORK_ITEM_PATTERN = 'work item[^\\n]*https?://\\S+'
-export const DEFAULT_SPEC_PATTERN = 'spec[^\\n]*https?://\\S+'
+export const DEFAULT_WORK_ITEM_PATTERN = '\\bwork item\\b[^\\n]*https?://\\S+'
+export const DEFAULT_SPEC_PATTERN = '\\bspec\\b[^\\n]*https?://\\S+'
 export const DEFAULT_SIZE_IGNORE = [
   'package-lock.json',
   'yarn.lock',
@@ -33,7 +33,7 @@ export const DEFAULT_SIZE_IGNORE = [
   'composer.lock',
   'poetry.lock',
   'Cargo.lock',
-  'dist/',
+  '/dist/',
   '__snapshots__/'
 ].join('\n')
 
@@ -121,13 +121,12 @@ export function checkLinks (body, { workItem, spec, requireWorkItem = true, requ
 }
 
 // Each changed file as { filename, previous_filename, additions, deletions },
-// the shape the pulls.listFiles API returns. A renamed file is skipped when
-// either its old or new path is ignored.
+// the shape the pulls.listFiles API returns. A file counts by where it ends up,
+// so moving a file out of an ignored folder still counts its lines.
 export function countChangedLines (files, ignorePatterns) {
   let lines = 0
   for (const file of files) {
-    const paths = [file.filename, file.previous_filename].filter(Boolean)
-    if (paths.some((path) => matchesAny(path, ignorePatterns))) continue
+    if (matchesAny(file.filename, ignorePatterns)) continue
     lines += (file.additions ?? 0) + (file.deletions ?? 0)
   }
   return lines
@@ -213,6 +212,11 @@ export async function run ({ context = github.context, getOctokit = github.getOc
     const { data: live } = await octokit.rest.pulls.get({ owner, repo, pull_number: number })
     const labels = (live.labels ?? []).map((label) => label.name)
     const files = await octokit.paginate(octokit.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 })
+    // The files API stops at 3000 files. A path past that could be one-way, so
+    // a pull request this big is refused rather than labeled from part of it.
+    if (live.changed_files > files.length) {
+      throw new Error(`this pull request changes ${live.changed_files} files, but GitHub lists only the first ${files.length}, so its size and tier cannot be checked. Split it up.`)
+    }
 
     const problems = []
     const summary = []
