@@ -526,6 +526,15 @@ jobs:
       # With no production baseline yet (first deploy) or a failed ledger query
       # the closing line is simply omitted -- no link is better than a wrong one.
       #
+      # The Promote line names the command that promotes this candidate,
+      # `cru app promote -n <project>`. A promote to production goes through
+      # the deploy gate, which checks who is asking, so a link that starts the
+      # promote workflow on GitHub would, for most people, only lead to a run
+      # the gate refuses. In this line the project name sits in a code span,
+      # so its &, < and > are escaped and a line break or backtick becomes a
+      # space: here it cannot start a link or a mention, end the span early,
+      # or add a line. (The title line uses the name as it is, as before.)
+      #
       # Which page: Flightdeck's changelog page for the app's project when
       # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
       # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
@@ -599,6 +608,7 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | ($project | gsub("[`\r\n]+"; " ") | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) as $promoteapp
              | (if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end) as $stage
              | (if $promotable == "no"
                 then "Production now runs " + (if ($production | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z")) then "`\($production)`" else "another release" end) + ", so promote will refuse this hotfix."
@@ -608,7 +618,7 @@ jobs:
                       then ":adhesive_bandage: *\($project) `\($tag)` is on \($stage): a hotfix of `\($hotfixof)`*"
                            + (if $fixes != "" then "\n" + ($fixes | gsub("[\r\n]+"; " ")) else "" end)
                       else ":package: *\($project) `\($tag)` is on \($stage)*" end)
-                     + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
+                     + "\nPromote: `cru app promote -n \($promoteapp)`"
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end)
@@ -959,6 +969,15 @@ jobs:
       # With no production baseline yet (first deploy) or a failed ledger query
       # the closing line is simply omitted -- no link is better than a wrong one.
       #
+      # The Promote line names the command that promotes this candidate,
+      # `cru app promote -n <project>`. A promote to production goes through
+      # the deploy gate, which checks who is asking, so a link that starts the
+      # promote workflow on GitHub would, for most people, only lead to a run
+      # the gate refuses. In this line the project name sits in a code span,
+      # so its &, < and > are escaped and a line break or backtick becomes a
+      # space: here it cannot start a link or a mention, end the span early,
+      # or add a line. (The title line uses the name as it is, as before.)
+      #
       # Which page: Flightdeck's changelog page for the app's project when
       # the FLIGHTDECK_WORKSPACE variable is a plain slug, app-info's
       # FlightdeckProject is a Flightdeck identifier (a capital letter, then up
@@ -1032,6 +1051,7 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | ($project | gsub("[`\r\n]+"; " ") | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) as $promoteapp
              | (if $appurl != "" then "<" + $appurl + "|stage>" else "stage" end) as $stage
              | (if $promotable == "no"
                 then "Production now runs " + (if ($production | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z")) then "`\($production)`" else "another release" end) + ", so promote will refuse this hotfix."
@@ -1041,7 +1061,7 @@ jobs:
                       then ":adhesive_bandage: *\($project) `\($tag)` is on \($stage): a hotfix of `\($hotfixof)`*"
                            + (if $fixes != "" then "\n" + ($fixes | gsub("[\r\n]+"; " ")) else "" end)
                       else ":package: *\($project) `\($tag)` is on \($stage)*" end)
-                     + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
+                     + "\nPromote: `cru app promote -n \($promoteapp)`"
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end)
@@ -1456,7 +1476,7 @@ jobs:
 
       # Notify Slack (success) — the stage-deploy message's variant, same
       # :package: emoji (this is still "a new candidate is ready"), same
-      # promote-dispatch and changelog follow-on lines, same never-fails policy.
+      # `cru app promote` and changelog follow-on lines, same never-fails policy.
       #
       # Two deliberate differences. The wording says *verified* (stage-less)
       # rather than "is on stage", because there is no stage and a reader must
@@ -1525,6 +1545,7 @@ jobs:
                  else "https://deploys.cru.org/changelog?project=" + $project + "&from=" + $from + "&to=" + $to
                  end;
              ($hotfixkind == "hotfix" and ($hotfixof | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z"))) as $hotfix
+             | ($project | gsub("[`\r\n]+"; " ") | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) as $promoteapp
              | (if $promotable == "no"
                 then "Production now runs " + (if ($production | test("\\Arelease-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?[0-9]+\\z")) then "`\($production)`" else "another release" end) + ", so promote will refuse this hotfix."
                 else "Promote it before the next build of the default branch replaces it as the release candidate." end) as $last
@@ -1533,7 +1554,7 @@ jobs:
                       then ":adhesive_bandage: *\($project) `\($tag)` verified (stage-less) on release-candidate: a hotfix of `\($hotfixof)`*"
                            + (if $fixes != "" then "\n" + ($fixes | gsub("[\r\n]+"; " ")) else "" end)
                       else ":package: *\($project) `\($tag)` verified (stage-less) on release-candidate* — promote when ready" end)
-                     + "\nPromote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>"
+                     + "\nPromote: `cru app promote -n \($promoteapp)`"
                      + (if $prodsha != ""
                         then "\n<" + changelog($prodsha; $tag) + "|what'\''s in this candidate>"
                         else "" end)
