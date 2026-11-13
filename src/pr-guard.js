@@ -115,10 +115,17 @@ export function parseCodeowners (text) {
     .filter((rule) => !CATCH_ALL.has(rule.pattern))
 }
 
+// Each pattern is compiled once, since a big PR checks every file against every line.
+const codeownersRegExps = new Map()
+function codeownersRegExp (pattern) {
+  if (!codeownersRegExps.has(pattern)) codeownersRegExps.set(pattern, globToRegExp(pattern, { codeowners: true }))
+  return codeownersRegExps.get(pattern)
+}
+
 // The last rule that matches a file decides it, as in GitHub.
 export function isOwned (file, rules) {
   for (let i = rules.length - 1; i >= 0; i--) {
-    if (globToRegExp(rules[i].pattern, { codeowners: true }).test(file)) return rules[i].owned
+    if (codeownersRegExp(rules[i].pattern).test(file)) return rules[i].owned
   }
   return false
 }
