@@ -67,8 +67,8 @@ on:
       tier-paths-file:
         type: string
         required: false
-        default: .github/one-way-door-paths
-        description: One-way-door path list, read from the base branch. With no such file, no tier label is set.
+        default: ''
+        description: CODEOWNERS-format file on the base branch that sets the tier; files it gives an owner are one-way-door. Empty looks where GitHub does (.github/CODEOWNERS, CODEOWNERS, docs/CODEOWNERS). With no such file, no tier label is set.
       apply-tier-label:
         type: boolean
         required: false

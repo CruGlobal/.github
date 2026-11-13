@@ -68,9 +68,12 @@ make any of them a required status check. Every input is listed at the top of ea
 |----------|--------|
 | [node-ci.yml](.github/workflows/node-ci.yml) | Lint, typecheck and unit tests for a Node app (npm, yarn or pnpm). With `coverage-command`, line coverage for the changed files only, report-only unless `min-coverage` is set. |
 | [node-security.yml](.github/workflows/node-security.yml) | gitleaks on the new commits, a dependency audit that fails at `audit-level` (default `high`), and Semgrep (default `p/owasp-top-ten`) that fails only on findings the pull request adds. |
-| [pr-guard.yml](.github/workflows/pr-guard.yml) | The description links a work item and a spec. A warning over 300 changed lines, a failure over 800 unless the `size-override` label is set. A `one-way-door` or `two-way-door` label from the paths in `.github/one-way-door-paths` on the base branch. |
-`.github/one-way-door-paths` lists one `.gitignore`-style pattern per line. A pull request that touches any of them is
-one-way-door. Without the file, pr-guard sets no tier label.
+| [pr-guard.yml](.github/workflows/pr-guard.yml) | The description links a work item and a spec. A warning over 300 changed lines, a failure over 800 unless the `size-override` label is set. A `one-way-door` or `two-way-door` label from CODEOWNERS on the base branch. |
+
+A pull request that touches a file CODEOWNERS gives an owner is one-way-door, so the label matches the files that
+need a code owner's review. As in GitHub, the last matching line decides, and a line with no owner takes a path back
+out. A bare `*` default-owner line is skipped. pr-guard reads `.github/CODEOWNERS`, then `CODEOWNERS`, then
+`docs/CODEOWNERS`, or the file set in `tier-paths-file`. Without one, it sets no tier label.
 
 pr-guard goes in its own file, so editing the description or a label re-runs only the guard. `concurrency` cancels a
 run when a newer push comes in. The tier is also a `tier` output of pr-guard.yml, for a later job to read.
