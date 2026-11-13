@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.23.0](https://github.com/CruGlobal/.github/compare/v2.22.0...v2.23.0) (2026-11-13)
+
+
+### Features
+
+* **pr-guard:** set the tier from CODEOWNERS instead of a separate path list ([#581](https://github.com/CruGlobal/.github/issues/581)) ([afc86de](https://github.com/CruGlobal/.github/commit/afc86deb8a4ad0866234ad93d80075efd72724f9))
+
+
+### Bug Fixes
+
+* **v2:** point the release-candidate notice at cru app promote ([#582](https://github.com/CruGlobal/.github/issues/582)) ([072aec3](https://github.com/CruGlobal/.github/commit/072aec3ef2334031f10be36368df8d4fdfafb253))
+
 ## [2.22.0](https://github.com/CruGlobal/.github/compare/v2.21.0...v2.22.0) (2026-11-12)
 
 
