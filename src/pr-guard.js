@@ -48,9 +48,9 @@ export const DEFAULT_SIZE_IGNORE = [
 //   - A trailing "/" matches everything under that folder.
 //   - A pattern that names a folder without a trailing "/" also matches
 //     everything under it, as it does in CODEOWNERS.
-//   - With codeowners set, a pattern ending in a single "*", like "docs/*",
-//     matches only the files directly in that folder, as GitHub reads it.
-//     .gitignore reads it as everything under the folder.
+//   - With codeowners set, a pattern ending in "/*", like "docs/*", matches
+//     only the files directly in that folder, as GitHub reads it. .gitignore
+//     reads it as everything under the folder.
 export function globToRegExp (pattern, { codeowners = false } = {}) {
   let p = String(pattern).trim()
   const dirOnly = p.endsWith('/')
@@ -82,7 +82,7 @@ export function globToRegExp (pattern, { codeowners = false } = {}) {
   }
 
   const prefix = anchored ? '^' : '^(?:.*/)?'
-  const filesOnly = codeowners && !dirOnly && p.endsWith('*') && !p.endsWith('**')
+  const filesOnly = codeowners && !dirOnly && p.endsWith('/*')
   return new RegExp(`${prefix}${source}${filesOnly ? '' : '(?:/.*)?'}$`)
 }
 
@@ -99,17 +99,20 @@ export function matchesAny (file, patterns) {
   return patterns.some((pattern) => globToRegExp(pattern).test(file))
 }
 
+// Lines that match every file. They set a default owner for the whole repo,
+// not a one-way-door path, and with last match wins they would make every
+// pull request one-way, so they are skipped.
+const CATCH_ALL = new Set(['*', '**', '/**', '**/*', '/**/*'])
+
 // CODEOWNERS lines as { pattern, owned }: the first word is the path and the
-// rest are owners. "\ " is a space inside a path. A bare "*" line is skipped:
-// it is a default owner for the whole repo, not a one-way-door path, and with
-// last match wins it would make every pull request one-way.
+// rest are owners. "\ " is a space and "\#" a "#" inside a path.
 export function parseCodeowners (text) {
   return parsePathList(text)
     .map((line) => {
       const [pattern, ...owners] = line.split(/(?<!\\)\s+/)
-      return { pattern: pattern.replace(/\\ /g, ' '), owned: owners.length > 0 }
+      return { pattern: pattern.replace(/\\([ #])/g, '$1'), owned: owners.length > 0 }
     })
-    .filter((rule) => rule.pattern !== '*')
+    .filter((rule) => !CATCH_ALL.has(rule.pattern))
 }
 
 // The last rule that matches a file decides it, as in GitHub.
@@ -291,7 +294,12 @@ export async function run ({ context = github.context, getOctokit = github.getOc
       summary.push(`**Tier:** not set (no ${paths.join(', ')} on the base branch)`)
     } else {
       const changedPaths = files.flatMap((file) => [file.filename, file.previous_filename].filter(Boolean))
-      const { tier, matched } = classifyTier(changedPaths, parseCodeowners(codeowners.text))
+      const rules = parseCodeowners(codeowners.text)
+      // A plain path list in the old format has no owners, so it would quietly label everything two-way.
+      if (rules.length > 0 && !rules.some((rule) => rule.owned)) {
+        core.warning(`No line in ${codeowners.path} names an owner, so no path is one-way-door. The tier file uses the CODEOWNERS format: a path, then its owners.`)
+      }
+      const { tier, matched } = classifyTier(changedPaths, rules)
       core.setOutput('tier', tier)
       summary.push(`**Tier:** ${tier} (from ${codeowners.path})`)
       if (matched.length > 0) summary.push(`One-way-door paths touched:\n\n${matched.map((file) => `- \`${file}\``).join('\n')}`)

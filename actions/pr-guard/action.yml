@@ -53,8 +53,8 @@ inputs:
   tier-paths-file:
     description: >-
       CODEOWNERS-format file, read from the base branch, that sets the tier. A
-      file the last matching line gives an owner is one-way-door; a bare "*"
-      line is skipped. Empty looks where GitHub does: .github/CODEOWNERS, then
+      file the last matching line gives an owner is one-way-door; catch-all
+      lines like "*" and "**" are skipped. Empty looks where GitHub does: .github/CODEOWNERS, then
       CODEOWNERS, then docs/CODEOWNERS. With no such file, no tier label is set.
     required: false
     default: ''

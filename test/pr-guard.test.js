@@ -76,6 +76,7 @@ describe('globToRegExp', () => {
     expect(owners('docs/**', 'docs/deep/a.md')).toBe(true)
     expect(owners('docs/', 'docs/deep/a.md')).toBe(true)
     expect(matches('docs/*', 'docs/deep/a.md')).toBe(true)
+    expect(owners('config*', 'config/settings.yml')).toBe(true)
   })
 })
 
@@ -95,8 +96,13 @@ describe('parseCodeowners', () => {
     ])
   })
 
-  it('skips a bare * default-owner line', () => {
-    expect(parseCodeowners('* @example-org/everyone\n/auth/ @example-org/security')).toEqual([{ pattern: '/auth/', owned: true }])
+  it('skips catch-all default-owner lines', () => {
+    const text = '* @a\n** @a\n/** @a\n**/* @a\n/auth/ @example-org/security'
+    expect(parseCodeowners(text)).toEqual([{ pattern: '/auth/', owned: true }])
+  })
+
+  it('reads \\# as a # in a path', () => {
+    expect(parseCodeowners('\\#notes @a')).toEqual([{ pattern: '#notes', owned: true }])
   })
 })
 
@@ -280,6 +286,13 @@ describe('run', () => {
     await go()
     expect(octokit.rest.repos.getContent.mock.calls.map(([args]) => args.path)).toEqual(['.github/tier-owners'])
     expect(output('tier')).toBe(ONE_WAY)
+  })
+
+  it('warns when no line names an owner, as an old-style path list would', async () => {
+    repoFiles['.github/CODEOWNERS'] = '/src/payments/\n/infra/\n'
+    await go()
+    expect(output('tier')).toBe(TWO_WAY)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('No line in .github/CODEOWNERS names an owner'))
   })
 
   it('does not count a path whose last matching line has no owner', async () => {
