@@ -24306,7 +24306,7 @@ var DEFAULT_SIZE_IGNORE = [
   "/dist/",
   "__snapshots__/"
 ].join("\n");
-function globToRegExp(pattern) {
+function globToRegExp(pattern, { codeowners = false } = {}) {
   let p = String(pattern).trim();
   const dirOnly = p.endsWith("/");
   if (dirOnly) p = p.slice(0, -1);
@@ -24334,7 +24334,8 @@ function globToRegExp(pattern) {
     }
   }
   const prefix = anchored ? "^" : "^(?:.*/)?";
-  return new RegExp(`${prefix}${source}(?:/.*)?$`);
+  const filesOnly = codeowners && !dirOnly && p.endsWith("/*");
+  return new RegExp(`${prefix}${source}${filesOnly ? "" : "(?:/.*)?"}$`);
 }
 function parsePathList(text) {
   return String(text ?? "").split(/\r?\n/).map((line) => line.replace(/\s+#.*$/, "").trim()).filter((line) => line !== "" && !line.startsWith("#"));
@@ -24342,10 +24343,29 @@ function parsePathList(text) {
 function matchesAny(file, patterns) {
   return patterns.some((pattern) => globToRegExp(pattern).test(file));
 }
-function classifyTier(files, patterns) {
-  const matched = files.filter((file) => matchesAny(file, patterns));
+var CATCH_ALL = /* @__PURE__ */ new Set(["*", "**", "/**", "**/*", "/**/*"]);
+function parseCodeowners(text) {
+  return parsePathList(text).map((line) => {
+    const [pattern, ...owners] = line.split(/(?<!\\)\s+/);
+    return { pattern: pattern.replace(/\\([ #])/g, "$1"), owned: owners.length > 0 };
+  }).filter((rule) => !CATCH_ALL.has(rule.pattern));
+}
+var codeownersRegExps = /* @__PURE__ */ new Map();
+function codeownersRegExp(pattern) {
+  if (!codeownersRegExps.has(pattern)) codeownersRegExps.set(pattern, globToRegExp(pattern, { codeowners: true }));
+  return codeownersRegExps.get(pattern);
+}
+function isOwned(file, rules) {
+  for (let i = rules.length - 1; i >= 0; i--) {
+    if (codeownersRegExp(rules[i].pattern).test(file)) return rules[i].owned;
+  }
+  return false;
+}
+function classifyTier(files, rules) {
+  const matched = files.filter((file) => isOwned(file, rules));
   return { tier: matched.length > 0 ? ONE_WAY : TWO_WAY, matched };
 }
+var CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
 function stripHtmlComments(text) {
   return String(text ?? "").replace(/<!--[\s\S]*?(?:-->|$)/g, "");
 }
@@ -24387,20 +24407,27 @@ function parseBoolean(raw, inputName) {
   if (value === "false") return false;
   throw new Error(`${inputName} must be true or false, got "${value}"`);
 }
-async function readBasePathList(octokit, { owner, repo, ref, path }) {
+async function readBaseFile(octokit, { owner, repo, ref, path }) {
   try {
     const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref });
     if (Array.isArray(data) || data.type !== "file") {
-      throw new Error(`tier-paths-file ${path} is not a file on the base branch`);
+      throw new Error(`${path} is not a file on the base branch`);
     }
     if (data.encoding === "none") {
-      throw new Error(`tier-paths-file ${path} is too large to read from the base branch`);
+      throw new Error(`${path} is too large to read from the base branch`);
     }
     return Buffer.from(data.content, data.encoding === "base64" ? "base64" : "utf8").toString("utf8");
   } catch (error2) {
     if (error2.status === 404) return null;
     throw error2;
   }
+}
+async function readBaseCodeowners(octokit, { owner, repo, ref, paths }) {
+  for (const path of paths) {
+    const text = await readBaseFile(octokit, { owner, repo, ref, path });
+    if (text !== null) return { path, text };
+  }
+  return null;
 }
 async function applyTierLabel(octokit, { owner, repo, number, tier, current }) {
   const other = tier === ONE_WAY ? TWO_WAY : ONE_WAY;
@@ -24426,7 +24453,7 @@ function readInputs() {
     failLines: parseCount(getInput("fail-lines") || "800", "fail-lines"),
     overrideLabel: getInput("size-override-label") || "size-override",
     sizeIgnore: parsePathList(getInput("size-ignore") || DEFAULT_SIZE_IGNORE),
-    tierPathsFile: getInput("tier-paths-file") || ".github/one-way-door-paths",
+    tierPathsFile: getInput("tier-paths-file"),
     applyLabels: parseBoolean(getInput("apply-tier-label") || "true", "apply-tier-label")
   };
 }
@@ -24463,15 +24490,20 @@ async function run({ context: context3 = context2, getOctokit: getOctokit2 = get
       notice(`${lines} changed lines is over ${inputs.failLines}, allowed by the ${inputs.overrideLabel} label.`);
     }
     summary2.push(`**Size:** ${lines} changed lines (${size})`);
-    const listText = await readBasePathList(octokit, { owner, repo, ref: pr.base.sha, path: inputs.tierPathsFile });
-    if (listText === null) {
-      notice(`No ${inputs.tierPathsFile} on the base branch, so no tier label was set.`);
-      summary2.push(`**Tier:** not set (no ${inputs.tierPathsFile} on the base branch)`);
+    const paths = inputs.tierPathsFile ? [inputs.tierPathsFile] : CODEOWNERS_PATHS;
+    const codeowners = await readBaseCodeowners(octokit, { owner, repo, ref: pr.base.sha, paths });
+    if (codeowners === null) {
+      notice(`No ${paths.join(", ")} on the base branch, so no tier label was set.`);
+      summary2.push(`**Tier:** not set (no ${paths.join(", ")} on the base branch)`);
     } else {
       const changedPaths = files.flatMap((file) => [file.filename, file.previous_filename].filter(Boolean));
-      const { tier, matched } = classifyTier(changedPaths, parsePathList(listText));
+      const rules = parseCodeowners(codeowners.text);
+      if (rules.length > 0 && !rules.some((rule) => rule.owned)) {
+        warning(`No line in ${codeowners.path} names an owner, so no path is one-way-door. The tier file uses the CODEOWNERS format: a path, then its owners.`);
+      }
+      const { tier, matched } = classifyTier(changedPaths, rules);
       setOutput("tier", tier);
-      summary2.push(`**Tier:** ${tier}`);
+      summary2.push(`**Tier:** ${tier} (from ${codeowners.path})`);
       if (matched.length > 0) summary2.push(`One-way-door paths touched:
 
 ${matched.map((file) => `- \`${file}\``).join("\n")}`);
