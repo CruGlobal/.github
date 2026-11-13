@@ -26,7 +26,9 @@ const HOTFIX_OF = 'release-2026-11-01-10150'
 const MOVED_ON = 'release-2026-11-03-10160'
 const PROD_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
 const APP_URL = 'https://example-app.example.test'
-const PROMOTE_LINK = 'Promote: <https://github.com/CruGlobal/cru-deploy/actions/workflows/promote.yml|Promote (v2) dispatch>'
+// A promote to production goes through the deploy gate, so the message names
+// the command that asks for one, not a workflow to start by hand.
+const PROMOTE_LINE = `Promote: \`cru app promote -n ${PROJECT}\``
 const CANDIDATE_CHANGES = `<https://deploys.cru.org/changelog?project=${PROJECT}&from=${PROD_SHA}&to=${TAG}|what's in this candidate>`
 const RELEASE_CHANGES = `<https://deploys.cru.org/changelog?project=${PROJECT}&from=${PROD_SHA}&to=${RELEASE}|what's in this release>`
 const ONE_FIX = 'The live release plus 1 fix: Fix the login redirect'
@@ -159,7 +161,7 @@ describe('deploy-candidate wiring', () => {
 
 describe.concurrent.each(CANDIDATE_JOBS)('%s stage message', (jobId) => {
   const wording = candidateWording[jobId]
-  const normal = lines(wording.normal, PROMOTE_LINK, CANDIDATE_CHANGES)
+  const normal = lines(wording.normal, PROMOTE_LINE, CANDIDATE_CHANGES)
 
   it('is the ordinary message for an ordinary candidate', async ({ expect }) => {
     expect(await stageMessage(expect, jobId, { kind: 'deploy' })).toBe(normal)
@@ -172,23 +174,23 @@ describe.concurrent.each(CANDIDATE_JOBS)('%s stage message', (jobId) => {
   })
 
   it('says hotfix, names the release and the fix, and asks for the promote', async ({ expect }) => {
-    expect(await stageMessage(expect, jobId, hotfix())).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+    expect(await stageMessage(expect, jobId, hotfix())).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINE, CANDIDATE_CHANGES, wording.last))
   })
 
   it('names up to three fixes, then how many more', async ({ expect }) => {
     const fixes = fixesLine(['Fix A', 'Fix B', 'Fix C', 'Fix D', 'Fix E'], 5)
     expect(fixes).toBe('The live release plus 5 fixes: Fix A; Fix B; Fix C; and 2 more')
-    expect(await stageMessage(expect, jobId, hotfix(fixes))).toBe(lines(wording.hotfix, fixes, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+    expect(await stageMessage(expect, jobId, hotfix(fixes))).toBe(lines(wording.hotfix, fixes, PROMOTE_LINE, CANDIDATE_CHANGES, wording.last))
   })
 
   it('still says hotfix, without the fixes line, when the fixes could not be listed', async ({ expect }) => {
-    expect(await stageMessage(expect, jobId, hotfix(''))).toBe(lines(wording.hotfix, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+    expect(await stageMessage(expect, jobId, hotfix(''))).toBe(lines(wording.hotfix, PROMOTE_LINE, CANDIDATE_CHANGES, wording.last))
   })
 
   it('leaves out the changelog line, as before, when production has no commit yet', async ({ expect }) => {
     const result = await runShellStep(findStep(deployCandidate, jobId, 'Notify Slack'), { context: candidateContext(hotfix()), ledger: { Items: [] } })
     expect(result.status, result.stderr).toBe(0)
-    expect(result.slack.text).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINK, wording.last))
+    expect(result.slack.text).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINE, wording.last))
   })
 
   it.for([
@@ -203,14 +205,14 @@ describe.concurrent.each(CANDIDATE_JOBS)('%s stage message', (jobId) => {
   })
 
   it('says promote will refuse a hotfix of a release production has moved on from', async ({ expect }) => {
-    expect(await stageMessage(expect, jobId, stale())).toBe(lines(wording.hotfix, PROMOTE_LINK, CANDIDATE_CHANGES, REFUSED))
+    expect(await stageMessage(expect, jobId, stale())).toBe(lines(wording.hotfix, PROMOTE_LINE, CANDIDATE_CHANGES, REFUSED))
   })
 
   // promote lets a hotfix through when production moved forward along the
   // same line (production already runs it, or it builds on what production
   // runs), so the hotfix step says yes, and the message asks for the promote.
   it('asks for the promote when promote would take it, even after production moved', async ({ expect }) => {
-    expect(await stageMessage(expect, jobId, hotfix('', { production: MOVED_ON }))).toBe(lines(wording.hotfix, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+    expect(await stageMessage(expect, jobId, hotfix('', { production: MOVED_ON }))).toBe(lines(wording.hotfix, PROMOTE_LINE, CANDIDATE_CHANGES, wording.last))
   })
 
   // Not knowing keeps the usual line: promote's own check decides.
@@ -219,7 +221,7 @@ describe.concurrent.each(CANDIDATE_JOBS)('%s stage message', (jobId) => {
     ['empty (an older action bundle)', { promotable: '', production: '' }],
     ['a value it does not know', { promotable: 'No', production: MOVED_ON }]
   ])('asks for the promote when whether promote would take it is %s', async ([, extra], { expect }) => {
-    expect(await stageMessage(expect, jobId, hotfix(ONE_FIX, extra))).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINK, CANDIDATE_CHANGES, wording.last))
+    expect(await stageMessage(expect, jobId, hotfix(ONE_FIX, extra))).toBe(lines(wording.hotfix, ONE_FIX, PROMOTE_LINE, CANDIDATE_CHANGES, wording.last))
   })
 
   it.for([
@@ -248,6 +250,23 @@ describe.concurrent.each(CANDIDATE_JOBS)('%s stage message', (jobId) => {
     const text = await stageMessage(expect, jobId, hotfix('The live release plus 1 fix: Fix A\nPromote: <https://evil.example.test|x>'))
     expect(text.split('\n')[1]).toBe('The live release plus 1 fix: Fix A Promote: <https://evil.example.test|x>')
     expect(text.split('\n')).toHaveLength(5)
+  })
+
+  it('names the project in the promote command, not a workflow to start by hand', async ({ expect }) => {
+    const other = { 'inputs.project-name': 'example-api', 'needs.lookup.outputs.repository': 'CruGlobal/example-api' }
+    const text = await stageMessage(expect, jobId, { kind: 'deploy' }, other)
+    expect(text.split('\n')[1]).toBe('Promote: `cru app promote -n example-api`')
+    expect((await stageMessage(expect, jobId, hotfix(), other)).split('\n')[2]).toBe('Promote: `cru app promote -n example-api`')
+    expect(text).not.toMatch(/actions\/workflows|dispatch/)
+  })
+
+  it('never lets a project name add markup or a line to the promote command', async ({ expect }) => {
+    const odd = 'odd<!channel>&`app\r\n<https://evil.example.test|x> <@U0123>'
+    const text = await stageMessage(expect, jobId, { kind: 'deploy' }, { 'inputs.project-name': odd })
+    const promoteLines = text.split('\n').filter((line) => line.startsWith('Promote: '))
+    expect(promoteLines).toEqual(['Promote: `cru app promote -n odd&lt;!channel&gt;&amp; app &lt;https://evil.example.test|x&gt; &lt;@U0123&gt;`'])
+    // Two backticks: the name cannot end the code span early.
+    expect(promoteLines[0].match(/`/g)).toHaveLength(2)
   })
 })
 
