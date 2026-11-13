@@ -10,11 +10,14 @@ import * as github from '@actions/github'
 //      warning; past fail-lines the check fails unless the PR carries the
 //      override label. Lockfiles and other generated files listed in
 //      size-ignore are not counted.
-//   3. Tier. Each changed path is matched against the one-way-door path list.
-//      Any match labels the PR one-way-door, otherwise two-way-door. A PR that
-//      touches both is one-way. The list is read from the base branch, never
-//      from the PR, so a PR cannot edit the list to change its own label. With
-//      no list on the base branch, no tier label is applied.
+//   3. Tier. The one-way-door paths are the ones CODEOWNERS gives an owner,
+//      because "require review from code owners" is what makes a person
+//      approve; a second list would drift from it. As in GitHub, the last
+//      CODEOWNERS line that matches a file decides, and a line with no owner
+//      takes the file back out. A PR that touches any owned file is one-way,
+//      otherwise two-way. CODEOWNERS is read from the base branch, never from
+//      the PR, so a PR cannot edit it to change its own label. With no
+//      CODEOWNERS on the base branch, no tier label is applied.
 //
 // Every problem found is reported together, so one run shows all of them.
 // The action's entry point is src/entry/pr-guard.js. This module never runs
@@ -45,7 +48,10 @@ export const DEFAULT_SIZE_IGNORE = [
 //   - A trailing "/" matches everything under that folder.
 //   - A pattern that names a folder without a trailing "/" also matches
 //     everything under it, as it does in CODEOWNERS.
-export function globToRegExp (pattern) {
+//   - With codeowners set, a pattern ending in "/*", like "docs/*", matches
+//     only the files directly in that folder, as GitHub reads it. .gitignore
+//     reads it as everything under the folder.
+export function globToRegExp (pattern, { codeowners = false } = {}) {
   let p = String(pattern).trim()
   const dirOnly = p.endsWith('/')
   if (dirOnly) p = p.slice(0, -1)
@@ -76,7 +82,8 @@ export function globToRegExp (pattern) {
   }
 
   const prefix = anchored ? '^' : '^(?:.*/)?'
-  return new RegExp(`${prefix}${source}(?:/.*)?$`)
+  const filesOnly = codeowners && !dirOnly && p.endsWith('/*')
+  return new RegExp(`${prefix}${source}${filesOnly ? '' : '(?:/.*)?'}$`)
 }
 
 // One pattern per line. Blank lines and lines starting with "#" are skipped,
@@ -92,11 +99,45 @@ export function matchesAny (file, patterns) {
   return patterns.some((pattern) => globToRegExp(pattern).test(file))
 }
 
+// Lines that match every file. They set a default owner for the whole repo,
+// not a one-way-door path, and with last match wins they would make every
+// pull request one-way, so they are skipped.
+const CATCH_ALL = new Set(['*', '**', '/**', '**/*', '/**/*'])
+
+// CODEOWNERS lines as { pattern, owned }: the first word is the path and the
+// rest are owners. "\ " is a space and "\#" a "#" inside a path.
+export function parseCodeowners (text) {
+  return parsePathList(text)
+    .map((line) => {
+      const [pattern, ...owners] = line.split(/(?<!\\)\s+/)
+      return { pattern: pattern.replace(/\\([ #])/g, '$1'), owned: owners.length > 0 }
+    })
+    .filter((rule) => !CATCH_ALL.has(rule.pattern))
+}
+
+// Each pattern is compiled once, since a big PR checks every file against every line.
+const codeownersRegExps = new Map()
+function codeownersRegExp (pattern) {
+  if (!codeownersRegExps.has(pattern)) codeownersRegExps.set(pattern, globToRegExp(pattern, { codeowners: true }))
+  return codeownersRegExps.get(pattern)
+}
+
+// The last rule that matches a file decides it, as in GitHub.
+export function isOwned (file, rules) {
+  for (let i = rules.length - 1; i >= 0; i--) {
+    if (codeownersRegExp(rules[i].pattern).test(file)) return rules[i].owned
+  }
+  return false
+}
+
 // The tier for a set of changed paths, with the paths that made it one-way.
-export function classifyTier (files, patterns) {
-  const matched = files.filter((file) => matchesAny(file, patterns))
+export function classifyTier (files, rules) {
+  const matched = files.filter((file) => isOwned(file, rules))
   return { tier: matched.length > 0 ? ONE_WAY : TWO_WAY, matched }
 }
+
+// Where GitHub looks for CODEOWNERS, in the order it looks.
+export const CODEOWNERS_PATHS = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']
 
 export function stripHtmlComments (text) {
   return String(text ?? '').replace(/<!--[\s\S]*?(?:-->|$)/g, '')
@@ -152,22 +193,31 @@ export function parseBoolean (raw, inputName) {
   throw new Error(`${inputName} must be true or false, got "${value}"`)
 }
 
-// The path list on the base branch, or null when there is none.
-async function readBasePathList (octokit, { owner, repo, ref, path }) {
+// A file on the base branch, or null when there is none.
+async function readBaseFile (octokit, { owner, repo, ref, path }) {
   try {
     const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref })
     if (Array.isArray(data) || data.type !== 'file') {
-      throw new Error(`tier-paths-file ${path} is not a file on the base branch`)
+      throw new Error(`${path} is not a file on the base branch`)
     }
     // The contents API leaves out the body of a file over 1 MB, which would read as an empty list.
     if (data.encoding === 'none') {
-      throw new Error(`tier-paths-file ${path} is too large to read from the base branch`)
+      throw new Error(`${path} is too large to read from the base branch`)
     }
     return Buffer.from(data.content, data.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8')
   } catch (error) {
     if (error.status === 404) return null
     throw error
   }
+}
+
+// The first CODEOWNERS file on the base branch, as { path, text }, or null.
+async function readBaseCodeowners (octokit, { owner, repo, ref, paths }) {
+  for (const path of paths) {
+    const text = await readBaseFile(octokit, { owner, repo, ref, path })
+    if (text !== null) return { path, text }
+  }
+  return null
 }
 
 // Labels are set last and best effort: a PR from a fork gets a read-only
@@ -197,7 +247,7 @@ function readInputs () {
     failLines: parseCount(core.getInput('fail-lines') || '800', 'fail-lines'),
     overrideLabel: core.getInput('size-override-label') || 'size-override',
     sizeIgnore: parsePathList(core.getInput('size-ignore') || DEFAULT_SIZE_IGNORE),
-    tierPathsFile: core.getInput('tier-paths-file') || '.github/one-way-door-paths',
+    tierPathsFile: core.getInput('tier-paths-file'),
     applyLabels: parseBoolean(core.getInput('apply-tier-label') || 'true', 'apply-tier-label')
   }
 }
@@ -244,15 +294,21 @@ export async function run ({ context = github.context, getOctokit = github.getOc
     }
     summary.push(`**Size:** ${lines} changed lines (${size})`)
 
-    const listText = await readBasePathList(octokit, { owner, repo, ref: pr.base.sha, path: inputs.tierPathsFile })
-    if (listText === null) {
-      core.notice(`No ${inputs.tierPathsFile} on the base branch, so no tier label was set.`)
-      summary.push(`**Tier:** not set (no ${inputs.tierPathsFile} on the base branch)`)
+    const paths = inputs.tierPathsFile ? [inputs.tierPathsFile] : CODEOWNERS_PATHS
+    const codeowners = await readBaseCodeowners(octokit, { owner, repo, ref: pr.base.sha, paths })
+    if (codeowners === null) {
+      core.notice(`No ${paths.join(', ')} on the base branch, so no tier label was set.`)
+      summary.push(`**Tier:** not set (no ${paths.join(', ')} on the base branch)`)
     } else {
       const changedPaths = files.flatMap((file) => [file.filename, file.previous_filename].filter(Boolean))
-      const { tier, matched } = classifyTier(changedPaths, parsePathList(listText))
+      const rules = parseCodeowners(codeowners.text)
+      // A plain path list in the old format has no owners, so it would quietly label everything two-way.
+      if (rules.length > 0 && !rules.some((rule) => rule.owned)) {
+        core.warning(`No line in ${codeowners.path} names an owner, so no path is one-way-door. The tier file uses the CODEOWNERS format: a path, then its owners.`)
+      }
+      const { tier, matched } = classifyTier(changedPaths, rules)
       core.setOutput('tier', tier)
-      summary.push(`**Tier:** ${tier}`)
+      summary.push(`**Tier:** ${tier} (from ${codeowners.path})`)
       if (matched.length > 0) summary.push(`One-way-door paths touched:\n\n${matched.map((file) => `- \`${file}\``).join('\n')}`)
       if (inputs.applyLabels) await applyTierLabel(octokit, { owner, repo, number, tier, current: labels })
     }

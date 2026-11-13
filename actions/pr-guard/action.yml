@@ -3,13 +3,13 @@ description: >-
   Check a pull request before anyone reads its code. The description must link
   a work item and a spec. A pull request over warn-lines changed lines gets a
   warning, and one over fail-lines fails unless it carries the override label.
-  The pull request is labeled one-way-door when it touches a path in the
-  one-way-door list on the base branch, and two-way-door otherwise. Every
-  problem is reported in one run.
+  The pull request is labeled one-way-door when it touches a path that
+  CODEOWNERS on the base branch gives an owner, and two-way-door otherwise.
+  Every problem is reported in one run.
 inputs:
   github-token:
     description: >-
-      Token that can read the pull request and its files, read the path list on
+      Token that can read the pull request and its files, read CODEOWNERS on
       the base branch, and add labels (pull-requests: write, issues: write).
     required: true
   work-item-pattern:
@@ -52,18 +52,19 @@ inputs:
     default: ''
   tier-paths-file:
     description: >-
-      Path list file, read from the base branch, of one-way-door paths, one
-      .gitignore-style pattern per line. When the base branch has no such
-      file, no tier label is set.
+      CODEOWNERS-format file, read from the base branch, that sets the tier. A
+      file the last matching line gives an owner is one-way-door; catch-all
+      lines like "*" and "**" are skipped. Empty looks where GitHub does: .github/CODEOWNERS, then
+      CODEOWNERS, then docs/CODEOWNERS. With no such file, no tier label is set.
     required: false
-    default: '.github/one-way-door-paths'
+    default: ''
   apply-tier-label:
     description: Add the one-way-door or two-way-door label to the pull request.
     required: false
     default: 'true'
 outputs:
   tier:
-    description: one-way-door or two-way-door. Empty when there is no path list.
+    description: one-way-door or two-way-door. Empty when there is no CODEOWNERS file.
   changed-lines:
     description: Changed lines counted toward the size limit.
 runs:

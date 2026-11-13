@@ -25,7 +25,7 @@ vi.mock('@actions/core', () => ({
 vi.mock('@actions/github', () => ({ context: {}, getOctokit: () => { throw new Error('use the injected octokit') } }))
 
 import {
-  globToRegExp, parsePathList, classifyTier, checkLinks, countChangedLines, sizeVerdict,
+  globToRegExp, parsePathList, parseCodeowners, isOwned, classifyTier, checkLinks, countChangedLines, sizeVerdict,
   stripHtmlComments, compilePattern, parseCount, parseBoolean, run,
   DEFAULT_WORK_ITEM_PATTERN, DEFAULT_SPEC_PATTERN, DEFAULT_SIZE_IGNORE, ONE_WAY, TWO_WAY
 } from '../src/pr-guard.js'
@@ -68,6 +68,16 @@ describe('globToRegExp', () => {
     expect(matches('v?.yml', 'v2.yml')).toBe(true)
     expect(matches('v?.yml', 'v22.yml')).toBe(false)
   })
+
+  it('reads a trailing * as files directly in the folder for CODEOWNERS only', () => {
+    const owners = (pattern, file) => globToRegExp(pattern, { codeowners: true }).test(file)
+    expect(owners('docs/*', 'docs/a.md')).toBe(true)
+    expect(owners('docs/*', 'docs/deep/a.md')).toBe(false)
+    expect(owners('docs/**', 'docs/deep/a.md')).toBe(true)
+    expect(owners('docs/', 'docs/deep/a.md')).toBe(true)
+    expect(matches('docs/*', 'docs/deep/a.md')).toBe(true)
+    expect(owners('config*', 'config/settings.yml')).toBe(true)
+  })
 })
 
 describe('parsePathList', () => {
@@ -76,13 +86,50 @@ describe('parsePathList', () => {
   })
 })
 
-describe('classifyTier', () => {
-  it('is one-way when any path matches', () => {
-    expect(classifyTier(['README.md', 'src/payments/x.ts'], ['src/payments/'])).toEqual({ tier: ONE_WAY, matched: ['src/payments/x.ts'] })
+describe('parseCodeowners', () => {
+  it('takes the first word as the path and notes whether it has owners', () => {
+    const text = '# owners\n/src/payments/  @example-org/payments  # money\n/src/payments/fixtures/\ndocs/my\\ file.md dev@example.com\n'
+    expect(parseCodeowners(text)).toEqual([
+      { pattern: '/src/payments/', owned: true },
+      { pattern: '/src/payments/fixtures/', owned: false },
+      { pattern: 'docs/my file.md', owned: true }
+    ])
   })
 
-  it('is two-way when nothing matches or the list is empty', () => {
-    expect(classifyTier(['README.md'], ['src/payments/']).tier).toBe(TWO_WAY)
+  it('skips catch-all default-owner lines', () => {
+    const text = '* @a\n** @a\n/** @a\n**/* @a\n/auth/ @example-org/security'
+    expect(parseCodeowners(text)).toEqual([{ pattern: '/auth/', owned: true }])
+  })
+
+  it('reads \\# as a # in a path', () => {
+    expect(parseCodeowners('\\#notes @a')).toEqual([{ pattern: '#notes', owned: true }])
+  })
+})
+
+describe('isOwned', () => {
+  const rules = parseCodeowners('/src/payments/ @example-org/payments\n/src/payments/fixtures/\n*.md @example-org/docs')
+
+  it('lets the last matching line decide, as GitHub does', () => {
+    expect(isOwned('src/payments/charge.ts', rules)).toBe(true)
+    expect(isOwned('src/payments/fixtures/card.json', rules)).toBe(false)
+    expect(isOwned('src/payments/fixtures/README.md', rules)).toBe(true)
+  })
+
+  it('is not owned when no line matches', () => {
+    expect(isOwned('src/other.ts', rules)).toBe(false)
+    expect(isOwned('src/other.ts', [])).toBe(false)
+  })
+})
+
+describe('classifyTier', () => {
+  const rules = parseCodeowners('/src/payments/ @example-org/payments')
+
+  it('is one-way when any path is owned', () => {
+    expect(classifyTier(['README.md', 'src/payments/x.ts'], rules)).toEqual({ tier: ONE_WAY, matched: ['src/payments/x.ts'] })
+  })
+
+  it('is two-way when nothing is owned or there are no rules', () => {
+    expect(classifyTier(['README.md'], rules).tier).toBe(TWO_WAY)
     expect(classifyTier(['README.md'], []).tier).toBe(TWO_WAY)
   })
 })
@@ -176,7 +223,7 @@ describe('run', () => {
   let octokit
   let pr
   let files
-  let pathList
+  let repoFiles
 
   const context = () => ({
     repo: { owner: 'example-org', repo: 'example-app' },
@@ -193,15 +240,15 @@ describe('run', () => {
     summaryText.value = ''
     pr = { body: goodBody, labels: [] }
     files = [{ filename: 'src/a.ts', additions: 10, deletions: 0 }]
-    pathList = 'src/payments/\n'
+    repoFiles = { '.github/CODEOWNERS': '/src/payments/ @example-org/payments\n' }
     octokit = {
       paginate: vi.fn(async () => files),
       rest: {
         pulls: { get: vi.fn(async () => ({ data: pr })), listFiles: vi.fn() },
         repos: {
-          getContent: vi.fn(async () => {
-            if (pathList === null) throw Object.assign(new Error('Not Found'), { status: 404 })
-            return { data: { type: 'file', encoding: 'base64', content: Buffer.from(pathList).toString('base64') } }
+          getContent: vi.fn(async ({ path }) => {
+            if (!(path in repoFiles)) throw Object.assign(new Error('Not Found'), { status: 404 })
+            return { data: { type: 'file', encoding: 'base64', content: Buffer.from(repoFiles[path]).toString('base64') } }
           })
         },
         issues: { addLabels: vi.fn(async () => ({})), removeLabel: vi.fn(async () => ({})) }
@@ -220,9 +267,38 @@ describe('run', () => {
     expect(octokit.rest.issues.addLabels).toHaveBeenCalledWith({ owner: 'example-org', repo: 'example-app', issue_number: 7, labels: [TWO_WAY] })
   })
 
-  it('reads the path list from the base commit, not the PR', async () => {
+  it('reads CODEOWNERS from the base commit, not the PR', async () => {
     await go()
-    expect(octokit.rest.repos.getContent).toHaveBeenCalledWith({ owner: 'example-org', repo: 'example-app', path: '.github/one-way-door-paths', ref: 'b'.repeat(40) })
+    expect(octokit.rest.repos.getContent).toHaveBeenCalledWith({ owner: 'example-org', repo: 'example-app', path: '.github/CODEOWNERS', ref: 'b'.repeat(40) })
+    expect(summaryText.value).toContain('from .github/CODEOWNERS')
+  })
+
+  it('looks for CODEOWNERS where GitHub does, in order', async () => {
+    repoFiles = { 'docs/CODEOWNERS': '/src/a.ts @example-org/core\n' }
+    await go()
+    expect(octokit.rest.repos.getContent.mock.calls.map(([args]) => args.path)).toEqual(['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'])
+    expect(output('tier')).toBe(ONE_WAY)
+  })
+
+  it('reads only tier-paths-file when it is set', async () => {
+    inputs['tier-paths-file'] = '.github/tier-owners'
+    repoFiles['.github/tier-owners'] = '/src/a.ts @example-org/core\n'
+    await go()
+    expect(octokit.rest.repos.getContent.mock.calls.map(([args]) => args.path)).toEqual(['.github/tier-owners'])
+    expect(output('tier')).toBe(ONE_WAY)
+  })
+
+  it('warns when no line names an owner, as an old-style path list would', async () => {
+    repoFiles['.github/CODEOWNERS'] = '/src/payments/\n/infra/\n'
+    await go()
+    expect(output('tier')).toBe(TWO_WAY)
+    expect(warningMock).toHaveBeenCalledWith(expect.stringContaining('No line in .github/CODEOWNERS names an owner'))
+  })
+
+  it('does not count a path whose last matching line has no owner', async () => {
+    repoFiles['.github/CODEOWNERS'] = '* @example-org/everyone\n/src/ @example-org/core\n/src/a.ts\n'
+    await go()
+    expect(output('tier')).toBe(TWO_WAY)
   })
 
   it('labels a one-way PR, swaps out the old label, and names the paths', async () => {
@@ -241,8 +317,8 @@ describe('run', () => {
     expect(output('tier')).toBe(ONE_WAY)
   })
 
-  it('sets no tier when the base branch has no path list', async () => {
-    pathList = null
+  it('sets no tier when the base branch has no CODEOWNERS', async () => {
+    repoFiles = {}
     await go()
     expect(failedMock).not.toHaveBeenCalled()
     expect(output('tier')).toBeUndefined()
@@ -250,16 +326,16 @@ describe('run', () => {
     expect(noticeMock).toHaveBeenCalledWith(expect.stringContaining('no tier label'))
   })
 
-  it('fails when the path list cannot be read for another reason', async () => {
+  it('fails when CODEOWNERS cannot be read for another reason', async () => {
     octokit.rest.repos.getContent.mockRejectedValue(Object.assign(new Error('Server Error'), { status: 500 }))
     await go()
     expect(failedMock).toHaveBeenCalledWith('Server Error')
   })
 
-  it('fails when the path list is too large for the contents API', async () => {
+  it('fails when CODEOWNERS is too large for the contents API', async () => {
     octokit.rest.repos.getContent.mockResolvedValue({ data: { type: 'file', encoding: 'none', content: '' } })
     await go()
-    expect(failedMock).toHaveBeenCalledWith(expect.stringContaining('.github/one-way-door-paths'))
+    expect(failedMock).toHaveBeenCalledWith(expect.stringContaining('.github/CODEOWNERS is too large'))
     expect(output('tier')).toBeUndefined()
   })
 
