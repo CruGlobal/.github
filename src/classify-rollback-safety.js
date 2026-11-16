@@ -28,8 +28,9 @@ const TRUNCATED_REASON = 'diff truncated at 300 files — classify manually'
 // the compare's list. If it can't be read for any reason, the answer is the
 // one a cut-off diff always got: unsafe.
 //
-// The tree diff never asks for more migration files than an untruncated
-// compare could have, so one big release can't spend the token's rate limit.
+// So that one big release can't spend the token's rate limit, the tree side
+// reads at most 300 migration files, on top of any the cut-off compare's own
+// list already read, and every read on both sides shares DEADLINE_MS.
 const MAX_TREE_FILE_READS = COMPARE_FILE_CAP
 const TREES_REASON = 'diff truncated at 300 files, so the migrations directory was compared at both commits instead'
 
@@ -45,6 +46,23 @@ const TREES_REASON = 'diff truncated at 300 files, so the migrations directory w
 // in promote.yml is a backstop past DEADLINE_MS.
 export const REQUEST_TIMEOUT_MS = 20 * 1000
 export const DEADLINE_MS = 90 * 1000
+
+// Promote hands the reasons output to later steps in environment variables,
+// and Linux will not start a process with any one environment string longer
+// than 131,072 bytes. A release that changes thousands of migrations, or one
+// migration with thousands of destructive statements, has a reason for each,
+// and every step given that output would then fail to start, on every retry.
+// So the output keeps at most MAX_REASONS reasons: past that, the first
+// MAX_REASONS - 1 and one more saying how many were left out. Each is cut to
+// MAX_REASON_LENGTH characters. The full list goes to the step log first. The
+// workflows show only the first one or two, so classify puts the most useful
+// ones first.
+//
+// That bounds the output at 20 reasons of 500 characters. JSON writes one
+// character in at most 6 bytes (a \u escape), so even the worst case is about
+// 60 KB, under half the limit. Plain text comes to about 10 KB.
+const MAX_REASONS = 20
+const MAX_REASON_LENGTH = 500
 
 function ghHeaders (token, accept) {
   return {
@@ -132,26 +150,29 @@ async function fetchTree (repository, sha, recursive, token, limits, subject) {
   // A listing too big for one answer comes back cut short. A file missing
   // from it might be one that was removed, so it can't be diffed.
   if (listing.truncated) throw new Error(`git trees API listing was cut short ${subject}`)
+  // An entry with no path, type or sha can't be matched or diffed. Skipping
+  // it could hide a file, or the migrations directory itself, from one side
+  // of the diff, and what is missing on one side reads as added on the other.
+  // So one such entry fails the whole read.
+  const wellFormed = (e) => typeof e?.path === 'string' && typeof e?.type === 'string' && typeof e?.sha === 'string'
+  if (!listing.tree.every(wellFormed)) throw new Error(`git trees API listed an entry with no path, type or sha ${subject}`)
   return listing.tree
 }
 
-// The tree sha of the directory `segments` at `commitSha`, or null when the
-// commit has no such directory. It walks down one directory at a time. The
-// one-read "sha:path" form of the trees API is not documented, fails for a
-// full commit sha unless the colon is escaped, and answers 404 both for a
-// missing directory and for any other miss. Walking, a missing directory is a
-// name absent from its parent's full listing, which is what an app's first
-// migration needs to be told apart from a read that failed.
+// The tree sha of the directory `segments` at `commitSha`. It walks down one
+// directory at a time, because the one-read "sha:path" form of the trees API
+// is not documented, fails for a full commit sha unless the colon is escaped,
+// and answers 404 for any miss, so it can't say what was missing. A commit
+// with no such directory is an error, never an empty directory (see
+// classifyFromTrees), so this always returns a real tree sha.
 async function dirTree (repository, commitSha, segments, token, limits) {
   let sha = commitSha
   for (const [i, name] of segments.entries()) {
     const parent = segments.slice(0, i).join('/') || 'the top level'
     const entries = await fetchTree(repository, sha, false, token, limits, `for ${parent} at ${commitSha}`)
-    const entry = entries.find((e) => e?.path === name)
-    if (!entry) return null
-    if (entry.type !== 'tree' || typeof entry.sha !== 'string') {
-      throw new Error(`${segments.slice(0, i + 1).join('/')} is not a directory at ${commitSha}`)
-    }
+    const entry = entries.find((e) => e.path === name)
+    if (!entry) throw new Error(`there is no ${segments.join('/')} directory at ${commitSha}`)
+    if (entry.type !== 'tree') throw new Error(`${segments.slice(0, i + 1).join('/')} is not a directory at ${commitSha}`)
     sha = entry.sha
   }
   return sha
@@ -164,13 +185,9 @@ async function dirTree (repository, commitSha, segments, token, limits) {
 // compare lists them as files too.
 async function dirFiles (repository, treeSha, prefix, commitSha, token, limits) {
   const files = new Map()
-  if (!treeSha) return files
   const subject = `for ${prefix.slice(0, -1)} at ${commitSha}`
   for (const entry of await fetchTree(repository, treeSha, true, token, limits, subject)) {
-    if (entry?.type === 'tree') continue
-    if (typeof entry?.path !== 'string' || typeof entry?.sha !== 'string') {
-      throw new Error(`git trees API listed an entry with no path or sha ${subject}`)
-    }
+    if (entry.type === 'tree') continue
     files.set(prefix + entry.path, `${entry.mode} ${entry.sha}`)
   }
   return files
@@ -227,14 +244,18 @@ async function classifyFromTrees ({ repository, compare, headSha, prefix, token,
   const segments = dir.split('/')
   if (segments.some((s) => s === '' || s === '.' || s === '..')) throw new Error(`cannot walk the migrations path ${dir}`)
 
+  // A directory missing at either commit is a release this can't vouch for,
+  // so dirTree throws and the answer stays unsafe. Missing at the candidate
+  // is a path set wrong, or migrations moved somewhere this isn't looking.
+  // Missing at the merge base is an app's first migrations, or a directory
+  // moved or renamed into the path, even by case alone. A compare calls the
+  // files of a moved directory `renamed`, which is unsafe, and the trees
+  // can't tell that apart from first migrations. Unsafe for first migrations
+  // in a release of more than 300 files is the answer they always got.
   const beforeTree = await dirTree(repository, mergeBase, segments, token, limits)
   const afterTree = await dirTree(repository, headSha, segments, token, limits)
-  // No directory at the merge base is an app's first migrations: everything
-  // in it is added. No directory in the candidate is a release this can't
-  // vouch for: a path set wrong, or migrations moved somewhere it isn't
-  // looking. That stays unsafe.
-  if (!afterTree) throw new Error(`there is no ${dir} directory at ${headSha}`)
-  // The same tree sha means nothing in the directory changed.
+  // The same tree sha means nothing in the directory changed. Both are real
+  // shas: dirTree throws rather than return nothing for a missing directory.
   if (beforeTree === afterTree) return classifyMigrationFiles([])
 
   const before = await dirFiles(repository, beforeTree, prefix, mergeBase, token, limits)
@@ -280,7 +301,10 @@ async function classify ({ token, repository, baseSha, headSha, migrationsPath, 
   try {
     fromTrees = await classifyFromTrees({ repository, compare, headSha, prefix, token, limits, readContent, hasContent: (path) => contents.has(path) })
   } catch (error) {
-    return { verdict: 'unsafe', reasons: [TRUNCATED_REASON, ...listedUnsafe, `could not compare the migrations directory instead: ${error.message}`] }
+    // Why the directory could not be compared goes right after the cut-off
+    // reason, ahead of the findings: the workflows show the first one or two
+    // reasons, and the output keeps only the first few (see finish).
+    return { verdict: 'unsafe', reasons: [TRUNCATED_REASON, `could not compare the migrations directory instead: ${error.message}`, ...listedUnsafe] }
   }
 
   const unsafe = [...new Set([...(fromTrees.verdict === 'unsafe' ? fromTrees.reasons : []), ...listedUnsafe])]
@@ -289,11 +313,33 @@ async function classify ({ token, repository, baseSha, headSha, migrationsPath, 
   return { verdict: 'unsafe', reasons: [...unsafe, TREES_REASON] }
 }
 
+// One reason cut to MAX_REASON_LENGTH characters. It counts and cuts by code
+// point, so a cut never splits a character in two.
+function boundReason (reason) {
+  const text = String(reason)
+  if (text.length <= MAX_REASON_LENGTH) return text
+  const chars = Array.from(text)
+  if (chars.length <= MAX_REASON_LENGTH) return text
+  return chars.slice(0, MAX_REASON_LENGTH - 3).join('') + '...'
+}
+
+function boundReasons (reasons) {
+  if (reasons.length <= MAX_REASONS) return reasons.map(boundReason)
+  const kept = reasons.slice(0, MAX_REASONS - 1).map(boundReason)
+  return [...kept, `and ${reasons.length - kept.length} more reasons, listed in this step's log`]
+}
+
 function finish (verdict, reasons) {
+  // The whole list goes to the log before the output is cut down, one reason
+  // a line after a dash: a line break inside a reason would split it, and a
+  // line that starts with :: would be read as a workflow command.
+  const lines = reasons.map((reason) => `- ${String(reason).replace(/[\r\n]+/g, ' ')}`)
+  core.info([`rollback safety reasons (${reasons.length}):`, ...lines].join('\n'))
+  const shown = boundReasons(reasons)
   core.setOutput('verdict', verdict)
-  core.setOutput('reasons', JSON.stringify(reasons))
-  const summary = reasons.length > 0
-    ? `rollback safety: ${verdict} — ${reasons.slice(0, 2).join('; ')}`
+  core.setOutput('reasons', JSON.stringify(shown))
+  const summary = shown.length > 0
+    ? `rollback safety: ${verdict} — ${shown.slice(0, 2).join('; ')}`
     : `rollback safety: ${verdict}`
   if (verdict === 'unsafe') core.warning(summary)
   else core.notice(summary)

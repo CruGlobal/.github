@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Mock @actions/core exactly as the other v2 action tests do: `inputs` backs
-// getInput, and setOutput/notice/warning are spies.
-const { setOutputMock, noticeMock, warningMock, inputs } = vi.hoisted(() => ({
+// getInput, and setOutput/info/notice/warning are spies.
+const { setOutputMock, infoMock, noticeMock, warningMock, inputs } = vi.hoisted(() => ({
   setOutputMock: vi.fn(),
+  infoMock: vi.fn(),
   noticeMock: vi.fn(),
   warningMock: vi.fn(),
   inputs: {}
@@ -13,6 +14,7 @@ const { setOutputMock, noticeMock, warningMock, inputs } = vi.hoisted(() => ({
 vi.mock('@actions/core', () => ({
   getInput: (name) => inputs[name] ?? '',
   setOutput: setOutputMock,
+  info: infoMock,
   notice: noticeMock,
   warning: warningMock
 }))
@@ -29,6 +31,7 @@ const rawContent = (text) => ({ ok: true, status: 200, text: async () => text })
 
 beforeEach(() => {
   setOutputMock.mockReset()
+  infoMock.mockReset()
   noticeMock.mockReset()
   warningMock.mockReset()
   for (const k of Object.keys(inputs)) delete inputs[k]
@@ -363,6 +366,76 @@ describe('classify-rollback-safety: time limits', () => {
   })
 })
 
+// Promote hands the reasons output to later steps in environment variables,
+// and Linux will not start a process with one environment string over
+// 131,072 bytes. So the output keeps at most 20 reasons of at most 500
+// characters, and the step log gets the whole list.
+describe('classify-rollback-safety: the reasons output stays small', () => {
+  const MORE = (n) => `and ${n} more reasons, listed in this step's log`
+  const logged = () => infoMock.mock.calls.map(([text]) => text).join('\n').split('\n')
+
+  // An added file in a format the classifier can't read: one reason each,
+  // and no content read.
+  const unsupported = (count) => Array.from({ length: count }, (_, i) =>
+    ({ filename: `drizzle/${String(i).padStart(4, '0')}_seed.js`, status: 'added' }))
+  const reasonFor = ({ filename }) => `${filename}: unsupported migration format (only .sql and Rails .rb are classified)`
+
+  it('20 reasons → all of them, whole, and the same list in the log', async () => {
+    const files = unsupported(20)
+    vi.stubGlobal('fetch', vi.fn(async () => compareFiles(files)))
+    await run()
+    expect(verdict()).toBe('unsafe')
+    expect(reasons()).toEqual(files.map(reasonFor))
+    expect(logged()).toEqual(['rollback safety reasons (20):', ...files.map((f) => `- ${reasonFor(f)}`)])
+  })
+
+  it('21 reasons → the first 19, then a count of the other 2', async () => {
+    const files = unsupported(21)
+    vi.stubGlobal('fetch', vi.fn(async () => compareFiles(files)))
+    await run()
+    expect(reasons()).toEqual([...files.slice(0, 19).map(reasonFor), MORE(2)])
+    expect(logged()).toEqual(['rollback safety reasons (21):', ...files.map((f) => `- ${reasonFor(f)}`)])
+  })
+
+  it('one migration with 5,000 destructive statements → 20 reasons, the first ones shown first', async () => {
+    const sql = Array.from({ length: 5000 }, (_, i) => `DROP TABLE t${i};`).join('\n')
+    vi.stubGlobal('fetch', vi.fn(async (url) =>
+      url.includes('/compare/') ? compareFiles([{ filename: 'drizzle/0002_drop.sql', status: 'added' }]) : rawContent(sql)))
+    await run()
+    expect(verdict()).toBe('unsafe')
+    const shown = reasons()
+    expect(shown).toHaveLength(20)
+    expect(shown.slice(0, 19)).toEqual(Array(19).fill('drizzle/0002_drop.sql: drops a table; a rollback would not restore it'))
+    expect(shown[19]).toBe(MORE(4981))
+    expect(Buffer.byteLength(output('reasons'))).toBeLessThan(16 * 1024)
+    expect(logged()).toHaveLength(5001)
+  })
+
+  // Cut by character, so a cut never leaves half of one behind.
+  it('a reason longer than 500 characters is cut to 500, ending in ...', async () => {
+    const filename = `drizzle/${'\u{1F600}'.repeat(600)}.js`
+    vi.stubGlobal('fetch', vi.fn(async () => compareFiles([{ filename, status: 'added' }])))
+    await run()
+    const [shown] = reasons()
+    expect(Array.from(shown)).toHaveLength(500)
+    expect(shown.isWellFormed()).toBe(true)
+    expect(shown).toBe(`${Array.from(reasonFor({ filename })).slice(0, 497).join('')}...`)
+    // The warning shows it cut too; the log has it whole.
+    expect(warningMock.mock.calls[0][0]).toContain(shown)
+    expect(warningMock.mock.calls[0][0]).not.toContain(reasonFor({ filename }))
+    expect(logged()[1]).toBe(`- ${reasonFor({ filename })}`)
+  })
+
+  // One reason a line, and no line a workflow command could start.
+  it('logs a reason with a line break in it on one line', async () => {
+    const filename = 'drizzle/0001_a\n::warning::b.js'
+    vi.stubGlobal('fetch', vi.fn(async () => compareFiles([{ filename, status: 'added' }])))
+    await run()
+    expect(reasons()).toEqual([reasonFor({ filename })])
+    expect(logged()).toEqual(['rollback safety reasons (1):', `- ${reasonFor({ filename: 'drizzle/0001_a ::warning::b.js' })}`])
+  })
+})
+
 // A compare cut off at 300 files no longer means unsafe on its own: the
 // migrations directory is compared at the merge base and at the candidate,
 // from the git trees API, instead. These tests serve a small repository the
@@ -582,15 +655,6 @@ describe('classify-rollback-safety: a diff cut off at 300 files', () => {
       expect(urls(fetchMock)[1]).toMatch(/\/git\/trees\/mmmm$/)
     })
 
-    it('no directory at the merge base (the first migrations) → everything in it is added', async () => {
-      await runTruncated({
-        aaaa: { 'package.json': '{}' },
-        bbbb: { 'package.json': '{}', 'drizzle/0000_init.sql': ADD, 'drizzle/meta/_journal.json': '{}', 'drizzle/meta/0000_snapshot.json': '{}' }
-      })
-      expect(verdict()).toBe('safe')
-      expect(reasons()).toEqual(['1 additive migration', FROM_TREES])
-    })
-
     it('the directory unchanged → safe with no migration changes, and no listing read', async () => {
       const migrations = { 'drizzle/0001_init.sql': ADD, 'drizzle/meta/_journal.json': '{}' }
       const fetchMock = await runTruncated({
@@ -739,7 +803,7 @@ describe('classify-rollback-safety: a diff cut off at 300 files', () => {
       ['a listing that fails', (url) => url.includes('?recursive=1') ? failed(500) : undefined, 'git trees API 500 for drizzle at aaaa'],
       ['a listing cut short', (url) => url.includes('?recursive=1') ? json({ sha: 'x', tree: [], truncated: true }) : undefined, 'git trees API listing was cut short for drizzle at aaaa'],
       ['an answer that is not a listing', (url) => url.includes('/git/trees/') ? json({ message: 'hm' }) : undefined, 'git trees API gave no listing for the top level at aaaa'],
-      ['a listed file with no sha', (url) => url.includes('?recursive=1') ? json({ tree: [{ path: '0001_init.sql', type: 'blob' }], truncated: false }) : undefined, 'git trees API listed an entry with no path or sha for drizzle at aaaa'],
+      ['a listed file with no sha', (url) => url.includes('?recursive=1') ? json({ tree: [{ path: '0001_init.sql', type: 'blob' }], truncated: false }) : undefined, 'git trees API listed an entry with no path, type or sha for drizzle at aaaa'],
       ['a migration file read that fails', (url) => url.includes('/contents/') ? failed(500) : undefined, 'contents API 500 for drizzle/0002_add.sql']
     ])('%s', async (_name, intercept, why) => {
       await runTruncated(oneAdded, { intercept })
@@ -763,13 +827,67 @@ describe('classify-rollback-safety: a diff cut off at 300 files', () => {
       expect(reasons()).toEqual([TRUNCATED, couldNot('there is no drizzle directory at bbbb')])
     })
 
+    // An app's first migrations look the same in the trees as a directory
+    // moved or renamed into the path, whose files a compare calls `renamed`.
+    // Neither is called safe.
+    it.each([
+      ['the first migrations', 'drizzle', { 'package.json': '{}' }],
+      ['a directory moved into the path', 'db/migrate', { 'db/migrations/20260101000000_create_users.rb': rails('create_table :users') }],
+      ['a directory renamed by case alone', 'db/migrate', { 'DB/migrate/20260101000000_create_users.rb': rails('create_table :users') }]
+    ])('no directory at the merge base, %s', async (_name, path, before) => {
+      inputs['migrations-path'] = path
+      const fetchMock = await runTruncated({
+        aaaa: before,
+        bbbb: { 'package.json': '{}', [`${path}/20260101000000_create_users.rb`]: rails('create_table :users'), [`${path}/0000_init.sql`]: ADD }
+      })
+      expect(verdict()).toBe('unsafe')
+      expect(reasons()).toEqual([TRUNCATED, couldNot(`there is no ${path} directory at aaaa`)])
+      // It stops at the merge base: no walk down the candidate, no listing.
+      expect(urls(fetchMock).filter((url) => url.includes('/git/trees/bbbb'))).toEqual([])
+      expect(listings(fetchMock)).toEqual([])
+    })
+
+    // Missing at both commits must not pass for "the same directory at both".
+    it('no directory at either commit', async () => {
+      await runTruncated({ aaaa: { 'package.json': '{}' }, bbbb: { 'package.json': '{"v":2}' } })
+      expect(verdict()).toBe('unsafe')
+      expect(reasons()).toEqual([TRUNCATED, couldNot('there is no drizzle directory at aaaa')])
+    })
+
+    // An entry the walk can't match must not hide the directory at the merge
+    // base: that would make every file at the candidate added, and an edited
+    // old migration would pass for a new additive one.
+    it.each(['path', 'type', 'sha'])('a walk listing with an entry that has no %s', async (field) => {
+      const commits = {
+        aaaa: { 'drizzle/0001_init.sql': ADD, 'drizzle/0002_add.sql': ADD_EMAIL },
+        bbbb: { 'drizzle/0001_init.sql': `-- edited\n${ADD}`, 'drizzle/0002_add.sql': ADD_EMAIL }
+      }
+      const real = fakeGitHub({ commits, compare: truncatedCompare() })
+      vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+        const answer = await real(url, options)
+        if (!/\/git\/trees\/aaaa$/.test(url)) return answer
+        const listing = await answer.json()
+        const tree = listing.tree.map((entry) => {
+          const copy = { ...entry }
+          delete copy[field]
+          return copy
+        })
+        return json({ ...listing, tree })
+      }))
+      await run()
+      expect(verdict()).toBe('unsafe')
+      expect(reasons()).toEqual([TRUNCATED, couldNot('git trees API listed an entry with no path, type or sha for the top level at aaaa')])
+    })
+
     it('a migrations path that is a file, not a directory', async () => {
       await runTruncated({ aaaa: { drizzle: 'not a directory' }, bbbb: oneAdded.bbbb })
       expect(verdict()).toBe('unsafe')
       expect(reasons()).toEqual([TRUNCATED, couldNot('drizzle is not a directory at aaaa')])
     })
 
-    it('keeps the cut-off list\'s unsafe findings, then says why', async () => {
+    // Why comes second, so the workflows, which show the first two reasons,
+    // show it.
+    it('says why, then keeps the cut-off list\'s unsafe findings', async () => {
       await runTruncated({
         aaaa: { 'drizzle/0001_init.sql': ADD },
         bbbb: { 'drizzle/0001_init.sql': ADD, 'drizzle/0002_drop.sql': DROP }
@@ -780,20 +898,46 @@ describe('classify-rollback-safety: a diff cut off at 300 files', () => {
       expect(verdict()).toBe('unsafe')
       expect(reasons()).toHaveLength(3)
       expect(reasons()[0]).toBe(TRUNCATED)
-      expect(reasons()[1]).toMatch(/^drizzle\/0002_drop\.sql: /)
-      expect(reasons()[2]).toBe(couldNot('git trees API 500 for the top level at aaaa'))
+      expect(reasons()[1]).toBe(couldNot('git trees API 500 for the top level at aaaa'))
+      expect(reasons()[2]).toMatch(/^drizzle\/0002_drop\.sql: /)
     })
 
-    // An untruncated compare holds at most 299 added migrations to read, so
-    // the trees never read more than that cap allows.
-    it('more added migrations than a compare could hold → unsafe, before reading any', async () => {
+    // The tree side reads at most 300 migration files of its own, so a
+    // release that adds more is unsafe before any of them is read.
+    it('more added migrations than the trees may read → unsafe, before reading any', async () => {
       const many = Object.fromEntries(Array.from({ length: 301 }, (_, i) =>
         [`drizzle/${String(i).padStart(4, '0')}_m.sql`, `CREATE TABLE t${i} (id int);`]))
-      const fetchMock = await runTruncated({ aaaa: { 'package.json': '{}' }, bbbb: { 'package.json': '{}', ...many } })
+      const fetchMock = await runTruncated({ aaaa: { 'drizzle/.keep': '' }, bbbb: { 'drizzle/.keep': '', ...many } })
       expect(verdict()).toBe('unsafe')
       expect(reasons()).toEqual([TRUNCATED, couldNot('301 added migration files to read, more than the 300 allowed')])
       expect(contentReads(fetchMock)).toEqual([])
     })
+  })
+
+  // A cut-off release that edits thousands of old migrations, a lint sweep
+  // say, has a reason for each. The output must stay far below the 131,072
+  // bytes Linux allows one environment string.
+  it('3,000 modified migrations and one very long reason → under 16 KB, the full list in the log', async () => {
+    const old = Object.fromEntries(Array.from({ length: 3000 }, (_, i) =>
+      [`drizzle/${String(i + 1).padStart(4, '0')}_m.sql`, `CREATE TABLE t${i} (id int);`]))
+    const edited = Object.fromEntries(Object.entries(old).map(([path, sql]) => [path, `-- lint\n${sql}`]))
+    const longName = `drizzle/0000_${'x'.repeat(20000)}.js`
+    await runTruncated({ aaaa: old, bbbb: { ...edited, [longName]: 'module.exports = {}' } })
+    expect(verdict()).toBe('unsafe')
+    const all = [
+      `${longName}: unsupported migration format (only .sql and Rails .rb are classified)`,
+      ...Object.keys(old).map((path) => `${path}: migration history modified (modified)`),
+      FROM_TREES
+    ]
+    expect(Buffer.byteLength(output('reasons'))).toBeLessThan(16 * 1024)
+    const shown = reasons()
+    expect(shown).toHaveLength(20)
+    expect(shown[0]).toBe(`${all[0].slice(0, 497)}...`)
+    expect(shown.slice(1, 19)).toEqual(all.slice(1, 19))
+    expect(shown[19]).toBe(`and ${all.length - 19} more reasons, listed in this step's log`)
+    // The log has every reason, whole.
+    expect(infoMock).toHaveBeenCalledTimes(1)
+    expect(infoMock.mock.calls[0][0].split('\n')).toEqual([`rollback safety reasons (${all.length}):`, ...all.map((reason) => `- ${reason}`)])
   })
 
   describe('time and reads', () => {
