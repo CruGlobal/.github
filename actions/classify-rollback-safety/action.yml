@@ -7,7 +7,7 @@ description: >-
   reports safe | unsafe | unclassified.
 inputs:
   github-token:
-    description: Token with read access to the app repo (compare + contents APIs).
+    description: Token with read access to the app repo (compare, contents and git trees APIs).
     required: true
   repository:
     description: owner/repo of the app whose migrations to classify.
@@ -40,7 +40,10 @@ outputs:
   verdict:
     description: safe | unsafe | unclassified.
   reasons:
-    description: JSON array (string) of human-readable classification reasons.
+    description: >-
+      JSON array (string) of human-readable classification reasons: at most
+      20, each at most 500 characters. A longer list ends with a count of the
+      rest, and the step log has it whole.
 
 runs:
   using: 'node24'
