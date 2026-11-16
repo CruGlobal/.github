@@ -7,7 +7,7 @@ description: >-
   reports safe | unsafe | unclassified.
 inputs:
   github-token:
-    description: Token with read access to the app repo (compare + contents APIs).
+    description: Token with read access to the app repo (compare, contents and git trees APIs).
     required: true
   repository:
     description: owner/repo of the app whose migrations to classify.
