@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import { getOctokit } from '@actions/github'
-import { GATE_WORKFLOWS, GateUnavailable, gateDispatch, oidcAvailable, parseGateUrl } from './v2/gate-dispatch.js'
+import { GATE_WORKFLOWS, GateMayHaveStarted, GateUnavailable, gateDispatch, oidcAvailable, parseGateUrl } from './v2/gate-dispatch.js'
 
 // dispatch: a generic cross-repo workflow_dispatch trigger for pipeline v2.
 //
@@ -23,12 +23,16 @@ import { GATE_WORKFLOWS, GateUnavailable, gateDispatch, oidcAvailable, parseGate
 //
 //   - The job has no OIDC token (no id-token: write): warn and use
 //     github-token, or fail when there is none.
-//   - The gate refuses (any answer but a 2xx or a 5xx): fail with the gate's
-//     code and message. Never fall back: a refusal means the request is not
-//     allowed, and the token would only get round that.
-//   - The gate cannot be reached, gives no answer in time, answers 5xx or
-//     says not_configured: try again with a fresh token, then warn and use
-//     github-token, or fail when there is none.
+//   - The gate refuses (a 3xx, or a 4xx other than 408 and 429, whatever
+//     its code): fail with the gate's code and message. Never fall back: a
+//     refusal means the request is not allowed, and the token would only get
+//     round that.
+//   - The gate cannot be reached, gives no answer in time, or answers 5xx
+//     (not_configured among them), 408 or 429: try again with a fresh
+//     token, then warn and use github-token, or fail when there is none.
+//   - Something answers 2xx but not with the gate's 202 naming the
+//     workflow, or its body does not arrive: fail, and never try again or
+//     fall back, since the workflow may have started.
 //
 // Without gate-url the action does exactly what it did before the input
 // existed.
@@ -124,10 +128,12 @@ export async function run (gateOptions) {
       return await dispatchWithToken(target)
     }
 
+    const workflowPage = `https://github.com/${owner}/${repo}/actions/workflows/${workflow}`
     let started
     try {
       started = await gateDispatch({ ...gate, workflow, inputs }, gateOptions)
     } catch (error) {
+      if (error instanceof GateMayHaveStarted) throw new Error(`${error.message} (${workflowPage})`, { cause: error })
       if (!(error instanceof GateUnavailable)) throw error
       if (!githubToken) throw new Error(fallback(error.message), { cause: error })
       core.warning(fallback(error.message))
@@ -137,7 +143,7 @@ export async function run (gateOptions) {
     if (started.message) core.info(`the deploy gate says: ${started.message}`)
     core.notice(
       `Dispatched ${workflow} through the deploy gate. ` +
-      `See ${started.runUrl || `https://github.com/${owner}/${repo}/actions/workflows/${workflow}`}.`
+      `See ${started.runUrl || workflowPage}.`
     )
   } catch (error) {
     core.setFailed(error.message)

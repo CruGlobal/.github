@@ -188,15 +188,32 @@ the deploy repo's `deploy-candidate.yml`, and `build-candidate.yml` uses it to a
 With `gate-url` set, `deploy-candidate.yml` and `notify-build-failure.yml` go through the deploy gate instead: the
 action posts to `<gate-url>/pipeline` with the job's GitHub OIDC token, made for the audience `<gate-url>/pipeline`,
 so the app repo doesn't need a token that can dispatch in the deploy repo. The job needs `permissions: id-token: write`.
-The gate takes no repo or ref, so a different `repo` or `ref` still goes to `github-token`.
+
+The gate starts only `deploy-candidate.yml` and `notify-build-failure.yml` on the default `repo` and `ref`, so only
+those go to it; other workflows, repos and refs still use `github-token`. For those two, the gate accepts:
+- Exactly these inputs, each a string: `project-name` and `tag` for `deploy-candidate.yml`, and `project-name` and
+  `run-url` (the calling run's own page) for `notify-build-failure.yml`. No other key, so no `force`.
+- `deploy-candidate.yml` only from a job written in the app's own `.github/workflows/pipeline-v2.yml` (not in a
+  reusable workflow it calls), running on the app's default branch or a `hotfix/release-…` branch.
+- `notify-build-failure.yml` only from a job of this repo's `build-candidate.yml`.
+
+The gate refuses anything else, and a refusal never falls back to `github-token`.
 
 When `gate-url` is set:
 - The job has no OIDC token (no `id-token: write`): a warning, then `github-token`. Without one, the step fails.
-- The gate refuses (any answer but a 2xx or a 5xx): the step fails with the gate's code and message. It never falls
-  back, because a refusal means the request isn't allowed.
-- The gate can't be reached, doesn't answer in time, answers 5xx or says `not_configured`: three tries in all, each
-  with a fresh token (the gate takes each token once), then a warning and `github-token`. Without one, the step fails.
-  A try that got no answer may still have started the workflow, so a fallback can start it twice.
+- The gate starts the workflow: it answers HTTP 202 with JSON naming the workflow, and the step prints the run link.
+- The gate refuses (a 3xx, or a 4xx other than 408 and 429, whatever its code): the step fails with the gate's code
+  and message. It never falls back, because a refusal means the request isn't allowed.
+- The gate can't be reached, doesn't answer in time, or answers 5xx (`not_configured` comes as a 503), 408 or 429:
+  three tries in all, each with a fresh token (the gate takes each token once), waiting as long as a `Retry-After`
+  asks when that fits in the 7 seconds the tries wait in all, then a warning and `github-token`. Without one, the
+  step fails. A try that got no answer may still have started the workflow, so a fallback can start it twice.
+- Any other 2xx, a 202 that doesn't name the workflow, or a 2xx whose body doesn't arrive: the step fails, and it
+  never tries again or falls back, because something answered yes and the workflow may have started. A `gate-url`
+  that points at another site can do this. Check the deploy repo's runs before starting the workflow again.
+
+`build-candidate.yml` takes the gate's base URL as `deploy-gate-url` and passes it on for its failure notice. That
+input needs a `workflow-ref` at or after the release that added it, like `v2`.
 
 #### Inputs
 | Name         | Required | Description                                                                                                       |
@@ -210,6 +227,7 @@ When `gate-url` is set:
 
 #### Example
 ```yaml
+# .github/workflows/pipeline-v2.yml
 ...
   build:
     uses: CruGlobal/.github/.github/workflows/build-candidate.yml@v2

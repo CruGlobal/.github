@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vites
 import { loadYaml, findStep, runShellStep, removeFakes, resolveExpressions } from './support/workflow-steps.js'
 
 // build-candidate's failure notice and the deploy gate: the deploy-gate-url
-// input, the job's permissions, the check before the dispatch, and what the
-// dispatch step hands the dispatch action. The action's own rules are tested
+// input, the job's permissions, the check before the dispatch, which of the
+// two dispatch steps runs, and what it hands the dispatch action. The action's own rules are tested
 // in dispatch.test.js. Here its run() gets the inputs the workflow gives it,
 // with fetch (the runner's OIDC token service and the gate) and octokit
 // mocked.
@@ -41,11 +41,34 @@ const workflow = loadYaml('.github/workflows/build-candidate.yml')
 const job = workflow.jobs['notify-failure']
 const CHECK = 'Check for a way to reach cru-deploy'
 const ANNOUNCE = 'Announce the failure via cru-deploy'
+const ANNOUNCE_GATE = 'Announce the failure via cru-deploy, through the deploy gate'
+// The dispatch action's inputs before gate-url. A caller's workflow-ref can
+// check out a release that has only these.
+const INPUTS_BEFORE_GATE = ['github-token', 'repo', 'workflow', 'ref', 'inputs-json']
 const BUILD_JOBS = ['build-cloudrun', 'build-ecs', 'build-lambda']
 
 const GATE_URL = 'https://gate.example.com/gate'
 const TOKEN_URL = 'https://token.example.com/idtoken?api-version=2.0'
 const RUN_URL = 'https://github.com/example-org/example-app/actions/runs/9000000002'
+
+const announceSteps = () => job.steps.filter((step) => step.uses === './cru-github-actions/actions/dispatch')
+
+// Stand-in for the runner deciding a step's `if:`, for the one shape the
+// announce steps use: clauses joined by &&, each `name == 'value'` or
+// `name != 'value'`. Anything else is an error, so a new shape fails loudly.
+function runs (condition, context) {
+  return String(condition).split('&&').every((clause) => {
+    const match = clause.trim().match(/^([\w.-]+) (==|!=) '([^']*)'$/)
+    if (!match) throw new Error(`test cannot read the condition ${clause.trim()}`)
+    const [, name, op, value] = match
+    if (!(name in context)) throw new Error(`test does not know how to resolve ${name}`)
+    return (String(context[name]) === value) === (op === '==')
+  })
+}
+const stepsThatRun = (present, gateUrl) => announceSteps().filter((step) => runs(step.if, {
+  'steps.token.outputs.present': present,
+  'inputs.deploy-gate-url': gateUrl
+}))
 
 describe('the deploy-gate-url input', () => {
   it('is optional and empty by default, so callers that do not set it announce with the token as before', () => {
@@ -66,16 +89,50 @@ describe('the notify-failure job', () => {
     expect(workflow.jobs[buildJob].permissions).toMatchObject(job.permissions)
   })
 
-  it('passes the input to the dispatch action as gate-url, keeps the token as the fallback, and never fails the run', () => {
-    const { step } = findStep(workflow, 'notify-failure', ANNOUNCE)
+  it('has two dispatch steps that differ only in their condition and gate-url', () => {
+    expect(announceSteps().map((step) => step.name)).toEqual([ANNOUNCE, ANNOUNCE_GATE])
+    const [token, gate] = announceSteps()
+    const { 'gate-url': gateUrl, ...rest } = gate.with
+    expect(gateUrl).toBe('${{ inputs.deploy-gate-url }}')
+    expect(rest).toEqual(token.with)
+    const shape = (step) => {
+      const rest = { ...step }
+      for (const key of ['name', 'if', 'with']) delete rest[key]
+      return rest
+    }
+    expect(shape(gate)).toEqual(shape(token))
+  })
+
+  it.each([ANNOUNCE, ANNOUNCE_GATE])('%s keeps the token as the fallback and never fails the run', (name) => {
+    const { step } = findStep(workflow, 'notify-failure', name)
     expect(step['continue-on-error']).toBe(true)
     expect(step.with).toMatchObject({
-      'gate-url': '${{ inputs.deploy-gate-url }}',
       'github-token': '${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}',
       workflow: 'notify-build-failure.yml'
     })
     const dispatch = loadYaml('actions/dispatch/action.yml')
-    for (const name of Object.keys(step.with)) expect(dispatch.inputs).toHaveProperty(name)
+    for (const input of Object.keys(step.with)) expect(dispatch.inputs).toHaveProperty(input)
+  })
+
+  // A caller whose workflow-ref is a release from before gate-url would get
+  // an "Unexpected input" warning on every failure notice.
+  it('uses only inputs an older dispatch action has when deploy-gate-url is empty', () => {
+    const [step] = stepsThatRun('true', '')
+    expect(step.name).toBe(ANNOUNCE)
+    expect(step.with).not.toHaveProperty('gate-url')
+    for (const input of Object.keys(step.with)) expect(INPUTS_BEFORE_GATE).toContain(input)
+  })
+
+  it.each([
+    ['empty', '', ANNOUNCE],
+    ['set', GATE_URL, ANNOUNCE_GATE]
+  ])('runs exactly one dispatch step when deploy-gate-url is %s', (_label, gateUrl, name) => {
+    expect(stepsThatRun('true', gateUrl).map((step) => step.name)).toEqual([name])
+  })
+
+  it('runs neither when the check found no way to reach cru-deploy', () => {
+    expect(stepsThatRun('', '')).toEqual([])
+    expect(stepsThatRun('', GATE_URL)).toEqual([])
   })
 })
 
@@ -103,9 +160,9 @@ describe('the check before the dispatch', () => {
   })
 
   it('gates the checkout and the dispatch on it', () => {
-    for (const name of ['Checkout Cru Actions & Workflows', ANNOUNCE]) {
-      expect(findStep(workflow, 'notify-failure', name).step.if).toBe("steps.token.outputs.present == 'true'")
-    }
+    expect(findStep(workflow, 'notify-failure', 'Checkout Cru Actions & Workflows').step.if).toBe("steps.token.outputs.present == 'true'")
+    expect(findStep(workflow, 'notify-failure', ANNOUNCE).step.if).toBe("steps.token.outputs.present == 'true' && inputs.deploy-gate-url == ''")
+    expect(findStep(workflow, 'notify-failure', ANNOUNCE_GATE).step.if).toBe("steps.token.outputs.present == 'true' && inputs.deploy-gate-url != ''")
   })
 })
 
@@ -121,7 +178,7 @@ describe('what the dispatch step sends', () => {
     vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_URL', TOKEN_URL)
     vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'example-request-token')
     tokenService = vi.fn(async () => new Response(JSON.stringify({ value: 'oidc-token' }), { status: 200 }))
-    gate = vi.fn(async () => new Response(JSON.stringify({ runUrl: 'https://github.com/example-org/example-deploy/actions/runs/1', message: 'started' }), { status: 202 }))
+    gate = vi.fn(async () => new Response(JSON.stringify({ project: 'example-app', workflow: 'notify-build-failure.yml', runUrl: 'https://github.com/example-org/example-deploy/actions/runs/1', message: 'started' }), { status: 202 }))
     vi.stubGlobal('fetch', route)
   })
 
@@ -130,9 +187,11 @@ describe('what the dispatch step sends', () => {
     vi.unstubAllEnvs()
   })
 
-  // The step's `with`, filled in the way the runner fills it.
+  // The `with` of the dispatch step that runs, filled in the way the runner
+  // fills it.
   function announce ({ token, gateUrl }) {
-    const { step } = findStep(workflow, 'notify-failure', ANNOUNCE)
+    const [step, ...others] = stepsThatRun('true', gateUrl)
+    expect(others).toEqual([])
     const context = {
       'inputs.deploy-gate-url': gateUrl,
       'secrets.CRU_DEPLOY_GITHUB_TOKEN': token,
@@ -159,9 +218,10 @@ describe('what the dispatch step sends', () => {
     expect(core.setFailed).not.toHaveBeenCalled()
   })
 
-  it('dispatches with the token, as before, when the input is empty', async () => {
+  it('dispatches with the token, as before, and passes no gate-url, when the input is empty', async () => {
     await announce({ token: 'example-token', gateUrl: '' })
 
+    expect(inputs).not.toHaveProperty('gate-url')
     expect(route).not.toHaveBeenCalled()
     expect(createWorkflowDispatch).toHaveBeenCalledWith({
       owner: 'CruGlobal',

@@ -149,21 +149,34 @@ const REQUEST_TOKEN = 'example-request-token'
 const RUN_URL = 'https://github.com/example-org/example-deploy/actions/runs/9000000001'
 // Short waits and time limits, so the retries take milliseconds.
 const FAST = { delaysMs: [0, 0], tryTimeoutMs: 50, tokenTryTimeoutMs: 50 }
+const PAGE = 'https://github.com/CruGlobal/cru-deploy/actions/workflows/deploy-candidate.yml'
 
-const answer = (status, body) => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-const refusal = (status, code, message = `refused: ${code}`) => answer(status, { code, message })
-const started = () => answer(202, {
+const answer = (status, body, headers = {}) => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } })
+const refusal = (status, code, message = `refused: ${code}`, headers = {}) => answer(status, { code, message }, headers)
+const started = (workflow = 'deploy-candidate.yml') => answer(202, {
   project: 'example-app',
-  workflow: 'deploy-candidate.yml',
+  workflow,
   target: 'candidate-2026-11-16-10001',
   runUrl: RUN_URL,
   runId: 9000000001,
-  message: 'started deploy-candidate.yml for example-app'
+  message: `started ${workflow} for example-app`
 })
 // A fetch that never answers, and rejects only when its signal aborts.
 const hanging = (_url, { signal }) => new Promise((_resolve, reject) => {
   signal.addEventListener('abort', () => reject(signal.reason))
 })
+// An answer whose status and headers arrive but whose body then stops
+// partway, or breaks off with the error fetch gives for a dropped connection.
+const stalled = (status) => new Response(new ReadableStream({
+  start (controller) { controller.enqueue(new TextEncoder().encode('{"workflow":')) }
+}), { status, headers: { 'content-type': 'application/json' } })
+const brokenOff = (status) => new Response(new ReadableStream({
+  start (controller) {
+    controller.enqueue(new TextEncoder().encode('{"workflow":'))
+    controller.error(Object.assign(new TypeError('terminated'), { cause: { code: 'UND_ERR_SOCKET' } }))
+  }
+}), { status, headers: { 'content-type': 'application/json' } })
+const mayHaveStarted = (what) => `${what}. deploy-candidate.yml may have started, so this step does not try again or fall back to github-token: check the deploy repo's runs of it before starting it again (${PAGE})`
 
 // Each token the runner hands out is new: oidc-token-1, oidc-token-2, ...
 let tokenService, gate, minted
@@ -324,6 +337,7 @@ describe('the deploy gate', () => {
         workflow: 'notify-build-failure.yml',
         'inputs-json': JSON.stringify({ 'project-name': 'example-app', 'run-url': runUrl })
       })
+      gate.mockResolvedValue(started('notify-build-failure.yml'))
       await run(FAST)
 
       expect(JSON.parse(gate.mock.calls[0][1].body)).toEqual({
@@ -334,17 +348,16 @@ describe('the deploy gate', () => {
     })
 
     it.each([
-      ['a body that is not JSON', answer(202, 'accepted')],
-      ['no run link', answer(202, { message: 'started' })],
-      ['a run link that is not https', answer(202, { runUrl: 'javascript:alert(1)' })]
-    ])('takes a 2xx with %s as started, with the workflow page as the link', async (_label, response) => {
+      ['no run link', answer(202, { workflow: 'deploy-candidate.yml', message: 'started' })],
+      ['a run link that is not https', answer(202, { workflow: 'deploy-candidate.yml', runUrl: 'javascript:alert(1)' })]
+    ])('takes a 202 naming the workflow with %s as started, with the workflow page as the link', async (_label, response) => {
       deployCandidate({ 'github-token': 'tok' })
       gate.mockResolvedValue(response)
       await run(FAST)
 
       expect(gate).toHaveBeenCalledTimes(1)
       expect(createWorkflowDispatch).not.toHaveBeenCalled()
-      expect(core.notice).toHaveBeenCalledWith('Dispatched deploy-candidate.yml through the deploy gate. See https://github.com/CruGlobal/cru-deploy/actions/workflows/deploy-candidate.yml.')
+      expect(core.notice).toHaveBeenCalledWith(`Dispatched deploy-candidate.yml through the deploy gate. See ${PAGE}.`)
       expect(setFailedMock).not.toHaveBeenCalled()
     })
 
@@ -355,6 +368,44 @@ describe('the deploy gate', () => {
       expect(minted).toBe(3)
       for (let n = 1; n <= minted; n++) expect(logged()).not.toContain(`oidc-token-${n}`)
       expect(logged()).not.toContain(REQUEST_TOKEN)
+    })
+  })
+
+  // Something said yes, so the workflow may have started. Sending the
+  // request again, through the gate or with the token, could start it twice.
+  describe('a 2xx that is not the gate\'s answer to a start', () => {
+    it.each([
+      ['a web page on 200, as from a gate-url that points at another site', () => new Response('<!doctype html><title>Welcome</title>', { status: 200, headers: { 'content-type': 'text/html' } }),
+        'gate-url answered HTTP 200, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['the gate\'s JSON on 200', () => answer(200, { workflow: 'deploy-candidate.yml', runUrl: RUN_URL }),
+        'gate-url answered HTTP 200, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['201', () => answer(201, { workflow: 'deploy-candidate.yml' }),
+        'gate-url answered HTTP 201, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['204', () => new Response(null, { status: 204 }),
+        'gate-url answered HTTP 204, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['a 202 naming another workflow', () => started('notify-build-failure.yml'),
+        'gate-url answered HTTP 202 naming notify-build-failure.yml, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['a 202 naming no workflow', () => answer(202, { runUrl: RUN_URL, message: 'started' }),
+        'gate-url answered HTTP 202, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['a 202 whose body is not JSON', () => answer(202, 'accepted'),
+        'gate-url answered HTTP 202, not the deploy gate\'s HTTP 202 naming deploy-candidate.yml, so gate-url may not point at the deploy gate'],
+      ['a 202 whose body stalls', () => stalled(202),
+        'the deploy gate answered HTTP 202, but the rest of its answer did not arrive within 0.05 seconds'],
+      ['a 200 whose body stalls', () => stalled(200),
+        'the deploy gate answered HTTP 200, but the rest of its answer did not arrive within 0.05 seconds'],
+      ['a 202 whose body breaks off', () => brokenOff(202),
+        'the deploy gate answered HTTP 202, but the rest of its answer broke off (UND_ERR_SOCKET)']
+    ])('fails on %s after one try, and never tries again or falls back', async (_label, respond, what) => {
+      deployCandidate({ 'github-token': 'tok' })
+      gate.mockImplementation(respond)
+      await run(FAST)
+
+      expect(gate).toHaveBeenCalledTimes(1)
+      expect(tokenService).toHaveBeenCalledTimes(1)
+      expect(createWorkflowDispatch).not.toHaveBeenCalled()
+      expect(core.notice).not.toHaveBeenCalled()
+      expect(core.warning).not.toHaveBeenCalled()
+      expect(setFailedMock).toHaveBeenCalledWith(mayHaveStarted(what))
     })
   })
 
@@ -380,6 +431,86 @@ describe('the deploy gate', () => {
       expect(core.info).toHaveBeenCalledWith('the deploy gate did not take the request (the deploy gate answered HTTP 503 not_configured); trying again in 0 seconds (2/3)')
     })
 
+    it.each([408, 429])('tries again on HTTP %i with a fresh token', async (status) => {
+      deployCandidate()
+      gate.mockResolvedValueOnce(refusal(status, 'slow_down')).mockResolvedValueOnce(started())
+      await run(FAST)
+
+      expect(gateCalls().map(bearer)).toEqual(['Bearer oidc-token-1', 'Bearer oidc-token-2'])
+      expect(core.info).toHaveBeenCalledWith(`the deploy gate did not take the request (the deploy gate answered HTTP ${status} slow_down); trying again in 0 seconds (2/3)`)
+      expect(core.notice).toHaveBeenCalledWith(`Dispatched deploy-candidate.yml through the deploy gate. See ${RUN_URL}.`)
+      expect(setFailedMock).not.toHaveBeenCalled()
+    })
+
+    it('decides on the status when a 5xx body stalls, and tries again', async () => {
+      deployCandidate()
+      gate.mockImplementationOnce(() => stalled(503)).mockResolvedValueOnce(started())
+      await run(FAST)
+
+      expect(gateCalls().map(bearer)).toEqual(['Bearer oidc-token-1', 'Bearer oidc-token-2'])
+      expect(setFailedMock).not.toHaveBeenCalled()
+    })
+
+    describe('Retry-After', () => {
+      // The waits, recorded, and taken at once. The planned waits are the
+      // real ones, 2 and 5 seconds, so the tries wait 7 seconds in all.
+      let waits
+      const options = () => ({ ...FAST, delaysMs: [2000, 5000], sleep: async (ms) => { waits.push(ms) } })
+      beforeEach(() => { waits = [] })
+
+      it('waits the planned times when the gate does not ask', async () => {
+        deployCandidate()
+        gate.mockResolvedValueOnce(refusal(429, 'slow_down')).mockResolvedValueOnce(answer(503, {})).mockResolvedValueOnce(started())
+        await run(options())
+        expect(waits).toEqual([2000, 5000])
+        expect(setFailedMock).not.toHaveBeenCalled()
+      })
+
+      it('waits as long as the gate asks, out of the later waits', async () => {
+        deployCandidate()
+        gate
+          .mockResolvedValueOnce(refusal(429, 'slow_down', 'too many', { 'retry-after': '3' }))
+          .mockResolvedValueOnce(answer(503, {}))
+          .mockResolvedValueOnce(started())
+        await run(options())
+
+        expect(waits).toEqual([3000, 4000])
+        expect(gateCalls().map(bearer)).toEqual(['Bearer oidc-token-1', 'Bearer oidc-token-2', 'Bearer oidc-token-3'])
+        expect(setFailedMock).not.toHaveBeenCalled()
+      })
+
+      it('takes an HTTP date', async () => {
+        deployCandidate()
+        gate
+          .mockResolvedValueOnce(refusal(503, 'not_configured', 'not yet', { 'retry-after': new Date(Date.now() + 6000).toUTCString() }))
+          .mockResolvedValueOnce(started())
+        await run(options())
+
+        expect(waits).toHaveLength(1)
+        expect(waits[0]).toBeGreaterThan(3000)
+        expect(waits[0]).toBeLessThanOrEqual(6000)
+        expect(setFailedMock).not.toHaveBeenCalled()
+      })
+
+      it('ends the tries and falls back when the gate asks for longer than the tries have left', async () => {
+        deployCandidate({ 'github-token': 'tok' })
+        gate.mockResolvedValue(refusal(503, 'not_configured', 'not yet', { 'retry-after': '60' }))
+        await run(options())
+
+        expect(waits).toEqual([])
+        expect(gate).toHaveBeenCalledTimes(1)
+        expect(core.warning).toHaveBeenCalledWith('the deploy gate did not take the request to start deploy-candidate.yml after 1 try (last: the deploy gate answered HTTP 503 not_configured, and asked for a wait of 60 seconds, longer than the tries have left); dispatching deploy-candidate.yml on CruGlobal/cru-deploy@main with github-token instead')
+        expect(createWorkflowDispatch).toHaveBeenCalledTimes(1)
+      })
+
+      it('ignores a Retry-After it cannot read', async () => {
+        deployCandidate()
+        gate.mockResolvedValueOnce(refusal(429, 'slow_down', 'too many', { 'retry-after': 'soon' })).mockResolvedValueOnce(started())
+        await run(options())
+        expect(waits).toEqual([2000])
+      })
+    })
+
     it('tries again when the token service fails, and still sends each token once', async () => {
       deployCandidate()
       tokenService
@@ -400,6 +531,8 @@ describe('the deploy gate', () => {
       [403, 'repository_mismatch'],
       [403, 'workflow_not_allowed'],
       [404, ''],
+      [404, 'not_configured'],
+      [400, 'not_configured'],
       [409, 'conflict'],
       [302, '']
     ])('fails on HTTP %i %s with the gate\'s code and message, after one try, and never falls back', async (status, code) => {
@@ -412,6 +545,16 @@ describe('the deploy gate', () => {
       expect(setFailedMock).toHaveBeenCalledWith(
         `the deploy gate refused to start deploy-candidate.yml: HTTP ${status}${code ? ` ${code}: refused: ${code}` : ''}`
       )
+    })
+
+    it('decides on the status when a 4xx body stalls, and refuses after one try', async () => {
+      deployCandidate({ 'github-token': 'tok' })
+      gate.mockImplementation(() => stalled(403))
+      await run(FAST)
+
+      expect(gate).toHaveBeenCalledTimes(1)
+      expect(createWorkflowDispatch).not.toHaveBeenCalled()
+      expect(setFailedMock).toHaveBeenCalledWith('the deploy gate refused to start deploy-candidate.yml: HTTP 403')
     })
 
     it('shows the gate\'s message on one line', async () => {
@@ -433,7 +576,9 @@ describe('the deploy gate', () => {
     const cases = [
       ['answers 5xx', () => answer(502, 'Bad Gateway'), 'the deploy gate answered HTTP 502'],
       ['answers 503 with a code', () => refusal(503, 'internal_error'), 'the deploy gate answered HTTP 503 internal_error'],
-      ['says not_configured on a 4xx', () => refusal(404, 'not_configured'), 'the deploy gate answered HTTP 404 not_configured'],
+      ['says not_configured on a 503', () => refusal(503, 'not_configured'), 'the deploy gate answered HTTP 503 not_configured'],
+      ['answers 429', () => refusal(429, 'slow_down'), 'the deploy gate answered HTTP 429 slow_down'],
+      ['answers 408', () => answer(408, ''), 'the deploy gate answered HTTP 408'],
       ['cannot be reached', () => Promise.reject(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } })), 'the deploy gate gave no answer (ENOTFOUND)'],
       ['does not answer in time', hanging, 'the deploy gate gave no answer within 0.05 seconds']
     ]

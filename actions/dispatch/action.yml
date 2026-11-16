@@ -11,7 +11,8 @@ inputs:
       repo. Required when gate-url is empty. With gate-url set it is optional:
       it is used for a workflow the gate does not start, and as the fallback
       when the job has no OIDC token or the gate cannot be reached. It is never
-      used when the gate refuses.
+      used when the gate refuses, or when an answer says the workflow may have
+      started.
     required: false
     default: ''
   repo:
