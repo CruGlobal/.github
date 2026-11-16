@@ -181,6 +181,81 @@ Secrets are exported to the environment.
 ```
 
 
+### dispatch [link](https://github.com/CruGlobal/.github/tree/main/actions/dispatch)
+Starts a workflow in another repo with a `workflow_dispatch` event (pipeline v2). An app's pipeline uses it to start
+the deploy repo's `deploy-candidate.yml`, and `build-candidate.yml` uses it to announce a failed build.
+
+With `gate-url` set, `deploy-candidate.yml` and `notify-build-failure.yml` go through the deploy gate instead: the
+action posts to `<gate-url>/pipeline` with the job's GitHub OIDC token, made for the audience `<gate-url>/pipeline`,
+so the app repo doesn't need a token that can dispatch in the deploy repo. The job needs `permissions: id-token: write`.
+
+The gate starts only `deploy-candidate.yml` and `notify-build-failure.yml` on the default `repo` and `ref`, so only
+those go to it; other workflows, repos and refs still use `github-token`. For those two, the gate accepts:
+- Exactly these inputs, each a string: `project-name` and `tag` for `deploy-candidate.yml`, and `project-name` and
+  `run-url` (the calling run's own page) for `notify-build-failure.yml`. No other key, so no `force`.
+- `deploy-candidate.yml` only from a job written in the app's own `.github/workflows/pipeline-v2.yml` (not in a
+  reusable workflow it calls), running on the app's default branch or a `hotfix/release-…` branch.
+- `notify-build-failure.yml` only from a job of this repo's `build-candidate.yml`.
+
+The gate refuses anything else, and a refusal never falls back to `github-token`.
+
+When `gate-url` is set:
+- The job has no OIDC token (no `id-token: write`): a warning, then `github-token`. Without one, the step fails.
+- The gate starts the workflow: it answers HTTP 202 with JSON naming the workflow, and the step prints the run link.
+- The gate refuses (a 3xx, or a 4xx other than 408 and 429, whatever its code): the step fails with the gate's code
+  and message. It never falls back, because a refusal means the request isn't allowed.
+- The gate can't be reached, doesn't answer in time, or answers 5xx (`not_configured` comes as a 503), 408 or 429:
+  three tries in all, each with a fresh token (the gate takes each token once), waiting as long as a `Retry-After`
+  asks when that fits in the 7 seconds the tries wait in all, then a warning and `github-token`. Without one, the
+  step fails. A try that got no answer may still have started the workflow, so a fallback can start it twice.
+- Any other 2xx, a 202 that doesn't name the workflow, or a 2xx whose body doesn't arrive: the step fails, and it
+  never tries again or falls back, because something answered yes and the workflow may have started. A `gate-url`
+  that points at another site can do this. Check the deploy repo's runs before starting the workflow again.
+
+`build-candidate.yml` takes the gate's base URL as `deploy-gate-url` and passes it on for its failure notice. That
+input needs a `workflow-ref` at or after the release that added it, like `v2`.
+
+#### Inputs
+| Name         | Required | Description                                                                                                       |
+|--------------|----------|-------------------------------------------------------------------------------------------------------------------|
+| github-token | [ ]      | Token that can dispatch workflows on `repo`. Required without `gate-url`; with it, only for other workflows and as the fallback. |
+| repo         | [ ]      | Target repo, `owner/name`. Defaults to `CruGlobal/cru-deploy`.                                                    |
+| workflow     | [x]      | Workflow file name, e.g. `deploy-candidate.yml`.                                                                  |
+| ref          | [ ]      | Branch, tag or commit of `repo` to run the workflow on. Defaults to `main`.                                      |
+| inputs-json  | [ ]      | JSON object of the workflow's inputs. Through the gate, every value must be a string.                            |
+| gate-url     | [ ]      | The deploy gate's base URL, e.g. `https://gate.example.com/gate`. Empty dispatches with `github-token`, as before. |
+
+#### Example
+```yaml
+# .github/workflows/pipeline-v2.yml
+...
+  build:
+    uses: CruGlobal/.github/.github/workflows/build-candidate.yml@v2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      workflow-ref: v2
+      type: ecs
+      deploy-gate-url: https://gate.example.com/gate # a failed build is announced through the gate
+    secrets: inherit
+
+  deploy-release-candidate:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+    steps:
+      - uses: CruGlobal/.github/actions/dispatch@v2
+        with:
+          gate-url: https://gate.example.com/gate
+          workflow: deploy-candidate.yml
+          inputs-json: >-
+            {"project-name": "${{ needs.build.outputs.project-name }}",
+             "tag": "${{ needs.build.outputs.candidate }}"}
+```
+
+
 ### flightdeck-sourcemaps [link](https://github.com/CruGlobal/.github/tree/main/actions/flightdeck-sourcemaps)
 Uploads the browser source maps in a directory of built files to Flightdeck, so a minified stack frame from the
 browser shows the original source. It is for apps that build and deploy in their own workflow, for example a build

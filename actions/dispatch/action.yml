@@ -2,10 +2,19 @@ name: Dispatch Workflow
 description: >-
   Generic cross-repo workflow_dispatch trigger (pipeline v2). Fires a
   workflow_dispatch event against any repo/workflow with a JSON inputs payload.
+  With gate-url set, deploy-candidate.yml and notify-build-failure.yml are
+  started through the deploy gate with the job's GitHub OIDC token instead.
 inputs:
   github-token:
-    description: GitHub token authorized to create a workflow_dispatch event on the target repo.
-    required: true
+    description: >-
+      GitHub token authorized to create a workflow_dispatch event on the target
+      repo. Required when gate-url is empty. With gate-url set it is optional:
+      it is used for a workflow the gate does not start, and as the fallback
+      when the job has no OIDC token or the gate cannot be reached. It is never
+      used when the gate refuses, or when an answer says the workflow may have
+      started.
+    required: false
+    default: ''
   repo:
     description: Target repository in "owner/name" form.
     required: false
@@ -21,6 +30,18 @@ inputs:
     description: JSON object of workflow inputs to pass through, e.g. '{"project-name":"hoax"}'.
     required: false
     default: '{}'
+  gate-url:
+    description: >-
+      The deploy gate's base URL, an https URL such as
+      https://gate.example.com/gate. When set, deploy-candidate.yml and
+      notify-build-failure.yml on the default repo and ref are started with a
+      POST to <gate-url>/pipeline, carrying a GitHub OIDC token for the
+      audience <gate-url>/pipeline, so the job needs permissions: id-token:
+      write. Every input value must be a string. Other workflows, repos and
+      refs still use github-token. Empty dispatches with github-token, as
+      before. Set it as a fixed value in the calling workflow.
+    required: false
+    default: ''
 runs:
   using: 'node24'
   main: '../../dist/dispatch.js'

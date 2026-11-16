@@ -34,6 +34,18 @@ on:
         required: false
         default: ''
         description: Project name (shared-registry repo/image). Defaults to the repository name.
+      deploy-gate-url:
+        type: string
+        required: false
+        default: ''
+        description: >-
+          The deploy gate's base URL, e.g. https://gate.example.com/gate. When set,
+          a failed build is announced through the gate with this run's GitHub OIDC
+          token, and CRU_DEPLOY_GITHUB_TOKEN is only the fallback. Empty announces
+          it with the token, as before. Needs workflow-ref at or after the release
+          that added this input (a moving tag like v2 is fine): an older
+          workflow-ref checks out a dispatch action with no gate-url input, which
+          needs the token, so without one the notice is lost.
     outputs:
       project-name:
         description: Project name (defaults to the repository name).
@@ -1033,16 +1045,22 @@ jobs:
   # stays in cru-deploy, and the GitHubDeployECS role that reads the app's
   # SlackChannel out of app-info trusts cru-deploy rather than the app repo, so
   # the app repo can neither look the channel up nor post. What it CAN do is
-  # dispatch, with the org CRU_DEPLOY_GITHUB_TOKEN that `secrets: inherit`
-  # already hands this workflow -- so the notification is a dispatch of
-  # cru-deploy's Notify Build Failure (v2), which does the lookup and posts the
-  # :x: + run-URL message (the same shape as the deploy path's failure notify).
+  # start cru-deploy's Notify Build Failure (v2), which does the lookup and
+  # posts the :x: + run-URL message (the same shape as the deploy path's
+  # failure notify).
+  #
+  # Two ways to start it. With deploy-gate-url set, through the deploy gate,
+  # with this job's GitHub OIDC token: the gate starts it only for a job of
+  # this workflow, so the app repo needs no token for it. Otherwise, or when
+  # the gate cannot be reached, a dispatch with the org CRU_DEPLOY_GITHUB_TOKEN
+  # that `secrets: inherit` already hands this workflow. The rules are in
+  # src/dispatch.js.
   #
   # Telemetry policy: a notification NEVER changes a run's outcome, in either
-  # direction. The dispatch is continue-on-error, and a caller that did not pass
-  # `secrets: inherit` (no token) is a warning, not a failure. An app with no
-  # SlackChannel in app-info is a silent no-op on the cru-deploy side, matching
-  # the rest of the fleet.
+  # direction. The dispatch is continue-on-error, and a caller with neither a
+  # gate URL nor `secrets: inherit` (no token) is a warning, not a failure. An
+  # app with no SlackChannel in app-info is a silent no-op on the cru-deploy
+  # side, matching the rest of the fleet.
   notify-failure:
     name: Notify build failure
     needs: [setup, build-cloudrun, build-ecs, build-lambda]
@@ -1073,20 +1091,29 @@ jobs:
       || needs.build-lambda.result == 'cancelled') }}
     runs-on: ubuntu-latest
     # A backstop. This job checks out this repo and sends one dispatch, which
-    # takes well under a minute.
+    # takes well under a minute, or a few when the deploy gate is slow and the
+    # action tries again.
     timeout-minutes: 10
+    # id-token: write is for the deploy gate. A job in a reusable workflow
+    # cannot get more than the calling job grants, and GitHub refuses to start
+    # the run when it asks for more. Every caller already grants id-token:
+    # write, since the build jobs above need it, so asking for it here stops
+    # no caller.
     permissions:
       contents: read
+      id-token: write
     steps:
-      # `secrets` is not available in any `if:`, so the token-presence check is a
-      # step of its own rather than a condition on the dispatch.
-      - name: Check for the cru-deploy dispatch token
+      # `secrets` is not available in any `if:`, so the check for a way to
+      # reach cru-deploy is a step of its own rather than a condition on the
+      # dispatch.
+      - name: Check for a way to reach cru-deploy
         id: token
         env:
           DISPATCH_TOKEN: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
+          DEPLOY_GATE_URL: ${{ inputs.deploy-gate-url }}
         run: |
-          if [ -z "$DISPATCH_TOKEN" ]; then
-            echo "::warning title=Build failure not announced::CRU_DEPLOY_GITHUB_TOKEN is unset (the caller does not pass 'secrets: inherit'); skipping the Slack notification."
+          if [ -z "$DISPATCH_TOKEN" ] && [ -z "$DEPLOY_GATE_URL" ]; then
+            echo "::warning title=Build failure not announced::CRU_DEPLOY_GITHUB_TOKEN is unset (the caller does not pass 'secrets: inherit') and no deploy-gate-url is set; skipping the Slack notification."
             exit 0
           fi
           echo "present=true" >> "$GITHUB_OUTPUT"
@@ -1100,12 +1127,31 @@ jobs:
           path: cru-github-actions
 
       # github.repository and github.run_id are the CALLER's, so the run URL
-      # points at the app repo's failed run -- the reader's next step.
+      # points at the app repo's failed run -- the reader's next step. The
+      # deploy gate checks that run-url is this run's own page.
+      #
+      # Two steps with opposite conditions, so exactly one runs, and only the
+      # second passes gate-url. The dispatch action comes from workflow-ref,
+      # which can be a release from before gate-url existed; there an unknown
+      # input is a warning on every failure notice. Keep the two the same in
+      # everything else.
       - name: Announce the failure via cru-deploy
-        if: steps.token.outputs.present == 'true'
+        if: steps.token.outputs.present == 'true' && inputs.deploy-gate-url == ''
         continue-on-error: true
         uses: ./cru-github-actions/actions/dispatch
         with:
+          github-token: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
+          workflow: notify-build-failure.yml
+          inputs-json: >-
+            {"project-name": "${{ needs.setup.outputs.project-name }}",
+             "run-url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+
+      - name: Announce the failure via cru-deploy, through the deploy gate
+        if: steps.token.outputs.present == 'true' && inputs.deploy-gate-url != ''
+        continue-on-error: true
+        uses: ./cru-github-actions/actions/dispatch
+        with:
+          gate-url: ${{ inputs.deploy-gate-url }}
           github-token: ${{ secrets.CRU_DEPLOY_GITHUB_TOKEN }}
           workflow: notify-build-failure.yml
           inputs-json: >-
