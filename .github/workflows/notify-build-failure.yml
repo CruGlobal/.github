@@ -6,10 +6,12 @@ name: Notify Build Failure
 # repo: build-candidate runs in the app repo, which holds no Slack credential,
 # and the GitHubDeployECS role that reads the app's SlackChannel out of app-info
 # trusts cru-deploy, not the app repo. So build-candidate's failure job only
-# dispatches (with the org CRU_DEPLOY_GITHUB_TOKEN it already inherits), and
-# cru-deploy's thin `Notify Build Failure (v2)` wrapper calls this workflow with
-# its SLACK_BOT_TOKEN. Nothing is checked out here, so there is no workflow-ref
-# input to keep in step with the `uses:` ref.
+# starts cru-deploy's thin `Notify Build Failure (v2)` wrapper (through the
+# deploy gate with its OIDC token when the caller sets deploy-gate-url,
+# otherwise with the org CRU_DEPLOY_GITHUB_TOKEN it already inherits), and
+# that wrapper calls this workflow with its SLACK_BOT_TOKEN. Nothing is checked
+# out here, so there is no workflow-ref input to keep in step with the `uses:`
+# ref.
 #
 # Not a deploy: this workflow reads one DynamoDB item and posts one message. It
 # never fails the thing it reports on -- every failure mode below is a warning.
