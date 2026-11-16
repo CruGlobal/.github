@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.24.0](https://github.com/CruGlobal/.github/compare/v2.23.0...v2.24.0) (2026-11-16)
+
+
+### Features
+
+* **v2:** let the dispatch action start a candidate deploy through the deploy gate ([#584](https://github.com/CruGlobal/.github/issues/584)) ([3fd0e21](https://github.com/CruGlobal/.github/commit/3fd0e216413193a969480a96eb6b4100c0b0a387))
+
+
+### Bug Fixes
+
+* **v2:** classify releases with more than 300 changed files ([#585](https://github.com/CruGlobal/.github/issues/585)) ([3d91799](https://github.com/CruGlobal/.github/commit/3d9179980e13daa6f2083e0462bb87736962a679))
+
 ## [2.23.0](https://github.com/CruGlobal/.github/compare/v2.22.0...v2.23.0) (2026-11-13)
 
 
