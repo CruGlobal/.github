@@ -19644,6 +19644,9 @@ function warning(message, properties = {}) {
 function notice(message, properties = {}) {
   issueCommand("notice", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function info(message) {
+  process.stdout.write(message + os4.EOL);
+}
 
 // src/v2/rollback-safety.js
 var EXPAND = "expand";
@@ -20375,8 +20378,13 @@ function deadlineRequests({ deadlineMs, timeoutMs = 1e4, now = Date.now }) {
 // src/classify-rollback-safety.js
 var GITHUB_API = "https://api.github.com";
 var COMPARE_FILE_CAP = 300;
+var TRUNCATED_REASON = "diff truncated at 300 files \u2014 classify manually";
+var MAX_TREE_FILE_READS = COMPARE_FILE_CAP;
+var TREES_REASON = "diff truncated at 300 files, so the migrations directory was compared at both commits instead";
 var REQUEST_TIMEOUT_MS = 20 * 1e3;
 var DEADLINE_MS = 90 * 1e3;
+var MAX_REASONS = 20;
+var MAX_REASON_LENGTH = 500;
 function ghHeaders(token, accept) {
   return {
     Authorization: `Bearer ${token}`,
@@ -20433,35 +20441,129 @@ async function fetchContent(repository, path, ref, token, limits) {
     read: (res) => res.text()
   });
 }
+async function fetchTree(repository, sha, recursive, token, limits, subject) {
+  const listing = await githubGet({
+    url: `${GITHUB_API}/repos/${repository}/git/trees/${encodeURIComponent(sha)}${recursive ? "?recursive=1" : ""}`,
+    accept: "application/vnd.github+json",
+    token,
+    limits,
+    api: "git trees API",
+    subject,
+    read: (res) => res.json()
+  });
+  if (!Array.isArray(listing?.tree)) throw new Error(`git trees API gave no listing ${subject}`);
+  if (listing.truncated) throw new Error(`git trees API listing was cut short ${subject}`);
+  const wellFormed = (e) => typeof e?.path === "string" && typeof e?.type === "string" && typeof e?.sha === "string";
+  if (!listing.tree.every(wellFormed)) throw new Error(`git trees API listed an entry with no path, type or sha ${subject}`);
+  return listing.tree;
+}
+async function dirTree(repository, commitSha, segments, token, limits) {
+  let sha = commitSha;
+  for (const [i, name] of segments.entries()) {
+    const parent = segments.slice(0, i).join("/") || "the top level";
+    const entries = await fetchTree(repository, sha, false, token, limits, `for ${parent} at ${commitSha}`);
+    const entry = entries.find((e) => e.path === name);
+    if (!entry) throw new Error(`there is no ${segments.join("/")} directory at ${commitSha}`);
+    if (entry.type !== "tree") throw new Error(`${segments.slice(0, i + 1).join("/")} is not a directory at ${commitSha}`);
+    sha = entry.sha;
+  }
+  return sha;
+}
+async function dirFiles(repository, treeSha, prefix, commitSha, token, limits) {
+  const files = /* @__PURE__ */ new Map();
+  const subject = `for ${prefix.slice(0, -1)} at ${commitSha}`;
+  for (const entry of await fetchTree(repository, treeSha, true, token, limits, subject)) {
+    if (entry.type === "tree") continue;
+    files.set(prefix + entry.path, `${entry.mode} ${entry.sha}`);
+  }
+  return files;
+}
+function diffDirs(before, after) {
+  const changes = [];
+  for (const [path, id] of after) {
+    if (!before.has(path)) changes.push({ path, status: "added" });
+    else if (before.get(path) !== id) changes.push({ path, status: "modified" });
+  }
+  for (const path of before.keys()) {
+    if (!after.has(path)) changes.push({ path, status: "removed" });
+  }
+  return changes.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+}
 function pathPrefix(migrationsPath) {
   return migrationsPath.replace(/^\.\//, "").replace(/\/+$/, "") + "/";
+}
+function needsContent({ path, status }) {
+  return status === "added" && /\.(sql|rb)$/i.test(path) && !/(^|\/)meta\//.test(path);
+}
+async function classifyChanges(changes, readContent) {
+  const enriched = [];
+  for (const change of changes) {
+    const content = needsContent(change) ? await readContent(change.path) : void 0;
+    enriched.push({ ...change, content });
+  }
+  return classifyMigrationFiles(enriched);
+}
+async function classifyFromTrees({ repository, compare, headSha, prefix, token, limits, readContent, hasContent }) {
+  const mergeBase = compare.merge_base_commit?.sha;
+  if (typeof mergeBase !== "string" || !mergeBase) throw new Error("the compare named no merge base");
+  const dir = prefix.slice(0, -1);
+  const segments = dir.split("/");
+  if (segments.some((s) => s === "" || s === "." || s === "..")) throw new Error(`cannot walk the migrations path ${dir}`);
+  const beforeTree = await dirTree(repository, mergeBase, segments, token, limits);
+  const afterTree = await dirTree(repository, headSha, segments, token, limits);
+  if (beforeTree === afterTree) return classifyMigrationFiles([]);
+  const before = await dirFiles(repository, beforeTree, prefix, mergeBase, token, limits);
+  const after = await dirFiles(repository, afterTree, prefix, headSha, token, limits);
+  const changes = diffDirs(before, after);
+  const toRead = changes.filter((c) => needsContent(c) && !hasContent(c.path)).length;
+  if (toRead > MAX_TREE_FILE_READS) {
+    throw new Error(`${toRead} added migration files to read, more than the ${MAX_TREE_FILE_READS} allowed`);
+  }
+  return classifyChanges(changes, readContent);
 }
 async function classify({ token, repository, baseSha, headSha, migrationsPath, limits }) {
   const compare = await fetchCompare(repository, baseSha, headSha, token, limits);
   const files = compare.files ?? [];
   const truncated = files.length >= COMPARE_FILE_CAP;
   const prefix = pathPrefix(migrationsPath);
-  const inPath = files.filter((f) => (f.filename ?? "").startsWith(prefix));
-  const enriched = [];
-  for (const f of inPath) {
-    const path = f.filename;
-    const status = f.status;
-    let content;
-    if (status === "added" && /\.(sql|rb)$/i.test(path) && !/(^|\/)meta\//.test(path)) {
-      content = await fetchContent(repository, path, headSha, token, limits);
-    }
-    enriched.push({ path, status, content });
+  const inPath = files.filter((f) => (f.filename ?? "").startsWith(prefix)).map((f) => ({ path: f.filename, status: f.status }));
+  const contents = /* @__PURE__ */ new Map();
+  const readContent = async (path) => {
+    if (!contents.has(path)) contents.set(path, await fetchContent(repository, path, headSha, token, limits));
+    return contents.get(path);
+  };
+  const { verdict, reasons } = await classifyChanges(inPath, readContent);
+  if (!truncated) return { verdict, reasons };
+  const listedUnsafe = verdict === "unsafe" ? reasons : [];
+  let fromTrees;
+  try {
+    fromTrees = await classifyFromTrees({ repository, compare, headSha, prefix, token, limits, readContent, hasContent: (path) => contents.has(path) });
+  } catch (error) {
+    return { verdict: "unsafe", reasons: [TRUNCATED_REASON, `could not compare the migrations directory instead: ${error.message}`, ...listedUnsafe] };
   }
-  const { verdict, reasons } = classifyMigrationFiles(enriched);
-  if (truncated) {
-    return { verdict: "unsafe", reasons: ["diff truncated at 300 files \u2014 classify manually", ...verdict === "unsafe" ? reasons : []] };
-  }
-  return { verdict, reasons };
+  const unsafe = [.../* @__PURE__ */ new Set([...fromTrees.verdict === "unsafe" ? fromTrees.reasons : [], ...listedUnsafe])];
+  if (unsafe.length === 0) return { verdict: "safe", reasons: [...fromTrees.reasons, TREES_REASON] };
+  return { verdict: "unsafe", reasons: [...unsafe, TREES_REASON] };
+}
+function boundReason(reason) {
+  const text = String(reason);
+  if (text.length <= MAX_REASON_LENGTH) return text;
+  const chars = Array.from(text);
+  if (chars.length <= MAX_REASON_LENGTH) return text;
+  return chars.slice(0, MAX_REASON_LENGTH - 3).join("") + "...";
+}
+function boundReasons(reasons) {
+  if (reasons.length <= MAX_REASONS) return reasons.map(boundReason);
+  const kept = reasons.slice(0, MAX_REASONS - 1).map(boundReason);
+  return [...kept, `and ${reasons.length - kept.length} more reasons, listed in this step's log`];
 }
 function finish(verdict, reasons) {
+  const lines = reasons.map((reason) => `- ${String(reason).replace(/[\r\n]+/g, " ")}`);
+  info([`rollback safety reasons (${reasons.length}):`, ...lines].join("\n"));
+  const shown = boundReasons(reasons);
   setOutput("verdict", verdict);
-  setOutput("reasons", JSON.stringify(reasons));
-  const summary2 = reasons.length > 0 ? `rollback safety: ${verdict} \u2014 ${reasons.slice(0, 2).join("; ")}` : `rollback safety: ${verdict}`;
+  setOutput("reasons", JSON.stringify(shown));
+  const summary2 = shown.length > 0 ? `rollback safety: ${verdict} \u2014 ${shown.slice(0, 2).join("; ")}` : `rollback safety: ${verdict}`;
   if (verdict === "unsafe") warning(summary2);
   else notice(summary2);
   return { verdict, reasons };

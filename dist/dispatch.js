@@ -6167,7 +6167,7 @@ var require_client_h1 = __commonJS({
         } else {
           socket[kReset] = true;
         }
-        const pause = request2.onHeaders(statusCode, headers, this.resume, statusText) === false;
+        const pause2 = request2.onHeaders(statusCode, headers, this.resume, statusText) === false;
         if (request2.aborted) {
           return -1;
         }
@@ -6181,7 +6181,7 @@ var require_client_h1 = __commonJS({
           socket[kBlocking] = false;
           client[kResume]();
         }
-        return pause ? constants3.ERROR.PAUSED : 0;
+        return pause2 ? constants3.ERROR.PAUSED : 0;
       }
       onBody(buf) {
         const { client, socket, statusCode, maxResponseSize } = this;
@@ -19536,12 +19536,12 @@ var require_lib = __commonJS({
             throw new Error("Client has already been disposed.");
           }
           const parsedUrl = new URL(requestUrl);
-          let info = this._prepareRequest(verb, parsedUrl, headers);
+          let info2 = this._prepareRequest(verb, parsedUrl, headers);
           const maxTries = this._allowRetries && RetryableHttpVerbs.includes(verb) ? this._maxRetries + 1 : 1;
           let numTries = 0;
           let response;
           do {
-            response = yield this.requestRaw(info, data);
+            response = yield this.requestRaw(info2, data);
             if (response && response.message && response.message.statusCode === HttpCodes2.Unauthorized) {
               let authenticationHandler;
               for (const handler2 of this.handlers) {
@@ -19551,7 +19551,7 @@ var require_lib = __commonJS({
                 }
               }
               if (authenticationHandler) {
-                return authenticationHandler.handleAuthentication(this, info, data);
+                return authenticationHandler.handleAuthentication(this, info2, data);
               } else {
                 return response;
               }
@@ -19574,8 +19574,8 @@ var require_lib = __commonJS({
                   }
                 }
               }
-              info = this._prepareRequest(verb, parsedRedirectUrl, headers);
-              response = yield this.requestRaw(info, data);
+              info2 = this._prepareRequest(verb, parsedRedirectUrl, headers);
+              response = yield this.requestRaw(info2, data);
               redirectsRemaining--;
             }
             if (!response.message.statusCode || !HttpResponseRetryCodes2.includes(response.message.statusCode)) {
@@ -19604,7 +19604,7 @@ var require_lib = __commonJS({
        * @param info
        * @param data
        */
-      requestRaw(info, data) {
+      requestRaw(info2, data) {
         return __awaiter3(this, void 0, void 0, function* () {
           return new Promise((resolve, reject) => {
             function callbackForResult(err, res) {
@@ -19616,7 +19616,7 @@ var require_lib = __commonJS({
                 resolve(res);
               }
             }
-            this.requestRawWithCallback(info, data, callbackForResult);
+            this.requestRawWithCallback(info2, data, callbackForResult);
           });
         });
       }
@@ -19626,12 +19626,12 @@ var require_lib = __commonJS({
        * @param data
        * @param onResult
        */
-      requestRawWithCallback(info, data, onResult) {
+      requestRawWithCallback(info2, data, onResult) {
         if (typeof data === "string") {
-          if (!info.options.headers) {
-            info.options.headers = {};
+          if (!info2.options.headers) {
+            info2.options.headers = {};
           }
-          info.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+          info2.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
         }
         let callbackCalled = false;
         function handleResult(err, res) {
@@ -19640,7 +19640,7 @@ var require_lib = __commonJS({
             onResult(err, res);
           }
         }
-        const req = info.httpModule.request(info.options, (msg) => {
+        const req = info2.httpModule.request(info2.options, (msg) => {
           const res = new HttpClientResponse(msg);
           handleResult(void 0, res);
         });
@@ -19652,7 +19652,7 @@ var require_lib = __commonJS({
           if (socket) {
             socket.end();
           }
-          handleResult(new Error(`Request timeout: ${info.options.path}`));
+          handleResult(new Error(`Request timeout: ${info2.options.path}`));
         });
         req.on("error", function(err) {
           handleResult(err);
@@ -19688,27 +19688,27 @@ var require_lib = __commonJS({
         return this._getProxyAgentDispatcher(parsedUrl, proxyUrl);
       }
       _prepareRequest(method, requestUrl, headers) {
-        const info = {};
-        info.parsedUrl = requestUrl;
-        const usingSsl = info.parsedUrl.protocol === "https:";
-        info.httpModule = usingSsl ? https : http;
+        const info2 = {};
+        info2.parsedUrl = requestUrl;
+        const usingSsl = info2.parsedUrl.protocol === "https:";
+        info2.httpModule = usingSsl ? https : http;
         const defaultPort = usingSsl ? 443 : 80;
-        info.options = {};
-        info.options.host = info.parsedUrl.hostname;
-        info.options.port = info.parsedUrl.port ? parseInt(info.parsedUrl.port) : defaultPort;
-        info.options.path = (info.parsedUrl.pathname || "") + (info.parsedUrl.search || "");
-        info.options.method = method;
-        info.options.headers = this._mergeHeaders(headers);
+        info2.options = {};
+        info2.options.host = info2.parsedUrl.hostname;
+        info2.options.port = info2.parsedUrl.port ? parseInt(info2.parsedUrl.port) : defaultPort;
+        info2.options.path = (info2.parsedUrl.pathname || "") + (info2.parsedUrl.search || "");
+        info2.options.method = method;
+        info2.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-          info.options.headers["user-agent"] = this.userAgent;
+          info2.options.headers["user-agent"] = this.userAgent;
         }
-        info.options.agent = this._getAgent(info.parsedUrl);
+        info2.options.agent = this._getAgent(info2.parsedUrl);
         if (this.handlers) {
           for (const handler2 of this.handlers) {
-            handler2.prepareRequest(info.options);
+            handler2.prepareRequest(info2.options);
           }
         }
-        return info;
+        return info2;
       }
       _mergeHeaders(headers) {
         if (this.requestOptions && this.requestOptions.headers) {
@@ -20131,6 +20131,9 @@ function escapeProperty(s) {
   return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
 }
 
+// node_modules/@actions/core/lib/core.js
+var os3 = __toESM(require("os"), 1);
+
 // node_modules/@actions/http-client/lib/index.js
 var tunnel = __toESM(require_tunnel2(), 1);
 var import_undici = __toESM(require_undici(), 1);
@@ -20492,6 +20495,9 @@ var ExitCode;
   ExitCode2[ExitCode2["Success"] = 0] = "Success";
   ExitCode2[ExitCode2["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
+function setSecret(secret) {
+  issueCommand("add-mask", {}, secret);
+}
 function getInput(name, options) {
   const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
   if (options && options.required && !val) {
@@ -20509,8 +20515,14 @@ function setFailed(message) {
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function warning(message, properties = {}) {
+  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
 function notice(message, properties = {}) {
   issueCommand("notice", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+function info(message) {
+  process.stdout.write(message + os3.EOL);
 }
 
 // node_modules/@actions/github/lib/context.js
@@ -24258,7 +24270,240 @@ function getOctokit(token, options, ...additionalPlugins) {
   return new GitHubWithPlugins(getOctokitOptions(token, options));
 }
 
+// src/v2/gate-dispatch.js
+var GATE_WORKFLOWS = ["deploy-candidate.yml", "notify-build-failure.yml"];
+var GATE_ATTEMPTS = 3;
+var GATE_TRY_TIMEOUT_MS = 2e4;
+var TOKEN_TRY_TIMEOUT_MS = 1e4;
+var RETRY_DELAYS_MS = [2e3, 5e3];
+var MAX_ANSWER_LENGTH = 64 * 1024;
+var MAX_MESSAGE_LENGTH = 500;
+var CODE = /^[a-z][a-z0-9_]{0,63}$/;
+var GateUnavailable = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "GateUnavailable";
+  }
+};
+var GateMayHaveStarted = class extends Error {
+  constructor(message, { status }) {
+    super(message);
+    this.name = "GateMayHaveStarted";
+    this.status = status;
+  }
+};
+var GateRefused = class extends Error {
+  constructor(message, { status, code }) {
+    super(message);
+    this.name = "GateRefused";
+    this.status = status;
+    this.code = code;
+  }
+};
+function parseGateUrl(raw) {
+  const value = String(raw ?? "").trim();
+  if (value === "") return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    url = null;
+  }
+  if (url && (url.username || url.password)) {
+    throw new Error("gate-url must be an https URL with no user name or password in it, like https://gate.example.com/gate");
+  }
+  if (!url || url.protocol !== "https:" || !url.hostname || url.search || url.hash || /[?#]/.test(value)) {
+    throw new Error(`gate-url must be an https URL with nothing after the path, like https://gate.example.com/gate, not '${value}'`);
+  }
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/pipeline`;
+  return { route: url.href, audience: url.href };
+}
+function oidcAvailable() {
+  return Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
+}
+var pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function clean(text) {
+  return String(text ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim().slice(0, MAX_MESSAGE_LENGTH);
+}
+function noAnswer(error2, timeoutMs) {
+  if (error2?.name === "TimeoutError") return `no answer within ${timeoutMs / 1e3} seconds`;
+  const code = errorCode(error2);
+  return code ? `no answer (${code})` : "no answer";
+}
+function bodyLost(error2, timeoutMs) {
+  if (error2?.name === "TimeoutError") return `did not arrive within ${timeoutMs / 1e3} seconds`;
+  const code = errorCode(error2);
+  return code ? `broke off (${code})` : "broke off";
+}
+function errorCode(error2) {
+  const code = error2?.cause?.code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{0,40}$/.test(code) ? code : "";
+}
+var TimeLimitReached = class extends Error {
+  constructor(timeoutMs) {
+    super(`no answer within ${timeoutMs / 1e3} seconds`);
+    this.name = "TimeoutError";
+  }
+};
+async function within(promise, timeoutMs, controller) {
+  let timer;
+  const timedOut = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const error2 = new TimeLimitReached(timeoutMs);
+      controller.abort(error2);
+      reject(error2);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function send(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const response = await within(globalThis.fetch(url, {
+    ...init,
+    // A redirect is an answer, never followed: the bearer token goes to this
+    // URL only.
+    redirect: "manual",
+    signal: controller.signal
+  }), timeoutMs, controller);
+  let text = "";
+  let unread = "";
+  try {
+    text = await within(response.text(), timeoutMs, controller);
+  } catch (error2) {
+    unread = bodyLost(error2, timeoutMs);
+  }
+  let body;
+  try {
+    body = unread || text.length > MAX_ANSWER_LENGTH ? void 0 : JSON.parse(text);
+  } catch {
+    body = void 0;
+  }
+  const code = typeof body?.code === "string" && CODE.test(body.code) ? body.code : "";
+  return { status: response.status, ok: response.ok, headers: response.headers, body, code, unread };
+}
+async function idToken(audience, timeoutMs) {
+  const base = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  let answer;
+  try {
+    answer = await send(`${base}&audience=${encodeURIComponent(audience)}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${requestToken}`, accept: "application/json" }
+    }, timeoutMs);
+  } catch (error2) {
+    throw new Error(`the runner's OIDC token service gave ${noAnswer(error2, timeoutMs)}`, { cause: error2 });
+  }
+  const token = answer.ok ? answer.body?.value : void 0;
+  if (typeof token !== "string" || token === "") {
+    throw new Error(`the runner's OIDC token service answered HTTP ${answer.status} with no token${answer.unread ? ` (the body ${answer.unread})` : ""}`);
+  }
+  setSecret(token);
+  return token;
+}
+function runLink(body) {
+  const value = body?.runUrl;
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+function startedOrThrow({ status, body, unread }, workflow) {
+  let what = "";
+  if (unread) {
+    what = `the deploy gate answered HTTP ${status}, but the rest of its answer ${unread}`;
+  } else if (status !== 202 || body?.workflow !== workflow) {
+    const named = status === 202 && typeof body?.workflow === "string" ? clean(body.workflow) : "";
+    what = `gate-url answered HTTP ${status}${named ? ` naming ${named}` : ""}, not the deploy gate's HTTP 202 naming ${workflow}, so gate-url may not point at the deploy gate`;
+  }
+  if (what) {
+    throw new GateMayHaveStarted(
+      `${what}. ${workflow} may have started, so this step does not try again or fall back to github-token: check the deploy repo's runs of it before starting it again`,
+      { status }
+    );
+  }
+  return { runUrl: runLink(body), message: clean(body?.message) };
+}
+var tryAgain = (status) => status >= 500 || status === 408 || status === 429;
+function retryAfterMs(headers) {
+  const value = String(headers?.get?.("retry-after") ?? "").trim();
+  if (value === "") return 0;
+  if (/^\d+$/.test(value)) return Number(value) * 1e3;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? 0 : Math.max(0, at - Date.now());
+}
+var tries = (n) => `${n} ${n === 1 ? "try" : "tries"}`;
+async function gateDispatch({ route, audience, workflow, inputs }, {
+  attempts = GATE_ATTEMPTS,
+  delaysMs = RETRY_DELAYS_MS,
+  tryTimeoutMs = GATE_TRY_TIMEOUT_MS,
+  tokenTryTimeoutMs = TOKEN_TRY_TIMEOUT_MS,
+  sleep = pause
+} = {}) {
+  const body = JSON.stringify({ workflow, inputs });
+  const plannedDelay = (attempt) => delaysMs[Math.min(attempt - 2, delaysMs.length - 1)] ?? 0;
+  let waitLeft = 0;
+  for (let attempt = 2; attempt <= attempts; attempt++) waitLeft += plannedDelay(attempt);
+  let reason = "";
+  let asked = 0;
+  let tried = 0;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (attempt > 1) {
+      if (asked > waitLeft) {
+        reason = `${reason}, and asked for a wait of ${Math.ceil(asked / 1e3)} seconds, longer than the tries have left`;
+        break;
+      }
+      const delay = Math.min(Math.max(plannedDelay(attempt), asked), waitLeft);
+      waitLeft -= delay;
+      info(`the deploy gate did not take the request (${reason}); trying again in ${delay / 1e3} seconds (${attempt}/${attempts})`);
+      await sleep(delay);
+    }
+    asked = 0;
+    tried = attempt;
+    let token;
+    try {
+      token = await idToken(audience, tokenTryTimeoutMs);
+    } catch (error2) {
+      reason = error2.message;
+      continue;
+    }
+    let answer;
+    try {
+      answer = await send(route, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+        body
+      }, tryTimeoutMs);
+    } catch (error2) {
+      reason = `the deploy gate gave ${noAnswer(error2, tryTimeoutMs)}`;
+      continue;
+    }
+    const { status, code } = answer;
+    if (answer.ok) return startedOrThrow(answer, workflow);
+    if (tryAgain(status)) {
+      reason = `the deploy gate answered HTTP ${status}${code ? ` ${code}` : ""}`;
+      asked = retryAfterMs(answer.headers);
+      continue;
+    }
+    const message = clean(answer.body?.message);
+    throw new GateRefused(
+      `the deploy gate refused to start ${workflow}: HTTP ${status}${code ? ` ${code}` : ""}${message ? `: ${message}` : ""}`,
+      { status, code }
+    );
+  }
+  throw new GateUnavailable(`the deploy gate did not take the request to start ${workflow} after ${tries(tried)} (last: ${reason})`);
+}
+
 // src/dispatch.js
+var DEFAULT_REPO = "CruGlobal/cru-deploy";
+var DEFAULT_REF = "main";
 function parseInputsJson(raw) {
   const text = (raw ?? "").trim();
   if (text === "") return {};
@@ -24280,24 +24525,64 @@ function parseRepo(repo) {
   }
   return { owner: parts[0], repo: parts[1] };
 }
-async function run() {
+async function dispatchWithToken({ githubToken, owner, repo, workflow, ref, inputs }) {
+  const octokit = getOctokit(githubToken);
+  await octokit.rest.actions.createWorkflowDispatch({
+    owner,
+    repo,
+    workflow_id: workflow,
+    ref,
+    inputs
+  });
+  notice(
+    `Dispatched ${workflow} on ${owner}/${repo}@${ref}. See https://github.com/${owner}/${repo}/actions/workflows/${workflow}.`
+  );
+}
+async function run(gateOptions) {
   try {
-    const githubToken = getInput("github-token", { required: true });
-    const repoInput = getInput("repo", { required: false }) || "CruGlobal/cru-deploy";
+    const gateUrl = getInput("gate-url", { required: false });
+    const githubToken = getInput("github-token", { required: gateUrl.trim() === "" });
+    const repoInput = getInput("repo", { required: false }) || DEFAULT_REPO;
     const workflow = getInput("workflow", { required: true });
-    const ref = getInput("ref", { required: false }) || "main";
+    const ref = getInput("ref", { required: false }) || DEFAULT_REF;
     const inputs = parseInputsJson(getInput("inputs-json", { required: false }));
     const { owner, repo } = parseRepo(repoInput);
-    const octokit = getOctokit(githubToken);
-    await octokit.rest.actions.createWorkflowDispatch({
-      owner,
-      repo,
-      workflow_id: workflow,
-      ref,
-      inputs
-    });
+    const gate = parseGateUrl(gateUrl);
+    const target = { githubToken, owner, repo, workflow, ref, inputs };
+    if (!gate) return await dispatchWithToken(target);
+    const fallback = (why) => githubToken ? `${why}; dispatching ${workflow} on ${owner}/${repo}@${ref} with github-token instead` : `${why}, and no github-token was given to use instead`;
+    if (!GATE_WORKFLOWS.includes(workflow)) {
+      const why = `gate-url is set, but the deploy gate starts only ${GATE_WORKFLOWS.join(" and ")}`;
+      if (!githubToken) throw new Error(fallback(why));
+      info(fallback(why));
+      return await dispatchWithToken(target);
+    }
+    if (`${owner}/${repo}`.toLowerCase() !== DEFAULT_REPO.toLowerCase() || ref !== DEFAULT_REF) {
+      const why = `gate-url is set, but the deploy gate starts ${workflow} on ${DEFAULT_REPO}@${DEFAULT_REF} only`;
+      if (!githubToken) throw new Error(fallback(why));
+      warning(fallback(why));
+      return await dispatchWithToken(target);
+    }
+    if (!oidcAvailable()) {
+      const why = "gate-url is set, but this job cannot get a GitHub OIDC token for the deploy gate (it needs permissions: id-token: write)";
+      if (!githubToken) throw new Error(fallback(why));
+      warning(fallback(why));
+      return await dispatchWithToken(target);
+    }
+    const workflowPage = `https://github.com/${owner}/${repo}/actions/workflows/${workflow}`;
+    let started;
+    try {
+      started = await gateDispatch({ ...gate, workflow, inputs }, gateOptions);
+    } catch (error2) {
+      if (error2 instanceof GateMayHaveStarted) throw new Error(`${error2.message} (${workflowPage})`, { cause: error2 });
+      if (!(error2 instanceof GateUnavailable)) throw error2;
+      if (!githubToken) throw new Error(fallback(error2.message), { cause: error2 });
+      warning(fallback(error2.message));
+      return await dispatchWithToken(target);
+    }
+    if (started.message) info(`the deploy gate says: ${started.message}`);
     notice(
-      `Dispatched ${workflow} on ${owner}/${repo}@${ref}. See https://github.com/${owner}/${repo}/actions/workflows/${workflow}.`
+      `Dispatched ${workflow} through the deploy gate. See ${started.runUrl || workflowPage}.`
     );
   } catch (error2) {
     setFailed(error2.message);
