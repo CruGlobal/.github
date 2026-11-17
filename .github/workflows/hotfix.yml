@@ -37,9 +37,9 @@ name: Hotfix
 #   6. Read the ledger again, then push the branch. A plain push, never
 #      forced, and only to hotfix/<release tag>. This workflow never pushes
 #      to the default branch and never deletes a branch. It pushes as the
-#      GitHub App the caller names in push-app-id, with a token for the app
-#      repo alone and contents: write alone (see "Pushing as a GitHub App"
-#      below), or with authz-token when the caller names none.
+#      GitHub App the caller names in push-app-client-id, with a token for
+#      the app repo alone and contents: write alone (see "Pushing as a
+#      GitHub App" below), or with authz-token when the caller names none.
 #   7. Dispatch the app's .github/workflows/pipeline-v2.yml on the branch. It
 #      builds a candidate with build-candidate.yml, whose hotfix check accepts
 #      only the live release plus clean cherry-picks of default-branch
@@ -56,9 +56,9 @@ name: Hotfix
 # branch_moved or no_pipeline), and every one of them happens before the
 # push. ledger_unavailable means the deployment ledger could not be read: try
 # again later. production_moved means it answered, and production does not
-# run expected-release. With push-app-id set, push_app_failed means the App
-# could not be set up to push (its settings, its key or its token), also
-# before anything is pushed.
+# run expected-release. With push-app-client-id set, push_app_failed means
+# the App could not be set up to push (its settings, its key or its token),
+# also before anything is pushed.
 #
 # Re-runs and repeats are safe. A run whose fix is already on the branch
 # pushes nothing and dispatches the build again; build-candidate reuses the
@@ -129,21 +129,32 @@ name: Hotfix
 # already has a cherry-pick on the branch pushes nothing and dispatches the
 # build again, as any re-run does.
 #
-# Pushing as a GitHub App. With push-app-id, push-app-key-secret-id and
-# push-app-key-role-arn set (all three, or none), the hotfix job:
+# Pushing as a GitHub App. With push-app-client-id, push-app-key-secret-id
+# and push-app-key-role-arn set (all three, or none), the hotfix job:
 #
 #   1. Assumes push-app-key-role-arn with its own GitHub OIDC token. That
-#      token names this file as its job_workflow_ref, so the role can trust
-#      this one job and nothing else the caller runs. The role's keys stay
-#      out of the job's environment, so the deploy role the job assumed first
-#      is still the job's AWS identity.
-#   2. Reads the App's private key from push-app-key-secret-id with those
-#      keys, and masks it.
-#   3. Mints a token for the app repo alone, with contents: write and nothing
-#      else (no workflows permission), and revokes it when the job ends.
-#   4. Pushes the branch with that token alone. The checkout's saved
+#      token's sub names the caller's repo and ref, and its job_workflow_ref
+#      names this file at the ref the caller pinned, so the role can trust
+#      this reusable workflow as that caller runs it. That trust covers the
+#      whole workflow, not one job: the authorize job has id-token: write
+#      and gets the same sub and job_workflow_ref, so it could assume the
+#      role too. That is acceptable. The authorize job runs only this file's
+#      steps and the authorize-actor action, from the same refs as the
+#      hotfix job, and those steps already hold authz-token, which can write
+#      to every app repo. The role's keys stay out of the job's environment,
+#      so the deploy role the job assumed first is still the job's AWS
+#      identity.
+#   2. Mints the App's token in one step. That step reads the App's private
+#      key with the role's keys, refuses anything but a PEM RSA private key
+#      with real line breaks, signs a JWT that lasts nine minutes with it,
+#      and asks GitHub for a token for the app repo alone, with contents:
+#      write and nothing else (no workflows permission). It refuses a token
+#      GitHub gave any more than that. The key and the JWT never leave that
+#      step, and the token is masked before the step writes it out.
+#   3. Pushes the branch with that token alone. The checkout's saved
 #      authz-token is set aside for the push, so GitHub sees the App; the
 #      fetches before the push still use authz-token.
+#   4. Revokes the token as soon as the cut is done, pushed or not.
 #
 # There is no fallback. If any of those steps fails, the job fails, says what
 # to check, and pushes nothing: a push as authz-token would be the push the
@@ -303,33 +314,36 @@ on:
           gate-actor-id account started, and ignored on any other. It must
           name project-name, the action hotfix and, as its target, commit
           exactly as given. Empty on every run the gate did not start.
-      push-app-id:
+      push-app-client-id:
         type: string
         required: false
         default: ''
         description: >-
-          The client id, or the numeric App id, of a GitHub App that pushes
-          the hotfix branch in place of authz-token. Set it together with
-          push-app-key-secret-id and push-app-key-role-arn, or leave all
-          three empty to push with authz-token as before; any other mix
-          refuses the run (push_app_failed) before anything is read or
-          pushed. The App must be installed on the app repo with Contents:
-          Read and write. Its token covers the app repo alone, with
-          contents: write alone, so it never gets the workflows permission.
-          Once set, a key, token or push that fails fails the run, and the
-          push is never tried with authz-token instead. The hotfix action
-          checked out at workflow-ref must take the push-as-app input (the
-          release that added this input, or later); an older one refuses
-          the run. A fixed value in the caller, never a dispatch input.
+          The client id (the Client ID on the App's settings page, not its
+          numeric App ID) of a GitHub App that pushes the hotfix branch in
+          place of authz-token. Set it together with push-app-key-secret-id
+          and push-app-key-role-arn, or leave all three empty to push with
+          authz-token as before; any other mix refuses the run
+          (push_app_failed) before anything is read or pushed. The App must
+          be installed on the app repo with Contents: Read and write. Its
+          token covers the app repo alone, with contents: write alone, so it
+          never gets the workflows permission. Once set, a key, token or
+          push that fails fails the run, and the push is never tried with
+          authz-token instead. The hotfix action checked out at workflow-ref
+          must take the push-as-app input (the release that added this
+          input, or later); an older one refuses the run. A fixed value in
+          the caller, never a dispatch input.
       push-app-key-secret-id:
         type: string
         required: false
         default: ''
         description: >-
           The AWS Secrets Manager secret, by name or ARN, in us-east-1, that
-          holds push-app-id's private key as PEM text (the key file the App's
-          settings page downloads). Read with push-app-key-role-arn, by the
-          hotfix job only. A fixed value in the caller, never a dispatch
+          holds push-app-client-id's private key as PEM text: the key file
+          the App's settings page downloads, stored as it is, line breaks
+          and all. A key stored on one line, with \n written in place of
+          its line breaks, is refused. Read with push-app-key-role-arn, by
+          the hotfix job only. A fixed value in the caller, never a dispatch
           input.
       push-app-key-role-arn:
         type: string
@@ -339,10 +353,12 @@ on:
           The AWS role the hotfix job assumes with its GitHub OIDC token to
           read push-app-key-secret-id. The token's job_workflow_ref names
           this file at the ref the caller pinned, and its sub names the
-          caller's repo and ref, so the role can trust exactly that. Its
-          keys are used for that one read; the job's own AWS credentials
-          stay as they are. A fixed value in the caller, never a dispatch
-          input.
+          caller's repo and ref, so the role can trust exactly that: this
+          reusable workflow, run by that caller. Either of its jobs could
+          get such a token; only the hotfix job assumes the role (see the
+          top of this file). Its keys are used for that one read; the job's
+          own AWS credentials stay as they are. A fixed value in the caller,
+          never a dispatch input.
     secrets:
       authz-token:
         required: true
@@ -352,7 +368,7 @@ on:
           must also be able to read that team, its membership and its child
           teams: read:org, or Members read for a fine-grained token or a
           GitHub App), clones the repo, pushes the
-          hotfix branch (contents: write) unless push-app-id is set, and
+          hotfix branch (contents: write) unless push-app-client-id is set, and
           dispatches the app's pipeline-v2.yml (actions: write). It never
           needs the workflow scope: a fix that changes a workflow file is
           refused before any push, and a person ships it by hand (see the
@@ -462,10 +478,10 @@ jobs:
       cancel-in-progress: false
     # OIDC: the job assumes GitHubDeployECS to read app-info from DynamoDB,
     # as promote's lookup does, and the authz action's claim at
-    # gate-claim-url sends an OIDC token too. With push-app-id set, it also
-    # assumes push-app-key-role-arn with one. contents: read lets it check
-    # this repo out for the actions. Everything on the app repo uses
-    # authz-token, except the push when push-app-id is set.
+    # gate-claim-url sends an OIDC token too. With push-app-client-id set, it
+    # also assumes push-app-key-role-arn with one. contents: read lets it
+    # check this repo out for the actions. Everything on the app repo uses
+    # authz-token, except the push when push-app-client-id is set.
     permissions:
       id-token: write
       contents: read
@@ -542,10 +558,11 @@ jobs:
 
       # Full history: the cut checks ancestry against the default branch and
       # reads any existing hotfix branch. The token stays in this checkout's
-      # git config so the cut step can fetch, and push when push-app-id is not
-      # set; the checkout's post step removes it when the job ends. With
-      # push-app-id set, the cut sets it aside for the push and pushes with
-      # the App's token alone (see pushHotfixBranch in src/v2/hotfix.js).
+      # git config so the cut step can fetch, and push when push-app-client-id
+      # is not set; the checkout's post step removes it when the job ends.
+      # With push-app-client-id set, the cut sets it aside for the push and
+      # pushes with the App's token alone (see pushHotfixBranch in
+      # src/v2/hotfix.js).
       - name: Checkout the app repo
         uses: actions/checkout@v7
         with:
@@ -555,8 +572,8 @@ jobs:
           path: app
 
       # Who pushes the hotfix branch: the caller's GitHub App when it set
-      # push-app-id, push-app-key-secret-id and push-app-key-role-arn, or
-      # authz-token, as before, when it set none of them. A mix is a mistake
+      # push-app-client-id, push-app-key-secret-id and push-app-key-role-arn,
+      # or authz-token, as before, when it set none of them. A mix is a mistake
       # in the caller, refused here before anything is read or pushed. Once
       # the App is chosen, every step that sets it up stops the job if it
       # fails, and the cut refuses to push without its token, so this run
@@ -566,7 +583,7 @@ jobs:
       - name: Choose who pushes the hotfix branch
         id: push-app
         env:
-          APP_ID: ${{ inputs.push-app-id }}
+          CLIENT_ID: ${{ inputs.push-app-client-id }}
           KEY_SECRET_ID: ${{ inputs.push-app-key-secret-id }}
           KEY_ROLE_ARN: ${{ inputs.push-app-key-role-arn }}
           REPOSITORY: ${{ steps.app-info.outputs.repository }}
@@ -581,25 +598,25 @@ jobs:
             echo "::error title=push_app_failed::$1; refusing to cut a hotfix. Nothing was pushed"
             exit 1
           }
-          app_id=$(trim "$APP_ID")
+          client_id=$(trim "$CLIENT_ID")
           secret_id=$(trim "$KEY_SECRET_ID")
           role_arn=$(trim "$KEY_ROLE_ARN")
-          if [ -z "$app_id$secret_id$role_arn" ]; then
+          if [ -z "$client_id$secret_id$role_arn" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "push-app-id is not set, so the hotfix branch is pushed with authz-token."
+            echo "push-app-client-id is not set, so the hotfix branch is pushed with authz-token."
             exit 0
           fi
           missing=()
-          [ -n "$app_id" ] || missing+=(push-app-id)
+          [ -n "$client_id" ] || missing+=(push-app-client-id)
           [ -n "$secret_id" ] || missing+=(push-app-key-secret-id)
           [ -n "$role_arn" ] || missing+=(push-app-key-role-arn)
           if [ ${#missing[@]} -gt 0 ]; then
             names=$(printf '%s and ' "${missing[@]}")
             verb=are
             [ ${#missing[@]} -gt 1 ] || verb=is
-            refuse "push-app-id, push-app-key-secret-id and push-app-key-role-arn go together, but ${names% and } $verb empty. Set all three to push the hotfix branch as the GitHub App, or none to push it with authz-token"
+            refuse "push-app-client-id, push-app-key-secret-id and push-app-key-role-arn go together, but ${names% and } $verb empty. Set all three to push the hotfix branch as the GitHub App, or none to push it with authz-token"
           fi
-          for pair in "push-app-id=$app_id" "push-app-key-secret-id=$secret_id" "push-app-key-role-arn=$role_arn"; do
+          for pair in "push-app-client-id=$client_id" "push-app-key-secret-id=$secret_id" "push-app-key-role-arn=$role_arn"; do
             case "${pair#*=}" in
               *[[:space:]]*) refuse "${pair%%=*} has a space or a line break inside it" ;;
             esac
@@ -608,7 +625,7 @@ jobs:
           # release than this file. One that does not take push-as-app would
           # ignore the App's token and push with authz-token.
           if ! grep -Eq '^  push-as-app:' "$GITHUB_WORKSPACE/cru-github-actions/actions/hotfix/action.yml"; then
-            refuse "the hotfix action at workflow-ref ${WORKFLOW_REF//[$'\r\n']/ } cannot push as a GitHub App (it takes no push-as-app input), so it would push with authz-token. Point workflow-ref at the CruGlobal/.github release that added push-app-id, or a later one"
+            refuse "the hotfix action at workflow-ref ${WORKFLOW_REF//[$'\r\n']/ } cannot push as a GitHub App (it takes no push-as-app input), so it would push with authz-token. Point workflow-ref at the CruGlobal/.github release that added push-app-client-id, or a later one"
           fi
           # The token is limited to this one repo, so it must be owner/name.
           owner=${REPOSITORY%%/*}
@@ -618,24 +635,27 @@ jobs:
           fi
           {
             echo "enabled=true"
-            echo "app-id=$app_id"
+            echo "client-id=$client_id"
             echo "key-secret-id=$secret_id"
             echo "key-role-arn=$role_arn"
             echo "owner=$owner"
             echo "repo=$name"
           } >> "$GITHUB_OUTPUT"
-          echo "The hotfix branch is pushed as the GitHub App $app_id, with a token for $REPOSITORY alone."
+          echo "The hotfix branch is pushed as the GitHub App $client_id, with a token for $REPOSITORY alone."
 
       # The App's private key can be read by push-app-key-role-arn alone. This
-      # step assumes it with the job's own OIDC token, which names this
-      # reusable workflow (at the ref the caller pinned) as its
-      # job_workflow_ref and the caller's repo and ref as its sub, so the role
-      # can trust this one job. It must stay a step of this job: the same
-      # role assumed from the caller's own job would carry the caller's
-      # workflow as its job_workflow_ref, and the role would refuse it.
-      # output-env-credentials: false keeps the role's keys out of the job's
-      # environment. They reach the next step as outputs, so GitHubDeployECS,
-      # assumed at the top, stays the job's AWS identity for every other step.
+      # step assumes it with the job's own OIDC token, whose job_workflow_ref
+      # names this reusable workflow (at the ref the caller pinned) and whose
+      # sub names the caller's repo and ref, so the role can trust this
+      # workflow as that caller runs it. That is the whole workflow, not this
+      # job alone (see the top of this file for why the authorize job could
+      # assume it too, and why that is acceptable). It must stay a step of
+      # this workflow: the same role assumed from the caller's own job would
+      # carry the caller's workflow as its job_workflow_ref, and the role
+      # would refuse it. output-env-credentials: false keeps the role's keys
+      # out of the job's environment. They reach the mint step as outputs, so
+      # GitHubDeployECS, assumed at the top, stays the job's AWS identity for
+      # every other step.
       - name: Assume the role that reads the push App's key
         id: push-role
         if: steps.push-app.outputs.enabled == 'true'
@@ -649,84 +669,158 @@ jobs:
           # would sit through for a minute or more.
           retry-max-attempts: 2
 
-      # The role's keys go to this one aws call only; the job's AWS_* are left
-      # alone. Every line of the key is masked before anything else happens
-      # (the runner masks a value one line at a time). The key reaches the
-      # next step as an output: the runner keeps outputs in a file under
-      # $RUNNER_TEMP and deletes it as the next step starts, and nothing else
-      # writes the key to disk. The aws CLI does not print the secret on an
-      # error.
-      - name: Read the push App's private key
-        id: push-key
+      # The step above is an action of others, whose error names the call
+      # that failed but not what to change.
+      - name: Explain a failed assume of the push App's role
+        if: failure() && steps.push-role.outcome == 'failure'
+        env:
+          ROLE_ARN: ${{ steps.push-app.outputs.key-role-arn }}
+        run: |
+          echo "::error title=push_app_failed::could not assume $ROLE_ARN with this job's OIDC token (see the step above), so the push App's key was not read. The role must trust this reusable workflow as the caller runs it: the caller's repo and ref as the token's sub, and CruGlobal/.github's hotfix.yml, at the ref the caller pinned, as its job_workflow_ref. Nothing was pushed"
+          exit 1
+
+      # Everything that touches the App's private key happens in this one
+      # step, so the key never reaches a step output, a step input or the
+      # log. It is held in a shell variable of this step that is not
+      # exported, reaches openssl through a pipe (never a file or a command
+      # line), and is dropped once the JWT is signed. The role's keys go to
+      # the one aws call; the job's AWS_* are left alone. The JWT and the
+      # token reach curl on its standard input, never its command line, and
+      # nothing GitHub answers is printed as it is, since the token's answer
+      # holds the token. The token, and the credential git sends for it, are
+      # masked before the token is written to this step's output for the cut.
+      # Nothing here traces commands or runs curl verbose.
+      - name: Mint the push App's token
+        id: push-token
         if: steps.push-app.outputs.enabled == 'true'
         env:
+          CLIENT_ID: ${{ steps.push-app.outputs.client-id }}
           SECRET_ID: ${{ steps.push-app.outputs.key-secret-id }}
+          OWNER: ${{ steps.push-app.outputs.owner }}
+          REPO: ${{ steps.push-app.outputs.repo }}
           ROLE_ACCESS_KEY_ID: ${{ steps.push-role.outputs.aws-access-key-id }}
           ROLE_SECRET_ACCESS_KEY: ${{ steps.push-role.outputs.aws-secret-access-key }}
           ROLE_SESSION_TOKEN: ${{ steps.push-role.outputs.aws-session-token }}
         run: |
+          set +x
+          set -o pipefail
           refuse () {
             echo "::error title=push_app_failed::$1; refusing to cut a hotfix. Nothing was pushed"
             exit 1
           }
+          # One GitHub API call, authorized with $bearer. Sets status (000
+          # when GitHub did not answer) and body.
+          github () {
+            local response args=(-sS --fail-with-body --connect-timeout 10 --max-time 30 -X "$1"
+              -H @- -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'
+              -w '\n%{http_code}')
+            [ -z "${3-}" ] || args+=(--data "$3")
+            response=$(printf 'Authorization: Bearer %s\n' "$bearer" | curl "${args[@]}" "${GITHUB_API_URL:-https://api.github.com}/$2") || true
+            status=${response##*$'\n'}
+            status=${status:-000}
+            body=${response%$'\n'*}
+          }
+          # For a token GitHub gave that this run will not use. It would
+          # expire on its own within an hour; this ends it now.
+          revoke () {
+            bearer=$token
+            github DELETE installation/token
+            [ "$status" = 204 ] || echo "::warning title=push_app_token_not_revoked::GitHub answered $status to revoking the token it gave. It expires on its own within an hour"
+          }
+
           if [ -z "$ROLE_ACCESS_KEY_ID" ]; then
             refuse "assuming the role that reads the push App's key gave no credentials, so the key was not read"
           fi
+          # The aws CLI does not print the secret on an error.
           if ! key=$(AWS_ACCESS_KEY_ID="$ROLE_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$ROLE_SECRET_ACCESS_KEY" AWS_SESSION_TOKEN="$ROLE_SESSION_TOKEN" \
               aws secretsmanager get-secret-value --region us-east-1 --secret-id "$SECRET_ID" --query SecretString --output text); then
             refuse "could not read the push App's private key from the Secrets Manager secret $SECRET_ID in us-east-1 (see the aws error above). push-app-key-role-arn must be allowed secretsmanager:GetSecretValue on it, and the secret must have a value"
           fi
-          printf '%s\n' "$key" | while IFS= read -r line; do
-            line=${line%$'\r'}
-            case "$line" in
-              ''|-----*) ;;
-              *) echo "::add-mask::$line" ;;
-            esac
-          done
+
+          # The key must be the file the App's settings page downloads, as it
+          # is: a BEGIN line, lines of base64 and an END line. A key stored
+          # any other way, such as on one line with \n written in place of
+          # its line breaks, is refused rather than repaired, so there is one
+          # way to store it. No message says anything of the value.
+          key=${key//$'\r'/}
+          key=${key#"${key%%[![:space:]]*}"}
+          key=${key%"${key##*[![:space:]]}"}
           case "$key" in
-            -----BEGIN*PRIVATE\ KEY-----*) ;;
+            *'\n'*) refuse "the Secrets Manager secret $SECRET_ID holds the key on one line, with \\n written where its line breaks should be. Store the key file the App's settings page downloads as it is, with its line breaks" ;;
+          esac
+          case "$key" in
+            *$'\n'*) ;;
+            *) refuse "the Secrets Manager secret $SECRET_ID holds a single line, so it is not a PEM key file. Its secret string must be the key file the App's settings page downloads, with its line breaks" ;;
+          esac
+          case "$key" in
+            "-----BEGIN RSA PRIVATE KEY-----"$'\n'*$'\n'"-----END RSA PRIVATE KEY-----") ;;
+            "-----BEGIN PRIVATE KEY-----"$'\n'*$'\n'"-----END PRIVATE KEY-----") ;;
             *) refuse "the Secrets Manager secret $SECRET_ID does not hold a PEM private key. Its secret string must be the key file the App's settings page downloads" ;;
           esac
-          delimiter="PRIVATE_KEY_$(openssl rand -hex 16)"
-          {
-            echo "private-key<<$delimiter"
-            printf '%s\n' "$key"
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
-          echo "Read the push App's private key from $SECRET_ID."
-
-      # A token for the app repo alone, with contents: write and nothing else:
-      # enough to push a branch, never the workflows permission. client-id
-      # takes a client id or a numeric App id. The action masks the token and
-      # revokes it when the job ends.
-      - name: Mint the push App's token
-        id: push-token
-        if: steps.push-app.outputs.enabled == 'true'
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ steps.push-app.outputs.app-id }}
-          private-key: ${{ steps.push-key.outputs.private-key }}
-          owner: ${{ steps.push-app.outputs.owner }}
-          repositories: ${{ steps.push-app.outputs.repo }}
-          permission-contents: write
-
-      # The two steps above are actions of others, whose errors name the call
-      # that failed but not what to change.
-      - name: Explain a failed push App setup
-        if: failure() && (steps.push-role.outcome == 'failure' || steps.push-token.outcome == 'failure')
-        env:
-          ROLE_OUTCOME: ${{ steps.push-role.outcome }}
-          ROLE_ARN: ${{ steps.push-app.outputs.key-role-arn }}
-          APP_ID: ${{ steps.push-app.outputs.app-id }}
-          SECRET_ID: ${{ steps.push-app.outputs.key-secret-id }}
-          REPOSITORY: ${{ steps.app-info.outputs.repository }}
-        run: |
-          if [ "$ROLE_OUTCOME" = failure ]; then
-            echo "::error title=push_app_failed::could not assume $ROLE_ARN with this job's OIDC token (see the step above), so the push App's key was not read. The role must trust this job: the caller's repo and ref as the token's sub, and CruGlobal/.github's hotfix.yml, at the ref the caller pinned, as its job_workflow_ref. Nothing was pushed"
-          else
-            echo "::error title=push_app_failed::could not mint a token for the GitHub App $APP_ID on $REPOSITORY (see the step above). The App must be installed on $REPOSITORY with Contents: Read and write, and $SECRET_ID must hold one of the App's current private keys. Nothing was pushed"
+          # -passin pass: makes a key with a passphrase fail here rather than
+          # wait for one. openssl's own errors are dropped.
+          if ! openssl rsa -in <(printf '%s\n' "$key") -passin pass: -noout >/dev/null 2>&1; then
+            refuse "the Secrets Manager secret $SECRET_ID holds a PEM block that openssl cannot read as an RSA private key with no passphrase. It must be one of the App's private keys, as the App's settings page downloads it"
           fi
-          exit 1
+
+          # The App's JWT, as GitHub asks for it: issued a minute ago, in case
+          # this runner's clock is ahead of GitHub's, and ending nine minutes
+          # from now, inside GitHub's ten-minute limit. iss is the client id.
+          b64url () { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+          now=$(date +%s)
+          header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)
+          claims=$(jq -cn --arg iss "$CLIENT_ID" --argjson iat "$((now - 60))" --argjson exp "$((now + 540))" '{iat: $iat, exp: $exp, iss: $iss}' | b64url)
+          signature=$(printf '%s' "$header.$claims" | openssl dgst -sha256 -binary -sign <(printf '%s\n' "$key") -passin pass: 2>/dev/null | b64url) || signature=""
+          unset key
+          if [ -z "$signature" ]; then
+            refuse "could not sign the GitHub App's JWT with the key from the Secrets Manager secret $SECRET_ID"
+          fi
+          bearer="$header.$claims.$signature"
+          echo "::add-mask::$bearer"
+
+          # The installation that covers the app repo. A wrong client id or
+          # key shows up here first, as a 401.
+          github GET "repos/$OWNER/$REPO/installation"
+          installation=$(printf '%s' "$body" | jq -r '.id // empty | numbers' 2>/dev/null) || installation=""
+          if [ "$status" != 200 ] || [ -z "$installation" ]; then
+            case "$status" in
+              401) why="GitHub did not take the App's JWT. push-app-client-id must be the App's client id, and $SECRET_ID must hold one of the App's current private keys" ;;
+              404) why="the App is not installed on $OWNER/$REPO" ;;
+              000) why="GitHub did not answer" ;;
+              *) why="push-app-client-id must be the App's client id, and the App must be installed on $OWNER/$REPO" ;;
+            esac
+            refuse "could not find the GitHub App $CLIENT_ID's installation on $OWNER/$REPO (GitHub answered $status): $why"
+          fi
+
+          # A token for the app repo alone, with contents: write alone: enough
+          # to push a branch, never the workflows permission.
+          request=$(jq -cn --arg repo "$REPO" '{repositories: [$repo], permissions: {contents: "write"}}')
+          github POST "app/installations/$installation/access_tokens" "$request"
+          token=$(printf '%s' "$body" | jq -r '.token // empty | strings' 2>/dev/null) || token=""
+          if [ "$status" != 201 ] || [ -z "$token" ]; then
+            refuse "GitHub did not mint a token for $OWNER/$REPO as the GitHub App $CLIENT_ID (GitHub answered $status). The App needs Contents: Read and write, and its installation must cover $OWNER/$REPO"
+          fi
+          # One line with no spaces, so the mask covers all of it and it is
+          # one output line.
+          if ! [[ "$token" =~ ^[[:graph:]]+$ ]]; then
+            refuse "GitHub's answer held a token that is not a single word, so it was not used"
+          fi
+          echo "::add-mask::$token"
+          echo "::add-mask::$(printf 'x-access-token:%s' "$token" | openssl base64 -A)"
+          # Exactly what was asked for. GitHub adds metadata: read to every
+          # installation token, so that one alone is let through. Anything
+          # more, or any other repo, and the token is revoked unused.
+          if ! printf '%s' "$body" | jq -e --arg repo "$OWNER/$REPO" '
+              ((.permissions // {}) | del(.metadata)) == {contents: "write"}
+              and (.permissions.metadata // "read") == "read"
+              and [.repositories[]?.full_name | ascii_downcase] == [$repo | ascii_downcase]
+            ' >/dev/null 2>&1; then
+            granted=$(printf '%s' "$body" | jq -c '{permissions, repositories: [.repositories[]?.full_name]}' 2>/dev/null) || granted="an answer this step could not read"
+            revoke
+            refuse "GitHub gave a token with $granted, not contents: write on $OWNER/$REPO alone, so it was revoked unused"
+          fi
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+          echo "Minted a token for $OWNER/$REPO alone, with contents: write alone, as the GitHub App $CLIENT_ID. It is revoked once the cut is done."
 
       - name: Cut the hotfix branch
         id: cut
@@ -740,6 +834,27 @@ jobs:
           # Empty, and false, unless the caller set the App up above.
           push-as-app: ${{ steps.push-app.outputs.enabled }}
           push-token: ${{ steps.push-token.outputs.token }}
+
+      # The cut is the only step that uses the push App's token, so the token
+      # is revoked as soon as the cut is done, pushed or not, and on a
+      # cancelled run too. A revoke that fails only warns: the token expires
+      # on its own within an hour, and the run's result is the cut's.
+      - name: Revoke the push App's token
+        if: always() && steps.push-token.outputs.token != ''
+        env:
+          TOKEN: ${{ steps.push-token.outputs.token }}
+        run: |
+          set +x
+          # The token reaches curl on its standard input, never its command
+          # line.
+          status=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | curl -sS --connect-timeout 10 --max-time 20 -X DELETE \
+              -H @- -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+              -o /dev/null -w '%{http_code}' "${GITHUB_API_URL:-https://api.github.com}/installation/token") || true
+          if [ "$status" = 204 ]; then
+            echo "Revoked the push App's token."
+          else
+            echo "::warning title=push_app_token_not_revoked::GitHub answered ${status:-000} to revoking the push App's token. It expires on its own within an hour"
+          fi
 
       # The app's own pipeline-v2.yml, as it is on the hotfix branch, builds the
       # candidate and sends it to release-candidate. It is dispatched even when

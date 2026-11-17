@@ -139,8 +139,9 @@ async function runCut ({ env, readLedger }) {
     return
   }
   if (pushToken) {
-    // create-github-app-token masks the token already. Its base64 form is
-    // what git sends, so that is masked too, should git ever print it.
+    // hotfix.yml masks the token, and this base64 form of it, when it mints
+    // it. Both are masked again here, should git ever print what it sends,
+    // in case push-token comes from some other caller.
     core.setSecret(pushToken)
     core.setSecret(basicCredential(pushToken))
   }
