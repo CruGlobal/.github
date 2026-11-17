@@ -261,6 +261,8 @@ describe('reads inside the deploy lock', () => {
     ['rollback.yml', 'rollback-aws', 'Rollback-safety advisory', 1, true],
     ['deploy-candidate.yml', 'deploy-candidate-gcp', 'Check image currently on release-candidate', 5, true],
     ['deploy-candidate.yml', 'deploy-candidate-aws', 'Check image currently on release-candidate', 5, true],
+    ['deploy-candidate.yml', 'deploy-candidate-gcp', 'Older-candidate guard (newer already deployed)', 1, true],
+    ['deploy-candidate.yml', 'deploy-candidate-aws', 'Older-candidate guard (newer already deployed)', 1, true],
     ['deploy-candidate.yml', 'verify-candidate-aws', 'Check digest already verified', 1, true]
   ]
   const cases = READS.map(([file, id, name, limit, advisory]) => [`${file}:${id}: ${name}`, file, id, name, limit, advisory])

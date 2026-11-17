@@ -43,6 +43,9 @@ on:
           scheduled (nightly-cadence) app workflows safe to dispatch
           unconditionally. Force a same-digest redeploy to pick up out-of-band
           changes (e.g. an applied Terraform task-definition template).
+          Without it the deploy also skips a candidate older than the one
+          release-candidate runs, so force is also how to put an older
+          candidate back on release-candidate on purpose.
       # The changelog links' Flightdeck workspace is not an input. It is the
       # caller's FLIGHTDECK_WORKSPACE configuration variable (in a called
       # workflow, vars resolve in the caller's repository and organization),
@@ -70,13 +73,18 @@ on:
         required: false
         description: Flightdeck PAT of the CruDeploy service user, for release-timeline events; unset disables posting.
       # Optional, so a caller that does not pass it keeps working: the stage
-      # message is then the ordinary one, as it was before the label existed.
+      # message is then the ordinary one, as it was before the label existed,
+      # and a candidate older than the one release-candidate runs is deployed,
+      # as it was before the older-candidate guard existed, with a warning.
       github-token:
         required: false
         description: >-
           GitHub token that can read the app repository's branches and
-          commits. It is used only to say in the stage Slack message that a
-          candidate is a hotfix; unset leaves the ordinary message.
+          commits. It is used to say in the stage Slack message that a
+          candidate is a hotfix, and to confirm that a candidate with a lower
+          build number than the one release-candidate runs is also older by
+          commit before that deploy is skipped. Unset leaves the ordinary
+          message, and deploys such a candidate with a warning.
 
 jobs:
   # app-info: per-app metadata, read straight from the CruApplicationInfo
@@ -325,6 +333,171 @@ jobs:
           environment: release-candidate
           runtime-project: ${{ needs.lookup.outputs.project-id }}
 
+      # Older-candidate guard. GitHub sometimes starts a run late, so the
+      # deploy of an older candidate can start after a newer one has landed.
+      # Going ahead would take release-candidate back to the older build, and
+      # a promote in that window would ship a build older than the one that
+      # was tested. So a candidate older than the one release-candidate runs
+      # is skipped the way the no-op guard below skips: a notice, a line in
+      # the run summary, and nothing deployed, recorded or posted to Slack.
+      # force deploys it anyway.
+      #
+      # Older takes two checks, and both must agree. First the build number,
+      # the n in candidate-<yyyy-mm-dd>-<n> (or the older candidate-<n>):
+      # build-candidate takes it from one counter per app that only goes up,
+      # so a lower n was built earlier. The running candidate is the
+      # candidate tag on the digest the step above found serving. That is the
+      # registry's answer, and the one promote names the release after, so
+      # this guard and promote agree on what release-candidate runs. The
+      # deployment ledger is not asked: it records what a deploy set out to
+      # do rather than what serves, its write is best effort, and reading it
+      # would be one more call.
+      #
+      # Then the commits. A hotfix candidate is built from hotfix/<release>
+      # and numbered from the same counter, so a build number alone cannot
+      # tell a late build from another line of work. The nightly build of the
+      # default branch reuses its candidate when the branch has not moved, and
+      # that candidate's number is lower than a hotfix built since; today its
+      # deploy replaces the hotfix on stage, and it must keep doing so. So the
+      # guard skips only when GitHub also says the candidate's commit (its
+      # sha- tag) comes before the running one's on the same history. A
+      # hotfix and a default-branch build sit on split histories, so either
+      # one still replaces the other, as before. The GitHub read is made only
+      # when the build number says older, so a usual deploy asks nothing.
+      #
+      # Any doubt deploys, as before, with a warning that says why the check
+      # was not made: nothing single serves yet or the read above failed, a
+      # tag that is not a candidate tag, an image with no single sha- tag, no
+      # github-token, or GitHub did not answer within 20 seconds. The step
+      # limit is a backstop past that, and continue-on-error lets the job go
+      # on if it is ever reached. skip=true is the step's last write, so a
+      # step cut short never skips.
+      - name: Older-candidate guard (newer already deployed)
+        id: older
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+          WANT: ${{ steps.resolve.outputs.digest }}
+          WANT_TAGS: ${{ steps.resolve.outputs.tags }}
+          HAVE: ${{ steps.current.outputs.digest }}
+          HAVE_TAGS: ${{ steps.current.outputs.tags }}
+          GH_TOKEN: ${{ secrets.github-token }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
+        run: |
+          # One line, always: what follows a line break must not read as a
+          # workflow command of its own.
+          tag="${TAG//[$'\r\n']/ }"
+          go_ahead() {
+            echo "$1"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          not_checked() {
+            echo "::warning title=Candidate order not checked::$1, so $tag is deployed without checking whether release-candidate runs a newer candidate"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if [ "$FORCE" = "true" ]; then
+            go_ahead "force is set, so $tag is deployed whichever candidate release-candidate runs"
+          fi
+          if [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
+            go_ahead "release-candidate already runs $WANT; the no-op guard decides"
+          fi
+          if [ -z "$HAVE" ]; then
+            not_checked "the step above could not tell which image release-candidate runs (nothing is deployed there yet, it does not serve one image, or the read failed)"
+          fi
+
+          candidate_tag='^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?([0-9]{1,18})$'
+          sha_tag='^sha-([0-9a-f]{40})$'
+          repo_name='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+          if ! [[ "$TAG" =~ $candidate_tag ]]; then
+            not_checked "$tag is not a candidate-<yyyy-mm-dd>-<n> tag"
+          fi
+
+          # A digest can carry more than one candidate tag when two builds
+          # pushed the same image. The candidate being deployed counts as new
+          # as its newest tag, and the running one as old as its oldest, so a
+          # skip needs every reading to say older. An image whose sha- tags
+          # name more than one commit names none.
+          want_n=$((10#${BASH_REMATCH[2]}))
+          want_sha=""
+          IFS=',' read -r -a tags <<< "$WANT_TAGS"
+          for t in "${tags[@]}"; do
+            if [[ "$t" =~ $candidate_tag ]]; then
+              n=$((10#${BASH_REMATCH[2]}))
+              if [ "$n" -gt "$want_n" ]; then want_n=$n; fi
+            elif [[ "$t" =~ $sha_tag ]]; then
+              if [ -z "$want_sha" ] || [ "$want_sha" = "${BASH_REMATCH[1]}" ]; then want_sha=${BASH_REMATCH[1]}; else want_sha=many; fi
+            fi
+          done
+          have_n=""
+          have_tag=""
+          have_sha=""
+          IFS=',' read -r -a tags <<< "$HAVE_TAGS"
+          for t in "${tags[@]}"; do
+            if [[ "$t" =~ $candidate_tag ]]; then
+              n=$((10#${BASH_REMATCH[2]}))
+              if [ -z "$have_n" ] || [ "$n" -lt "$have_n" ]; then have_n=$n; have_tag=$t; fi
+            elif [[ "$t" =~ $sha_tag ]]; then
+              if [ -z "$have_sha" ] || [ "$have_sha" = "${BASH_REMATCH[1]}" ]; then have_sha=${BASH_REMATCH[1]}; else have_sha=many; fi
+            fi
+          done
+          if [ -z "$have_n" ]; then
+            not_checked "release-candidate runs $HAVE, which carries no candidate tag"
+          fi
+          if [ "$want_n" -ge "$have_n" ]; then
+            go_ahead "$tag is not older than $have_tag, the candidate release-candidate runs"
+          fi
+
+          older="$tag has a lower build number than $have_tag, the candidate release-candidate runs"
+          if [ -z "$GH_TOKEN" ]; then
+            not_checked "$older, but no github-token was given to check that its commit comes before that one's (a hotfix is numbered from the same counter)"
+          fi
+          if [ -z "$want_sha" ] || [ "$want_sha" = many ]; then
+            not_checked "$older, but its image does not name one commit with a sha- tag"
+          fi
+          if [ -z "$have_sha" ] || [ "$have_sha" = many ]; then
+            not_checked "$older, but the image release-candidate runs does not name one commit with a sha- tag"
+          fi
+          if ! [[ "$APP_REPO" =~ $repo_name ]]; then
+            not_checked "$older, but the app repository '${APP_REPO//[$'\r\n']/ }' is not in owner/name form"
+          fi
+
+          # GitHub says "behind" when the candidate's commit is an ancestor
+          # of the running one's: the same history, further back.
+          status=0
+          body=$(curl -fsS --connect-timeout 10 --max-time 20 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL:-https://api.github.com}/repos/$APP_REPO/compare/$have_sha...$want_sha?per_page=1") || status=$?
+          # curl exits 28 when it ran out of time.
+          if [ "$status" -eq 28 ]; then
+            not_checked "$older, but GitHub did not answer within 20 seconds whether its commit comes before that one's"
+          elif [ "$status" -ne 0 ]; then
+            not_checked "$older, but GitHub could not compare the two commits (curl exit $status)"
+          fi
+          direction=$(printf '%s' "$body" | jq -r '.status // empty' 2>/dev/null) || direction=""
+          case "$direction" in
+            behind) ;;
+            diverged) go_ahead "$older, but the two are built from split histories (a hotfix branch and the default branch, say), so it is deployed, as before" ;;
+            ahead) go_ahead "$older, but its commit comes after that one's, so it is deployed" ;;
+            identical) go_ahead "$older, but both are built from the same commit, so it is deployed, as before" ;;
+            *) not_checked "$older, but GitHub did not say how the two commits compare" ;;
+          esac
+
+          message="release-candidate already runs a newer candidate $have_tag; skipping $tag (set force to deploy it anyway)."
+          echo "::notice title=Newer candidate already deployed::$message"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            printf '### Deploy skipped\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      # One switch for every step after it: skip when release-candidate
+      # already runs this exact digest, or when the guard above found it runs
+      # a newer candidate (that guard has said which, so this one says
+      # nothing more). force turns both off.
       - name: No-op guard (already deployed)
         id: noop
         env:
@@ -332,10 +505,13 @@ jobs:
           HAVE: ${{ steps.current.outputs.digest }}
           FORCE: ${{ inputs.force }}
           TAG: ${{ inputs.tag }}
+          OLDER: ${{ steps.older.outputs.skip }}
         run: |
           if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice title=Already deployed::release-candidate already runs $TAG ($WANT); skipping (set force to redeploy)."
+          elif [ "$FORCE" != "true" ] && [ "$OLDER" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -781,6 +957,134 @@ jobs:
           mode: environment
           environment: release-candidate
 
+      # Same guard as in deploy-candidate-gcp; see the comment there. The
+      # running candidate is the candidate tag on what the step above read:
+      # the image every ECS service serves, the image a Lambda function's
+      # live alias (or $LATEST) runs, or the digest a static site's
+      # index.html names.
+      - name: Older-candidate guard (newer already deployed)
+        id: older
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+          WANT: ${{ steps.resolve.outputs.digest }}
+          WANT_TAGS: ${{ steps.resolve.outputs.tags }}
+          HAVE: ${{ steps.current.outputs.digest }}
+          HAVE_TAGS: ${{ steps.current.outputs.tags }}
+          GH_TOKEN: ${{ secrets.github-token }}
+          APP_REPO: ${{ needs.lookup.outputs.repository }}
+        run: |
+          # One line, always: what follows a line break must not read as a
+          # workflow command of its own.
+          tag="${TAG//[$'\r\n']/ }"
+          go_ahead() {
+            echo "$1"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          not_checked() {
+            echo "::warning title=Candidate order not checked::$1, so $tag is deployed without checking whether release-candidate runs a newer candidate"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if [ "$FORCE" = "true" ]; then
+            go_ahead "force is set, so $tag is deployed whichever candidate release-candidate runs"
+          fi
+          if [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
+            go_ahead "release-candidate already runs $WANT; the no-op guard decides"
+          fi
+          if [ -z "$HAVE" ]; then
+            not_checked "the step above could not tell which image release-candidate runs (nothing is deployed there yet, it does not serve one image, or the read failed)"
+          fi
+
+          candidate_tag='^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?([0-9]{1,18})$'
+          sha_tag='^sha-([0-9a-f]{40})$'
+          repo_name='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+          if ! [[ "$TAG" =~ $candidate_tag ]]; then
+            not_checked "$tag is not a candidate-<yyyy-mm-dd>-<n> tag"
+          fi
+
+          # A digest can carry more than one candidate tag when two builds
+          # pushed the same image. The candidate being deployed counts as new
+          # as its newest tag, and the running one as old as its oldest, so a
+          # skip needs every reading to say older. An image whose sha- tags
+          # name more than one commit names none.
+          want_n=$((10#${BASH_REMATCH[2]}))
+          want_sha=""
+          IFS=',' read -r -a tags <<< "$WANT_TAGS"
+          for t in "${tags[@]}"; do
+            if [[ "$t" =~ $candidate_tag ]]; then
+              n=$((10#${BASH_REMATCH[2]}))
+              if [ "$n" -gt "$want_n" ]; then want_n=$n; fi
+            elif [[ "$t" =~ $sha_tag ]]; then
+              if [ -z "$want_sha" ] || [ "$want_sha" = "${BASH_REMATCH[1]}" ]; then want_sha=${BASH_REMATCH[1]}; else want_sha=many; fi
+            fi
+          done
+          have_n=""
+          have_tag=""
+          have_sha=""
+          IFS=',' read -r -a tags <<< "$HAVE_TAGS"
+          for t in "${tags[@]}"; do
+            if [[ "$t" =~ $candidate_tag ]]; then
+              n=$((10#${BASH_REMATCH[2]}))
+              if [ -z "$have_n" ] || [ "$n" -lt "$have_n" ]; then have_n=$n; have_tag=$t; fi
+            elif [[ "$t" =~ $sha_tag ]]; then
+              if [ -z "$have_sha" ] || [ "$have_sha" = "${BASH_REMATCH[1]}" ]; then have_sha=${BASH_REMATCH[1]}; else have_sha=many; fi
+            fi
+          done
+          if [ -z "$have_n" ]; then
+            not_checked "release-candidate runs $HAVE, which carries no candidate tag"
+          fi
+          if [ "$want_n" -ge "$have_n" ]; then
+            go_ahead "$tag is not older than $have_tag, the candidate release-candidate runs"
+          fi
+
+          older="$tag has a lower build number than $have_tag, the candidate release-candidate runs"
+          if [ -z "$GH_TOKEN" ]; then
+            not_checked "$older, but no github-token was given to check that its commit comes before that one's (a hotfix is numbered from the same counter)"
+          fi
+          if [ -z "$want_sha" ] || [ "$want_sha" = many ]; then
+            not_checked "$older, but its image does not name one commit with a sha- tag"
+          fi
+          if [ -z "$have_sha" ] || [ "$have_sha" = many ]; then
+            not_checked "$older, but the image release-candidate runs does not name one commit with a sha- tag"
+          fi
+          if ! [[ "$APP_REPO" =~ $repo_name ]]; then
+            not_checked "$older, but the app repository '${APP_REPO//[$'\r\n']/ }' is not in owner/name form"
+          fi
+
+          # GitHub says "behind" when the candidate's commit is an ancestor
+          # of the running one's: the same history, further back.
+          status=0
+          body=$(curl -fsS --connect-timeout 10 --max-time 20 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL:-https://api.github.com}/repos/$APP_REPO/compare/$have_sha...$want_sha?per_page=1") || status=$?
+          # curl exits 28 when it ran out of time.
+          if [ "$status" -eq 28 ]; then
+            not_checked "$older, but GitHub did not answer within 20 seconds whether its commit comes before that one's"
+          elif [ "$status" -ne 0 ]; then
+            not_checked "$older, but GitHub could not compare the two commits (curl exit $status)"
+          fi
+          direction=$(printf '%s' "$body" | jq -r '.status // empty' 2>/dev/null) || direction=""
+          case "$direction" in
+            behind) ;;
+            diverged) go_ahead "$older, but the two are built from split histories (a hotfix branch and the default branch, say), so it is deployed, as before" ;;
+            ahead) go_ahead "$older, but its commit comes after that one's, so it is deployed" ;;
+            identical) go_ahead "$older, but both are built from the same commit, so it is deployed, as before" ;;
+            *) not_checked "$older, but GitHub did not say how the two commits compare" ;;
+          esac
+
+          message="release-candidate already runs a newer candidate $have_tag; skipping $tag (set force to deploy it anyway)."
+          echo "::notice title=Newer candidate already deployed::$message"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            printf '### Deploy skipped\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      # One switch for every step after it; see deploy-candidate-gcp.
       - name: No-op guard (already deployed)
         id: noop
         env:
@@ -788,10 +1092,13 @@ jobs:
           HAVE: ${{ steps.current.outputs.digest }}
           FORCE: ${{ inputs.force }}
           TAG: ${{ inputs.tag }}
+          OLDER: ${{ steps.older.outputs.skip }}
         run: |
           if [ "$FORCE" != "true" ] && [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice title=Already deployed::release-candidate already runs $TAG ($WANT); skipping (set force to redeploy)."
+          elif [ "$FORCE" != "true" ] && [ "$OLDER" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi

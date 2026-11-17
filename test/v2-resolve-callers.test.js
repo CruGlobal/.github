@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -62,10 +62,12 @@ const NEW = `${REPO}@sha256:bbb`
 // CHILD, its linux/amd64 image, which carries none of the candidate's tags.
 const INDEX = `${REPO}@sha256:index14`
 const CHILD = `${REPO}@sha256:child14`
+const OLD_SHA = 'abc1230000000000000000000000000000000012'
+const NEW_SHA = 'def4560000000000000000000000000000000013'
 const IMAGES = [
-  { uri: OLD, tags: ['candidate-10012', 'sha-abc123'] },
-  { uri: NEW, tags: ['candidate-10013', 'sha-def456'] },
-  { uri: INDEX, tags: ['candidate-2026-09-28-10014', 'sha-0a1b2c'] },
+  { uri: OLD, tags: ['candidate-10012', `sha-${OLD_SHA}`] },
+  { uri: NEW, tags: ['candidate-10013', `sha-${NEW_SHA}`] },
+  { uri: INDEX, tags: ['candidate-2026-09-28-10014', 'sha-0a1b2c0000000000000000000000000000000014'] },
   { uri: CHILD }
 ]
 const INDEXES = { 'sha256:index14': imageIndex('sha256:child14') }
@@ -128,14 +130,26 @@ async function runResolve (step, context) {
 
 // Run one `run:` step the way the runner does (bash -eo pipefail), with its
 // env block evaluated, and return its exit status and GITHUB_OUTPUT values.
+// With context.github set, curl is a fake that answers every call with it and
+// writes each URL it was given to githubCalls, so a step that asks GitHub to
+// compare two commits never reaches the network.
 const scratch = mkdtempSync(path.join(tmpdir(), 'resolve-callers-'))
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+const fakeBin = path.join(scratch, 'bin')
+const githubCalls = path.join(scratch, 'github-calls')
 function runScript (step, context) {
   const output = path.join(scratch, `output-${Math.random().toString(36).slice(2)}`)
   writeFileSync(output, '')
+  let PATH = process.env.PATH
+  if (context.github) {
+    mkdirSync(fakeBin, { recursive: true })
+    writeFileSync(path.join(fakeBin, 'curl'), `#!/bin/bash\nfor arg; do url="$arg"; done\nprintf '%s\\n' "$url" >> '${githubCalls}'\nprintf '%s' '${JSON.stringify(context.github)}'\n`)
+    chmodSync(path.join(fakeBin, 'curl'), 0o755)
+    PATH = `${fakeBin}:${PATH}`
+  }
   const env = Object.fromEntries(Object.entries(step.env ?? {}).map(([k, v]) => [k, evaluate(v, context)]))
   const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', evaluate(step.run, context)], {
-    env: { PATH: process.env.PATH, GITHUB_OUTPUT: output, ...env },
+    env: { PATH, GITHUB_OUTPUT: output, ...env },
     encoding: 'utf8'
   })
   const outputs = Object.fromEntries(
@@ -231,13 +245,17 @@ describe('callers of resolve-image mode=environment', () => {
 })
 
 describe('deploy-candidate re-runs (Cloud Run)', () => {
-  const context = tag => ({
+  // No github-token unless a test gives one, so the older-candidate guard
+  // never asks GitHub where a test did not set up an answer.
+  const context = (tag, token = '') => ({
     steps: {},
     values: {
       'inputs.project-name': 'example-app',
       'inputs.tag': tag,
       'inputs.force': 'false',
-      'needs.lookup.outputs.project-id': PROJECT
+      'needs.lookup.outputs.project-id': PROJECT,
+      'needs.lookup.outputs.repository': 'example-org/example-app',
+      'secrets.github-token': token
     }
   })
   const guard = async () => {
@@ -277,6 +295,45 @@ describe('deploy-candidate re-runs (Cloud Run)', () => {
   it('is not a no-op when traffic is split', async () => {
     environment([{ name: 'web', template: NEW, split: [[NEW, 90], [OLD, 10]] }])
     expect(await guard()).toBe('false')
+  })
+
+  // The older-candidate guard reads the running candidate from the tags
+  // resolve-image found on the serving digest, and its skip reaches every
+  // later step through the no-op guard.
+  describe('of an older candidate', () => {
+    beforeEach(() => rmSync(githubCalls, { force: true }))
+    const calls = () => existsSync(githubCalls) ? readFileSync(githubCalls, 'utf8').split('\n').filter(Boolean) : []
+
+    it('skip it when the newer one serves and GitHub says its commit comes first', async () => {
+      environment([{ name: 'web', template: NEW, serving: NEW }])
+      const result = await runJob(deployJob, { ...context('candidate-10012', 'ghs-example'), github: { status: 'behind' } }, 'noop')
+      expect(result.context.steps.older).toEqual({ skip: 'true' })
+      expect(result.context.steps.noop).toEqual({ skip: 'true' })
+      expect(calls()).toEqual([`https://api.github.com/repos/example-org/example-app/compare/${NEW_SHA}...${OLD_SHA}?per_page=1`])
+    })
+
+    it('deploy it when a hotfix and the default branch split, as before', async () => {
+      environment([{ name: 'web', template: NEW, serving: NEW }])
+      const result = await runJob(deployJob, { ...context('candidate-10012', 'ghs-example'), github: { status: 'diverged' } }, 'noop')
+      expect(result.context.steps.noop).toEqual({ skip: 'false' })
+    })
+
+    it('deploy it, without asking, when there is no github-token', async () => {
+      environment([{ name: 'web', template: NEW, serving: NEW }])
+      const result = await runJob(deployJob, { ...context('candidate-10012'), github: { status: 'behind' } }, 'noop')
+      expect(result.context.steps.noop).toEqual({ skip: 'false' })
+      expect(calls()).toEqual([])
+    })
+
+    it('deploy it, without asking, when no single image serves', async () => {
+      environment([
+        { name: 'web', template: NEW, serving: NEW },
+        { name: 'worker', template: OLD, serving: OLD }
+      ])
+      const result = await runJob(deployJob, { ...context('candidate-10012', 'ghs-example'), github: { status: 'behind' } }, 'noop')
+      expect(result.context.steps.noop).toEqual({ skip: 'false' })
+      expect(calls()).toEqual([])
+    })
   })
 })
 
