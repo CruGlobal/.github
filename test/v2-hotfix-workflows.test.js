@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { generateKeyPairSync, createPrivateKey, verify } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { root, loadYaml, findStep, runShellStep, removeFakes, workflowAndActionFiles } from './support/workflow-steps.js'
@@ -346,7 +346,7 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
     repositories: [{ id: 1, name: 'example-app', full_name: REPOSITORY }],
     ...changes
   })
-  const mint = ({ secret = KEY, secretFails = false, roleKeys = ROLE_KEYS, githubApp = {} } = {}) => runShellStep(findStep(workflow, 'hotfix', MINT), {
+  const mint = ({ secret = KEY, secretFails = false, roleKeys = ROLE_KEYS, githubApp = {}, runnerPath = null } = {}) => runShellStep(findStep(workflow, 'hotfix', MINT), {
     context: {
       'inputs.project-name': 'example-app',
       'steps.push-app.outputs.client-id': CLIENT_ID,
@@ -355,7 +355,7 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
       'steps.push-app.outputs.repo': 'example-app',
       ...roleKeys
     },
-    runnerEnv: JOB_KEYS,
+    runnerEnv: runnerPath ? { ...JOB_KEYS, PATH: runnerPath } : JOB_KEYS,
     awsSecret: secret,
     awsSecretFails: secretFails,
     githubApp: { installation: { id: INSTALLATION_ID, account: { login: 'example-org' } }, token: minted(), ...githubApp }
@@ -369,6 +369,10 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
   const bearerOf = (call) => call.headers.find((header) => header.startsWith(BEARER))?.slice(BEARER.length)
   const basic = (token) => Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
   const refusal = (message) => `::error title=push_app_failed::${message}; refusing to cut a hotfix. Nothing was pushed`
+  const NO_ANSWER = 'GitHub did not answer on any of three tries'
+  const SERVER_ERROR = 'GitHub had an error of its own on each of three tries, so run the hotfix again in a few minutes'
+  const NOT_MINTED = (status, why = `the App needs Contents: Read and write, and its installation must cover ${REPOSITORY}`) => `GitHub did not mint a token for ${REPOSITORY} as the GitHub App ${CLIENT_ID} (GitHub answered ${status}): ${why}`
+  const NOT_REVOKED = (status) => `::warning title=push_app_token_not_revoked::GitHub answered ${status} to revoking the token it gave. It expires on its own within an hour`
 
   it('sets the App up after the permission check and right before the cut, revokes its token right after, and stops the job if any of it fails', () => {
     const at = (name) => names.indexOf(name)
@@ -527,6 +531,10 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
       expect(decode(header)).toEqual({ alg: 'RS256', typ: 'JWT' })
       const { iat, exp, iss, ...rest } = decode(claims)
       expect(rest).toEqual({})
+      // Exactly the JSON, with no line break after it: what is signed is
+      // what GitHub reads.
+      expect(Buffer.from(header, 'base64url').toString('utf8')).toBe('{"alg":"RS256","typ":"JWT"}')
+      expect(Buffer.from(claims, 'base64url').toString('utf8')).toBe(JSON.stringify({ iat, exp, iss }))
       expect(iss).toBe(CLIENT_ID)
       expect(iat).toBeGreaterThanOrEqual(before - 60)
       expect(iat).toBeLessThanOrEqual(after - 60)
@@ -607,17 +615,66 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
     })
 
     it.each([
-      ['401', `GitHub did not take the App's JWT. push-app-client-id must be the App's client id, and ${SECRET_ID} must hold one of the App's current private keys`],
-      ['404', `the App is not installed on ${REPOSITORY}`],
-      ['000', 'GitHub did not answer'],
-      ['500', `push-app-client-id must be the App's client id, and the App must be installed on ${REPOSITORY}`]
-    ])('fails, saying what to check, when GitHub answers %s to the installation lookup, and mints nothing', async (status, why) => {
+      ['401', 1, `GitHub did not take the App's JWT. push-app-client-id must be the App's client id, and ${SECRET_ID} must hold one of the App's current private keys`],
+      ['404', 1, `the App is not installed on ${REPOSITORY}`],
+      ['422', 1, `push-app-client-id must be the App's client id, and the App must be installed on ${REPOSITORY}`],
+      ['000', 3, NO_ANSWER],
+      ['500', 3, SERVER_ERROR],
+      ['503', 3, SERVER_ERROR]
+    ])('fails, saying what to check, when GitHub answers %s to the installation lookup (tried %i times), and mints nothing', async (status, tries, why) => {
       const result = await mint({ githubApp: { installationStatus: status, installation: { message: 'example error' } } })
       expect(result.status).toBe(1)
       expect(errors(result.stdout)).toEqual([refusal(`could not find the GitHub App ${CLIENT_ID}'s installation on ${REPOSITORY} (GitHub answered ${status}): ${why}`)])
-      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET'])
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(Array(tries).fill('GET'))
+      // A 4xx is GitHub's answer and is not tried again; no answer or a 5xx
+      // is, 2 and then 4 seconds apart.
+      expect(result.sleeps).toEqual(['2', '4'].slice(0, tries - 1))
       expect(result.outputs).toEqual({})
       // GitHub's answer is not printed.
+      expect(shown(result)).not.toContain('example error')
+    })
+
+    it('tries the installation lookup again after no answer or a 5xx, with the same JWT on standard input, and goes on once GitHub answers', async () => {
+      const result = await mint({ githubApp: { installationStatus: ['503', '000', '200'] } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+      expect(errors(result.stdout)).toEqual([])
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method }) => method)).toEqual(['GET', 'GET', 'GET', 'POST'])
+      expect(result.sleeps).toEqual(['2', '4'])
+      const jwt = bearerOf(calls[0])
+      for (const call of calls) {
+        expect(bearerOf(call)).toBe(jwt)
+        expect(call.args).not.toContain(jwt)
+      }
+      expect(result.stdout).toContain('GitHub answered 503 to GET /repos/example-org/example-app/installation, so it is tried again in 2 seconds.')
+      expect(result.stdout).toContain('GitHub answered 000 to GET /repos/example-org/example-app/installation, so it is tried again in 4 seconds.')
+    })
+
+    it('tries minting the token again after a 5xx, and takes the token GitHub then gives', async () => {
+      const result = await mint({ githubApp: { tokenStatus: ['502', '201'] } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+      expect(result.githubAppCalls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+        'GET repos/example-org/example-app/installation',
+        `POST app/installations/${INSTALLATION_ID}/access_tokens`,
+        `POST app/installations/${INSTALLATION_ID}/access_tokens`
+      ])
+      // The same request both times.
+      expect(result.githubAppCalls[2].data).toBe(result.githubAppCalls[1].data)
+      expect(result.sleeps).toEqual(['2'])
+    })
+
+    it.each([
+      ['000', NO_ANSWER],
+      ['503', SERVER_ERROR]
+    ])('gives up minting the token after three tries that GitHub answers %s', async (status, why) => {
+      const result = await mint({ githubApp: { tokenStatus: status, token: { message: 'example error' } } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED(status, why))])
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST', 'POST', 'POST'])
+      expect(result.sleeps).toEqual(['2', '4'])
+      expect(result.outputs).toEqual({})
       expect(shown(result)).not.toContain('example error')
     })
 
@@ -632,19 +689,64 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
       ['422', { message: 'The permissions requested are not granted to this installation.' }],
       ['403', { message: 'example error' }],
       ['201', { expires_at: '2026-01-01T01:00:00Z' }]
-    ])('fails when GitHub answers %s to minting the token, without printing its answer', async (status, answer) => {
+    ])('fails when GitHub answers %s to minting the token, without printing its answer or trying again', async (status, answer) => {
       const result = await mint({ githubApp: { tokenStatus: status, token: answer } })
       expect(result.status).toBe(1)
-      expect(errors(result.stdout)).toEqual([refusal(`GitHub did not mint a token for ${REPOSITORY} as the GitHub App ${CLIENT_ID} (GitHub answered ${status}). The App needs Contents: Read and write, and its installation must cover ${REPOSITORY}`)])
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED(status))])
       expect(result.outputs).toEqual({})
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST'])
+      expect(result.sleeps).toEqual([])
       expect(shown(result)).not.toContain(answer.message ?? answer.expires_at)
     })
 
-    it('refuses a token that is not a single word, without showing it', async () => {
-      const result = await mint({ githubApp: { token: minted({ token: 'example-token\nexample-second-line' }) } })
+    // GitHub should never do this, but a token it gave is live whatever the
+    // status it came with.
+    it.each([
+      ['422', 1],
+      ['200', 1],
+      ['503', 3]
+    ])('revokes a token that came with a %s, and refuses', async (status, tries) => {
+      const result = await mint({ githubApp: { tokenStatus: status } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED(status, status === '503' ? SERVER_ERROR : undefined))])
+      expect(result.outputs).toEqual({})
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method }) => method)).toEqual(['GET', ...Array(tries).fill('POST'), 'DELETE'])
+      expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'installation/token', data: '' })
+      expect(bearerOf(calls.at(-1))).toBe(TOKEN)
+      expect(calls.at(-1).args).not.toContain(TOKEN)
+      expect(result.stdout).not.toContain('::warning')
+      expect(shown(result)).not.toContain(TOKEN)
+    })
+
+    it('warns when revoking a token that came with the wrong status fails, and still refuses with the mint\'s status', async () => {
+      const result = await mint({ githubApp: { tokenStatus: '422', revokeStatus: '401' } })
+      expect(result.status).toBe(1)
+      expect(result.stdout).toContain(NOT_REVOKED('401'))
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED('422'))])
+    })
+
+    it('refuses a token that is not a single word, revoking it, without showing it', async () => {
+      const token = 'example-token example-second-word'
+      const result = await mint({ githubApp: { token: minted({ token }) } })
       expect(result.status).toBe(1)
       expect(errors(result.stdout)).toEqual([refusal("GitHub's answer held a token that is not a single word, so it was not used")])
       expect(result.outputs).toEqual({})
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method }) => method)).toEqual(['GET', 'POST', 'DELETE'])
+      expect(bearerOf(calls[2])).toBe(token)
+      expect(calls[2].args).not.toContain('example-second-word')
+      expect(result.stdout + result.stderr).not.toContain('example-second-word')
+    })
+
+    it('refuses a token with a line break in it, and warns that it could not be sent back to revoke it', async () => {
+      const result = await mint({ githubApp: { token: minted({ token: 'example-token\nexample-second-line' }) } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal("GitHub's answer held a token that is not a single word, so it was not used")])
+      expect(result.stdout).toContain('::warning title=push_app_token_not_revoked::the token GitHub gave has a line break in it, so it was not sent back to revoke it. It expires on its own within an hour')
+      expect(result.outputs).toEqual({})
+      // One header line cannot carry it, so nothing is sent.
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST'])
       expect(result.stdout + result.stderr).not.toContain('example-second-line')
     })
 
@@ -673,11 +775,44 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
       expect(shown(result)).not.toContain(TOKEN)
     })
 
-    it('warns when that revoke fails, and still refuses', async () => {
-      const result = await mint({ githubApp: { token: minted({ permissions: { contents: 'write', workflows: 'write' } }), revokeStatus: '401' } })
+    it.each([
+      ['401', 1],
+      ['503', 3]
+    ])('warns when that revoke fails with %s (tried %i times), and still refuses', async (status, tries) => {
+      const result = await mint({ githubApp: { token: minted({ permissions: { contents: 'write', workflows: 'write' } }), revokeStatus: status } })
       expect(result.status).toBe(1)
-      expect(result.stdout).toContain('::warning title=push_app_token_not_revoked::GitHub answered 401 to revoking the token it gave. It expires on its own within an hour')
+      expect(result.stdout).toContain(NOT_REVOKED(status))
       expect(errors(result.stdout)).toHaveLength(1)
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST', ...Array(tries).fill('DELETE')])
+      expect(result.sleeps).toEqual(['2', '4'].slice(0, tries - 1))
+    })
+
+    it('revokes once a retried revoke goes through', async () => {
+      const result = await mint({ githubApp: { token: minted({ permissions: { contents: 'write', workflows: 'write' } }), revokeStatus: ['000', '204'] } })
+      expect(result.status).toBe(1)
+      expect(result.stdout).not.toContain('::warning')
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST', 'DELETE', 'DELETE'])
+      for (const call of result.githubAppCalls.slice(2)) expect(bearerOf(call)).toBe(TOKEN)
+      expect(result.sleeps).toEqual(['2'])
+    })
+
+    // Under set -e a missing tool would stop the step partway, saying
+    // nothing of what to fix.
+    it.each(['openssl', 'jq', 'curl'])('refuses up front, saying so, on a runner with no %s', async (missing) => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'hotfix-runner-path-'))
+      workspaces.push(dir)
+      // The step runs under the real bash; the tools it has are stubs, as it
+      // must refuse before it runs any of them.
+      const bash = process.env.PATH.split(path.delimiter).map((d) => path.join(d, 'bash')).find((file) => existsSync(file))
+      symlinkSync(bash, path.join(dir, 'bash'))
+      for (const tool of ['openssl', 'jq', 'curl', 'aws'].filter((tool) => tool !== missing)) {
+        writeFileSync(path.join(dir, tool), '#!/bin/sh\nexit 99\n')
+        chmodSync(path.join(dir, tool), 0o755)
+      }
+      const result = await mint({ runnerPath: dir })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`this runner has no ${missing}, which this step needs to mint the App's token. Run the hotfix on a runner that has openssl, jq and curl`)])
+      expect(result.outputs).toEqual({})
     })
 
     it.each([
@@ -708,11 +843,32 @@ describe('hotfix.yml: pushing as a GitHub App', () => {
       expect(call.args).not.toContain(TOKEN)
     })
 
-    it.each(['401', '000'])('only warns when GitHub answers %s, so the run\'s result stays the cut\'s', async (status) => {
+    it.each([
+      ['401', 1],
+      ['403', 1],
+      ['000', 3],
+      ['502', 3]
+    ])('only warns when GitHub answers %s (tried %i times), so the run\'s result stays the cut\'s', async (status, tries) => {
       const result = await revoke({ revokeStatus: status })
       expect(result.status).toBe(0)
       expect(result.stdout).toContain(`::warning title=push_app_token_not_revoked::GitHub answered ${status} to revoking the push App's token. It expires on its own within an hour`)
+      expect(result.githubAppCalls).toHaveLength(tries)
+      for (const call of result.githubAppCalls) expect(call.headers[0]).toBe(`${BEARER}${TOKEN}`)
+      expect(result.sleeps).toEqual(['2', '4'].slice(0, tries - 1))
       expect(result.stdout + result.stderr).not.toContain(TOKEN)
+    })
+
+    it('tries again after no answer or a 5xx, and revokes once GitHub answers', async () => {
+      const result = await revoke({ revokeStatus: ['000', '503', '204'] })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.stdout).toBe([
+        "GitHub answered 000 to revoking the push App's token, so it is tried again in 2 seconds.",
+        "GitHub answered 503 to revoking the push App's token, so it is tried again in 4 seconds.",
+        "Revoked the push App's token.",
+        ''
+      ].join('\n'))
+      expect(result.githubAppCalls).toHaveLength(3)
+      expect(result.sleeps).toEqual(['2', '4'])
     })
   })
 

@@ -709,24 +709,54 @@ jobs:
             exit 1
           }
           # One GitHub API call, authorized with $bearer. Sets status (000
-          # when GitHub did not answer) and body.
+          # when GitHub did not answer) and body. A call GitHub did not
+          # answer, or answered with a 5xx, is tried again, three tries in
+          # all, 2 and then 4 seconds apart. A 4xx is GitHub's real answer
+          # and is never tried again. A try takes at most 30 seconds, so the
+          # two calls the JWT is sent with take under 4 minutes in all, well
+          # inside the 9 minutes it is good for: it is never signed again.
+          # Trying the mint again can leave a token behind, when GitHub made
+          # one but its answer was lost. This step never sees that token, so
+          # it cannot revoke it, and it expires within an hour.
           github () {
-            local response args=(-sS --fail-with-body --connect-timeout 10 --max-time 30 -X "$1"
+            local response pause args=(-sS --fail-with-body --connect-timeout 10 --max-time 30 -X "$1"
               -H @- -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'
               -w '\n%{http_code}')
             [ -z "${3-}" ] || args+=(--data "$3")
-            response=$(printf 'Authorization: Bearer %s\n' "$bearer" | curl "${args[@]}" "${GITHUB_API_URL:-https://api.github.com}/$2") || true
-            status=${response##*$'\n'}
-            status=${status:-000}
-            body=${response%$'\n'*}
+            for pause in 2 4 ''; do
+              response=$(printf 'Authorization: Bearer %s\n' "$bearer" | curl "${args[@]}" "${GITHUB_API_URL:-https://api.github.com}/$2") || true
+              status=${response##*$'\n'}
+              status=${status:-000}
+              body=${response%$'\n'*}
+              case "$status" in
+                000|5[0-9][0-9]) ;;
+                *) return 0 ;;
+              esac
+              [ -n "$pause" ] || return 0
+              echo "GitHub answered $status to $1 /$2, so it is tried again in $pause seconds."
+              sleep "$pause"
+            done
           }
           # For a token GitHub gave that this run will not use. It would
-          # expire on its own within an hour; this ends it now.
+          # expire on its own within an hour; this ends it now. A token with
+          # a line break in it cannot go in one header line, so it is left
+          # to expire.
           revoke () {
+            case "$token" in
+              *[$'\r\n']*)
+                echo "::warning title=push_app_token_not_revoked::the token GitHub gave has a line break in it, so it was not sent back to revoke it. It expires on its own within an hour"
+                return 0 ;;
+            esac
             bearer=$token
             github DELETE installation/token
             [ "$status" = 204 ] || echo "::warning title=push_app_token_not_revoked::GitHub answered $status to revoking the token it gave. It expires on its own within an hour"
           }
+
+          # Checked first: under set -e a missing tool would stop the step
+          # partway, with no word of what to fix.
+          for tool in openssl jq curl; do
+            type -P "$tool" >/dev/null || refuse "this runner has no $tool, which this step needs to mint the App's token. Run the hotfix on a runner that has openssl, jq and curl"
+          done
 
           if [ -z "$ROLE_ACCESS_KEY_ID" ]; then
             refuse "assuming the role that reads the push App's key gave no credentials, so the key was not read"
@@ -766,10 +796,12 @@ jobs:
           # The App's JWT, as GitHub asks for it: issued a minute ago, in case
           # this runner's clock is ahead of GitHub's, and ending nine minutes
           # from now, inside GitHub's ten-minute limit. iss is the client id.
+          # jq -j leaves off the line break jq ends its output with, which
+          # would otherwise be signed as part of the claims.
           b64url () { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
           now=$(date +%s)
           header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)
-          claims=$(jq -cn --arg iss "$CLIENT_ID" --argjson iat "$((now - 60))" --argjson exp "$((now + 540))" '{iat: $iat, exp: $exp, iss: $iss}' | b64url)
+          claims=$(jq -cjn --arg iss "$CLIENT_ID" --argjson iat "$((now - 60))" --argjson exp "$((now + 540))" '{iat: $iat, exp: $exp, iss: $iss}' | b64url)
           signature=$(printf '%s' "$header.$claims" | openssl dgst -sha256 -binary -sign <(printf '%s\n' "$key") -passin pass: 2>/dev/null | b64url) || signature=""
           unset key
           if [ -z "$signature" ]; then
@@ -786,7 +818,8 @@ jobs:
             case "$status" in
               401) why="GitHub did not take the App's JWT. push-app-client-id must be the App's client id, and $SECRET_ID must hold one of the App's current private keys" ;;
               404) why="the App is not installed on $OWNER/$REPO" ;;
-              000) why="GitHub did not answer" ;;
+              000) why="GitHub did not answer on any of three tries" ;;
+              5[0-9][0-9]) why="GitHub had an error of its own on each of three tries, so run the hotfix again in a few minutes" ;;
               *) why="push-app-client-id must be the App's client id, and the App must be installed on $OWNER/$REPO" ;;
             esac
             refuse "could not find the GitHub App $CLIENT_ID's installation on $OWNER/$REPO (GitHub answered $status): $why"
@@ -796,13 +829,24 @@ jobs:
           # to push a branch, never the workflows permission.
           request=$(jq -cn --arg repo "$REPO" '{repositories: [$repo], permissions: {contents: "write"}}')
           github POST "app/installations/$installation/access_tokens" "$request"
+          minted=$status
           token=$(printf '%s' "$body" | jq -r '.token // empty | strings' 2>/dev/null) || token=""
-          if [ "$status" != 201 ] || [ -z "$token" ]; then
-            refuse "GitHub did not mint a token for $OWNER/$REPO as the GitHub App $CLIENT_ID (GitHub answered $status). The App needs Contents: Read and write, and its installation must cover $OWNER/$REPO"
+          # A token this step will not use is still live until it expires,
+          # so one GitHub gave is revoked before the refusal. Revoking sets
+          # status again, so the mint's own is kept in minted.
+          if [ "$minted" != 201 ] || [ -z "$token" ]; then
+            [ -z "$token" ] || revoke
+            case "$minted" in
+              000) why="GitHub did not answer on any of three tries" ;;
+              5[0-9][0-9]) why="GitHub had an error of its own on each of three tries, so run the hotfix again in a few minutes" ;;
+              *) why="the App needs Contents: Read and write, and its installation must cover $OWNER/$REPO" ;;
+            esac
+            refuse "GitHub did not mint a token for $OWNER/$REPO as the GitHub App $CLIENT_ID (GitHub answered $minted): $why"
           fi
           # One line with no spaces, so the mask covers all of it and it is
           # one output line.
           if ! [[ "$token" =~ ^[[:graph:]]+$ ]]; then
+            revoke
             refuse "GitHub's answer held a token that is not a single word, so it was not used"
           fi
           echo "::add-mask::$token"
@@ -846,10 +890,21 @@ jobs:
         run: |
           set +x
           # The token reaches curl on its standard input, never its command
-          # line.
-          status=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | curl -sS --connect-timeout 10 --max-time 20 -X DELETE \
-              -H @- -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-              -o /dev/null -w '%{http_code}' "${GITHUB_API_URL:-https://api.github.com}/installation/token") || true
+          # line. No answer, or a 5xx, is tried again, three tries in all, 2
+          # and then 4 seconds apart, the same as the calls that minted it.
+          for pause in 2 4 ''; do
+            status=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | curl -sS --connect-timeout 10 --max-time 20 -X DELETE \
+                -H @- -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+                -o /dev/null -w '%{http_code}' "${GITHUB_API_URL:-https://api.github.com}/installation/token") || true
+            status=${status:-000}
+            case "$status" in
+              000|5[0-9][0-9]) ;;
+              *) break ;;
+            esac
+            [ -n "$pause" ] || break
+            echo "GitHub answered $status to revoking the push App's token, so it is tried again in $pause seconds."
+            sleep "$pause"
+          done
           if [ "$status" = 204 ]; then
             echo "Revoked the push App's token."
           else

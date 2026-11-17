@@ -9,7 +9,8 @@ import * as yaml from 'js-yaml'
 // way the runner would: `${{ }}` expressions filled in from a context the
 // test gives, then the step's `run:` script under bash. curl, gh and aws are
 // replaced by fakes that record what the step sends and answer like the real
-// services do, so nothing leaves the machine.
+// services do, so nothing leaves the machine. sleep is replaced too, by one
+// that records how long the step asked to wait and returns at once.
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -57,7 +58,9 @@ const FAKE_CURL = `#!/bin/bash
 # App's installation on a repo, minting an installation token, revoking one)
 # is answered from FAKE_GH_APP_*, the way curl answers with --fail-with-body,
 # -o and -w, and recorded with its method, path, data, flags and headers, the
-# headers it read from standard input (-H @-) among them.
+# headers it read from standard input (-H @-) among them. Each FAKE_GH_APP_*
+# status may be a comma-separated list, one status per try of that call, the
+# last one repeated for every try after it.
 args="$*"; url=""; data=""; method=GET; writeout=""; output=""; fail=""; headers=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,6 +81,15 @@ while [ $# -gt 0 ]; do
     *) url="$1"; shift ;;
   esac
 done
+# The status for this try of the GitHub App call named $1, from the list $2.
+try_status () {
+  local n statuses
+  IFS=, read -ra statuses <<< "$2"
+  n=$(cat "$FAKE_OUT/app-tries-$1" 2>/dev/null || echo 0)
+  echo $((n + 1)) > "$FAKE_OUT/app-tries-$1"
+  [ "$n" -lt "\${#statuses[@]}" ] || n=$((\${#statuses[@]} - 1))
+  printf '%s' "\${statuses[$n]}"
+}
 # Answer a GitHub App call with status $1 and body $2. Status 000 is no
 # answer at all, the way curl fails when it runs out of time.
 app_call () {
@@ -97,13 +109,13 @@ app_call () {
 case "$url" in
   https://api.github.com/repos/*/installation)
     path="\${url#https://api.github.com/}"
-    app_call "\${FAKE_GH_APP_INSTALLATION_STATUS:-200}" "$FAKE_GH_APP_INSTALLATION" ;;
+    app_call "$(try_status installation "\${FAKE_GH_APP_INSTALLATION_STATUS:-200}")" "$FAKE_GH_APP_INSTALLATION" ;;
   https://api.github.com/app/installations/*/access_tokens)
     path="\${url#https://api.github.com/}"
-    app_call "\${FAKE_GH_APP_TOKEN_STATUS:-201}" "$FAKE_GH_APP_TOKEN" ;;
+    app_call "$(try_status token "\${FAKE_GH_APP_TOKEN_STATUS:-201}")" "$FAKE_GH_APP_TOKEN" ;;
   https://api.github.com/installation/token)
     path="\${url#https://api.github.com/}"
-    app_call "\${FAKE_GH_APP_REVOKE_STATUS:-204}" '' ;;
+    app_call "$(try_status revoke "\${FAKE_GH_APP_REVOKE_STATUS:-204}")" '' ;;
   https://slack.com/*) printf '%s' "$data" > "$FAKE_OUT/slack.json"; echo '{"ok":true}' ;;
   https://deploys.cru.org/deployments*)
     printf '%s\\n' "$args" >> "$FAKE_OUT/ledger-calls"
@@ -125,6 +137,11 @@ case "$url" in
     printf '%s' "$FAKE_GH_HEADS" ;;
   *) echo "fake curl: unexpected url $url" >&2; exit 22 ;;
 esac
+`
+
+const FAKE_SLEEP = `#!/bin/bash
+# Fake sleep: records how long the step asked to wait, and does not wait.
+printf '%s\\n' "$*" >> "$FAKE_OUT/sleeps"
 `
 
 const FAKE_AWS = `#!/bin/bash
@@ -228,7 +245,7 @@ let fakeBin = null
 function fakes () {
   if (fakeBin) return fakeBin
   fakeBin = mkdtempSync(path.join(tmpdir(), 'workflow-fakes-'))
-  for (const [name, body] of Object.entries({ curl: FAKE_CURL, gh: FAKE_GH, aws: FAKE_AWS })) {
+  for (const [name, body] of Object.entries({ curl: FAKE_CURL, gh: FAKE_GH, aws: FAKE_AWS, sleep: FAKE_SLEEP })) {
     writeFileSync(path.join(fakeBin, name), body)
     chmodSync(path.join(fakeBin, name), 0o755)
   }
@@ -313,9 +330,10 @@ function readOutputs (file) {
 // and `token` are the bodies of the installation lookup and of minting a
 // token (an object is sent as JSON, a string as it is), and
 // `installationStatus`, `tokenStatus` and `revokeStatus` their HTTP statuses
-// (by default 200, 201 and 204; "000" is no answer). Resolves to the exit
-// status, the output, the step's outputs, the variables it set for later
-// steps ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API
+// (by default 200, 201 and 204; "000" is no answer), or an array of them, one
+// per try of that call, the last one repeated for every try after it.
+// Resolves to the exit status, the output, the step's outputs, the variables
+// it set for later steps ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API
 // (`release` for a new one; `releaseReadPath`, `releaseUpdatePath` and
 // `releaseUpdate` for one that already exists), the path a comparison asked
 // for, the path a branch-heads read asked for (`headsPath`), the table and
@@ -325,7 +343,8 @@ function readOutputs (file) {
 // secret read's arguments (`secretCall`) and the AWS keys it was run with
 // (`secretCallKeys`, as "access key|secret key|session token"), each null
 // when there was none, and each GitHub App call (`githubAppCalls`, in the
-// order made, as { method, path, data, args, headers }).
+// order made, as { method, path, data, args, headers }), and how long the
+// step asked sleep to wait each time it did (`sleeps`, as strings, in order).
 export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, awsSecret = '', awsSecretFails = false, githubApp = {}, ghCompare = {}, ghCompareFails = false, ghCompareTimesOut = false, ghHeads = [], ghHeadsFails = false, ghHeadsTimesOut = false, ghExistingRelease = null, ghUpdateFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
@@ -388,7 +407,8 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       githubCalls: existsSync(path.join(out, 'github-calls')) ? readFileSync(path.join(out, 'github-calls'), 'utf8').split('\n').filter(Boolean) : [],
       secretCall: existsSync(path.join(out, 'secret-call')) ? readFileSync(path.join(out, 'secret-call'), 'utf8') : null,
       secretCallKeys: existsSync(path.join(out, 'secret-call-keys')) ? readFileSync(path.join(out, 'secret-call-keys'), 'utf8') : null,
-      githubAppCalls: existsSync(path.join(out, 'github-app-calls')) ? readFileSync(path.join(out, 'github-app-calls'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []
+      githubAppCalls: existsSync(path.join(out, 'github-app-calls')) ? readFileSync(path.join(out, 'github-app-calls'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [],
+      sleeps: existsSync(path.join(out, 'sleeps')) ? readFileSync(path.join(out, 'sleeps'), 'utf8').split('\n').filter(Boolean) : []
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
