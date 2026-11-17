@@ -130,9 +130,10 @@ async function runResolve (step, context) {
 
 // Run one `run:` step the way the runner does (bash -eo pipefail), with its
 // env block evaluated, and return its exit status and GITHUB_OUTPUT values.
-// With context.github set, curl is a fake that answers every call with it and
-// writes each URL it was given to githubCalls, so a step that asks GitHub to
-// compare two commits never reaches the network.
+// With context.github set, curl is a fake that answers a compare of two
+// commits with it, and a read of the branches whose head is a commit with
+// context.heads (none unless given), and writes each URL it was given to
+// githubCalls, so a step that asks GitHub never reaches the network.
 const scratch = mkdtempSync(path.join(tmpdir(), 'resolve-callers-'))
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 const fakeBin = path.join(scratch, 'bin')
@@ -143,7 +144,16 @@ function runScript (step, context) {
   let PATH = process.env.PATH
   if (context.github) {
     mkdirSync(fakeBin, { recursive: true })
-    writeFileSync(path.join(fakeBin, 'curl'), `#!/bin/bash\nfor arg; do url="$arg"; done\nprintf '%s\\n' "$url" >> '${githubCalls}'\nprintf '%s' '${JSON.stringify(context.github)}'\n`)
+    writeFileSync(path.join(fakeBin, 'curl'), [
+      '#!/bin/bash',
+      'for arg; do url="$arg"; done',
+      `printf '%s\\n' "$url" >> '${githubCalls}'`,
+      'case "$url" in',
+      `  */branches-where-head) printf '%s' '${JSON.stringify(context.heads ?? [])}' ;;`,
+      `  *) printf '%s' '${JSON.stringify(context.github)}' ;;`,
+      'esac',
+      ''
+    ].join('\n'))
     chmodSync(path.join(fakeBin, 'curl'), 0o755)
     PATH = `${fakeBin}:${PATH}`
   }
@@ -304,12 +314,22 @@ describe('deploy-candidate re-runs (Cloud Run)', () => {
     beforeEach(() => rmSync(githubCalls, { force: true }))
     const calls = () => existsSync(githubCalls) ? readFileSync(githubCalls, 'utf8').split('\n').filter(Boolean) : []
 
-    it('skip it when the newer one serves and GitHub says its commit comes first', async () => {
+    it('skip it when the newer one serves, GitHub says its commit comes first, and no branch points at it', async () => {
       environment([{ name: 'web', template: NEW, serving: NEW }])
       const result = await runJob(deployJob, { ...context('candidate-10012', 'ghs-example'), github: { status: 'behind' } }, 'noop')
       expect(result.context.steps.older).toEqual({ skip: 'true' })
       expect(result.context.steps.noop).toEqual({ skip: 'true' })
-      expect(calls()).toEqual([`https://api.github.com/repos/example-org/example-app/compare/${NEW_SHA}...${OLD_SHA}?per_page=1`])
+      expect(calls()).toEqual([
+        `https://api.github.com/repos/example-org/example-app/compare/${NEW_SHA}...${OLD_SHA}?per_page=1`,
+        `https://api.github.com/repos/example-org/example-app/commits/${OLD_SHA}/branches-where-head`
+      ])
+    })
+
+    it('deploy it when its commit is still the head of a branch', async () => {
+      environment([{ name: 'web', template: NEW, serving: NEW }])
+      const result = await runJob(deployJob, { ...context('candidate-10012', 'ghs-example'), github: { status: 'behind' }, heads: [{ name: 'main' }] }, 'noop')
+      expect(result.context.steps.older).toEqual({ skip: 'false' })
+      expect(result.context.steps.noop).toEqual({ skip: 'false' })
     })
 
     it('deploy it when a hotfix and the default branch split, as before', async () => {

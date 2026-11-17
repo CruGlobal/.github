@@ -51,8 +51,9 @@ export function resolveExpressions (value, context) {
 const FAKE_CURL = `#!/bin/bash
 # Fake curl: records the Slack payload, answers ledger reads from FAKE_LEDGER,
 # and records the flags each ledger read was given. A GitHub commit
-# comparison is answered from FAKE_GH_COMPARE, the same as the fake gh, and
-# its path and flags are recorded too.
+# comparison is answered from FAKE_GH_COMPARE, the same as the fake gh, and a
+# read of the branches whose head is a commit from FAKE_GH_HEADS. The path and
+# flags of each GitHub read are recorded too.
 args="$*"; url=""; data=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -76,6 +77,12 @@ case "$url" in
     if [ -n "$FAKE_GH_COMPARE_TIMES_OUT" ]; then echo "curl: (28) Operation timed out after 20000 milliseconds with 0 bytes received" >&2; exit 28; fi
     if [ -n "$FAKE_GH_COMPARE_FAILS" ]; then echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; fi
     printf '%s' "$FAKE_GH_COMPARE" ;;
+  https://api.github.com/repos/*/commits/*/branches-where-head)
+    printf '%s\\n' "$args" >> "$FAKE_OUT/github-calls"
+    printf '%s' "\${url#https://api.github.com/}" > "$FAKE_OUT/gh-heads-path"
+    if [ -n "$FAKE_GH_HEADS_TIMES_OUT" ]; then echo "curl: (28) Operation timed out after 20000 milliseconds with 0 bytes received" >&2; exit 28; fi
+    if [ -n "$FAKE_GH_HEADS_FAILS" ]; then echo "curl: (22) The requested URL returned error: 422" >&2; exit 22; fi
+    printf '%s' "$FAKE_GH_HEADS" ;;
   *) echo "fake curl: unexpected url $url" >&2; exit 22 ;;
 esac
 `
@@ -223,17 +230,22 @@ function readOutputs (file) {
 // object is sent as JSON, a string as it is), and
 // `ghCompareFails` makes it fail; a GitHub compare read made with curl is
 // answered the same way, and `ghCompareTimesOut` makes that one fail the way
-// curl does when it runs out of time. `ghExistingRelease`, when given, is the
-// release that already has the tag (an object, or "FAIL" for a read that
-// fails), and `ghUpdateFails` makes updating it fail. Resolves to the exit
+// curl does when it runs out of time. `ghHeads` is what a curl read of
+// `repos/.../commits/<sha>/branches-where-head` answers (by default no
+// branch, as for a commit no branch points at; an object is sent as JSON, a
+// string as it is), and `ghHeadsFails` and `ghHeadsTimesOut` make it fail the
+// same two ways. `ghExistingRelease`, when given, is the release that already
+// has the tag (an object, or "FAIL" for a read that fails), and
+// `ghUpdateFails` makes updating it fail. Resolves to the exit
 // status, the output, the step's outputs, the variables it set for later
 // steps ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API
 // (`release` for a new one; `releaseReadPath`, `releaseUpdatePath` and
 // `releaseUpdate` for one that already exists), the path a comparison asked
-// for, the table and item a DynamoDB put-item wrote (each null when nothing
-// was), and the arguments of each ledger read (`ledgerCalls`, one string per
-// read) and of each GitHub read made with curl (`githubCalls`).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, ghCompare = {}, ghCompareFails = false, ghCompareTimesOut = false, ghExistingRelease = null, ghUpdateFails = false, runnerEnv = {} }) {
+// for, the path a branch-heads read asked for (`headsPath`), the table and
+// item a DynamoDB put-item wrote (each null when nothing was), and the
+// arguments of each ledger read (`ledgerCalls`, one string per read) and of
+// each GitHub read made with curl (`githubCalls`, in the order made).
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, ghCompare = {}, ghCompareFails = false, ghCompareTimesOut = false, ghHeads = [], ghHeadsFails = false, ghHeadsTimesOut = false, ghExistingRelease = null, ghUpdateFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -263,6 +275,9 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       FAKE_GH_COMPARE: typeof ghCompare === 'string' ? ghCompare : JSON.stringify(ghCompare),
       FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : '',
       FAKE_GH_COMPARE_TIMES_OUT: ghCompareTimesOut ? '1' : '',
+      FAKE_GH_HEADS: typeof ghHeads === 'string' ? ghHeads : JSON.stringify(ghHeads),
+      FAKE_GH_HEADS_FAILS: ghHeadsFails ? '1' : '',
+      FAKE_GH_HEADS_TIMES_OUT: ghHeadsTimesOut ? '1' : '',
       FAKE_GH_EXISTING_RELEASE: ghExistingRelease === null ? '' : typeof ghExistingRelease === 'string' ? ghExistingRelease : JSON.stringify(ghExistingRelease),
       FAKE_GH_UPDATE_FAILS: ghUpdateFails ? '1' : ''
     }
@@ -279,6 +294,7 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       releaseUpdate: readJson(path.join(out, 'release-update.json')),
       releaseUpdatePath: existsSync(path.join(out, 'gh-release-update-path')) ? readFileSync(path.join(out, 'gh-release-update-path'), 'utf8') : null,
       comparePath: existsSync(path.join(out, 'gh-compare-path')) ? readFileSync(path.join(out, 'gh-compare-path'), 'utf8') : null,
+      headsPath: existsSync(path.join(out, 'gh-heads-path')) ? readFileSync(path.join(out, 'gh-heads-path'), 'utf8') : null,
       putItem: readPutItem(out),
       ledgerCalls: existsSync(path.join(out, 'ledger-calls')) ? readFileSync(path.join(out, 'ledger-calls'), 'utf8').split('\n').filter(Boolean) : [],
       githubCalls: existsSync(path.join(out, 'github-calls')) ? readFileSync(path.join(out, 'github-calls'), 'utf8').split('\n').filter(Boolean) : []

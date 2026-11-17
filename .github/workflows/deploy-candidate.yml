@@ -83,8 +83,9 @@ on:
           commits. It is used to say in the stage Slack message that a
           candidate is a hotfix, and to confirm that a candidate with a lower
           build number than the one release-candidate runs is also older by
-          commit before that deploy is skipped. Unset leaves the ordinary
-          message, and deploys such a candidate with a warning.
+          commit, and is the head of no branch, before that deploy is
+          skipped. Unset leaves the ordinary message, and deploys such a
+          candidate with a warning.
 
 jobs:
   # app-info: per-app metadata, read straight from the CruApplicationInfo
@@ -361,17 +362,35 @@ jobs:
       # deploy replaces the hotfix on stage, and it must keep doing so. So the
       # guard skips only when GitHub also says the candidate's commit (its
       # sha- tag) comes before the running one's on the same history. A
-      # hotfix and a default-branch build sit on split histories, so either
-      # one still replaces the other, as before. The GitHub read is made only
-      # when the build number says older, so a usual deploy asks nothing.
+      # hotfix and a default-branch build usually sit on split histories, so
+      # either one still replaces the other, as before.
       #
-      # Any doubt deploys, as before, with a warning that says why the check
-      # was not made: nothing single serves yet or the read above failed, a
-      # tag that is not a candidate tag, an image with no single sha- tag, no
-      # github-token, or GitHub did not answer within 20 seconds. The step
-      # limit is a backstop past that, and continue-on-error lets the job go
-      # on if it is ever reached. skip=true is the step's last write, so a
-      # step cut short never skips.
+      # Last, the branch heads. A commit that comes before the running one's
+      # can still be what a branch points at today, and then a build of it
+      # is wanted on stage. Someone resets the default branch back to drop a
+      # bad commit, and the nightly build reuses the older candidate of the
+      # commit it went back to, while stage still runs the bad commit's
+      # build. A hotfix branch is merged into the default branch with a
+      # merge commit, and the hotfix is sent to stage again. Or the default
+      # branch has not moved since the release a hotfix was cut from.
+      # Skipping any of these would keep stage on code nobody wants there,
+      # night after night. So the guard skips only when GitHub also says no
+      # branch has the candidate's commit as its head. The GitHub reads are
+      # made only when the build number says older, so a usual deploy asks
+      # nothing.
+      #
+      # When there is nothing to compare with, the guard deploys and says so
+      # in a plain line: nothing single serves yet or the read above failed
+      # (that step then shows its own failure), the running image carries no
+      # candidate tag, or the tag asked for has no build number. Those are
+      # ordinary deploys that could never be skipped. Once the build number
+      # says older, any doubt deploys, as before, with a warning that says
+      # why the check was not finished: an image with no single sha- tag, no
+      # github-token, or a GitHub read that failed, took more than 20
+      # seconds, or answered something else. The two reads take at most 40
+      # seconds together, the step limit is a backstop past that, and
+      # continue-on-error lets the job go on if it is ever reached.
+      # skip=true is the step's last write, so a step cut short never skips.
       - name: Older-candidate guard (newer already deployed)
         id: older
         continue-on-error: true
@@ -387,13 +406,21 @@ jobs:
           APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           # One line, always: what follows a line break must not read as a
-          # workflow command of its own.
+          # workflow command of its own. For the same reason, no line starts
+          # with the tag before it has matched the candidate pattern.
           tag="${TAG//[$'\r\n']/ }"
           go_ahead() {
             echo "$1"
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           }
+          # Nothing to compare with: an ordinary deploy this guard could
+          # never skip, so a plain line and not a warning.
+          nothing_to_compare() {
+            go_ahead "Candidate order not compared: $1, so $tag is deployed"
+          }
+          # The build number says older, so this deploy could have been
+          # skipped, but the check could not finish. That earns a warning.
           not_checked() {
             echo "::warning title=Candidate order not checked::$1, so $tag is deployed without checking whether release-candidate runs a newer candidate"
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -406,14 +433,14 @@ jobs:
             go_ahead "release-candidate already runs $WANT; the no-op guard decides"
           fi
           if [ -z "$HAVE" ]; then
-            not_checked "the step above could not tell which image release-candidate runs (nothing is deployed there yet, it does not serve one image, or the read failed)"
+            nothing_to_compare "the step above could not tell which image release-candidate runs (nothing is deployed there yet, it does not serve one image, or the read failed)"
           fi
 
           candidate_tag='^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?([0-9]{1,18})$'
           sha_tag='^sha-([0-9a-f]{40})$'
           repo_name='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
           if ! [[ "$TAG" =~ $candidate_tag ]]; then
-            not_checked "$tag is not a candidate-<yyyy-mm-dd>-<n> tag"
+            nothing_to_compare "the tag asked for has no build number (it is not a candidate-<yyyy-mm-dd>-<n> tag)"
           fi
 
           # A digest can carry more than one candidate tag when two builds
@@ -445,7 +472,7 @@ jobs:
             fi
           done
           if [ -z "$have_n" ]; then
-            not_checked "release-candidate runs $HAVE, which carries no candidate tag"
+            nothing_to_compare "release-candidate runs $HAVE, which carries no candidate tag"
           fi
           if [ "$want_n" -ge "$have_n" ]; then
             go_ahead "$tag is not older than $have_tag, the candidate release-candidate runs"
@@ -465,13 +492,19 @@ jobs:
             not_checked "$older, but the app repository '${APP_REPO//[$'\r\n']/ }' is not in owner/name form"
           fi
 
+          # Both GitHub reads share these limits, so the two together end
+          # well inside the step's one minute.
+          github() {
+            curl -fsS --connect-timeout 10 --max-time 20 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "${GITHUB_API_URL:-https://api.github.com}/repos/$APP_REPO/$1"
+          }
+
           # GitHub says "behind" when the candidate's commit is an ancestor
           # of the running one's: the same history, further back.
           status=0
-          body=$(curl -fsS --connect-timeout 10 --max-time 20 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "${GITHUB_API_URL:-https://api.github.com}/repos/$APP_REPO/compare/$have_sha...$want_sha?per_page=1") || status=$?
+          body=$(github "compare/$have_sha...$want_sha?per_page=1") || status=$?
           # curl exits 28 when it ran out of time.
           if [ "$status" -eq 28 ]; then
             not_checked "$older, but GitHub did not answer within 20 seconds whether its commit comes before that one's"
@@ -487,6 +520,32 @@ jobs:
             *) not_checked "$older, but GitHub did not say how the two commits compare" ;;
           esac
 
+          # An ancestor is not always a late build. A branch reset back to an
+          # older commit, or a hotfix branch merged into the default branch
+          # with a merge commit, leaves that branch's head behind what stage
+          # runs, and a build of it is still wanted there. GitHub lists the
+          # branches whose head is this commit, and only an empty list skips.
+          older="$older, and its commit comes before that one's"
+          status=0
+          body=$(github "commits/$want_sha/branches-where-head") || status=$?
+          if [ "$status" -eq 28 ]; then
+            not_checked "$older, but GitHub did not answer within 20 seconds whether it is the head of a branch"
+          elif [ "$status" -ne 0 ]; then
+            not_checked "$older, but GitHub could not say which branches it is the head of (curl exit $status)"
+          fi
+          heads=$(printf '%s' "$body" | jq -r '
+            if type == "array" and all(.[]; type == "object" and (.name | type) == "string") then
+              if length == 0 then "none"
+              elif length == 1 then "branch " + .[0].name
+              else "branches " + (map(.name) | join(", ")) end
+            else empty end' 2>/dev/null) || heads=""
+          case "$heads" in
+            none) ;;
+            branch*) go_ahead "$older, but it is the head of ${heads//[$'\r\n']/ }, so it is not a stale build and is deployed" ;;
+            *) not_checked "$older, but GitHub did not say whether it is the head of a branch" ;;
+          esac
+
+          echo "$older, and it is the head of no branch, so it is a late build"
           message="release-candidate already runs a newer candidate $have_tag; skipping $tag (set force to deploy it anyway)."
           echo "::notice title=Newer candidate already deployed::$message"
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
@@ -977,13 +1036,21 @@ jobs:
           APP_REPO: ${{ needs.lookup.outputs.repository }}
         run: |
           # One line, always: what follows a line break must not read as a
-          # workflow command of its own.
+          # workflow command of its own. For the same reason, no line starts
+          # with the tag before it has matched the candidate pattern.
           tag="${TAG//[$'\r\n']/ }"
           go_ahead() {
             echo "$1"
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           }
+          # Nothing to compare with: an ordinary deploy this guard could
+          # never skip, so a plain line and not a warning.
+          nothing_to_compare() {
+            go_ahead "Candidate order not compared: $1, so $tag is deployed"
+          }
+          # The build number says older, so this deploy could have been
+          # skipped, but the check could not finish. That earns a warning.
           not_checked() {
             echo "::warning title=Candidate order not checked::$1, so $tag is deployed without checking whether release-candidate runs a newer candidate"
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -996,14 +1063,14 @@ jobs:
             go_ahead "release-candidate already runs $WANT; the no-op guard decides"
           fi
           if [ -z "$HAVE" ]; then
-            not_checked "the step above could not tell which image release-candidate runs (nothing is deployed there yet, it does not serve one image, or the read failed)"
+            nothing_to_compare "the step above could not tell which image release-candidate runs (nothing is deployed there yet, it does not serve one image, or the read failed)"
           fi
 
           candidate_tag='^candidate-([0-9]{4}-[0-9]{2}-[0-9]{2}-)?([0-9]{1,18})$'
           sha_tag='^sha-([0-9a-f]{40})$'
           repo_name='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
           if ! [[ "$TAG" =~ $candidate_tag ]]; then
-            not_checked "$tag is not a candidate-<yyyy-mm-dd>-<n> tag"
+            nothing_to_compare "the tag asked for has no build number (it is not a candidate-<yyyy-mm-dd>-<n> tag)"
           fi
 
           # A digest can carry more than one candidate tag when two builds
@@ -1035,7 +1102,7 @@ jobs:
             fi
           done
           if [ -z "$have_n" ]; then
-            not_checked "release-candidate runs $HAVE, which carries no candidate tag"
+            nothing_to_compare "release-candidate runs $HAVE, which carries no candidate tag"
           fi
           if [ "$want_n" -ge "$have_n" ]; then
             go_ahead "$tag is not older than $have_tag, the candidate release-candidate runs"
@@ -1055,13 +1122,19 @@ jobs:
             not_checked "$older, but the app repository '${APP_REPO//[$'\r\n']/ }' is not in owner/name form"
           fi
 
+          # Both GitHub reads share these limits, so the two together end
+          # well inside the step's one minute.
+          github() {
+            curl -fsS --connect-timeout 10 --max-time 20 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "${GITHUB_API_URL:-https://api.github.com}/repos/$APP_REPO/$1"
+          }
+
           # GitHub says "behind" when the candidate's commit is an ancestor
           # of the running one's: the same history, further back.
           status=0
-          body=$(curl -fsS --connect-timeout 10 --max-time 20 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "${GITHUB_API_URL:-https://api.github.com}/repos/$APP_REPO/compare/$have_sha...$want_sha?per_page=1") || status=$?
+          body=$(github "compare/$have_sha...$want_sha?per_page=1") || status=$?
           # curl exits 28 when it ran out of time.
           if [ "$status" -eq 28 ]; then
             not_checked "$older, but GitHub did not answer within 20 seconds whether its commit comes before that one's"
@@ -1077,6 +1150,32 @@ jobs:
             *) not_checked "$older, but GitHub did not say how the two commits compare" ;;
           esac
 
+          # An ancestor is not always a late build. A branch reset back to an
+          # older commit, or a hotfix branch merged into the default branch
+          # with a merge commit, leaves that branch's head behind what stage
+          # runs, and a build of it is still wanted there. GitHub lists the
+          # branches whose head is this commit, and only an empty list skips.
+          older="$older, and its commit comes before that one's"
+          status=0
+          body=$(github "commits/$want_sha/branches-where-head") || status=$?
+          if [ "$status" -eq 28 ]; then
+            not_checked "$older, but GitHub did not answer within 20 seconds whether it is the head of a branch"
+          elif [ "$status" -ne 0 ]; then
+            not_checked "$older, but GitHub could not say which branches it is the head of (curl exit $status)"
+          fi
+          heads=$(printf '%s' "$body" | jq -r '
+            if type == "array" and all(.[]; type == "object" and (.name | type) == "string") then
+              if length == 0 then "none"
+              elif length == 1 then "branch " + .[0].name
+              else "branches " + (map(.name) | join(", ")) end
+            else empty end' 2>/dev/null) || heads=""
+          case "$heads" in
+            none) ;;
+            branch*) go_ahead "$older, but it is the head of ${heads//[$'\r\n']/ }, so it is not a stale build and is deployed" ;;
+            *) not_checked "$older, but GitHub did not say whether it is the head of a branch" ;;
+          esac
+
+          echo "$older, and it is the head of no branch, so it is a late build"
           message="release-candidate already runs a newer candidate $have_tag; skipping $tag (set force to deploy it anyway)."
           echo "::notice title=Newer candidate already deployed::$message"
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
