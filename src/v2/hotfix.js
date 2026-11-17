@@ -68,9 +68,11 @@ import { deadlineRequests } from './deadline'
 //
 // The cut refuses a fix that changes a file under .github/workflows, before
 // any push, whether the fix names the file or the merge lands it there
-// through a rename. Pushing one needs the token's workflow scope, and the
-// token is a person's, able to write to every app repo, so it does not get
-// that scope.
+// through a rename. Pushing one needs the workflow scope (the workflows
+// permission, for a GitHub App), and neither token the cut pushes with gets
+// it: the checkout's token is a person's, able to write to every app repo,
+// and a GitHub App's push-token is limited to contents: write on the one app
+// repo.
 // Such a fix is a person's to ship by hand, and build-candidate's check
 // builds the branch they push: it holds a workflow-changing pick to the same
 // rules as any other (a single-parent commit on the default branch's
@@ -877,15 +879,59 @@ async function cherryPick (git, { onto, commit, committer }) {
   return must(await git(['rev-parse', 'HEAD']), 'reading the cherry-pick').stdout.trim()
 }
 
+// The credential git sends for `token`, written the way actions/checkout
+// writes its own: HTTP basic auth, with the token as the password. The
+// caller masks it as well as the token, since it is the token in base64.
+export const basicCredential = (token) => Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
+
+// git config that makes one push authenticate with `token` and nothing else.
+// It goes in the environment (GIT_CONFIG_COUNT), so the token never reaches a
+// command line, and nothing is written to the checkout's config.
+//
+// actions/checkout saves the checkout's token as an http.<server>/.extraheader
+// (in a file its includeIf pulls into the checkout's config), and git sends
+// every extraheader that matches the remote. Adding the token's header would
+// send two Authorization headers, one of them the checkout's token. An
+// empty extraheader clears the list, but git applies an entry only when its
+// URL matches the remote at least as closely as every entry read before it,
+// so both entries name the remote's own push URL, which no entry can match
+// more closely. Config from the environment is read after every config file,
+// so these come last. The credential helpers are cleared too: a refused token
+// is never retried with a credential stored somewhere else.
+export async function tokenPushEnv (git, token) {
+  const url = must(await git(['remote', 'get-url', '--push', 'origin']), "reading the app repo's push URL").stdout.trim()
+  const key = `http.${url}.extraheader`
+  return {
+    GIT_CONFIG_COUNT: '3',
+    GIT_CONFIG_KEY_0: key,
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: key,
+    GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${basicCredential(token)}`,
+    GIT_CONFIG_KEY_2: 'credential.helper',
+    GIT_CONFIG_VALUE_2: ''
+  }
+}
+
+// What a push the app repo refused for its credential says. The first list is
+// what a token that works but may not push gets back (a 403, or a ruleset).
+// The second is what a token GitHub does not take at all gets (a 401: wrong,
+// expired or revoked), which only a push-token can be at this point, since
+// the checkout's token already fetched.
+const PUSH_NOT_ALLOWED = /permission .* denied|error: 403|returned error: 403|not allowed to push|protected branch|rule violations?/i
+const TOKEN_NOT_TAKEN = /returned error: 401|authentication failed|could not read username/i
+
 // Push `head` to the hotfix branch, and nowhere else. A plain push, never
 // forced: when the branch moved since it was read, git refuses the push, and
-// nothing on the remote changes.
-async function pushHotfixBranch (git, { head, branch, defaultBranch }) {
+// nothing on the remote changes. With `token` (hotfix.yml's GitHub App
+// token), the push authenticates with it alone; without one, with the
+// checkout's credentials, as it always has.
+async function pushHotfixBranch (git, { head, branch, defaultBranch, token = '' }) {
   const destination = `refs/heads/${branch}`
   if (!releaseFromRef(destination) || branch === defaultBranch) {
     throw new Error(`refusing to push to ${destination}: hotfix runs push only to hotfix/<release tag>`)
   }
-  const result = await git(['push', '--porcelain', 'origin', `${head}:${destination}`])
+  const env = token ? await tokenPushEnv(git, token) : {}
+  const result = await git(['push', '--porcelain', 'origin', `${head}:${destination}`], { env })
   if (result.code === 0) return
   const output = `${result.stdout}\n${result.stderr}`
   if (/\[rejected\]|non-fast-forward|fetch first|\[remote rejected\].*(cannot lock ref|reference already exists|incorrect old value)/i.test(output)) {
@@ -893,9 +939,15 @@ async function pushHotfixBranch (git, { head, branch, defaultBranch }) {
   }
   // The token is the one thing the app repo can say no to here, and git's
   // own message does not say which permission is missing. (A fix that changes
-  // a workflow file never gets this far: the cut refuses it.)
-  if (/permission .* denied|error: 403|returned error: 403|not allowed to push|protected branch|rule violations?/i.test(output)) {
-    throw new Error(`the app repo refused the push of ${branch} (${output.trim().split('\n').slice(-2).join(' ')}). authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix/* branches. Nothing was pushed`)
+  // a workflow file never gets this far: the cut refuses it.) A refused
+  // push-token is not retried with the checkout's token: the caller chose the
+  // App so that the branch is pushed as the App or not at all.
+  const said = output.trim().split('\n').slice(-2).join(' ')
+  if (token && (PUSH_NOT_ALLOWED.test(output) || TOKEN_NOT_TAKEN.test(output))) {
+    throw new Error(`the app repo refused the push of ${branch} with push-token, the GitHub App's token (${said}). The App must be installed on the app repo with Contents: Read and write, its token must not have expired, and no ruleset may stop the App creating or updating hotfix/* branches. Nothing was pushed, and the push was not tried with any other token`)
+  }
+  if (PUSH_NOT_ALLOWED.test(output)) {
+    throw new Error(`the app repo refused the push of ${branch} (${said}). authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix/* branches. Nothing was pushed`)
   }
   must(result, `pushing ${branch}`)
 }
@@ -904,14 +956,16 @@ async function pushHotfixBranch (git, { head, branch, defaultBranch }) {
 // the top of the file). Everything that can refuse runs before the push, so
 // a refusal always means nothing was pushed. `readLedger` is called twice:
 // once at the start and once right before the push, so a production change
-// in between is caught too.
+// in between is caught too. `pushToken`, when given, is the only credential
+// the push uses (see pushHotfixBranch); the fetches before it use the
+// checkout's.
 //
 // Returns { release, branch, base, commit, head, pushed, alreadyApplied,
 // warnings }. A run whose fix already has a cherry-pick on the branch (a
 // re-run, or a second run for the same fix) pushes nothing and returns
 // alreadyApplied. That says the pick is there, not that its change still is:
 // a later pick of a revert can undo it.
-export async function cutHotfix ({ git, project, commit, expectedRelease, readLedger, push = true, committer = COMMITTER }) {
+export async function cutHotfix ({ git, project, commit, expectedRelease, readLedger, push = true, pushToken = '', committer = COMMITTER }) {
   const expected = normalizeRelease(expectedRelease)
   if (!expected) {
     throw new HotfixRefusal(REASONS.invalidInput, `invalid expected-release '${oneLine(expectedRelease)}'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional). Refusing to cut a hotfix. Nothing was pushed`)
@@ -1080,7 +1134,7 @@ export async function cutHotfix ({ git, project, commit, expectedRelease, readLe
     // promote's to catch: an automation promote names the release it expects
     // to replace.
     await confirmLiveRelease({ readLedger, project, expected, when: 'refusing to push the hotfix branch' })
-    await pushHotfixBranch(git, { head, branch, defaultBranch })
+    await pushHotfixBranch(git, { head, branch, defaultBranch, token: pushToken })
     pushed = true
   }
 

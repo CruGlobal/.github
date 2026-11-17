@@ -1,5 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { loadYaml, findStep, runShellStep, removeFakes, workflowAndActionFiles } from './support/workflow-steps.js'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { root, loadYaml, findStep, runShellStep, removeFakes, workflowAndActionFiles } from './support/workflow-steps.js'
 import { MODES } from '../src/hotfix.js'
 
 // How the hotfix path is wired into the workflows: build-candidate's guard,
@@ -131,7 +134,7 @@ describe('hotfix.yml', () => {
 
   it('takes the inputs the wrapper passes, with defaults that change nothing for others', () => {
     const { inputs, secrets } = workflow.on.workflow_call
-    expect(Object.keys(inputs).sort()).toEqual(['allow-push-access', 'break-glass-team', 'commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
+    expect(Object.keys(inputs).sort()).toEqual(['allow-push-access', 'break-glass-team', 'commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'push-app-id', 'push-app-key-role-arn', 'push-app-key-secret-id', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
     for (const name of ['commit', 'expected-release', 'project-name']) expect(inputs[name].required, name).toBe(true)
     expect(inputs['trusted-automation-actor-ids']).toMatchObject({ required: false, default: '' })
     expect(inputs['refused-actor-ids']).toMatchObject({ type: 'string', required: false, default: '' })
@@ -140,6 +143,10 @@ describe('hotfix.yml', () => {
     expect(inputs['gate-claim-url']).toMatchObject({ type: 'string', required: false, default: '' })
     expect(inputs['gate-claim-audience']).toMatchObject({ type: 'string', required: false, default: '' })
     for (const name of ['gate-actor-id', 'signed-request', 'gate-public-keys', 'gate-issuer', 'gate-audience']) {
+      expect(inputs[name], name).toMatchObject({ type: 'string', required: false, default: '' })
+    }
+    // Empty pushes with authz-token, as before.
+    for (const name of ['push-app-id', 'push-app-key-secret-id', 'push-app-key-role-arn']) {
       expect(inputs[name], name).toMatchObject({ type: 'string', required: false, default: '' })
     }
     expect(inputs['workflow-ref']).toMatchObject({ required: false, default: 'main' })
@@ -163,6 +170,11 @@ describe('hotfix.yml', () => {
       'Checkout Cru Actions & Workflows',
       'Authorize actor',
       'Checkout the app repo',
+      'Choose who pushes the hotfix branch',
+      "Assume the role that reads the push App's key",
+      "Read the push App's private key",
+      "Mint the push App's token",
+      'Explain a failed push App setup',
       'Cut the hotfix branch',
       'Build the hotfix branch',
       'Explain a failed build dispatch',
@@ -194,7 +206,15 @@ describe('hotfix.yml', () => {
     expect(step('Cut the hotfix branch')).toMatchObject({
       id: 'cut',
       uses: HOTFIX_ACTION,
-      with: { mode: 'cut', path: 'app', 'project-name': '${{ inputs.project-name }}', commit: '${{ inputs.commit }}', 'expected-release': '${{ inputs.expected-release }}' }
+      with: {
+        mode: 'cut',
+        path: 'app',
+        'project-name': '${{ inputs.project-name }}',
+        commit: '${{ inputs.commit }}',
+        'expected-release': '${{ inputs.expected-release }}',
+        'push-as-app': '${{ steps.push-app.outputs.enabled }}',
+        'push-token': '${{ steps.push-token.outputs.token }}'
+      }
     })
     expect(step('Cut the hotfix branch')['continue-on-error']).toBeUndefined()
   })
@@ -251,6 +271,241 @@ describe('hotfix.yml', () => {
     })
     expect(result.status).toBe(1)
     expect(result.stdout).toMatch(/^::error title=dispatch_failed::hotfix\/release-2026-10-20-10140 is on CruGlobal\/example-app, but dispatching its pipeline-v2\.yml failed/m)
+  })
+})
+
+describe('hotfix.yml: pushing as a GitHub App', () => {
+  const workflow = loadYaml('.github/workflows/hotfix.yml')
+  const job = workflow.jobs.hotfix
+  const names = job.steps.map((s) => s.name)
+  const step = (name) => findStep(workflow, 'hotfix', name).step
+  const CHOOSE = 'Choose who pushes the hotfix branch'
+  const ASSUME = "Assume the role that reads the push App's key"
+  const READ = "Read the push App's private key"
+  const MINT = "Mint the push App's token"
+  const EXPLAIN = 'Explain a failed push App setup'
+  const ENABLED = "steps.push-app.outputs.enabled == 'true'"
+
+  const APP_ID = '123456'
+  const SECRET_ID = 'example-hotfix-push/example-app-key'
+  const ROLE_ARN = 'arn:aws:iam::000000000000:role/ExampleHotfixPush'
+  const REPOSITORY = 'example-org/example-app'
+  const ALL = { appId: APP_ID, secretId: SECRET_ID, roleArn: ROLE_ARN }
+  // Made up: base64 of plain text, in a PEM's shape.
+  const KEY_LINES = ['ZXhhbXBsZSBrZXkgbGluZSBvbmUsIGZvciBhIHRlc3Qgb25seSwgbm90IGEga2V5', 'ZXhhbXBsZSBrZXkgbGluZSB0d28=']
+  const KEY = ['-----BEGIN RSA PRIVATE KEY-----', ...KEY_LINES, '-----END RSA PRIVATE KEY-----'].join('\n')
+
+  // The job's workspace, with this repo where the job checks CruGlobal/.github
+  // out, or with a hotfix action from before push-as-app there.
+  const workspaces = []
+  afterAll(() => { for (const dir of workspaces) rmSync(dir, { recursive: true, force: true }) })
+  function workspace ({ olderAction = false } = {}) {
+    const dir = mkdtempSync(path.join(tmpdir(), 'hotfix-workspace-'))
+    workspaces.push(dir)
+    if (olderAction) {
+      const actionDir = path.join(dir, 'cru-github-actions', 'actions', 'hotfix')
+      mkdirSync(actionDir, { recursive: true })
+      writeFileSync(path.join(actionDir, 'action.yml'), "name: Hotfix\ninputs:\n  mode:\n    required: true\n  path:\n    default: '.'\nruns:\n  using: 'node24'\n  main: '../../dist/hotfix.js'\n")
+    } else {
+      symlinkSync(root, path.join(dir, 'cru-github-actions'))
+    }
+    return dir
+  }
+
+  const choose = ({ appId = '', secretId = '', roleArn = '' }, { repository = REPOSITORY, olderAction = false } = {}) => runShellStep(findStep(workflow, 'hotfix', CHOOSE), {
+    context: {
+      'inputs.project-name': 'example-app',
+      'inputs.push-app-id': appId,
+      'inputs.push-app-key-secret-id': secretId,
+      'inputs.push-app-key-role-arn': roleArn,
+      'inputs.workflow-ref': 'v2',
+      'steps.app-info.outputs.repository': repository
+    },
+    runnerEnv: { GITHUB_WORKSPACE: workspace({ olderAction }) }
+  })
+
+  const ROLE_KEYS = { 'steps.push-role.outputs.aws-access-key-id': 'role-access-key', 'steps.push-role.outputs.aws-secret-access-key': 'role-secret-key', 'steps.push-role.outputs.aws-session-token': 'role-session-token' }
+  // The job's own keys, from the deploy role it assumed first.
+  const JOB_KEYS = { AWS_ACCESS_KEY_ID: 'deploy-access-key', AWS_SECRET_ACCESS_KEY: 'deploy-secret-key', AWS_SESSION_TOKEN: 'deploy-session-token' }
+  const read = (options = {}, roleKeys = ROLE_KEYS) => runShellStep(findStep(workflow, 'hotfix', READ), {
+    context: { 'inputs.project-name': 'example-app', 'steps.push-app.outputs.key-secret-id': SECRET_ID, ...roleKeys },
+    runnerEnv: JOB_KEYS,
+    ...options
+  })
+  const errors = (stdout) => stdout.split('\n').filter((line) => line.startsWith('::error'))
+
+  it('sets the App up after the permission check and right before the cut, and stops the job if any of it fails', () => {
+    const at = (name) => names.indexOf(name)
+    expect(at(CHOOSE)).toBeGreaterThan(at('Authorize actor'))
+    expect([ASSUME, READ, MINT, EXPLAIN, 'Cut the hotfix branch'].map(at)).toEqual([1, 2, 3, 4, 5].map((n) => at(CHOOSE) + n))
+    for (const name of [CHOOSE, ASSUME, READ, MINT, EXPLAIN]) expect(step(name)['continue-on-error'], name).toBeUndefined()
+    // The choice always runs, so the cut always learns whether the App is set.
+    expect(step(CHOOSE)).toMatchObject({ id: 'push-app' })
+    expect(step(CHOOSE).if).toBeUndefined()
+    for (const name of [ASSUME, READ, MINT]) expect(step(name).if, name).toBe(ENABLED)
+    expect(step(EXPLAIN).if).toBe("failure() && (steps.push-role.outcome == 'failure' || steps.push-token.outcome == 'failure')")
+  })
+
+  it('assumes the role in this job, keeping its keys out of the job env, so the deploy role stays the job\'s AWS identity', () => {
+    expect(step(ASSUME)).toMatchObject({ id: 'push-role', uses: step('Configure AWS credentials for app-info').uses })
+    expect(step(ASSUME).with).toEqual({
+      'aws-region': 'us-east-1',
+      'role-to-assume': '${{ steps.push-app.outputs.key-role-arn }}',
+      'output-credentials': true,
+      'output-env-credentials': false,
+      'retry-max-attempts': 2
+    })
+    // Nothing after the deploy role sets the job's AWS keys again.
+    const awsKeys = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE']
+    for (const s of job.steps.slice(1)) {
+      for (const key of awsKeys) expect(Object.keys(s.env ?? {}), `${s.name} sets ${key}`).not.toContain(key)
+      expect(s.uses === 'aws-actions/configure-aws-credentials@v6' ? s.with['output-env-credentials'] : false, s.name).toBe(false)
+    }
+  })
+
+  it('mints a token for the app repo alone, with contents: write and no other permission', () => {
+    expect(step(MINT)).toMatchObject({ id: 'push-token', uses: 'actions/create-github-app-token@v3' })
+    expect(step(MINT).with).toEqual({
+      'client-id': '${{ steps.push-app.outputs.app-id }}',
+      'private-key': '${{ steps.push-key.outputs.private-key }}',
+      owner: '${{ steps.push-app.outputs.owner }}',
+      repositories: '${{ steps.push-app.outputs.repo }}',
+      'permission-contents': 'write'
+    })
+  })
+
+  describe(CHOOSE, () => {
+    it('keeps authz-token, silently, when none of the three is set', async () => {
+      const result = await choose({})
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ enabled: 'false' })
+      expect(errors(result.stdout)).toEqual([])
+    })
+
+    it('chooses the App when all three are set, with the app repo split for the token', async () => {
+      const result = await choose(ALL)
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ enabled: 'true', 'app-id': APP_ID, 'key-secret-id': SECRET_ID, 'key-role-arn': ROLE_ARN, owner: 'example-org', repo: 'example-app' })
+      expect(errors(result.stdout)).toEqual([])
+    })
+
+    it('trims a stray space or line break at either end', async () => {
+      const result = await choose({ appId: ` ${APP_ID}\n`, secretId: `${SECRET_ID} `, roleArn: `\n${ROLE_ARN}` })
+      expect(result.status).toBe(0)
+      expect(result.outputs).toMatchObject({ 'app-id': APP_ID, 'key-secret-id': SECRET_ID, 'key-role-arn': ROLE_ARN })
+    })
+
+    it.each([
+      [{ appId: APP_ID }, 'push-app-key-secret-id and push-app-key-role-arn are empty'],
+      [{ appId: APP_ID, secretId: SECRET_ID }, 'push-app-key-role-arn is empty'],
+      [{ roleArn: ROLE_ARN }, 'push-app-id and push-app-key-secret-id are empty'],
+      [{ appId: ' ', secretId: SECRET_ID, roleArn: ROLE_ARN }, 'push-app-id is empty']
+    ])('refuses a mix of set and empty (%j), naming what is missing', async (inputs, missing) => {
+      const result = await choose(inputs)
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::push-app-id, push-app-key-secret-id and push-app-key-role-arn go together, but ${missing}. Set all three to push the hotfix branch as the GitHub App, or none to push it with authz-token; refusing to cut a hotfix. Nothing was pushed`])
+      expect(result.outputs).toEqual({})
+    })
+
+    // A line break inside would start a new output line, such as enabled=.
+    it.each([
+      [{ ...ALL, secretId: 'example key' }, 'push-app-key-secret-id'],
+      [{ ...ALL, roleArn: `${ROLE_ARN}\nenabled=false` }, 'push-app-key-role-arn'],
+      [{ ...ALL, appId: '12\t34' }, 'push-app-id']
+    ])('refuses a value with a space or line break inside it (%j)', async (inputs, name) => {
+      const result = await choose(inputs)
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::${name} has a space or a line break inside it; refusing to cut a hotfix. Nothing was pushed`])
+      expect(result.outputs).toEqual({})
+    })
+
+    it('refuses a hotfix action from before push-as-app, which would push with authz-token', async () => {
+      const result = await choose(ALL, { olderAction: true })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual(["::error title=push_app_failed::the hotfix action at workflow-ref v2 cannot push as a GitHub App (it takes no push-as-app input), so it would push with authz-token. Point workflow-ref at the CruGlobal/.github release that added push-app-id, or a later one; refusing to cut a hotfix. Nothing was pushed"])
+      expect(result.outputs).toEqual({})
+    })
+
+    it('lets an older hotfix action push with authz-token as before when the App is not set', async () => {
+      const result = await choose({}, { olderAction: true })
+      expect(result.status).toBe(0)
+      expect(result.outputs).toEqual({ enabled: 'false' })
+    })
+
+    it.each(['example-app', 'example-org/example-app/extra', '/example-app', 'example-org/'])('refuses an app repo that is not owner/name (%j)', async (repository) => {
+      const result = await choose(ALL, { repository })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::the app repo '${repository}' is not in owner/name form, so a token cannot be limited to it; refusing to cut a hotfix. Nothing was pushed`])
+      expect(result.outputs).toEqual({})
+    })
+  })
+
+  describe(READ, () => {
+    it('reads the key with the role\'s keys alone, masks every line of it first, and passes it on', async () => {
+      const result = await read({ awsSecret: KEY })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ 'private-key': KEY })
+      expect(result.secretCall).toBe(`secretsmanager get-secret-value --region us-east-1 --secret-id ${SECRET_ID} --query SecretString --output text`)
+      expect(result.secretCallKeys).toBe('role-access-key|role-secret-key|role-session-token')
+      // The job's own keys are not changed for later steps.
+      expect(result.env).toEqual({})
+      const lines = result.stdout.split('\n').filter(Boolean)
+      expect(lines.slice(0, KEY_LINES.length)).toEqual(KEY_LINES.map((line) => `::add-mask::${line}`))
+      expect(lines.slice(KEY_LINES.length)).toEqual([`Read the push App's private key from ${SECRET_ID}.`])
+    })
+
+    it('masks the lines of a key saved with Windows line endings without their carriage returns', async () => {
+      const result = await read({ awsSecret: KEY.replaceAll('\n', '\r\n') })
+      expect(result.status).toBe(0)
+      expect(result.stdout.split('\n').filter((line) => line.startsWith('::add-mask::'))).toEqual(KEY_LINES.map((line) => `::add-mask::${line}`))
+    })
+
+    it('fails, saying what to check, when the key cannot be read', async () => {
+      const result = await read({ awsSecret: KEY, awsSecretFails: true })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::could not read the push App's private key from the Secrets Manager secret ${SECRET_ID} in us-east-1 (see the aws error above). push-app-key-role-arn must be allowed secretsmanager:GetSecretValue on it, and the secret must have a value; refusing to cut a hotfix. Nothing was pushed`])
+      expect(result.outputs).toEqual({})
+    })
+
+    // The aws CLI prints None for a secret with no secret string.
+    it.each(['None', '{"private_key":"example"}', 'ZXhhbXBsZQ=='])('fails when the secret is not a PEM private key (%j), and passes nothing on', async (secret) => {
+      const result = await read({ awsSecret: secret })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::the Secrets Manager secret ${SECRET_ID} does not hold a PEM private key. Its secret string must be the key file the App's settings page downloads; refusing to cut a hotfix. Nothing was pushed`])
+      expect(result.outputs).toEqual({})
+    })
+
+    it('never reads the key with the job\'s own keys', async () => {
+      const result = await read({ awsSecret: KEY }, { ...ROLE_KEYS, 'steps.push-role.outputs.aws-access-key-id': '' })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual(["::error title=push_app_failed::assuming the role that reads the push App's key gave no credentials, so the key was not read; refusing to cut a hotfix. Nothing was pushed"])
+      expect(result.secretCall).toBeNull()
+    })
+  })
+
+  describe(EXPLAIN, () => {
+    const explain = (roleOutcome) => runShellStep(findStep(workflow, 'hotfix', EXPLAIN), {
+      context: {
+        'inputs.project-name': 'example-app',
+        'steps.push-role.outcome': roleOutcome,
+        'steps.push-app.outputs.key-role-arn': ROLE_ARN,
+        'steps.push-app.outputs.app-id': APP_ID,
+        'steps.push-app.outputs.key-secret-id': SECRET_ID,
+        'steps.app-info.outputs.repository': REPOSITORY
+      }
+    })
+
+    it('says what the role must trust when it could not be assumed', async () => {
+      const result = await explain('failure')
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::could not assume ${ROLE_ARN} with this job's OIDC token (see the step above), so the push App's key was not read. The role must trust this job: the caller's repo and ref as the token's sub, and CruGlobal/.github's hotfix.yml, at the ref the caller pinned, as its job_workflow_ref. Nothing was pushed`])
+    })
+
+    it('says what the App needs when its token could not be minted', async () => {
+      const result = await explain('success')
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::could not mint a token for the GitHub App ${APP_ID} on ${REPOSITORY} (see the step above). The App must be installed on ${REPOSITORY} with Contents: Read and write, and ${SECRET_ID} must hold one of the App's current private keys. Nothing was pushed`])
+    })
   })
 })
 

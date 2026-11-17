@@ -91,7 +91,20 @@ const FAKE_AWS = `#!/bin/bash
 # Fake aws: records the table and item a dynamodb put-item writes (the ledger
 # row), and answers every other call (the app-info get-item) with FAKE_AWS.
 # With FAKE_AWS_BY_ENVIRONMENT set, a get-item is answered by the Environment
-# in its --key instead, so a step that reads two rows gets two answers.
+# in its --key instead, so a step that reads two rows gets two answers. A
+# secretsmanager get-secret-value records its arguments and the AWS keys it
+# was run with, and prints FAKE_AWS_SECRET, or fails the way the aws CLI
+# does on a refusal when FAKE_AWS_SECRET_FAILS is set.
+if [ "$1" = secretsmanager ] && [ "$2" = get-secret-value ]; then
+  printf '%s' "$*" > "$FAKE_OUT/secret-call"
+  printf '%s|%s|%s' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_SESSION_TOKEN" > "$FAKE_OUT/secret-call-keys"
+  if [ -n "$FAKE_AWS_SECRET_FAILS" ]; then
+    echo "An error occurred (AccessDeniedException) when calling the GetSecretValue operation: not authorized" >&2
+    exit 254
+  fi
+  printf '%s\n' "$FAKE_AWS_SECRET"
+  exit 0
+fi
 if [ "$1" = dynamodb ] && [ "$2" = put-item ]; then
   shift 2
   while [ $# -gt 0 ]; do
@@ -209,13 +222,28 @@ function readPutItem (out) {
   return { table: readFileSync(table, 'utf8'), item: readJson(item) }
 }
 
-// The key=value lines a step wrote to $GITHUB_OUTPUT or $GITHUB_ENV.
+// The key=value lines a step wrote to $GITHUB_OUTPUT or $GITHUB_ENV, and the
+// values it wrote over several lines as name<<DELIMITER ... DELIMITER, the
+// way the runner reads both.
 function readOutputs (file) {
   if (!existsSync(file)) return {}
-  return Object.fromEntries(readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => {
+  const lines = readFileSync(file, 'utf8').split('\n')
+  const outputs = {}
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line) continue
+    const many = line.match(/^([^=]+)<<(.+)$/)
+    if (many) {
+      const end = lines.indexOf(many[2], i + 1)
+      if (end < 0) throw new Error(`the step wrote ${many[1]}<<${many[2]} with no closing ${many[2]} line`)
+      outputs[many[1]] = lines.slice(i + 1, end).join('\n')
+      i = end
+      continue
+    }
     const at = line.indexOf('=')
-    return [line.slice(0, at), line.slice(at + 1)]
-  }))
+    outputs[line.slice(0, at)] = line.slice(at + 1)
+  }
+  return outputs
 }
 
 // Run one `run:` step. `context` resolves every expression in the job env,
@@ -236,7 +264,9 @@ function readOutputs (file) {
 // string as it is), and `ghHeadsFails` and `ghHeadsTimesOut` make it fail the
 // same two ways. `ghExistingRelease`, when given, is the release that already
 // has the tag (an object, or "FAIL" for a read that fails), and
-// `ghUpdateFails` makes updating it fail. Resolves to the exit
+// `ghUpdateFails` makes updating it fail. `awsSecret` is what an aws
+// secretsmanager get-secret-value prints, and `awsSecretFails` makes it fail.
+// Resolves to the exit
 // status, the output, the step's outputs, the variables it set for later
 // steps ($GITHUB_ENV), what was sent to Slack and to the GitHub releases API
 // (`release` for a new one; `releaseReadPath`, `releaseUpdatePath` and
@@ -244,8 +274,11 @@ function readOutputs (file) {
 // for, the path a branch-heads read asked for (`headsPath`), the table and
 // item a DynamoDB put-item wrote (each null when nothing was), and the
 // arguments of each ledger read (`ledgerCalls`, one string per read) and of
-// each GitHub read made with curl (`githubCalls`, in the order made).
-export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, ghCompare = {}, ghCompareFails = false, ghCompareTimesOut = false, ghHeads = [], ghHeadsFails = false, ghHeadsTimesOut = false, ghExistingRelease = null, ghUpdateFails = false, runnerEnv = {} }) {
+// each GitHub read made with curl (`githubCalls`, in the order made), and a
+// secret read's arguments (`secretCall`) and the AWS keys it was run with
+// (`secretCallKeys`, as "access key|secret key|session token"), each null
+// when there was none.
+export async function runShellStep ({ job, step }, { context, ledger = { Items: [] }, ledgerFails = false, ledgerTimesOut = false, aws = {}, awsByEnvironment = null, awsSecret = '', awsSecretFails = false, ghCompare = {}, ghCompareFails = false, ghCompareTimesOut = false, ghHeads = [], ghHeadsFails = false, ghHeadsTimesOut = false, ghExistingRelease = null, ghUpdateFails = false, runnerEnv = {} }) {
   const bin = fakes()
   const dir = mkdtempSync(path.join(tmpdir(), 'workflow-step-'))
   try {
@@ -272,6 +305,8 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       FAKE_LEDGER_TIMES_OUT: ledgerTimesOut ? '1' : '',
       FAKE_AWS: JSON.stringify(aws),
       FAKE_AWS_BY_ENVIRONMENT: awsByEnvironment ? JSON.stringify(awsByEnvironment) : '',
+      FAKE_AWS_SECRET: awsSecret,
+      FAKE_AWS_SECRET_FAILS: awsSecretFails ? '1' : '',
       FAKE_GH_COMPARE: typeof ghCompare === 'string' ? ghCompare : JSON.stringify(ghCompare),
       FAKE_GH_COMPARE_FAILS: ghCompareFails ? '1' : '',
       FAKE_GH_COMPARE_TIMES_OUT: ghCompareTimesOut ? '1' : '',
@@ -297,7 +332,9 @@ export async function runShellStep ({ job, step }, { context, ledger = { Items: 
       headsPath: existsSync(path.join(out, 'gh-heads-path')) ? readFileSync(path.join(out, 'gh-heads-path'), 'utf8') : null,
       putItem: readPutItem(out),
       ledgerCalls: existsSync(path.join(out, 'ledger-calls')) ? readFileSync(path.join(out, 'ledger-calls'), 'utf8').split('\n').filter(Boolean) : [],
-      githubCalls: existsSync(path.join(out, 'github-calls')) ? readFileSync(path.join(out, 'github-calls'), 'utf8').split('\n').filter(Boolean) : []
+      githubCalls: existsSync(path.join(out, 'github-calls')) ? readFileSync(path.join(out, 'github-calls'), 'utf8').split('\n').filter(Boolean) : [],
+      secretCall: existsSync(path.join(out, 'secret-call')) ? readFileSync(path.join(out, 'secret-call'), 'utf8') : null,
+      secretCallKeys: existsSync(path.join(out, 'secret-call-keys')) ? readFileSync(path.join(out, 'secret-call-keys'), 'utf8') : null
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
