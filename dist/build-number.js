@@ -19497,7 +19497,7 @@ var require_dist_cjs = __commonJS({
       FieldPosition3[FieldPosition3["HEADER"] = 0] = "HEADER";
       FieldPosition3[FieldPosition3["TRAILER"] = 1] = "TRAILER";
     })(FieldPosition2 || (FieldPosition2 = {}));
-    var SMITHY_CONTEXT_KEY4 = "__smithy_context";
+    var SMITHY_CONTEXT_KEY5 = "__smithy_context";
     var IniSectionType4;
     (function(IniSectionType5) {
       IniSectionType5["PROFILE"] = "profile";
@@ -19517,7 +19517,7 @@ var require_dist_cjs = __commonJS({
     exports2.HttpAuthLocation = HttpAuthLocation;
     exports2.IniSectionType = IniSectionType4;
     exports2.RequestHandlerProtocol = RequestHandlerProtocol;
-    exports2.SMITHY_CONTEXT_KEY = SMITHY_CONTEXT_KEY4;
+    exports2.SMITHY_CONTEXT_KEY = SMITHY_CONTEXT_KEY5;
     exports2.getDefaultClientConfiguration = getDefaultClientConfiguration2;
     exports2.resolveDefaultRuntimeConfig = resolveDefaultRuntimeConfig2;
   }
@@ -20967,7 +20967,8 @@ var init_command = __esm({
             ...additionalSmithyContext,
             commandInstance: this,
             ...smithyContext,
-            ...options?.metricsRecorder === void 0 ? {} : { metricsRecorder: options.metricsRecorder }
+            ...options?.metricsRecorder === void 0 ? {} : { metricsRecorder: options.metricsRecorder },
+            ...options?.abortSignal === void 0 ? {} : { abortSignal: options.abortSignal }
           }
         };
         const { requestHandler } = configuration;
@@ -21864,12 +21865,49 @@ var init_setCredentialFeature = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js
-var import_node_stream, isStreamingPayload;
-var init_isStreamingPayload = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js"() {
-    import_node_stream = require("node:stream");
-    isStreamingPayload = (request) => request?.body instanceof import_node_stream.Readable || typeof ReadableStream !== "undefined" && request?.body instanceof ReadableStream;
+// node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js
+function setFeature(context, feature, value) {
+  if (!context.__aws_sdk_context) {
+    context.__aws_sdk_context = {
+      features: {}
+    };
+  } else if (!context.__aws_sdk_context.features) {
+    context.__aws_sdk_context.features = {};
+  }
+  context.__aws_sdk_context.features[feature] = value;
+}
+var init_setFeature = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js"() {
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js
+function setTokenFeature(token, feature, value) {
+  if (!token.$source) {
+    token.$source = {};
+  }
+  token.$source[feature] = value;
+  return token;
+}
+var init_setTokenFeature = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js"() {
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js
+var isDefaultSocketTimeoutEnabled, getDefaultSocketTimeout;
+var init_getDefaultSocketTimeout = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js"() {
+    isDefaultSocketTimeoutEnabled = () => typeof process === "object" && process?.env?.AWS_ENABLE_DEFAULT_SOCKET_TIMEOUT_2026 === "true";
+    getDefaultSocketTimeout = (requestHandler, timeoutMs) => {
+      if (!isDefaultSocketTimeoutEnabled()) {
+        return void 0;
+      }
+      if (typeof requestHandler?.handle === "function") {
+        return void 0;
+      }
+      return timeoutMs;
+    };
   }
 });
 
@@ -24281,7 +24319,7 @@ var init_getEndpointFromInstructions = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/endpointMiddleware.js
-function setFeature(context, feature, value) {
+function setFeature2(context, feature, value) {
   if (!context.__smithy_context) {
     context.__smithy_context = { features: {} };
   } else if (!context.__smithy_context.features) {
@@ -24294,7 +24332,7 @@ function bindEndpointMiddleware(getEndpointFromConfig2) {
   return ({ config, instructions }) => {
     return (next, context) => async (args) => {
       if (config.isCustomEndpoint) {
-        setFeature(context, "ENDPOINT_OVERRIDE", "N");
+        setFeature2(context, "ENDPOINT_OVERRIDE", "N");
       }
       const endpoint = await getEndpointFromInstructions2(args.input, {
         getEndpointParameterInstructions() {
@@ -25370,12 +25408,12 @@ var init_hash_node = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/checksum/ChecksumStream.js
-var import_node_stream2, ChecksumStream;
+var import_node_stream, ChecksumStream;
 var init_ChecksumStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/checksum/ChecksumStream.js"() {
-    import_node_stream2 = require("node:stream");
+    import_node_stream = require("node:stream");
     init_toBase64();
-    ChecksumStream = class extends import_node_stream2.Readable {
+    ChecksumStream = class extends import_node_stream.Readable {
       expectedChecksum;
       checksumSourceLocation;
       checksum;
@@ -25732,7 +25770,7 @@ function createBufferedReadable(upstream, size, logger2) {
   if (isReadableStream(upstream)) {
     return createBufferedReadableStream(upstream, size, logger2);
   }
-  const downstream = new import_node_stream3.Readable({ read() {
+  const downstream = new import_node_stream2.Readable({ read() {
   } });
   let streamBufferingLoggedWarning = false;
   let bytesSeen = 0;
@@ -25781,10 +25819,10 @@ function createBufferedReadable(upstream, size, logger2) {
   });
   return downstream;
 }
-var import_node_stream3;
+var import_node_stream2;
 var init_createBufferedReadable = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/createBufferedReadable.js"() {
-    import_node_stream3 = require("node:stream");
+    import_node_stream2 = require("node:stream");
     init_ByteArrayCollector();
     init_createBufferedReadable_browser();
     init_stream_type_check();
@@ -25839,7 +25877,7 @@ function getAwsChunkedEncodingStream2(stream, options) {
   const digest2 = checksumRequired ? streamHasher(checksumAlgorithmFn, readable) : void 0;
   Promise.resolve(digest2).catch(() => {
   });
-  const awsChunkedEncodingStream = new import_node_stream4.Readable({
+  const awsChunkedEncodingStream = new import_node_stream3.Readable({
     read() {
       readable.resume();
     }
@@ -25878,10 +25916,10 @@ function getAwsChunkedEncodingStream2(stream, options) {
   });
   return awsChunkedEncodingStream;
 }
-var import_node_stream4;
+var import_node_stream3;
 var init_getAwsChunkedEncodingStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/getAwsChunkedEncodingStream.js"() {
-    import_node_stream4 = require("node:stream");
+    import_node_stream3 = require("node:stream");
     init_getAwsChunkedEncodingStream_browser();
     init_stream_type_check();
   }
@@ -25924,10 +25962,10 @@ var init_headStream_browser = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/headStream.js
-var import_node_stream5, headStream2, Collector;
+var import_node_stream4, headStream2, Collector;
 var init_headStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/headStream.js"() {
-    import_node_stream5 = require("node:stream");
+    import_node_stream4 = require("node:stream");
     init_concatBytes();
     init_headStream_browser();
     init_stream_type_check();
@@ -25950,7 +25988,7 @@ var init_headStream = __esm({
         });
       });
     };
-    Collector = class extends import_node_stream5.Writable {
+    Collector = class extends import_node_stream4.Writable {
       buffers = [];
       limit = Infinity;
       bytesBuffered = 0;
@@ -26084,10 +26122,10 @@ var init_sdk_stream_mixin_browser = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/stream-collector.js
-var import_node_stream6, streamCollector2, Collector2;
+var import_node_stream5, streamCollector2, Collector2;
 var init_stream_collector = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/stream-collector.js"() {
-    import_node_stream6 = require("node:stream");
+    import_node_stream5 = require("node:stream");
     init_concatBytes();
     init_stream_collector_browser();
     init_stream_type_check();
@@ -26113,7 +26151,7 @@ var init_stream_collector = __esm({
         });
       });
     };
-    Collector2 = class extends import_node_stream6.Writable {
+    Collector2 = class extends import_node_stream5.Writable {
       bufferedBytes = [];
       _write(chunk, encoding, callback) {
         this.bufferedBytes.push(chunk);
@@ -26124,16 +26162,16 @@ var init_stream_collector = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/sdk-stream-mixin.js
-var import_node_stream7, ERR_MSG_STREAM_HAS_BEEN_TRANSFORMED2, sdkStreamMixin2;
+var import_node_stream6, ERR_MSG_STREAM_HAS_BEEN_TRANSFORMED2, sdkStreamMixin2;
 var init_sdk_stream_mixin = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/sdk-stream-mixin.js"() {
-    import_node_stream7 = require("node:stream");
+    import_node_stream6 = require("node:stream");
     init_buffer_from();
     init_sdk_stream_mixin_browser();
     init_stream_collector();
     ERR_MSG_STREAM_HAS_BEEN_TRANSFORMED2 = "The stream has already been transformed.";
     sdkStreamMixin2 = (stream) => {
-      if (!(stream instanceof import_node_stream7.Readable)) {
+      if (!(stream instanceof import_node_stream6.Readable)) {
         try {
           return sdkStreamMixin(stream);
         } catch (ignored) {
@@ -26167,11 +26205,11 @@ var init_sdk_stream_mixin = __esm({
           if (stream.readableFlowing !== null) {
             throw new Error("The stream has been consumed by other callbacks.");
           }
-          if (typeof import_node_stream7.Readable.toWeb !== "function") {
+          if (typeof import_node_stream6.Readable.toWeb !== "function") {
             throw new Error("Readable.toWeb() is not supported. Please ensure a polyfill is available.");
           }
           transformed = true;
-          return import_node_stream7.Readable.toWeb(stream);
+          return import_node_stream6.Readable.toWeb(stream);
         }
       });
     };
@@ -26196,16 +26234,16 @@ async function splitStream2(stream) {
   if (isReadableStream(stream) || isBlob(stream)) {
     return splitStream(stream);
   }
-  const stream1 = new import_node_stream8.PassThrough();
-  const stream2 = new import_node_stream8.PassThrough();
+  const stream1 = new import_node_stream7.PassThrough();
+  const stream2 = new import_node_stream7.PassThrough();
   stream.pipe(stream1);
   stream.pipe(stream2);
   return [stream1, stream2];
 }
-var import_node_stream8;
+var import_node_stream7;
 var init_splitStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/splitStream.js"() {
-    import_node_stream8 = require("node:stream");
+    import_node_stream7 = require("node:stream");
     init_splitStream_browser();
     init_stream_type_check();
   }
@@ -26419,12 +26457,12 @@ var init_blobHasher = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/checksum/hash-stream-node/HashCalculator.js
-var import_node_stream9, HashCalculator;
+var import_node_stream8, HashCalculator;
 var init_HashCalculator = __esm({
   "node_modules/@smithy/core/dist-es/submodules/checksum/hash-stream-node/HashCalculator.js"() {
-    import_node_stream9 = require("node:stream");
+    import_node_stream8 = require("node:stream");
     init_serde();
-    HashCalculator = class extends import_node_stream9.Writable {
+    HashCalculator = class extends import_node_stream8.Writable {
       hash;
       constructor(hash, options) {
         super(options);
@@ -27758,10 +27796,10 @@ async function* readableToIterable(readStream) {
     generationEnded = streamEnded && records.length === 0;
   }
 }
-var import_node_stream10, EventStreamMarshaller2, eventStreamSerdeProvider2;
+var import_node_stream9, EventStreamMarshaller2, eventStreamSerdeProvider2;
 var init_EventStreamMarshaller2 = __esm({
   "node_modules/@smithy/core/dist-es/submodules/event-streams/eventstream-serde/EventStreamMarshaller.js"() {
-    import_node_stream10 = require("node:stream");
+    import_node_stream9 = require("node:stream");
     init_EventStreamMarshaller();
     EventStreamMarshaller2 = class {
       universalMarshaller;
@@ -27776,7 +27814,7 @@ var init_EventStreamMarshaller2 = __esm({
         return this.universalMarshaller.deserialize(bodyIterable, deserializer);
       }
       serialize(input, serializer) {
-        return import_node_stream10.Readable.from(this.universalMarshaller.serialize(input, serializer));
+        return import_node_stream9.Readable.from(this.universalMarshaller.serialize(input, serializer));
       }
     };
     eventStreamSerdeProvider2 = (options) => new EventStreamMarshaller2(options);
@@ -31187,1069 +31225,6 @@ var init_protocols = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js
-var CLOCK_SKEW_ERROR_CODES, THROTTLING_ERROR_CODES, TRANSIENT_ERROR_CODES, TRANSIENT_ERROR_STATUS_CODES, NODEJS_TIMEOUT_ERROR_CODES, NODEJS_NETWORK_ERROR_CODES;
-var init_constants4 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js"() {
-    CLOCK_SKEW_ERROR_CODES = [
-      "AccessDeniedException",
-      "AuthFailure",
-      "InvalidSignatureException",
-      "RequestExpired",
-      "RequestInTheFuture",
-      "RequestTimeTooSkewed",
-      "SignatureDoesNotMatch"
-    ];
-    THROTTLING_ERROR_CODES = [
-      "BandwidthLimitExceeded",
-      "EC2ThrottledException",
-      "LimitExceededException",
-      "PriorRequestNotComplete",
-      "ProvisionedThroughputExceededException",
-      "RequestLimitExceeded",
-      "RequestThrottled",
-      "RequestThrottledException",
-      "SlowDown",
-      "ThrottledException",
-      "Throttling",
-      "ThrottlingException",
-      "TooManyRequestsException",
-      "TransactionInProgressException"
-    ];
-    TRANSIENT_ERROR_CODES = ["TimeoutError", "RequestTimeout", "RequestTimeoutException"];
-    TRANSIENT_ERROR_STATUS_CODES = [500, 502, 503, 504];
-    NODEJS_TIMEOUT_ERROR_CODES = ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT"];
-    NODEJS_NETWORK_ERROR_CODES = ["EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN"];
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js
-function isNodeJsHttp2TransientError(error3) {
-  return error3.code === "ERR_HTTP2_STREAM_ERROR" && error3.message.includes("NGHTTP2_REFUSED_STREAM");
-}
-var isRetryableByTrait, isClockSkewError, isClockSkewCorrectedError, isBrowserNetworkError, isThrottlingError, isTransientError, isServerError;
-var init_service_error_classification = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js"() {
-    init_constants4();
-    isRetryableByTrait = (error3) => error3?.$retryable !== void 0;
-    isClockSkewError = (error3) => CLOCK_SKEW_ERROR_CODES.includes(error3.name);
-    isClockSkewCorrectedError = (error3) => error3.$metadata?.clockSkewCorrected;
-    isBrowserNetworkError = (error3) => {
-      const errorMessages = /* @__PURE__ */ new Set([
-        "Failed to fetch",
-        "NetworkError when attempting to fetch resource",
-        "The Internet connection appears to be offline",
-        "Load failed",
-        "Network request failed"
-      ]);
-      const isValid = error3 && error3 instanceof TypeError;
-      if (!isValid) {
-        return false;
-      }
-      return errorMessages.has(error3.message);
-    };
-    isThrottlingError = (error3) => error3.$metadata?.httpStatusCode === 429 || THROTTLING_ERROR_CODES.includes(error3.name) || error3.$retryable?.throttling == true;
-    isTransientError = (error3, depth = 0) => error3?.name !== "AbortError" && (isRetryableByTrait(error3) || isClockSkewCorrectedError(error3) || error3.name === "InvalidSignatureException" && error3.message?.includes("Signature expired") || TRANSIENT_ERROR_CODES.includes(error3.name) || NODEJS_TIMEOUT_ERROR_CODES.includes(error3?.code || "") || NODEJS_NETWORK_ERROR_CODES.includes(error3?.code || "") || TRANSIENT_ERROR_STATUS_CODES.includes(error3.$metadata?.httpStatusCode || 0) || isBrowserNetworkError(error3) || isNodeJsHttp2TransientError(error3) || error3.cause !== void 0 && depth <= 10 && isTransientError(error3.cause, depth + 1));
-    isServerError = (error3) => {
-      if (error3.$metadata?.httpStatusCode !== void 0) {
-        const statusCode = error3.$metadata.httpStatusCode;
-        if (500 <= statusCode && statusCode <= 599 && !isTransientError(error3)) {
-          return true;
-        }
-        return false;
-      }
-      return false;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js
-var DEFAULT_RETRY_DELAY_BASE, MAXIMUM_RETRY_DELAY, THROTTLING_RETRY_DELAY_BASE, INITIAL_RETRY_TOKENS, RETRY_COST, TIMEOUT_RETRY_COST, NO_RETRY_INCREMENT, INVOCATION_ID_HEADER, REQUEST_HEADER;
-var init_constants5 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js"() {
-    DEFAULT_RETRY_DELAY_BASE = 100;
-    MAXIMUM_RETRY_DELAY = 20 * 1e3;
-    THROTTLING_RETRY_DELAY_BASE = 500;
-    INITIAL_RETRY_TOKENS = 500;
-    RETRY_COST = 5;
-    TIMEOUT_RETRY_COST = 10;
-    NO_RETRY_INCREMENT = 1;
-    INVOCATION_ID_HEADER = "amz-sdk-invocation-id";
-    REQUEST_HEADER = "amz-sdk-request";
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js
-function parseRetryAfterHeader(response, logger2) {
-  if (!HttpResponse.isInstance(response)) {
-    return;
-  }
-  for (const header in response.headers) {
-    if (!hasOwn(response.headers, header)) {
-      continue;
-    }
-    const h5 = header.toLowerCase();
-    if (h5 === "retry-after") {
-      const retryAfter = response.headers[header];
-      let retryAfterSeconds = NaN;
-      if (retryAfter.endsWith("GMT")) {
-        try {
-          const date2 = parseRfc7231DateTime(retryAfter);
-          retryAfterSeconds = (date2.getTime() - Date.now()) / 1e3;
-        } catch (e5) {
-          logger2?.trace?.("Failed to parse retry-after header");
-          logger2?.trace?.(e5);
-        }
-      } else if (retryAfter.match(/ GMT, ((\d+)|(\d+\.\d+))$/)) {
-        retryAfterSeconds = Number(retryAfter.match(/ GMT, ([\d.]+)$/)?.[1]);
-      } else if (retryAfter.match(/^((\d+)|(\d+\.\d+))$/)) {
-        retryAfterSeconds = Number(retryAfter);
-      } else if (Date.parse(retryAfter) >= Date.now()) {
-        retryAfterSeconds = (Date.parse(retryAfter) - Date.now()) / 1e3;
-      }
-      if (isNaN(retryAfterSeconds)) {
-        return;
-      }
-      return new Date(Date.now() + retryAfterSeconds * 1e3);
-    } else if (h5 === "x-amz-retry-after") {
-      const v = response.headers[header];
-      const backoffMilliseconds = Number(v);
-      if (isNaN(backoffMilliseconds)) {
-        logger2?.trace?.(`Failed to parse x-amz-retry-after=${v}`);
-        return;
-      }
-      return new Date(Date.now() + backoffMilliseconds);
-    }
-  }
-}
-function getRetryAfterHint(response, logger2) {
-  return parseRetryAfterHeader(response, logger2);
-}
-var init_parseRetryAfterHeader = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js"() {
-    init_transport();
-    init_protocols();
-    init_serde();
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js
-var asSdkError;
-var init_util = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js"() {
-    asSdkError = (error3) => {
-      if (error3 instanceof Error) {
-        return error3;
-      }
-      if (error3 instanceof Object) {
-        return Object.assign(new Error(), error3);
-      }
-      if (typeof error3 === "string") {
-        return new Error(error3);
-      }
-      return new Error(`AWS SDK error wrapper for ${error3}`);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js
-function bindRetryMiddleware(isStreamingPayload2) {
-  return (options) => (next, context) => async (args) => {
-    let retryStrategy = await options.retryStrategy();
-    const maxAttempts = await options.maxAttempts();
-    if (isRetryStrategyV2(retryStrategy)) {
-      retryStrategy = retryStrategy;
-      let retryToken = await retryStrategy.acquireInitialRetryToken((context["partition_id"] ?? "") + (context.__retryLongPoll ? ":longpoll" : ""));
-      let lastError = new Error();
-      let attempts = 0;
-      let totalRetryDelay = 0;
-      const { request } = args;
-      const isRequest = HttpRequest.isInstance(request);
-      if (isRequest) {
-        request.headers[INVOCATION_ID_HEADER] = v4();
-      }
-      while (true) {
-        try {
-          if (isRequest) {
-            request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
-          }
-          const { response, output } = await next(args);
-          retryStrategy.recordSuccess(retryToken);
-          output.$metadata.attempts = attempts + 1;
-          output.$metadata.totalRetryDelay = totalRetryDelay;
-          return { response, output };
-        } catch (e5) {
-          const retryErrorInfo = getRetryErrorInfo(e5, options.logger);
-          lastError = asSdkError(e5);
-          if (isRequest && isStreamingPayload2(request)) {
-            (context.logger instanceof NoOpLogger ? console : context.logger)?.warn("An error was encountered in a non-retryable streaming request.");
-            throw lastError;
-          }
-          try {
-            retryToken = await retryStrategy.refreshRetryTokenForRetry(retryToken, retryErrorInfo);
-          } catch (ignoredRefreshError) {
-            if (!lastError.$metadata) {
-              lastError.$metadata = {};
-            }
-            lastError.$metadata.attempts = attempts + 1;
-            lastError.$metadata.totalRetryDelay = totalRetryDelay;
-            throw lastError;
-          }
-          attempts = retryToken.getRetryCount();
-          const delay = retryToken.getRetryDelay();
-          totalRetryDelay += (retryToken?.$retryLog?.acquisitionDelay ?? 0) + delay;
-          if (delay > 0) {
-            await cooldown(delay);
-          }
-        }
-      }
-    } else {
-      retryStrategy = retryStrategy;
-      if (retryStrategy?.mode) {
-        context.userAgent = [...context.userAgent || [], ["cfg/retry-mode", retryStrategy.mode]];
-      }
-      return retryStrategy.retry(next, args);
-    }
-  };
-}
-function bindGetRetryPlugin(isStreamingPayload2) {
-  const retryMiddleware2 = bindRetryMiddleware(isStreamingPayload2);
-  return (options) => ({
-    applyToStack: (clientStack) => {
-      clientStack.add(retryMiddleware2(options), retryMiddlewareOptions);
-    }
-  });
-}
-var cooldown, isRetryStrategyV2, getRetryErrorInfo, getRetryErrorType, retryMiddlewareOptions;
-var init_retryMiddleware = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js"() {
-    init_client2();
-    init_protocols();
-    init_serde();
-    init_service_error_classification();
-    init_constants5();
-    init_parseRetryAfterHeader();
-    init_util();
-    cooldown = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    isRetryStrategyV2 = (retryStrategy) => typeof retryStrategy.acquireInitialRetryToken !== "undefined" && typeof retryStrategy.refreshRetryTokenForRetry !== "undefined" && typeof retryStrategy.recordSuccess !== "undefined";
-    getRetryErrorInfo = (error3, logger2) => {
-      const errorInfo = {
-        error: error3,
-        errorType: getRetryErrorType(error3)
-      };
-      const retryAfterHint = parseRetryAfterHeader(error3.$response, logger2);
-      if (retryAfterHint) {
-        errorInfo.retryAfterHint = retryAfterHint;
-      }
-      return errorInfo;
-    };
-    getRetryErrorType = (error3) => {
-      if (isThrottlingError(error3)) {
-        return "THROTTLING";
-      }
-      if (isTransientError(error3)) {
-        return "TRANSIENT";
-      }
-      if (isServerError(error3)) {
-        return "SERVER_ERROR";
-      }
-      return "CLIENT_ERROR";
-    };
-    retryMiddlewareOptions = {
-      name: "retryMiddleware",
-      tags: ["RETRY"],
-      step: "finalizeRequest",
-      priority: "high",
-      override: true
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js
-var DefaultRateLimiter;
-var init_DefaultRateLimiter = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js"() {
-    init_service_error_classification();
-    DefaultRateLimiter = class _DefaultRateLimiter {
-      static setTimeoutFn = (fn, delay) => setTimeout(fn, delay);
-      beta;
-      minCapacity;
-      minFillRate;
-      scaleConstant;
-      smooth;
-      enabled = false;
-      availableTokens = 0;
-      lastMaxRate = 0;
-      measuredTxRate = 0;
-      requestCount = 0;
-      fillRate;
-      lastThrottleTime;
-      lastTimestamp = 0;
-      lastTxRateBucket;
-      maxCapacity;
-      timeWindow = 0;
-      constructor(options) {
-        this.beta = options?.beta ?? 0.7;
-        this.minCapacity = options?.minCapacity ?? 1;
-        this.minFillRate = options?.minFillRate ?? 0.5;
-        this.scaleConstant = options?.scaleConstant ?? 0.4;
-        this.smooth = options?.smooth ?? 0.8;
-        this.lastThrottleTime = this.getCurrentTimeInSeconds();
-        this.lastTxRateBucket = Math.floor(this.getCurrentTimeInSeconds());
-        this.fillRate = this.minFillRate;
-        this.maxCapacity = this.minCapacity;
-      }
-      async getSendToken() {
-        return this.acquireTokenBucket(1);
-      }
-      updateClientSendingRate(response) {
-        let calculatedRate;
-        this.updateMeasuredRate();
-        const retryErrorInfo = response;
-        const isThrottling = retryErrorInfo?.errorType === "THROTTLING" || isThrottlingError(retryErrorInfo?.error ?? response);
-        if (isThrottling) {
-          const rateToUse = !this.enabled ? this.measuredTxRate : Math.min(this.measuredTxRate, this.fillRate);
-          this.lastMaxRate = rateToUse;
-          this.calculateTimeWindow();
-          this.lastThrottleTime = this.getCurrentTimeInSeconds();
-          calculatedRate = this.cubicThrottle(rateToUse);
-          this.enableTokenBucket();
-        } else {
-          this.calculateTimeWindow();
-          calculatedRate = this.cubicSuccess(this.getCurrentTimeInSeconds());
-        }
-        const newRate = Math.min(calculatedRate, 2 * this.measuredTxRate);
-        this.updateTokenBucketRate(newRate);
-      }
-      getCurrentTimeInSeconds() {
-        return Date.now() / 1e3;
-      }
-      async acquireTokenBucket(amount) {
-        if (!this.enabled) {
-          return;
-        }
-        this.refillTokenBucket();
-        while (amount > this.availableTokens) {
-          const delay = (amount - this.availableTokens) / this.fillRate * 1e3;
-          await new Promise((resolve) => _DefaultRateLimiter.setTimeoutFn(resolve, delay));
-          this.refillTokenBucket();
-        }
-        this.availableTokens = this.availableTokens - amount;
-      }
-      refillTokenBucket() {
-        const timestamp = this.getCurrentTimeInSeconds();
-        if (!this.lastTimestamp) {
-          this.lastTimestamp = timestamp;
-          return;
-        }
-        const fillAmount = (timestamp - this.lastTimestamp) * this.fillRate;
-        this.availableTokens = Math.min(this.maxCapacity, this.availableTokens + fillAmount);
-        this.lastTimestamp = timestamp;
-      }
-      calculateTimeWindow() {
-        this.timeWindow = this.getPrecise(Math.pow(this.lastMaxRate * (1 - this.beta) / this.scaleConstant, 1 / 3));
-      }
-      cubicThrottle(rateToUse) {
-        return this.getPrecise(rateToUse * this.beta);
-      }
-      cubicSuccess(timestamp) {
-        return this.getPrecise(this.scaleConstant * Math.pow(timestamp - this.lastThrottleTime - this.timeWindow, 3) + this.lastMaxRate);
-      }
-      enableTokenBucket() {
-        this.enabled = true;
-      }
-      updateTokenBucketRate(newRate) {
-        this.refillTokenBucket();
-        this.fillRate = Math.max(newRate, this.minFillRate);
-        this.maxCapacity = Math.max(newRate, this.minCapacity);
-        this.availableTokens = Math.min(this.availableTokens, this.maxCapacity);
-      }
-      updateMeasuredRate() {
-        const t = this.getCurrentTimeInSeconds();
-        const timeBucket = Math.floor(t * 2) / 2;
-        this.requestCount++;
-        if (timeBucket > this.lastTxRateBucket) {
-          const currentRate = this.requestCount / (timeBucket - this.lastTxRateBucket);
-          this.measuredTxRate = this.getPrecise(currentRate * this.smooth + this.measuredTxRate * (1 - this.smooth));
-          this.requestCount = 0;
-          this.lastTxRateBucket = timeBucket;
-        }
-      }
-      getPrecise(num) {
-        return parseFloat(num.toFixed(8));
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js
-var Retry;
-var init_retries_2026_config = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js"() {
-    Retry = class _Retry {
-      static v2026 = typeof process !== "undefined" && process.env?.SMITHY_NEW_RETRIES_2026 === "true";
-      static delay() {
-        return _Retry.v2026 ? 50 : 100;
-      }
-      static throttlingDelay() {
-        return _Retry.v2026 ? 1e3 : 500;
-      }
-      static cost() {
-        return _Retry.v2026 ? 14 : 5;
-      }
-      static throttlingCost() {
-        return _Retry.v2026 ? 5 : 10;
-      }
-      static modifiedCostType() {
-        return _Retry.v2026 ? "THROTTLING" : "TRANSIENT";
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js
-var DefaultRetryBackoffStrategy;
-var init_DefaultRetryBackoffStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js"() {
-    init_constants5();
-    init_retries_2026_config();
-    DefaultRetryBackoffStrategy = class {
-      x = Retry.delay();
-      computeNextBackoffDelay(i5) {
-        const b5 = Math.random();
-        const r5 = 2;
-        const t_i = b5 * Math.min(this.x * r5 ** i5, MAXIMUM_RETRY_DELAY);
-        return Math.floor(t_i);
-      }
-      setDelayBase(delay) {
-        this.x = delay;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js
-var DefaultRetryToken;
-var init_DefaultRetryToken = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js"() {
-    init_constants5();
-    DefaultRetryToken = class {
-      delay;
-      count;
-      cost;
-      longPoll;
-      $retryLog = {
-        acquisitionDelay: 0
-      };
-      constructor(delay, count, cost, longPoll) {
-        this.delay = delay;
-        this.count = count;
-        this.cost = cost;
-        this.longPoll = longPoll;
-      }
-      getRetryCount() {
-        return this.count;
-      }
-      getRetryDelay() {
-        return Math.min(MAXIMUM_RETRY_DELAY, this.delay);
-      }
-      getRetryCost() {
-        return this.cost;
-      }
-      isLongPoll() {
-        return this.longPoll;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js
-var RETRY_MODES, DEFAULT_MAX_ATTEMPTS, DEFAULT_RETRY_MODE;
-var init_config3 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js"() {
-    (function(RETRY_MODES2) {
-      RETRY_MODES2["STANDARD"] = "standard";
-      RETRY_MODES2["ADAPTIVE"] = "adaptive";
-    })(RETRY_MODES || (RETRY_MODES = {}));
-    DEFAULT_MAX_ATTEMPTS = 3;
-    DEFAULT_RETRY_MODE = RETRY_MODES.STANDARD;
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js
-var refusal, StandardRetryStrategy;
-var init_StandardRetryStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js"() {
-    init_DefaultRetryBackoffStrategy();
-    init_DefaultRetryToken();
-    init_config3();
-    init_constants5();
-    init_retries_2026_config();
-    refusal = {
-      incompatible: 1,
-      attempts: 2,
-      capacity: 3
-    };
-    StandardRetryStrategy = class {
-      mode = RETRY_MODES.STANDARD;
-      retryBackoffStrategy;
-      capacity = INITIAL_RETRY_TOKENS;
-      maxAttemptsProvider;
-      baseDelay;
-      constructor(arg1) {
-        if (typeof arg1 === "number") {
-          this.maxAttemptsProvider = async () => arg1;
-        } else if (typeof arg1 === "function") {
-          this.maxAttemptsProvider = arg1;
-        } else if (arg1 && typeof arg1 === "object") {
-          this.maxAttemptsProvider = async () => arg1.maxAttempts;
-          this.baseDelay = arg1.baseDelay;
-          this.retryBackoffStrategy = arg1.backoff;
-        }
-        this.maxAttemptsProvider ??= async () => DEFAULT_MAX_ATTEMPTS;
-        this.baseDelay ??= Retry.delay();
-        this.retryBackoffStrategy ??= new DefaultRetryBackoffStrategy();
-      }
-      async acquireInitialRetryToken(retryTokenScope) {
-        return new DefaultRetryToken(Retry.delay(), 0, void 0, Retry.v2026 && retryTokenScope.includes(":longpoll"));
-      }
-      async refreshRetryTokenForRetry(token, errorInfo) {
-        const maxAttempts = await this.getMaxAttempts();
-        const retryCode = this.retryCode(token, errorInfo, maxAttempts);
-        const shouldRetry = retryCode === 0;
-        const isLongPoll = token.isLongPoll?.();
-        if (shouldRetry || isLongPoll) {
-          const errorType = errorInfo.errorType;
-          this.retryBackoffStrategy.setDelayBase(errorType === "THROTTLING" ? Retry.throttlingDelay() : this.baseDelay);
-          const delayFromErrorType = this.retryBackoffStrategy.computeNextBackoffDelay(token.getRetryCount());
-          let retryDelay = delayFromErrorType;
-          if (errorInfo.retryAfterHint instanceof Date) {
-            retryDelay = Math.max(delayFromErrorType, Math.min(errorInfo.retryAfterHint.getTime() - Date.now(), delayFromErrorType + 5e3));
-          }
-          if (!shouldRetry) {
-            const longPollBackoff = Retry.v2026 && retryCode === refusal.capacity && isLongPoll ? retryDelay : 0;
-            if (longPollBackoff > 0) {
-              await new Promise((r5) => setTimeout(r5, longPollBackoff));
-            }
-          } else {
-            const capacityCost = this.getCapacityCost(errorType);
-            this.capacity -= capacityCost;
-            const nextToken = new DefaultRetryToken(0, token.getRetryCount() + 1, capacityCost, token.isLongPoll?.() ?? false);
-            await new Promise((r5) => setTimeout(r5, retryDelay));
-            nextToken.$retryLog.acquisitionDelay = retryDelay;
-            return nextToken;
-          }
-        }
-        throw new Error("No retry token available");
-      }
-      recordSuccess(token) {
-        this.capacity = Math.min(INITIAL_RETRY_TOKENS, this.capacity + (token.getRetryCost() ?? NO_RETRY_INCREMENT));
-      }
-      getCapacity() {
-        return this.capacity;
-      }
-      async maxAttempts() {
-        return this.maxAttemptsProvider();
-      }
-      async getMaxAttempts() {
-        try {
-          return await this.maxAttemptsProvider();
-        } catch (ignored) {
-          console.warn(`Max attempts provider could not resolve. Using default of ${DEFAULT_MAX_ATTEMPTS}`);
-          return DEFAULT_MAX_ATTEMPTS;
-        }
-      }
-      retryCode(tokenToRenew, errorInfo, maxAttempts) {
-        const attempts = tokenToRenew.getRetryCount() + 1;
-        const retryableStatus = this.isRetryableError(errorInfo.errorType) ? 0 : refusal.incompatible;
-        const attemptStatus = attempts < maxAttempts ? 0 : refusal.attempts;
-        const capacityStatus = this.capacity >= this.getCapacityCost(errorInfo.errorType) ? 0 : refusal.capacity;
-        return retryableStatus || attemptStatus || capacityStatus;
-      }
-      getCapacityCost(errorType) {
-        return errorType === Retry.modifiedCostType() ? Retry.throttlingCost() : Retry.cost();
-      }
-      isRetryableError(errorType) {
-        return errorType === "THROTTLING" || errorType === "TRANSIENT";
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js
-var AdaptiveRetryStrategy;
-var init_AdaptiveRetryStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js"() {
-    init_DefaultRateLimiter();
-    init_StandardRetryStrategy();
-    init_config3();
-    AdaptiveRetryStrategy = class {
-      mode = RETRY_MODES.ADAPTIVE;
-      rateLimiter;
-      standardRetryStrategy;
-      constructor(maxAttemptsProvider, options) {
-        const { rateLimiter } = options ?? {};
-        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
-        this.standardRetryStrategy = options ? new StandardRetryStrategy({
-          maxAttempts: typeof maxAttemptsProvider === "number" ? maxAttemptsProvider : 3,
-          ...options
-        }) : new StandardRetryStrategy(maxAttemptsProvider);
-      }
-      async acquireInitialRetryToken(retryTokenScope) {
-        const token = await this.standardRetryStrategy.acquireInitialRetryToken(retryTokenScope);
-        await this.rateLimiter.getSendToken();
-        return token;
-      }
-      async refreshRetryTokenForRetry(tokenToRenew, errorInfo) {
-        this.rateLimiter.updateClientSendingRate(errorInfo);
-        const token = await this.standardRetryStrategy.refreshRetryTokenForRetry(tokenToRenew, errorInfo);
-        await this.rateLimiter.getSendToken();
-        return token;
-      }
-      recordSuccess(token) {
-        this.rateLimiter.updateClientSendingRate({});
-        this.standardRetryStrategy.recordSuccess(token);
-      }
-      async maxAttemptsProvider() {
-        return this.standardRetryStrategy.maxAttempts();
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js
-var ConfiguredRetryStrategy;
-var init_ConfiguredRetryStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js"() {
-    init_StandardRetryStrategy();
-    init_retries_2026_config();
-    ConfiguredRetryStrategy = class extends StandardRetryStrategy {
-      computeNextBackoffDelay;
-      constructor(maxAttempts, computeNextBackoffDelay = Retry.delay()) {
-        super(typeof maxAttempts === "function" ? maxAttempts : async () => maxAttempts);
-        if (typeof computeNextBackoffDelay === "number") {
-          this.computeNextBackoffDelay = () => computeNextBackoffDelay;
-        } else {
-          this.computeNextBackoffDelay = computeNextBackoffDelay;
-        }
-        this.retryBackoffStrategy.computeNextBackoffDelay = (completedAttempt) => {
-          const nextAttempt = completedAttempt + 1;
-          return this.computeNextBackoffDelay(nextAttempt);
-        };
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js
-var getDefaultRetryQuota;
-var init_defaultRetryQuota = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js"() {
-    init_constants5();
-    getDefaultRetryQuota = (initialRetryTokens, options) => {
-      const MAX_CAPACITY = initialRetryTokens;
-      const noRetryIncrement = options?.noRetryIncrement ?? NO_RETRY_INCREMENT;
-      const retryCost = options?.retryCost ?? RETRY_COST;
-      const timeoutRetryCost = options?.timeoutRetryCost ?? TIMEOUT_RETRY_COST;
-      let availableCapacity = initialRetryTokens;
-      const getCapacityAmount = (error3) => error3.name === "TimeoutError" ? timeoutRetryCost : retryCost;
-      const hasRetryTokens = (error3) => getCapacityAmount(error3) <= availableCapacity;
-      const retrieveRetryTokens = (error3) => {
-        if (!hasRetryTokens(error3)) {
-          throw new Error("No retry token available");
-        }
-        const capacityAmount = getCapacityAmount(error3);
-        availableCapacity -= capacityAmount;
-        return capacityAmount;
-      };
-      const releaseRetryTokens = (capacityReleaseAmount) => {
-        availableCapacity += capacityReleaseAmount ?? noRetryIncrement;
-        availableCapacity = Math.min(availableCapacity, MAX_CAPACITY);
-      };
-      return Object.freeze({
-        hasRetryTokens,
-        retrieveRetryTokens,
-        releaseRetryTokens
-      });
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js
-var defaultDelayDecider;
-var init_delayDecider = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js"() {
-    init_constants5();
-    defaultDelayDecider = (delayBase, attempts) => Math.floor(Math.min(MAXIMUM_RETRY_DELAY, Math.random() * 2 ** attempts * delayBase));
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js
-var defaultRetryDecider;
-var init_retryDecider = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js"() {
-    init_service_error_classification();
-    defaultRetryDecider = (error3) => {
-      if (!error3) {
-        return false;
-      }
-      return isRetryableByTrait(error3) || isClockSkewError(error3) || isThrottlingError(error3) || isTransientError(error3);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js
-var StandardRetryStrategy2, getDelayFromRetryAfterHeader;
-var init_StandardRetryStrategy2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js"() {
-    init_protocols();
-    init_serde();
-    init_service_error_classification();
-    init_config3();
-    init_constants5();
-    init_util();
-    init_defaultRetryQuota();
-    init_delayDecider();
-    init_retryDecider();
-    StandardRetryStrategy2 = class {
-      maxAttemptsProvider;
-      retryDecider;
-      delayDecider;
-      retryQuota;
-      mode = RETRY_MODES.STANDARD;
-      constructor(maxAttemptsProvider, options) {
-        this.maxAttemptsProvider = maxAttemptsProvider;
-        this.retryDecider = options?.retryDecider ?? defaultRetryDecider;
-        this.delayDecider = options?.delayDecider ?? defaultDelayDecider;
-        this.retryQuota = options?.retryQuota ?? getDefaultRetryQuota(INITIAL_RETRY_TOKENS);
-      }
-      shouldRetry(error3, attempts, maxAttempts) {
-        return attempts < maxAttempts && this.retryDecider(error3) && this.retryQuota.hasRetryTokens(error3);
-      }
-      async getMaxAttempts() {
-        let maxAttempts;
-        try {
-          maxAttempts = await this.maxAttemptsProvider();
-        } catch (ignored) {
-          maxAttempts = DEFAULT_MAX_ATTEMPTS;
-        }
-        return maxAttempts;
-      }
-      async retry(next, args, options) {
-        let retryTokenAmount;
-        let attempts = 0;
-        let totalDelay = 0;
-        const maxAttempts = await this.getMaxAttempts();
-        const { request } = args;
-        if (HttpRequest.isInstance(request)) {
-          request.headers[INVOCATION_ID_HEADER] = v4();
-        }
-        while (true) {
-          try {
-            if (HttpRequest.isInstance(request)) {
-              request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
-            }
-            if (options?.beforeRequest) {
-              await options.beforeRequest();
-            }
-            const { response, output } = await next(args);
-            if (options?.afterRequest) {
-              options.afterRequest(response);
-            }
-            this.retryQuota.releaseRetryTokens(retryTokenAmount);
-            output.$metadata.attempts = attempts + 1;
-            output.$metadata.totalRetryDelay = totalDelay;
-            return { response, output };
-          } catch (e5) {
-            const err2 = asSdkError(e5);
-            attempts++;
-            if (this.shouldRetry(err2, attempts, maxAttempts)) {
-              retryTokenAmount = this.retryQuota.retrieveRetryTokens(err2);
-              const delayFromDecider = this.delayDecider(isThrottlingError(err2) ? THROTTLING_RETRY_DELAY_BASE : DEFAULT_RETRY_DELAY_BASE, attempts);
-              const delayFromResponse = getDelayFromRetryAfterHeader(err2.$response);
-              const delay = Math.max(delayFromResponse || 0, delayFromDecider);
-              totalDelay += delay;
-              await new Promise((resolve) => setTimeout(resolve, delay));
-              continue;
-            }
-            if (!err2.$metadata) {
-              err2.$metadata = {};
-            }
-            err2.$metadata.attempts = attempts;
-            err2.$metadata.totalRetryDelay = totalDelay;
-            throw err2;
-          }
-        }
-      }
-    };
-    getDelayFromRetryAfterHeader = (response) => {
-      if (!HttpResponse.isInstance(response)) {
-        return;
-      }
-      const retryAfterHeaderName = Object.keys(response.headers).find((key) => key.toLowerCase() === "retry-after");
-      if (!retryAfterHeaderName) {
-        return;
-      }
-      const retryAfter = response.headers[retryAfterHeaderName];
-      const retryAfterSeconds = Number(retryAfter);
-      if (!Number.isNaN(retryAfterSeconds)) {
-        return Math.min(retryAfterSeconds * 1e3, 2e4);
-      }
-      const retryAfterDate = new Date(retryAfter);
-      return Math.min(retryAfterDate.getTime() - Date.now(), 2e4);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js
-var AdaptiveRetryStrategy2;
-var init_AdaptiveRetryStrategy2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js"() {
-    init_DefaultRateLimiter();
-    init_config3();
-    init_StandardRetryStrategy2();
-    AdaptiveRetryStrategy2 = class extends StandardRetryStrategy2 {
-      rateLimiter;
-      constructor(maxAttemptsProvider, options) {
-        const { rateLimiter, ...superOptions } = options ?? {};
-        super(maxAttemptsProvider, superOptions);
-        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
-        this.mode = RETRY_MODES.ADAPTIVE;
-      }
-      async retry(next, args) {
-        return super.retry(next, args, {
-          beforeRequest: async () => {
-            return this.rateLimiter.getSendToken();
-          },
-          afterRequest: (response) => {
-            this.rateLimiter.updateClientSendingRate(response);
-          }
-        });
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js
-var ENV_MAX_ATTEMPTS, CONFIG_MAX_ATTEMPTS, NODE_MAX_ATTEMPT_CONFIG_OPTIONS, resolveRetryConfig, ENV_RETRY_MODE, CONFIG_RETRY_MODE, NODE_RETRY_MODE_CONFIG_OPTIONS;
-var init_configurations = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js"() {
-    init_client2();
-    init_AdaptiveRetryStrategy();
-    init_StandardRetryStrategy();
-    init_config3();
-    init_retries_2026_config();
-    ENV_MAX_ATTEMPTS = "AWS_MAX_ATTEMPTS";
-    CONFIG_MAX_ATTEMPTS = "max_attempts";
-    NODE_MAX_ATTEMPT_CONFIG_OPTIONS = {
-      environmentVariableSelector: (env2) => {
-        const value = env2[ENV_MAX_ATTEMPTS];
-        if (!value) {
-          return void 0;
-        }
-        const maxAttempt = parseInt(value);
-        if (Number.isNaN(maxAttempt)) {
-          throw new Error(`Environment variable ${ENV_MAX_ATTEMPTS} mast be a number, got "${value}"`);
-        }
-        return maxAttempt;
-      },
-      configFileSelector: (profile) => {
-        const value = profile[CONFIG_MAX_ATTEMPTS];
-        if (!value) {
-          return void 0;
-        }
-        const maxAttempt = parseInt(value);
-        if (Number.isNaN(maxAttempt)) {
-          throw new Error(`Shared config file entry ${CONFIG_MAX_ATTEMPTS} mast be a number, got "${value}"`);
-        }
-        return maxAttempt;
-      },
-      default: DEFAULT_MAX_ATTEMPTS
-    };
-    resolveRetryConfig = (input, defaults) => {
-      const { retryStrategy, retryMode } = input;
-      const { defaultMaxAttempts = DEFAULT_MAX_ATTEMPTS, defaultBaseDelay = Retry.delay() } = defaults ?? {};
-      const maxAttemptsProvider = normalizeProvider(input.maxAttempts ?? defaultMaxAttempts);
-      let controller = retryStrategy ? Promise.resolve(retryStrategy) : void 0;
-      const getDefault = async () => {
-        const maxAttempts = await maxAttemptsProvider();
-        const adaptive = await normalizeProvider(retryMode)() === RETRY_MODES.ADAPTIVE;
-        if (adaptive) {
-          return new AdaptiveRetryStrategy(maxAttemptsProvider, {
-            maxAttempts,
-            baseDelay: defaultBaseDelay
-          });
-        }
-        return new StandardRetryStrategy({
-          maxAttempts,
-          baseDelay: defaultBaseDelay
-        });
-      };
-      return Object.assign(input, {
-        maxAttempts: maxAttemptsProvider,
-        retryStrategy: () => controller ??= getDefault()
-      });
-    };
-    ENV_RETRY_MODE = "AWS_RETRY_MODE";
-    CONFIG_RETRY_MODE = "retry_mode";
-    NODE_RETRY_MODE_CONFIG_OPTIONS = {
-      environmentVariableSelector: (env2) => env2[ENV_RETRY_MODE],
-      configFileSelector: (profile) => profile[CONFIG_RETRY_MODE],
-      default: DEFAULT_RETRY_MODE
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js
-var omitRetryHeadersMiddleware, omitRetryHeadersMiddlewareOptions, getOmitRetryHeadersPlugin;
-var init_omitRetryHeadersMiddleware = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js"() {
-    init_protocols();
-    init_constants5();
-    omitRetryHeadersMiddleware = () => (next) => async (args) => {
-      const { request } = args;
-      if (HttpRequest.isInstance(request)) {
-        delete request.headers[INVOCATION_ID_HEADER];
-        delete request.headers[REQUEST_HEADER];
-      }
-      return next(args);
-    };
-    omitRetryHeadersMiddlewareOptions = {
-      name: "omitRetryHeadersMiddleware",
-      tags: ["RETRY", "HEADERS", "OMIT_RETRY_HEADERS"],
-      relation: "before",
-      toMiddleware: "awsAuthMiddleware",
-      override: true
-    };
-    getOmitRetryHeadersPlugin = (options) => ({
-      applyToStack: (clientStack) => {
-        clientStack.addRelativeTo(omitRetryHeadersMiddleware(), omitRetryHeadersMiddlewareOptions);
-      }
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/index.js
-var retry_exports = {};
-__export(retry_exports, {
-  AdaptiveRetryStrategy: () => AdaptiveRetryStrategy,
-  CONFIG_MAX_ATTEMPTS: () => CONFIG_MAX_ATTEMPTS,
-  CONFIG_RETRY_MODE: () => CONFIG_RETRY_MODE,
-  ConfiguredRetryStrategy: () => ConfiguredRetryStrategy,
-  DEFAULT_MAX_ATTEMPTS: () => DEFAULT_MAX_ATTEMPTS,
-  DEFAULT_RETRY_DELAY_BASE: () => DEFAULT_RETRY_DELAY_BASE,
-  DEFAULT_RETRY_MODE: () => DEFAULT_RETRY_MODE,
-  DefaultRateLimiter: () => DefaultRateLimiter,
-  DeprecatedAdaptiveRetryStrategy: () => AdaptiveRetryStrategy2,
-  DeprecatedStandardRetryStrategy: () => StandardRetryStrategy2,
-  ENV_MAX_ATTEMPTS: () => ENV_MAX_ATTEMPTS,
-  ENV_RETRY_MODE: () => ENV_RETRY_MODE,
-  INITIAL_RETRY_TOKENS: () => INITIAL_RETRY_TOKENS,
-  INVOCATION_ID_HEADER: () => INVOCATION_ID_HEADER,
-  MAXIMUM_RETRY_DELAY: () => MAXIMUM_RETRY_DELAY,
-  NODE_MAX_ATTEMPT_CONFIG_OPTIONS: () => NODE_MAX_ATTEMPT_CONFIG_OPTIONS,
-  NODE_RETRY_MODE_CONFIG_OPTIONS: () => NODE_RETRY_MODE_CONFIG_OPTIONS,
-  NO_RETRY_INCREMENT: () => NO_RETRY_INCREMENT,
-  REQUEST_HEADER: () => REQUEST_HEADER,
-  RETRY_COST: () => RETRY_COST,
-  RETRY_MODES: () => RETRY_MODES,
-  Retry: () => Retry,
-  StandardRetryStrategy: () => StandardRetryStrategy,
-  THROTTLING_RETRY_DELAY_BASE: () => THROTTLING_RETRY_DELAY_BASE,
-  TIMEOUT_RETRY_COST: () => TIMEOUT_RETRY_COST,
-  defaultDelayDecider: () => defaultDelayDecider,
-  defaultRetryDecider: () => defaultRetryDecider,
-  getOmitRetryHeadersPlugin: () => getOmitRetryHeadersPlugin,
-  getRetryAfterHint: () => getRetryAfterHint,
-  getRetryPlugin: () => getRetryPlugin,
-  isBrowserNetworkError: () => isBrowserNetworkError,
-  isClockSkewCorrectedError: () => isClockSkewCorrectedError,
-  isClockSkewError: () => isClockSkewError,
-  isNodeJsHttp2TransientError: () => isNodeJsHttp2TransientError,
-  isRetryableByTrait: () => isRetryableByTrait,
-  isServerError: () => isServerError,
-  isThrottlingError: () => isThrottlingError,
-  isTransientError: () => isTransientError,
-  omitRetryHeadersMiddleware: () => omitRetryHeadersMiddleware,
-  omitRetryHeadersMiddlewareOptions: () => omitRetryHeadersMiddlewareOptions,
-  resolveRetryConfig: () => resolveRetryConfig,
-  retryMiddleware: () => retryMiddleware,
-  retryMiddlewareOptions: () => retryMiddlewareOptions
-});
-var retryMiddleware, getRetryPlugin;
-var init_retry2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/index.js"() {
-    init_isStreamingPayload();
-    init_retryMiddleware();
-    init_service_error_classification();
-    init_AdaptiveRetryStrategy();
-    init_ConfiguredRetryStrategy();
-    init_DefaultRateLimiter();
-    init_StandardRetryStrategy();
-    init_config3();
-    init_constants5();
-    init_retries_2026_config();
-    init_AdaptiveRetryStrategy2();
-    init_StandardRetryStrategy2();
-    init_delayDecider();
-    init_retryDecider();
-    init_configurations();
-    init_omitRetryHeadersMiddleware();
-    init_retryMiddleware();
-    init_parseRetryAfterHeader();
-    retryMiddleware = bindRetryMiddleware(isStreamingPayload);
-    getRetryPlugin = bindGetRetryPlugin(isStreamingPayload);
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js
-function setFeature2(context, feature, value) {
-  if (!context.__aws_sdk_context) {
-    context.__aws_sdk_context = {
-      features: {}
-    };
-  } else if (!context.__aws_sdk_context.features) {
-    context.__aws_sdk_context.features = {};
-  }
-  context.__aws_sdk_context.features[feature] = value;
-}
-var init_setFeature = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js"() {
-    init_retry2();
-    Retry.v2026 ||= typeof process === "object" && process.env?.AWS_NEW_RETRIES_2026 === "true";
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js
-function setTokenFeature(token, feature, value) {
-  if (!token.$source) {
-    token.$source = {};
-  }
-  token.$source[feature] = value;
-  return token;
-}
-var init_setTokenFeature = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js"() {
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js
-var isDefaultSocketTimeoutEnabled, getDefaultSocketTimeout;
-var init_getDefaultSocketTimeout = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js"() {
-    isDefaultSocketTimeoutEnabled = () => typeof process === "object" && process?.env?.AWS_ENABLE_DEFAULT_SOCKET_TIMEOUT_2026 === "true";
-    getDefaultSocketTimeout = (requestHandler, timeoutMs) => {
-      if (!isDefaultSocketTimeoutEnabled()) {
-        return void 0;
-      }
-      if (typeof requestHandler?.handle === "function") {
-        return void 0;
-      }
-      return timeoutMs;
-    };
-  }
-});
-
 // node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-host-header/hostHeaderMiddleware.js
 function resolveHostHeaderConfig(input) {
   return input;
@@ -33063,7 +32038,7 @@ function resolveUserAgentConfig(input) {
   });
 }
 var DEFAULT_UA_APP_ID;
-var init_configurations2 = __esm({
+var init_configurations = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-user-agent/configurations.js"() {
     init_dist_es();
     DEFAULT_UA_APP_ID = void 0;
@@ -33175,11 +32150,17 @@ var init_partitions = __esm({
             "me-south-1": {
               "description": "Middle East (Bahrain)"
             },
+            "me-west-1": {
+              "description": "Middle East (Saudi Arabia)"
+            },
             "mx-central-1": {
               "description": "Mexico (Central)"
             },
             "sa-east-1": {
               "description": "South America (Sao Paulo)"
+            },
+            "sa-west-1": {
+              "description": "South America (Chile)"
             },
             "us-east-1": {
               "description": "US East (N. Virginia)"
@@ -33400,21 +32381,1079 @@ var init_partition = __esm({
   }
 });
 
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js
+var import_node_stream10, isStreamingPayload;
+var init_isStreamingPayload = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js"() {
+    import_node_stream10 = require("node:stream");
+    isStreamingPayload = (request) => request?.body instanceof import_node_stream10.Readable || typeof ReadableStream !== "undefined" && request?.body instanceof ReadableStream;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js
+var CLOCK_SKEW_ERROR_CODES, THROTTLING_ERROR_CODES, TRANSIENT_ERROR_CODES, TRANSIENT_ERROR_STATUS_CODES, NODEJS_TIMEOUT_ERROR_CODES, NODEJS_NETWORK_ERROR_CODES;
+var init_constants4 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js"() {
+    CLOCK_SKEW_ERROR_CODES = [
+      "AccessDeniedException",
+      "AuthFailure",
+      "InvalidSignatureException",
+      "RequestExpired",
+      "RequestInTheFuture",
+      "RequestTimeTooSkewed",
+      "SignatureDoesNotMatch"
+    ];
+    THROTTLING_ERROR_CODES = [
+      "BandwidthLimitExceeded",
+      "EC2ThrottledException",
+      "LimitExceededException",
+      "PriorRequestNotComplete",
+      "ProvisionedThroughputExceededException",
+      "RequestLimitExceeded",
+      "RequestThrottled",
+      "RequestThrottledException",
+      "SlowDown",
+      "ThrottledException",
+      "Throttling",
+      "ThrottlingException",
+      "TooManyRequestsException",
+      "TransactionInProgressException"
+    ];
+    TRANSIENT_ERROR_CODES = ["TimeoutError", "RequestTimeout", "RequestTimeoutException"];
+    TRANSIENT_ERROR_STATUS_CODES = [500, 502, 503, 504];
+    NODEJS_TIMEOUT_ERROR_CODES = ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT"];
+    NODEJS_NETWORK_ERROR_CODES = ["EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN"];
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js
+function isNodeJsHttp2TransientError(error3) {
+  return error3.code === "ERR_HTTP2_STREAM_ERROR" && error3.message.includes("NGHTTP2_REFUSED_STREAM");
+}
+var isRetryableByTrait, isClockSkewError, isClockSkewCorrectedError, isBrowserNetworkError, isThrottlingError, isTransientError, isServerError;
+var init_service_error_classification = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js"() {
+    init_constants4();
+    isRetryableByTrait = (error3) => error3?.$retryable !== void 0;
+    isClockSkewError = (error3) => CLOCK_SKEW_ERROR_CODES.includes(error3.name);
+    isClockSkewCorrectedError = (error3) => error3.$metadata?.clockSkewCorrected;
+    isBrowserNetworkError = (error3) => {
+      const errorMessages = /* @__PURE__ */ new Set([
+        "Failed to fetch",
+        "NetworkError when attempting to fetch resource",
+        "The Internet connection appears to be offline",
+        "Load failed",
+        "Network request failed"
+      ]);
+      const isValid = error3 && error3 instanceof TypeError;
+      if (!isValid) {
+        return false;
+      }
+      return errorMessages.has(error3.message);
+    };
+    isThrottlingError = (error3) => error3.$metadata?.httpStatusCode === 429 || THROTTLING_ERROR_CODES.includes(error3.name) || error3.$retryable?.throttling == true;
+    isTransientError = (error3, depth = 0) => error3?.name !== "AbortError" && (isRetryableByTrait(error3) || isClockSkewCorrectedError(error3) || error3.name === "InvalidSignatureException" && error3.message?.includes("Signature expired") || TRANSIENT_ERROR_CODES.includes(error3.name) || NODEJS_TIMEOUT_ERROR_CODES.includes(error3?.code || "") || NODEJS_NETWORK_ERROR_CODES.includes(error3?.code || "") || TRANSIENT_ERROR_STATUS_CODES.includes(error3.$metadata?.httpStatusCode || 0) || isBrowserNetworkError(error3) || isNodeJsHttp2TransientError(error3) || error3.cause !== void 0 && depth <= 10 && isTransientError(error3.cause, depth + 1));
+    isServerError = (error3) => {
+      if (error3.$metadata?.httpStatusCode !== void 0) {
+        const statusCode = error3.$metadata.httpStatusCode;
+        if (500 <= statusCode && statusCode <= 599 && !isTransientError(error3)) {
+          return true;
+        }
+        return false;
+      }
+      return false;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/race.js
+var race, createAbortError, isAbortError;
+var init_race = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/race.js"() {
+    race = (promise, signal) => {
+      if (!signal) {
+        return promise;
+      }
+      let cleanup = () => {
+      };
+      const aborted = new Promise((_, reject) => {
+        const handler = () => reject(createAbortError());
+        if (signal.aborted) {
+          handler();
+        } else if (typeof signal.addEventListener === "function") {
+          signal.addEventListener("abort", handler, { once: true });
+          cleanup = () => signal.removeEventListener("abort", handler);
+        } else {
+          signal.onabort = handler;
+        }
+      });
+      return Promise.race([promise, aborted]).finally(cleanup);
+    };
+    createAbortError = () => Object.assign(new Error("Request aborted"), { name: "AbortError" });
+    isAbortError = (error3) => typeof error3 === "object" && error3 !== null && "name" in error3 && error3.name === "AbortError";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js
+var DEFAULT_RETRY_DELAY_BASE, MAXIMUM_RETRY_DELAY, THROTTLING_RETRY_DELAY_BASE, INITIAL_RETRY_TOKENS, RETRY_COST, TIMEOUT_RETRY_COST, NO_RETRY_INCREMENT, INVOCATION_ID_HEADER, REQUEST_HEADER;
+var init_constants5 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js"() {
+    DEFAULT_RETRY_DELAY_BASE = 100;
+    MAXIMUM_RETRY_DELAY = 20 * 1e3;
+    THROTTLING_RETRY_DELAY_BASE = 500;
+    INITIAL_RETRY_TOKENS = 500;
+    RETRY_COST = 5;
+    TIMEOUT_RETRY_COST = 10;
+    NO_RETRY_INCREMENT = 1;
+    INVOCATION_ID_HEADER = "amz-sdk-invocation-id";
+    REQUEST_HEADER = "amz-sdk-request";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js
+function parseRetryAfterHeader(response, logger2) {
+  if (!HttpResponse.isInstance(response)) {
+    return;
+  }
+  for (const header in response.headers) {
+    if (!hasOwn(response.headers, header)) {
+      continue;
+    }
+    const h5 = header.toLowerCase();
+    if (h5 === "retry-after") {
+      const retryAfter = response.headers[header];
+      let retryAfterSeconds = NaN;
+      if (retryAfter.endsWith("GMT")) {
+        try {
+          const date2 = parseRfc7231DateTime(retryAfter);
+          retryAfterSeconds = (date2.getTime() - Date.now()) / 1e3;
+        } catch (e5) {
+          logger2?.trace?.("Failed to parse retry-after header");
+          logger2?.trace?.(e5);
+        }
+      } else if (retryAfter.match(/ GMT, ((\d+)|(\d+\.\d+))$/)) {
+        retryAfterSeconds = Number(retryAfter.match(/ GMT, ([\d.]+)$/)?.[1]);
+      } else if (retryAfter.match(/^((\d+)|(\d+\.\d+))$/)) {
+        retryAfterSeconds = Number(retryAfter);
+      } else if (Date.parse(retryAfter) >= Date.now()) {
+        retryAfterSeconds = (Date.parse(retryAfter) - Date.now()) / 1e3;
+      }
+      if (isNaN(retryAfterSeconds)) {
+        return;
+      }
+      return new Date(Date.now() + retryAfterSeconds * 1e3);
+    } else if (h5 === "x-amz-retry-after") {
+      const v = response.headers[header];
+      const backoffMilliseconds = Number(v);
+      if (isNaN(backoffMilliseconds)) {
+        logger2?.trace?.(`Failed to parse x-amz-retry-after=${v}`);
+        return;
+      }
+      return new Date(Date.now() + backoffMilliseconds);
+    }
+  }
+}
+function getRetryAfterHint(response, logger2) {
+  return parseRetryAfterHeader(response, logger2);
+}
+var init_parseRetryAfterHeader = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js"() {
+    init_transport();
+    init_protocols();
+    init_serde();
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js
+var asSdkError;
+var init_util = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js"() {
+    asSdkError = (error3) => {
+      if (error3 instanceof Error) {
+        return error3;
+      }
+      if (error3 instanceof Object) {
+        return Object.assign(new Error(), error3);
+      }
+      if (typeof error3 === "string") {
+        return new Error(error3);
+      }
+      return new Error(`AWS SDK error wrapper for ${error3}`);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js
+function bindRetryMiddleware(isStreamingPayload2) {
+  return (options) => (next, context) => async (args) => {
+    let retryStrategy = await options.retryStrategy();
+    const maxAttempts = await options.maxAttempts();
+    const abortSignal = context[import_types25.SMITHY_CONTEXT_KEY]?.abortSignal;
+    if (isRetryStrategyV2(retryStrategy)) {
+      retryStrategy = retryStrategy;
+      const retryTokenScope = (context["partition_id"] ?? "") + (context.__retryLongPoll ? ":longpoll" : "");
+      let retryToken = await race(retryStrategy.acquireInitialRetryToken(retryTokenScope), abortSignal);
+      let lastError = new Error();
+      let attempts = 0;
+      let totalRetryDelay = 0;
+      const { request } = args;
+      const isRequest = HttpRequest.isInstance(request);
+      if (isRequest) {
+        request.headers[INVOCATION_ID_HEADER] = v4();
+      }
+      while (true) {
+        try {
+          if (isRequest) {
+            request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
+          }
+          const { response, output } = await next(args);
+          retryStrategy.recordSuccess(retryToken);
+          output.$metadata.attempts = attempts + 1;
+          output.$metadata.totalRetryDelay = totalRetryDelay;
+          return { response, output };
+        } catch (e5) {
+          const retryErrorInfo = getRetryErrorInfo(e5, options.logger);
+          lastError = asSdkError(e5);
+          if (isRequest && isStreamingPayload2(request)) {
+            (context.logger instanceof NoOpLogger ? console : context.logger)?.warn("An error was encountered in a non-retryable streaming request.");
+            throw lastError;
+          }
+          try {
+            retryToken = await race(retryStrategy.refreshRetryTokenForRetry(retryToken, retryErrorInfo), abortSignal);
+          } catch (refreshError) {
+            if (abortSignal?.aborted && isAbortError(refreshError)) {
+              throw refreshError;
+            }
+            if (!lastError.$metadata) {
+              lastError.$metadata = {};
+            }
+            lastError.$metadata.attempts = attempts + 1;
+            lastError.$metadata.totalRetryDelay = totalRetryDelay;
+            throw lastError;
+          }
+          attempts = retryToken.getRetryCount();
+          const delay = retryToken.getRetryDelay();
+          totalRetryDelay += (retryToken?.$retryLog?.acquisitionDelay ?? 0) + delay;
+          if (delay > 0) {
+            await race(new Promise((resolve) => setTimeout(resolve, delay)), abortSignal);
+          }
+        }
+      }
+    } else {
+      retryStrategy = retryStrategy;
+      if (retryStrategy?.mode) {
+        context.userAgent = [...context.userAgent || [], ["cfg/retry-mode", retryStrategy.mode]];
+      }
+      return retryStrategy.retry(next, args);
+    }
+  };
+}
+function bindGetRetryPlugin(isStreamingPayload2) {
+  const retryMiddleware2 = bindRetryMiddleware(isStreamingPayload2);
+  return (options) => ({
+    applyToStack: (clientStack) => {
+      clientStack.add(retryMiddleware2(options), retryMiddlewareOptions);
+    }
+  });
+}
+var import_types25, isRetryStrategyV2, getRetryErrorInfo, getRetryErrorType, retryMiddlewareOptions;
+var init_retryMiddleware = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js"() {
+    init_client2();
+    init_protocols();
+    init_serde();
+    import_types25 = __toESM(require_dist_cjs());
+    init_service_error_classification();
+    init_race();
+    init_constants5();
+    init_parseRetryAfterHeader();
+    init_util();
+    isRetryStrategyV2 = (retryStrategy) => typeof retryStrategy.acquireInitialRetryToken !== "undefined" && typeof retryStrategy.refreshRetryTokenForRetry !== "undefined" && typeof retryStrategy.recordSuccess !== "undefined";
+    getRetryErrorInfo = (error3, logger2) => {
+      const errorInfo = {
+        error: error3,
+        errorType: getRetryErrorType(error3)
+      };
+      const retryAfterHint = parseRetryAfterHeader(error3.$response, logger2);
+      if (retryAfterHint) {
+        errorInfo.retryAfterHint = retryAfterHint;
+      }
+      return errorInfo;
+    };
+    getRetryErrorType = (error3) => {
+      if (isThrottlingError(error3)) {
+        return "THROTTLING";
+      }
+      if (isTransientError(error3)) {
+        return "TRANSIENT";
+      }
+      if (isServerError(error3)) {
+        return "SERVER_ERROR";
+      }
+      return "CLIENT_ERROR";
+    };
+    retryMiddlewareOptions = {
+      name: "retryMiddleware",
+      tags: ["RETRY"],
+      step: "finalizeRequest",
+      priority: "high",
+      override: true
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js
+var DefaultRateLimiter;
+var init_DefaultRateLimiter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js"() {
+    init_service_error_classification();
+    DefaultRateLimiter = class _DefaultRateLimiter {
+      static setTimeoutFn = (fn, delay) => setTimeout(fn, delay);
+      beta;
+      minCapacity;
+      minFillRate;
+      scaleConstant;
+      smooth;
+      enabled = false;
+      availableTokens = 0;
+      lastMaxRate = 0;
+      measuredTxRate = 0;
+      requestCount = 0;
+      fillRate;
+      lastThrottleTime;
+      lastTimestamp = 0;
+      lastTxRateBucket;
+      maxCapacity;
+      timeWindow = 0;
+      constructor(options) {
+        this.beta = options?.beta ?? 0.7;
+        this.minCapacity = options?.minCapacity ?? 1;
+        this.minFillRate = options?.minFillRate ?? 0.5;
+        this.scaleConstant = options?.scaleConstant ?? 0.4;
+        this.smooth = options?.smooth ?? 0.8;
+        this.lastThrottleTime = this.getCurrentTimeInSeconds();
+        this.lastTxRateBucket = Math.floor(this.getCurrentTimeInSeconds());
+        this.fillRate = this.minFillRate;
+        this.maxCapacity = this.minCapacity;
+      }
+      async getSendToken() {
+        return this.acquireTokenBucket(1);
+      }
+      updateClientSendingRate(response) {
+        let calculatedRate;
+        this.updateMeasuredRate();
+        const retryErrorInfo = response;
+        const isThrottling = retryErrorInfo?.errorType === "THROTTLING" || isThrottlingError(retryErrorInfo?.error ?? response);
+        if (isThrottling) {
+          const rateToUse = !this.enabled ? this.measuredTxRate : Math.min(this.measuredTxRate, this.fillRate);
+          this.lastMaxRate = rateToUse;
+          this.calculateTimeWindow();
+          this.lastThrottleTime = this.getCurrentTimeInSeconds();
+          calculatedRate = this.cubicThrottle(rateToUse);
+          this.enableTokenBucket();
+        } else {
+          this.calculateTimeWindow();
+          calculatedRate = this.cubicSuccess(this.getCurrentTimeInSeconds());
+        }
+        const newRate = Math.min(calculatedRate, 2 * this.measuredTxRate);
+        this.updateTokenBucketRate(newRate);
+      }
+      getCurrentTimeInSeconds() {
+        return Date.now() / 1e3;
+      }
+      async acquireTokenBucket(amount) {
+        if (!this.enabled) {
+          return;
+        }
+        this.refillTokenBucket();
+        while (amount > this.availableTokens) {
+          const delay = (amount - this.availableTokens) / this.fillRate * 1e3;
+          await new Promise((resolve) => _DefaultRateLimiter.setTimeoutFn(resolve, delay));
+          this.refillTokenBucket();
+        }
+        this.availableTokens = this.availableTokens - amount;
+      }
+      refillTokenBucket() {
+        const timestamp = this.getCurrentTimeInSeconds();
+        if (!this.lastTimestamp) {
+          this.lastTimestamp = timestamp;
+          return;
+        }
+        const fillAmount = (timestamp - this.lastTimestamp) * this.fillRate;
+        this.availableTokens = Math.min(this.maxCapacity, this.availableTokens + fillAmount);
+        this.lastTimestamp = timestamp;
+      }
+      calculateTimeWindow() {
+        this.timeWindow = this.getPrecise(Math.pow(this.lastMaxRate * (1 - this.beta) / this.scaleConstant, 1 / 3));
+      }
+      cubicThrottle(rateToUse) {
+        return this.getPrecise(rateToUse * this.beta);
+      }
+      cubicSuccess(timestamp) {
+        return this.getPrecise(this.scaleConstant * Math.pow(timestamp - this.lastThrottleTime - this.timeWindow, 3) + this.lastMaxRate);
+      }
+      enableTokenBucket() {
+        this.enabled = true;
+      }
+      updateTokenBucketRate(newRate) {
+        this.refillTokenBucket();
+        this.fillRate = Math.max(newRate, this.minFillRate);
+        this.maxCapacity = Math.max(newRate, this.minCapacity);
+        this.availableTokens = Math.min(this.availableTokens, this.maxCapacity);
+      }
+      updateMeasuredRate() {
+        const t = this.getCurrentTimeInSeconds();
+        const timeBucket = Math.floor(t * 2) / 2;
+        this.requestCount++;
+        if (timeBucket > this.lastTxRateBucket) {
+          const currentRate = this.requestCount / (timeBucket - this.lastTxRateBucket);
+          this.measuredTxRate = this.getPrecise(currentRate * this.smooth + this.measuredTxRate * (1 - this.smooth));
+          this.requestCount = 0;
+          this.lastTxRateBucket = timeBucket;
+        }
+      }
+      getPrecise(num) {
+        return parseFloat(num.toFixed(8));
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js
+var Retry;
+var init_retries_2026_config = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js"() {
+    Retry = class {
+      static v2026 = true;
+      static delay() {
+        return 50;
+      }
+      static throttlingDelay() {
+        return 1e3;
+      }
+      static cost() {
+        return 14;
+      }
+      static throttlingCost() {
+        return 5;
+      }
+      static modifiedCostType() {
+        return "THROTTLING";
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js
+var DefaultRetryBackoffStrategy;
+var init_DefaultRetryBackoffStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js"() {
+    init_constants5();
+    init_retries_2026_config();
+    DefaultRetryBackoffStrategy = class {
+      x = Retry.delay();
+      computeNextBackoffDelay(i5) {
+        const b5 = Math.random();
+        const r5 = 2;
+        const t_i = b5 * Math.min(this.x * r5 ** i5, MAXIMUM_RETRY_DELAY);
+        return Math.floor(t_i);
+      }
+      setDelayBase(delay) {
+        this.x = delay;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js
+var DefaultRetryToken;
+var init_DefaultRetryToken = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js"() {
+    init_constants5();
+    DefaultRetryToken = class {
+      delay;
+      count;
+      cost;
+      longPoll;
+      $retryLog = {
+        acquisitionDelay: 0
+      };
+      constructor(delay, count, cost, longPoll) {
+        this.delay = delay;
+        this.count = count;
+        this.cost = cost;
+        this.longPoll = longPoll;
+      }
+      getRetryCount() {
+        return this.count;
+      }
+      getRetryDelay() {
+        return Math.min(MAXIMUM_RETRY_DELAY, this.delay);
+      }
+      getRetryCost() {
+        return this.cost;
+      }
+      isLongPoll() {
+        return this.longPoll;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js
+var RETRY_MODES, DEFAULT_MAX_ATTEMPTS, DEFAULT_RETRY_MODE;
+var init_config3 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js"() {
+    (function(RETRY_MODES2) {
+      RETRY_MODES2["STANDARD"] = "standard";
+      RETRY_MODES2["ADAPTIVE"] = "adaptive";
+    })(RETRY_MODES || (RETRY_MODES = {}));
+    DEFAULT_MAX_ATTEMPTS = 3;
+    DEFAULT_RETRY_MODE = RETRY_MODES.STANDARD;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js
+var refusal, StandardRetryStrategy;
+var init_StandardRetryStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js"() {
+    init_DefaultRetryBackoffStrategy();
+    init_DefaultRetryToken();
+    init_config3();
+    init_constants5();
+    init_retries_2026_config();
+    refusal = {
+      incompatible: 1,
+      attempts: 2,
+      capacity: 3
+    };
+    StandardRetryStrategy = class {
+      mode = RETRY_MODES.STANDARD;
+      retryBackoffStrategy;
+      capacity = INITIAL_RETRY_TOKENS;
+      maxAttemptsProvider;
+      baseDelay;
+      constructor(arg1) {
+        if (typeof arg1 === "number") {
+          this.maxAttemptsProvider = async () => arg1;
+        } else if (typeof arg1 === "function") {
+          this.maxAttemptsProvider = arg1;
+        } else if (arg1 && typeof arg1 === "object") {
+          this.maxAttemptsProvider = async () => arg1.maxAttempts;
+          this.baseDelay = arg1.baseDelay;
+          this.retryBackoffStrategy = arg1.backoff;
+        }
+        this.maxAttemptsProvider ??= async () => DEFAULT_MAX_ATTEMPTS;
+        this.baseDelay ??= Retry.delay();
+        this.retryBackoffStrategy ??= new DefaultRetryBackoffStrategy();
+      }
+      async acquireInitialRetryToken(retryTokenScope) {
+        return new DefaultRetryToken(Retry.delay(), 0, void 0, retryTokenScope.includes(":longpoll"));
+      }
+      async refreshRetryTokenForRetry(token, errorInfo) {
+        const maxAttempts = await this.getMaxAttempts();
+        const retryCode = this.retryCode(token, errorInfo, maxAttempts);
+        const shouldRetry = retryCode === 0;
+        const isLongPoll = token.isLongPoll?.();
+        if (shouldRetry || isLongPoll) {
+          const errorType = errorInfo.errorType;
+          this.retryBackoffStrategy.setDelayBase(errorType === "THROTTLING" ? Retry.throttlingDelay() : this.baseDelay);
+          const delayFromErrorType = this.retryBackoffStrategy.computeNextBackoffDelay(token.getRetryCount());
+          let retryDelay = delayFromErrorType;
+          if (errorInfo.retryAfterHint instanceof Date) {
+            retryDelay = Math.max(delayFromErrorType, Math.min(errorInfo.retryAfterHint.getTime() - Date.now(), delayFromErrorType + 5e3));
+          }
+          if (!shouldRetry) {
+            const longPollBackoff = retryCode === refusal.capacity && isLongPoll ? retryDelay : 0;
+            if (longPollBackoff > 0) {
+              await new Promise((r5) => setTimeout(r5, longPollBackoff));
+            }
+          } else {
+            const capacityCost = this.getCapacityCost(errorType);
+            this.capacity -= capacityCost;
+            const nextToken = new DefaultRetryToken(0, token.getRetryCount() + 1, capacityCost, token.isLongPoll?.() ?? false);
+            await new Promise((r5) => setTimeout(r5, retryDelay));
+            nextToken.$retryLog.acquisitionDelay = retryDelay;
+            return nextToken;
+          }
+        }
+        throw new Error("No retry token available");
+      }
+      recordSuccess(token) {
+        this.capacity = Math.min(INITIAL_RETRY_TOKENS, this.capacity + (token.getRetryCost() ?? NO_RETRY_INCREMENT));
+      }
+      getCapacity() {
+        return this.capacity;
+      }
+      async maxAttempts() {
+        return this.maxAttemptsProvider();
+      }
+      async getMaxAttempts() {
+        try {
+          return await this.maxAttemptsProvider();
+        } catch (ignored) {
+          console.warn(`Max attempts provider could not resolve. Using default of ${DEFAULT_MAX_ATTEMPTS}`);
+          return DEFAULT_MAX_ATTEMPTS;
+        }
+      }
+      retryCode(tokenToRenew, errorInfo, maxAttempts) {
+        const attempts = tokenToRenew.getRetryCount() + 1;
+        const retryableStatus = this.isRetryableError(errorInfo.errorType) ? 0 : refusal.incompatible;
+        const attemptStatus = attempts < maxAttempts ? 0 : refusal.attempts;
+        const capacityStatus = this.capacity >= this.getCapacityCost(errorInfo.errorType) ? 0 : refusal.capacity;
+        return retryableStatus || attemptStatus || capacityStatus;
+      }
+      getCapacityCost(errorType) {
+        return errorType === Retry.modifiedCostType() ? Retry.throttlingCost() : Retry.cost();
+      }
+      isRetryableError(errorType) {
+        return errorType === "THROTTLING" || errorType === "TRANSIENT";
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js
+var AdaptiveRetryStrategy;
+var init_AdaptiveRetryStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js"() {
+    init_DefaultRateLimiter();
+    init_StandardRetryStrategy();
+    init_config3();
+    AdaptiveRetryStrategy = class {
+      mode = RETRY_MODES.ADAPTIVE;
+      rateLimiter;
+      standardRetryStrategy;
+      constructor(maxAttemptsProvider, options) {
+        const { rateLimiter } = options ?? {};
+        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
+        this.standardRetryStrategy = options ? new StandardRetryStrategy({
+          maxAttempts: typeof maxAttemptsProvider === "number" ? maxAttemptsProvider : 3,
+          ...options
+        }) : new StandardRetryStrategy(maxAttemptsProvider);
+      }
+      async acquireInitialRetryToken(retryTokenScope) {
+        const token = await this.standardRetryStrategy.acquireInitialRetryToken(retryTokenScope);
+        await this.rateLimiter.getSendToken();
+        return token;
+      }
+      async refreshRetryTokenForRetry(tokenToRenew, errorInfo) {
+        this.rateLimiter.updateClientSendingRate(errorInfo);
+        const token = await this.standardRetryStrategy.refreshRetryTokenForRetry(tokenToRenew, errorInfo);
+        await this.rateLimiter.getSendToken();
+        return token;
+      }
+      recordSuccess(token) {
+        this.rateLimiter.updateClientSendingRate({});
+        this.standardRetryStrategy.recordSuccess(token);
+      }
+      async maxAttemptsProvider() {
+        return this.standardRetryStrategy.maxAttempts();
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js
+var ConfiguredRetryStrategy;
+var init_ConfiguredRetryStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js"() {
+    init_StandardRetryStrategy();
+    init_retries_2026_config();
+    ConfiguredRetryStrategy = class extends StandardRetryStrategy {
+      computeNextBackoffDelay;
+      constructor(maxAttempts, computeNextBackoffDelay = Retry.delay()) {
+        super(typeof maxAttempts === "function" ? maxAttempts : async () => maxAttempts);
+        if (typeof computeNextBackoffDelay === "number") {
+          this.computeNextBackoffDelay = () => computeNextBackoffDelay;
+        } else {
+          this.computeNextBackoffDelay = computeNextBackoffDelay;
+        }
+        this.retryBackoffStrategy.computeNextBackoffDelay = (completedAttempt) => {
+          const nextAttempt = completedAttempt + 1;
+          return this.computeNextBackoffDelay(nextAttempt);
+        };
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js
+var getDefaultRetryQuota;
+var init_defaultRetryQuota = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js"() {
+    init_constants5();
+    getDefaultRetryQuota = (initialRetryTokens, options) => {
+      const MAX_CAPACITY = initialRetryTokens;
+      const noRetryIncrement = options?.noRetryIncrement ?? NO_RETRY_INCREMENT;
+      const retryCost = options?.retryCost ?? RETRY_COST;
+      const timeoutRetryCost = options?.timeoutRetryCost ?? TIMEOUT_RETRY_COST;
+      let availableCapacity = initialRetryTokens;
+      const getCapacityAmount = (error3) => error3.name === "TimeoutError" ? timeoutRetryCost : retryCost;
+      const hasRetryTokens = (error3) => getCapacityAmount(error3) <= availableCapacity;
+      const retrieveRetryTokens = (error3) => {
+        if (!hasRetryTokens(error3)) {
+          throw new Error("No retry token available");
+        }
+        const capacityAmount = getCapacityAmount(error3);
+        availableCapacity -= capacityAmount;
+        return capacityAmount;
+      };
+      const releaseRetryTokens = (capacityReleaseAmount) => {
+        availableCapacity += capacityReleaseAmount ?? noRetryIncrement;
+        availableCapacity = Math.min(availableCapacity, MAX_CAPACITY);
+      };
+      return Object.freeze({
+        hasRetryTokens,
+        retrieveRetryTokens,
+        releaseRetryTokens
+      });
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js
+var defaultDelayDecider;
+var init_delayDecider = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js"() {
+    init_constants5();
+    defaultDelayDecider = (delayBase, attempts) => Math.floor(Math.min(MAXIMUM_RETRY_DELAY, Math.random() * 2 ** attempts * delayBase));
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js
+var defaultRetryDecider;
+var init_retryDecider = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js"() {
+    init_service_error_classification();
+    defaultRetryDecider = (error3) => {
+      if (!error3) {
+        return false;
+      }
+      return isRetryableByTrait(error3) || isClockSkewError(error3) || isThrottlingError(error3) || isTransientError(error3);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js
+var StandardRetryStrategy2, getDelayFromRetryAfterHeader;
+var init_StandardRetryStrategy2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js"() {
+    init_protocols();
+    init_serde();
+    init_service_error_classification();
+    init_config3();
+    init_constants5();
+    init_util();
+    init_defaultRetryQuota();
+    init_delayDecider();
+    init_retryDecider();
+    StandardRetryStrategy2 = class {
+      maxAttemptsProvider;
+      retryDecider;
+      delayDecider;
+      retryQuota;
+      mode = RETRY_MODES.STANDARD;
+      constructor(maxAttemptsProvider, options) {
+        this.maxAttemptsProvider = maxAttemptsProvider;
+        this.retryDecider = options?.retryDecider ?? defaultRetryDecider;
+        this.delayDecider = options?.delayDecider ?? defaultDelayDecider;
+        this.retryQuota = options?.retryQuota ?? getDefaultRetryQuota(INITIAL_RETRY_TOKENS);
+      }
+      shouldRetry(error3, attempts, maxAttempts) {
+        return attempts < maxAttempts && this.retryDecider(error3) && this.retryQuota.hasRetryTokens(error3);
+      }
+      async getMaxAttempts() {
+        let maxAttempts;
+        try {
+          maxAttempts = await this.maxAttemptsProvider();
+        } catch (ignored) {
+          maxAttempts = DEFAULT_MAX_ATTEMPTS;
+        }
+        return maxAttempts;
+      }
+      async retry(next, args, options) {
+        let retryTokenAmount;
+        let attempts = 0;
+        let totalDelay = 0;
+        const maxAttempts = await this.getMaxAttempts();
+        const { request } = args;
+        if (HttpRequest.isInstance(request)) {
+          request.headers[INVOCATION_ID_HEADER] = v4();
+        }
+        while (true) {
+          try {
+            if (HttpRequest.isInstance(request)) {
+              request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
+            }
+            if (options?.beforeRequest) {
+              await options.beforeRequest();
+            }
+            const { response, output } = await next(args);
+            if (options?.afterRequest) {
+              options.afterRequest(response);
+            }
+            this.retryQuota.releaseRetryTokens(retryTokenAmount);
+            output.$metadata.attempts = attempts + 1;
+            output.$metadata.totalRetryDelay = totalDelay;
+            return { response, output };
+          } catch (e5) {
+            const err2 = asSdkError(e5);
+            attempts++;
+            if (this.shouldRetry(err2, attempts, maxAttempts)) {
+              retryTokenAmount = this.retryQuota.retrieveRetryTokens(err2);
+              const delayFromDecider = this.delayDecider(isThrottlingError(err2) ? THROTTLING_RETRY_DELAY_BASE : DEFAULT_RETRY_DELAY_BASE, attempts);
+              const delayFromResponse = getDelayFromRetryAfterHeader(err2.$response);
+              const delay = Math.max(delayFromResponse || 0, delayFromDecider);
+              totalDelay += delay;
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              continue;
+            }
+            if (!err2.$metadata) {
+              err2.$metadata = {};
+            }
+            err2.$metadata.attempts = attempts;
+            err2.$metadata.totalRetryDelay = totalDelay;
+            throw err2;
+          }
+        }
+      }
+    };
+    getDelayFromRetryAfterHeader = (response) => {
+      if (!HttpResponse.isInstance(response)) {
+        return;
+      }
+      const retryAfterHeaderName = Object.keys(response.headers).find((key) => key.toLowerCase() === "retry-after");
+      if (!retryAfterHeaderName) {
+        return;
+      }
+      const retryAfter = response.headers[retryAfterHeaderName];
+      const retryAfterSeconds = Number(retryAfter);
+      if (!Number.isNaN(retryAfterSeconds)) {
+        return Math.min(retryAfterSeconds * 1e3, 2e4);
+      }
+      const retryAfterDate = new Date(retryAfter);
+      return Math.min(retryAfterDate.getTime() - Date.now(), 2e4);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js
+var AdaptiveRetryStrategy2;
+var init_AdaptiveRetryStrategy2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js"() {
+    init_DefaultRateLimiter();
+    init_config3();
+    init_StandardRetryStrategy2();
+    AdaptiveRetryStrategy2 = class extends StandardRetryStrategy2 {
+      rateLimiter;
+      constructor(maxAttemptsProvider, options) {
+        const { rateLimiter, ...superOptions } = options ?? {};
+        super(maxAttemptsProvider, superOptions);
+        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
+        this.mode = RETRY_MODES.ADAPTIVE;
+      }
+      async retry(next, args) {
+        return super.retry(next, args, {
+          beforeRequest: async () => {
+            return this.rateLimiter.getSendToken();
+          },
+          afterRequest: (response) => {
+            this.rateLimiter.updateClientSendingRate(response);
+          }
+        });
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js
+var ENV_MAX_ATTEMPTS, CONFIG_MAX_ATTEMPTS, NODE_MAX_ATTEMPT_CONFIG_OPTIONS, resolveRetryConfig, ENV_RETRY_MODE, CONFIG_RETRY_MODE, NODE_RETRY_MODE_CONFIG_OPTIONS;
+var init_configurations2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js"() {
+    init_client2();
+    init_AdaptiveRetryStrategy();
+    init_StandardRetryStrategy();
+    init_config3();
+    init_retries_2026_config();
+    ENV_MAX_ATTEMPTS = "AWS_MAX_ATTEMPTS";
+    CONFIG_MAX_ATTEMPTS = "max_attempts";
+    NODE_MAX_ATTEMPT_CONFIG_OPTIONS = {
+      environmentVariableSelector: (env2) => {
+        const value = env2[ENV_MAX_ATTEMPTS];
+        if (!value) {
+          return void 0;
+        }
+        const maxAttempt = parseInt(value);
+        if (Number.isNaN(maxAttempt)) {
+          throw new Error(`Environment variable ${ENV_MAX_ATTEMPTS} mast be a number, got "${value}"`);
+        }
+        return maxAttempt;
+      },
+      configFileSelector: (profile) => {
+        const value = profile[CONFIG_MAX_ATTEMPTS];
+        if (!value) {
+          return void 0;
+        }
+        const maxAttempt = parseInt(value);
+        if (Number.isNaN(maxAttempt)) {
+          throw new Error(`Shared config file entry ${CONFIG_MAX_ATTEMPTS} mast be a number, got "${value}"`);
+        }
+        return maxAttempt;
+      },
+      default: DEFAULT_MAX_ATTEMPTS
+    };
+    resolveRetryConfig = (input, defaults) => {
+      const { retryStrategy, retryMode } = input;
+      const { defaultMaxAttempts = DEFAULT_MAX_ATTEMPTS, defaultBaseDelay = Retry.delay() } = defaults ?? {};
+      const maxAttemptsProvider = normalizeProvider(input.maxAttempts ?? defaultMaxAttempts);
+      let controller = retryStrategy ? Promise.resolve(retryStrategy) : void 0;
+      const getDefault = async () => {
+        const maxAttempts = await maxAttemptsProvider();
+        const adaptive = await normalizeProvider(retryMode)() === RETRY_MODES.ADAPTIVE;
+        if (adaptive) {
+          return new AdaptiveRetryStrategy(maxAttemptsProvider, {
+            maxAttempts,
+            baseDelay: defaultBaseDelay
+          });
+        }
+        return new StandardRetryStrategy({
+          maxAttempts,
+          baseDelay: defaultBaseDelay
+        });
+      };
+      return Object.assign(input, {
+        maxAttempts: maxAttemptsProvider,
+        retryStrategy: () => controller ??= getDefault()
+      });
+    };
+    ENV_RETRY_MODE = "AWS_RETRY_MODE";
+    CONFIG_RETRY_MODE = "retry_mode";
+    NODE_RETRY_MODE_CONFIG_OPTIONS = {
+      environmentVariableSelector: (env2) => env2[ENV_RETRY_MODE],
+      configFileSelector: (profile) => profile[CONFIG_RETRY_MODE],
+      default: DEFAULT_RETRY_MODE
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js
+var omitRetryHeadersMiddleware, omitRetryHeadersMiddlewareOptions, getOmitRetryHeadersPlugin;
+var init_omitRetryHeadersMiddleware = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js"() {
+    init_protocols();
+    init_constants5();
+    omitRetryHeadersMiddleware = () => (next) => async (args) => {
+      const { request } = args;
+      if (HttpRequest.isInstance(request)) {
+        delete request.headers[INVOCATION_ID_HEADER];
+        delete request.headers[REQUEST_HEADER];
+      }
+      return next(args);
+    };
+    omitRetryHeadersMiddlewareOptions = {
+      name: "omitRetryHeadersMiddleware",
+      tags: ["RETRY", "HEADERS", "OMIT_RETRY_HEADERS"],
+      relation: "before",
+      toMiddleware: "awsAuthMiddleware",
+      override: true
+    };
+    getOmitRetryHeadersPlugin = (options) => ({
+      applyToStack: (clientStack) => {
+        clientStack.addRelativeTo(omitRetryHeadersMiddleware(), omitRetryHeadersMiddlewareOptions);
+      }
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/index.js
+var retry_exports = {};
+__export(retry_exports, {
+  AdaptiveRetryStrategy: () => AdaptiveRetryStrategy,
+  CONFIG_MAX_ATTEMPTS: () => CONFIG_MAX_ATTEMPTS,
+  CONFIG_RETRY_MODE: () => CONFIG_RETRY_MODE,
+  ConfiguredRetryStrategy: () => ConfiguredRetryStrategy,
+  DEFAULT_MAX_ATTEMPTS: () => DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_RETRY_DELAY_BASE: () => DEFAULT_RETRY_DELAY_BASE,
+  DEFAULT_RETRY_MODE: () => DEFAULT_RETRY_MODE,
+  DefaultRateLimiter: () => DefaultRateLimiter,
+  DeprecatedAdaptiveRetryStrategy: () => AdaptiveRetryStrategy2,
+  DeprecatedStandardRetryStrategy: () => StandardRetryStrategy2,
+  ENV_MAX_ATTEMPTS: () => ENV_MAX_ATTEMPTS,
+  ENV_RETRY_MODE: () => ENV_RETRY_MODE,
+  INITIAL_RETRY_TOKENS: () => INITIAL_RETRY_TOKENS,
+  INVOCATION_ID_HEADER: () => INVOCATION_ID_HEADER,
+  MAXIMUM_RETRY_DELAY: () => MAXIMUM_RETRY_DELAY,
+  NODE_MAX_ATTEMPT_CONFIG_OPTIONS: () => NODE_MAX_ATTEMPT_CONFIG_OPTIONS,
+  NODE_RETRY_MODE_CONFIG_OPTIONS: () => NODE_RETRY_MODE_CONFIG_OPTIONS,
+  NO_RETRY_INCREMENT: () => NO_RETRY_INCREMENT,
+  REQUEST_HEADER: () => REQUEST_HEADER,
+  RETRY_COST: () => RETRY_COST,
+  RETRY_MODES: () => RETRY_MODES,
+  Retry: () => Retry,
+  StandardRetryStrategy: () => StandardRetryStrategy,
+  THROTTLING_RETRY_DELAY_BASE: () => THROTTLING_RETRY_DELAY_BASE,
+  TIMEOUT_RETRY_COST: () => TIMEOUT_RETRY_COST,
+  defaultDelayDecider: () => defaultDelayDecider,
+  defaultRetryDecider: () => defaultRetryDecider,
+  getOmitRetryHeadersPlugin: () => getOmitRetryHeadersPlugin,
+  getRetryAfterHint: () => getRetryAfterHint,
+  getRetryPlugin: () => getRetryPlugin,
+  isBrowserNetworkError: () => isBrowserNetworkError,
+  isClockSkewCorrectedError: () => isClockSkewCorrectedError,
+  isClockSkewError: () => isClockSkewError,
+  isNodeJsHttp2TransientError: () => isNodeJsHttp2TransientError,
+  isRetryableByTrait: () => isRetryableByTrait,
+  isServerError: () => isServerError,
+  isThrottlingError: () => isThrottlingError,
+  isTransientError: () => isTransientError,
+  omitRetryHeadersMiddleware: () => omitRetryHeadersMiddleware,
+  omitRetryHeadersMiddlewareOptions: () => omitRetryHeadersMiddlewareOptions,
+  resolveRetryConfig: () => resolveRetryConfig,
+  retryMiddleware: () => retryMiddleware,
+  retryMiddlewareOptions: () => retryMiddlewareOptions
+});
+var retryMiddleware, getRetryPlugin;
+var init_retry2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/index.js"() {
+    init_isStreamingPayload();
+    init_retryMiddleware();
+    init_service_error_classification();
+    init_AdaptiveRetryStrategy();
+    init_ConfiguredRetryStrategy();
+    init_DefaultRateLimiter();
+    init_StandardRetryStrategy();
+    init_config3();
+    init_constants5();
+    init_retries_2026_config();
+    init_AdaptiveRetryStrategy2();
+    init_StandardRetryStrategy2();
+    init_delayDecider();
+    init_retryDecider();
+    init_configurations2();
+    init_omitRetryHeadersMiddleware();
+    init_retryMiddleware();
+    init_parseRetryAfterHeader();
+    retryMiddleware = bindRetryMiddleware(isStreamingPayload);
+    getRetryPlugin = bindGetRetryPlugin(isStreamingPayload);
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-user-agent/check-features.js
 async function checkFeatures(context, config, args) {
   const request = args.request;
   if (request?.headers?.["smithy-protocol"] === "rpc-v2-cbor") {
-    setFeature2(context, "PROTOCOL_RPC_V2_CBOR", "M");
+    setFeature(context, "PROTOCOL_RPC_V2_CBOR", "M");
   }
   if (typeof config.retryStrategy === "function") {
     const retryStrategy = await config.retryStrategy();
     if (typeof retryStrategy.mode === "string") {
       switch (retryStrategy.mode) {
         case RETRY_MODES.ADAPTIVE:
-          setFeature2(context, "RETRY_MODE_ADAPTIVE", "F");
+          setFeature(context, "RETRY_MODE_ADAPTIVE", "F");
           break;
         case RETRY_MODES.STANDARD:
-          setFeature2(context, "RETRY_MODE_STANDARD", "E");
+          setFeature(context, "RETRY_MODE_STANDARD", "E");
           break;
       }
     }
@@ -33422,17 +33461,17 @@ async function checkFeatures(context, config, args) {
   if (typeof config.accountIdEndpointMode === "function") {
     const endpointV2 = context.endpointV2;
     if (String(endpointV2?.url?.hostname).match(ACCOUNT_ID_ENDPOINT_REGEX)) {
-      setFeature2(context, "ACCOUNT_ID_ENDPOINT", "O");
+      setFeature(context, "ACCOUNT_ID_ENDPOINT", "O");
     }
     switch (await config.accountIdEndpointMode?.()) {
       case "disabled":
-        setFeature2(context, "ACCOUNT_ID_MODE_DISABLED", "Q");
+        setFeature(context, "ACCOUNT_ID_MODE_DISABLED", "Q");
         break;
       case "preferred":
-        setFeature2(context, "ACCOUNT_ID_MODE_PREFERRED", "P");
+        setFeature(context, "ACCOUNT_ID_MODE_PREFERRED", "P");
         break;
       case "required":
-        setFeature2(context, "ACCOUNT_ID_MODE_REQUIRED", "R");
+        setFeature(context, "ACCOUNT_ID_MODE_REQUIRED", "R");
         break;
     }
   }
@@ -33440,10 +33479,10 @@ async function checkFeatures(context, config, args) {
   if (identity?.$source) {
     const credentials = identity;
     if (credentials.accountId) {
-      setFeature2(context, "RESOLVED_ACCOUNT_ID", "T");
+      setFeature(context, "RESOLVED_ACCOUNT_ID", "T");
     }
     for (const [key, value] of Object.entries(credentials.$source ?? {})) {
-      setFeature2(context, key, value);
+      setFeature(context, key, value);
     }
   }
 }
@@ -33656,7 +33695,7 @@ var init_defaultUserAgent = __esm({
 var UA_APP_ID_ENV_NAME, UA_APP_ID_INI_NAME, UA_APP_ID_INI_NAME_DEPRECATED, NODE_APP_ID_CONFIG_OPTIONS;
 var init_nodeAppIdConfigOptions = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/util-user-agent-node/nodeAppIdConfigOptions.js"() {
-    init_configurations2();
+    init_configurations();
     UA_APP_ID_ENV_NAME = "AWS_SDK_UA_APP_ID";
     UA_APP_ID_INI_NAME = "sdk_ua_app_id";
     UA_APP_ID_INI_NAME_DEPRECATED = "sdk-ua-app-id";
@@ -34773,7 +34812,7 @@ __export(client_exports2, {
   resolveRegionConfig: () => resolveRegionConfig,
   resolveUserAgentConfig: () => resolveUserAgentConfig,
   setCredentialFeature: () => setCredentialFeature,
-  setFeature: () => setFeature2,
+  setFeature: () => setFeature,
   setPartitionInfo: () => setPartitionInfo,
   setTokenFeature: () => setTokenFeature,
   state: () => state,
@@ -34796,7 +34835,7 @@ var init_client3 = __esm({
     init_configuration();
     init_getRecursionDetectionPlugin();
     init_recursionDetectionMiddleware();
-    init_configurations2();
+    init_configurations();
     init_user_agent_middleware();
     init_defaultUserAgent();
     init_nodeAppIdConfigOptions();
@@ -35551,6 +35590,9 @@ var init_getUpdatedSystemClockOffset = __esm({
         return currentSystemClockOffset;
       }
       const serverTime = Date.parse(clockTime);
+      if (Number.isNaN(serverTime)) {
+        return currentSystemClockOffset;
+      }
       const timeResponseReceived = Date.now();
       if (timeRequestSent !== void 0 && timeResponseReceived - timeRequestSent > 9e5) {
         return currentSystemClockOffset;
@@ -35570,11 +35612,11 @@ var init_utils3 = __esm({
 });
 
 // node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/AwsSdkSigV4Signer.js
-var import_types25, throwSigningPropertyError, hasEventStreamOutput, validateSigningProperties, AwsSdkSigV4Signer, AWSSDKSigV4Signer;
+var import_types26, throwSigningPropertyError, hasEventStreamOutput, validateSigningProperties, AwsSdkSigV4Signer, AWSSDKSigV4Signer;
 var init_AwsSdkSigV4Signer = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/AwsSdkSigV4Signer.js"() {
     init_protocols();
-    import_types25 = __toESM(require_dist_cjs());
+    import_types26 = __toESM(require_dist_cjs());
     init_utils3();
     throwSigningPropertyError = (name, property) => {
       if (!property) {
@@ -35584,7 +35626,7 @@ var init_AwsSdkSigV4Signer = __esm({
     };
     hasEventStreamOutput = (signingProperties) => {
       const context = signingProperties.context;
-      const eventStream = context?.[import_types25.SMITHY_CONTEXT_KEY]?.eventStream;
+      const eventStream = context?.[import_types26.SMITHY_CONTEXT_KEY]?.eventStream;
       return eventStream?.output === true;
     };
     validateSigningProperties = async (signingProperties) => {
@@ -37054,38 +37096,39 @@ var require_dist_cjs7 = __commonJS({
       return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
     };
     var DEFER_EVENT_LISTENER_TIME = 3e3;
-    var setSocketTimeout = (request, reject, timeoutInMs = 0, destroyResponseBodyOnTimeout = false) => {
-      let response;
-      if (destroyResponseBodyOnTimeout) {
-        request.once("response", (res) => response = res);
+    var setSocketTimeout = (request, reject, timeoutInMs = 0, isServiceDefault = false) => {
+      if (!Number.isFinite(timeoutInMs) || timeoutInMs <= 0) {
+        return;
       }
-      const registerTimeout = (offset) => {
-        const timeout = timeoutInMs - offset;
-        const onTimeout = () => {
-          const error3 = Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (${destroyResponseBodyOnTimeout ? "service default socket timeout" : "configured by client requestHandler"}).`), { name: "TimeoutError" });
-          if (destroyResponseBodyOnTimeout) {
-            response?.destroy(error3);
-          }
-          request.destroy();
-          reject(error3);
-        };
-        if (request.socket) {
-          request.socket.setTimeout(timeout, onTimeout);
-          request.on("close", () => request.socket?.removeListener("timeout", onTimeout));
+      let response;
+      request.once("response", (res) => response = res);
+      const onTimeout = () => {
+        if (response?.complete) {
+          request.socket?.destroy();
+          return;
+        }
+        const error3 = Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (${isServiceDefault ? "service default socket timeout" : "configured by client requestHandler"}).`), { name: "TimeoutError" });
+        response?.destroy(error3);
+        request.destroy();
+        reject(error3);
+      };
+      const registerTimeout = () => {
+        const { socket } = request;
+        if (!socket) {
+          request.once("socket", registerTimeout);
+        } else if (socket.connecting) {
+          socket.once("connect", registerTimeout);
         } else {
-          request.setTimeout(timeout, onTimeout);
+          socket.setTimeout(timeoutInMs, onTimeout);
+          request.on("close", () => socket.removeListener("timeout", onTimeout));
         }
       };
-      if (0 < timeoutInMs && timeoutInMs < 6e3) {
-        registerTimeout(0);
-        return 0;
+      if (timeoutInMs < 6e3) {
+        registerTimeout();
+        return;
       }
-      const deferralId = timing.setTimeout(registerTimeout.bind(null, timeoutInMs === 0 ? 0 : DEFER_EVENT_LISTENER_TIME), DEFER_EVENT_LISTENER_TIME);
-      if (destroyResponseBodyOnTimeout) {
-        request.once("close", () => timing.clearTimeout(deferralId));
-        return 0;
-      }
-      return deferralId;
+      const deferralId = timing.setTimeout(registerTimeout, DEFER_EVENT_LISTENER_TIME);
+      request.once("close", () => timing.clearTimeout(deferralId));
     };
     var MIN_WAIT_TIME = 6e3;
     async function writeRequestBody(httpRequest, request, maxContinueTimeoutMs = MIN_WAIT_TIME, externalAgent = false) {
@@ -37215,13 +37258,11 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
           let socketWarningTimeoutId = -1;
           let connectionTimeoutId = -1;
           let requestTimeoutId = -1;
-          let socketTimeoutId = -1;
           let keepAliveTimeoutId = -1;
           const clearTimeouts = () => {
             timing.clearTimeout(socketWarningTimeoutId);
             timing.clearTimeout(connectionTimeoutId);
             timing.clearTimeout(requestTimeoutId);
-            timing.clearTimeout(socketTimeoutId);
             timing.clearTimeout(keepAliveTimeoutId);
           };
           const resolve = async (arg) => {
@@ -37316,9 +37357,9 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
           requestTimeoutId = setRequestTimeout(req, reject, effectiveRequestTimeout, config.throwOnRequestTimeout, logger2 ?? console);
           const defaultSocketTimeout = config.socketTimeout === void 0 ? resolveDefaultSocketTimeout(config) : void 0;
           if (defaultSocketTimeout) {
-            socketTimeoutId = setSocketTimeout(req, reject, defaultSocketTimeout, true);
+            setSocketTimeout(req, reject, defaultSocketTimeout, true);
           } else {
-            socketTimeoutId = setSocketTimeout(req, reject, config.socketTimeout);
+            setSocketTimeout(req, reject, config.socketTimeout);
           }
           const httpAgent = nodeHttpsOptions.agent;
           if (typeof httpAgent === "object" && "keepAlive" in httpAgent) {
@@ -38050,7 +38091,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.998.1",
+      version: "3.998.3",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -38150,13 +38191,13 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.980.1",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.51",
-        "@aws-sdk/types": "^3.975.0",
-        "@smithy/core": "^3.38.0",
-        "@smithy/fetch-http-handler": "^5.8.0",
-        "@smithy/node-http-handler": "^4.14.0",
-        "@smithy/types": "^4.19.0",
+        "@aws-sdk/core": "^3.981.0",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.52",
+        "@aws-sdk/types": "^3.975.1",
+        "@smithy/core": "^3.40.0",
+        "@smithy/fetch-http-handler": "^5.8.1",
+        "@smithy/node-http-handler": "^4.14.2",
+        "@smithy/types": "^4.20.0",
         tslib: "^2.6.2"
       },
       devDependencies: {
@@ -45821,7 +45862,8 @@ var require_dist_cjs13 = __commonJS({
           return requestHandler2?.metadata?.handlerProtocol === "h2";
         };
         const requestHandler = isH22(this.callerClientConfig?.requestHandler) ? void 0 : this.callerClientConfig?.requestHandler;
-        const region = this.profileData.region ?? await this.callerClientConfig?.region?.() ?? process.env.AWS_REGION;
+        const signInRegion = typeof freshToken.signInRegion === "string" && freshToken.signInRegion.length > 0 ? freshToken.signInRegion : void 0;
+        const region = signInRegion ?? this.profileData.region ?? await this.callerClientConfig?.region?.() ?? process.env.AWS_REGION;
         const client = new SigninClient2({
           credentials: {
             accessKeyId: "",
@@ -45831,7 +45873,8 @@ var require_dist_cjs13 = __commonJS({
           requestHandler,
           logger: logger2,
           userAgentAppId,
-          ...this.init?.clientConfig
+          ...this.init?.clientConfig,
+          ...signInRegion && { region: signInRegion }
         });
         this.createDPoPInterceptor(client.middlewareStack);
         const commandInput = {
@@ -46841,7 +46884,7 @@ var require_dist_cjs19 = __commonJS({
     var { resolveDefaultsModeConfig: resolveDefaultsModeConfig2, loadConfig: loadConfig2, NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS: NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS2, NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS: NODE_USE_DUALSTACK_ENDPOINT_CONFIG_OPTIONS2, NODE_REGION_CONFIG_OPTIONS: NODE_REGION_CONFIG_OPTIONS2, NODE_REGION_CONFIG_FILE_OPTIONS: NODE_REGION_CONFIG_FILE_OPTIONS2, resolveRegionConfig: resolveRegionConfig2 } = (init_config2(), __toCommonJS(config_exports));
     var { getEndpointPlugin: getEndpointPlugin2, BinaryDecisionDiagram: BinaryDecisionDiagram2, EndpointCache: EndpointCache2, decideEndpoint: decideEndpoint2, customEndpointFunctions: customEndpointFunctions2, resolveEndpointConfig: resolveEndpointConfig2 } = (init_endpoints(), __toCommonJS(endpoints_exports));
     var { parseUrl: parseUrl2, getHttpHandlerExtensionConfiguration: getHttpHandlerExtensionConfiguration2, resolveHttpHandlerRuntimeConfig: resolveHttpHandlerRuntimeConfig2, getContentLengthPlugin: getContentLengthPlugin2 } = (init_protocols(), __toCommonJS(protocols_exports));
-    var { DEFAULT_RETRY_MODE: DEFAULT_RETRY_MODE2, NODE_RETRY_MODE_CONFIG_OPTIONS: NODE_RETRY_MODE_CONFIG_OPTIONS2, NODE_MAX_ATTEMPT_CONFIG_OPTIONS: NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, Retry: Retry2, resolveRetryConfig: resolveRetryConfig2, getRetryPlugin: getRetryPlugin2 } = (init_retry2(), __toCommonJS(retry_exports));
+    var { DEFAULT_RETRY_MODE: DEFAULT_RETRY_MODE2, NODE_RETRY_MODE_CONFIG_OPTIONS: NODE_RETRY_MODE_CONFIG_OPTIONS2, NODE_MAX_ATTEMPT_CONFIG_OPTIONS: NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, resolveRetryConfig: resolveRetryConfig2, getRetryPlugin: getRetryPlugin2 } = (init_retry2(), __toCommonJS(retry_exports));
     var { TypeRegistry: TypeRegistry2, getSchemaSerdePlugin: getSchemaSerdePlugin2 } = (init_schema(), __toCommonJS(schema_exports));
     var { resolveAwsSdkSigV4Config: resolveAwsSdkSigV4Config2, AwsSdkSigV4Signer: AwsSdkSigV4Signer2, NODE_AUTH_SCHEME_PREFERENCE_OPTIONS: NODE_AUTH_SCHEME_PREFERENCE_OPTIONS2 } = (init_httpAuthSchemes2(), __toCommonJS(httpAuthSchemes_exports));
     var { defaultProvider } = require_dist_cjs17();
@@ -51708,7 +51751,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1163.0";
+    var version = "3.1168.0";
     var packageInfo = {
       version
     };
@@ -52179,7 +52222,7 @@ var require_dist_cjs19 = __commonJS({
         defaultSocketTimeout: getDefaultSocketTimeout2(config?.requestHandler, 3e5),
         defaultUserAgentProvider: config?.defaultUserAgentProvider ?? createDefaultUserAgentProvider2({ serviceId: clientSharedValues.serviceId, clientVersion: packageInfo.version }),
         endpointDiscoveryEnabledProvider: config?.endpointDiscoveryEnabledProvider ?? loadConfig2(NODE_ENDPOINT_DISCOVERY_CONFIG_OPTIONS, loaderConfig),
-        maxAttempts: config?.maxAttempts ?? loadConfig2(Retry2.v2026 ? { ...NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, default: 4 } : NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, config),
+        maxAttempts: config?.maxAttempts ?? loadConfig2({ ...NODE_MAX_ATTEMPT_CONFIG_OPTIONS2, default: 4 }, config),
         region: config?.region ?? loadConfig2(NODE_REGION_CONFIG_OPTIONS2, { ...NODE_REGION_CONFIG_FILE_OPTIONS2, ...loaderConfig }),
         requestHandler: NodeHttpHandler.create(config?.requestHandler ?? defaultConfigProvider),
         retryMode: config?.retryMode ?? loadConfig2({
@@ -52243,7 +52286,7 @@ var require_dist_cjs19 = __commonJS({
         const _config_1 = resolveClientEndpointParameters5(_config_0);
         const _config_2 = resolveAccountIdEndpointModeConfig2(_config_1);
         const _config_3 = resolveUserAgentConfig2(_config_2);
-        const _config_4 = resolveRetryConfig2(_config_3, { defaultBaseDelay: Retry2.v2026 ? 25 : void 0, defaultMaxAttempts: Retry2.v2026 ? 4 : void 0 });
+        const _config_4 = resolveRetryConfig2(_config_3, { defaultBaseDelay: 25, defaultMaxAttempts: 4 });
         const _config_5 = resolveRegionConfig2(_config_4);
         const _config_6 = resolveHostHeaderConfig2(_config_5);
         const _config_7 = resolveEndpointConfig2(_config_6);

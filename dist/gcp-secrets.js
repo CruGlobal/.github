@@ -19644,6 +19644,31 @@ var require_protos = __commonJS({
                             }
                           }
                         },
+                        CloudSqlSingleUserCredentials: {
+                          fields: {
+                            instanceId: {
+                              type: "string",
+                              id: 1,
+                              options: {
+                                "(google.api.field_behavior)": "REQUIRED"
+                              }
+                            },
+                            username: {
+                              type: "string",
+                              id: 2,
+                              options: {
+                                "(google.api.field_behavior)": "REQUIRED"
+                              }
+                            },
+                            password: {
+                              type: "string",
+                              id: 3,
+                              options: {
+                                "(google.api.field_behavior)": "OPTIONAL"
+                              }
+                            }
+                          }
+                        },
                         SecretManagerService: {
                           options: {
                             "(google.api.default_host)": "secretmanager.googleapis.com",
@@ -20151,7 +20176,7 @@ var require_protos = __commonJS({
                         },
                         EnableManagedRotationRequest: {
                           oneofs: {
-                            credentials: {
+                            credential: {
                               oneof: [
                                 "cloudSqlSingleUserCredentials"
                               ]
@@ -20167,35 +20192,8 @@ var require_protos = __commonJS({
                               }
                             },
                             cloudSqlSingleUserCredentials: {
-                              type: "CloudSQLSingleUserCredentials",
+                              type: "CloudSqlSingleUserCredentials",
                               id: 2
-                            }
-                          },
-                          nested: {
-                            CloudSQLSingleUserCredentials: {
-                              fields: {
-                                instanceId: {
-                                  type: "string",
-                                  id: 1,
-                                  options: {
-                                    "(google.api.field_behavior)": "REQUIRED"
-                                  }
-                                },
-                                username: {
-                                  type: "string",
-                                  id: 2,
-                                  options: {
-                                    "(google.api.field_behavior)": "REQUIRED"
-                                  }
-                                },
-                                password: {
-                                  type: "string",
-                                  id: 3,
-                                  options: {
-                                    "(google.api.field_behavior)": "OPTIONAL"
-                                  }
-                                }
-                              }
                             }
                           }
                         },
@@ -23329,8 +23327,8 @@ var require_protos = __commonJS({
                         retention: "RETENTION_SOURCE",
                         targets: "TARGET_TYPE_FILE",
                         "feature_support.edition_introduced": "EDITION_2024",
-                        "edition_defaults.edition": "EDITION_2024",
-                        "edition_defaults.value": "EXPORT_TOP_LEVEL"
+                        "edition_defaults.edition": "EDITION_2026",
+                        "edition_defaults.value": "STRICT"
                       }
                     },
                     enforceProtoLimits: {
@@ -60517,7 +60515,7 @@ var require_package3 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.3.3",
+      version: "11.3.4",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -62579,6 +62577,7 @@ var require_tokenHandler = __commonJS({
           const credentials = await (0, getCredentials_1.getCredentials)(this.tokenOptions.keyFile);
           this.tokenOptions.key = credentials.privateKey;
           this.tokenOptions.email = credentials.clientEmail;
+          this.tokenOptions.iss = this.tokenOptions.iss || credentials.clientEmail;
         }
       }
       /**
@@ -62599,10 +62598,9 @@ var require_tokenHandler = __commonJS({
        * @returns true if the token has expired, false otherwise.
        */
       hasExpired() {
-        const now = (/* @__PURE__ */ new Date()).getTime();
         if (this.token && this.tokenExpiresAt) {
-          const now2 = (/* @__PURE__ */ new Date()).getTime();
-          return now2 >= this.tokenExpiresAt;
+          const now = (/* @__PURE__ */ new Date()).getTime();
+          return now >= this.tokenExpiresAt;
         }
         return true;
       }
@@ -106441,10 +106439,12 @@ var require_secret_manager_service_client_config = __commonJS({
               retry_params_name: "default"
             },
             EnableManagedRotation: {
+              timeout_millis: 6e4,
               retry_codes_name: "non_idempotent",
               retry_params_name: "default"
             },
             RotateSecret: {
+              timeout_millis: 6e4,
               retry_codes_name: "non_idempotent",
               retry_params_name: "default"
             }
@@ -106460,7 +106460,7 @@ var require_package5 = __commonJS({
   "node_modules/@google-cloud/secret-manager/package.json"(exports2, module2) {
     module2.exports = {
       name: "@google-cloud/secret-manager",
-      version: "7.2.0",
+      version: "8.0.0",
       description: "Secrets client for Node.js",
       repository: {
         type: "git",
@@ -106484,20 +106484,6 @@ var require_package5 = __commonJS({
         "cloud"
       ],
       main: "build/src/index.js",
-      scripts: {
-        clean: "gts clean",
-        compile: "tsc -p . && cp -r protos build/",
-        "compile-protos": "compileProtos src",
-        docs: "jsdoc -c .jsdoc.js",
-        fix: "gts fix",
-        lint: "gts check",
-        prepare: "npm run compile",
-        prelint: "cd samples; npm link ../; npm i",
-        postpack: "minifyProtoJson",
-        "samples-test": "cd samples/ && npm link ../ && npm i && npm test",
-        "system-test": "node ../../bin/run-test.cjs --config ../../.mocharc.cjs --no-parallel build/system-test",
-        test: "node ../../bin/run-test.cjs --config ../../.mocharc.cjs build/test"
-      },
       dependencies: {
         "google-gax": "^6.5.0"
       },
@@ -106523,6 +106509,18 @@ var require_package5 = __commonJS({
       homepage: "https://github.com/googleapis/google-cloud-node/tree/main/packages/google-cloud-secretmanager",
       overrides: {
         "@sinonjs/fake-timers": "15.2.1"
+      },
+      scripts: {
+        clean: "gts clean",
+        compile: "tsc -p . && cp -r protos build/",
+        "compile-protos": "compileProtos src",
+        docs: "jsdoc -c .jsdoc.js",
+        fix: "gts fix",
+        lint: "gts check",
+        prelint: "cd samples; npm link ../; npm i",
+        "samples-test": "cd samples/ && npm link ../ && npm i && npm test",
+        "system-test": "node ../../bin/run-test.cjs --config ../../.mocharc.cjs --no-parallel build/system-test",
+        test: "node ../../bin/run-test.cjs --config ../../.mocharc.cjs build/test"
       }
     };
   }
@@ -111584,6 +111582,109 @@ var require_protos2 = __commonJS({
                 };
                 return SecretPayload;
               })();
+              v1.CloudSqlSingleUserCredentials = (function() {
+                function CloudSqlSingleUserCredentials(properties) {
+                  if (properties) {
+                    for (var keys = Object.keys(properties), i2 = 0; i2 < keys.length; ++i2) if (properties[keys[i2]] != null && keys[i2] !== "__proto__") this[keys[i2]] = properties[keys[i2]];
+                  }
+                }
+                CloudSqlSingleUserCredentials.prototype.instanceId = "";
+                CloudSqlSingleUserCredentials.prototype.username = "";
+                CloudSqlSingleUserCredentials.prototype.password = "";
+                CloudSqlSingleUserCredentials.create = function create(properties) {
+                  return new CloudSqlSingleUserCredentials(properties);
+                };
+                CloudSqlSingleUserCredentials.encode = function encode(message, writer) {
+                  if (!writer) writer = $Writer.create();
+                  if (message.instanceId != null && Object.hasOwnProperty.call(message, "instanceId")) writer.uint32(10).string(message.instanceId);
+                  if (message.username != null && Object.hasOwnProperty.call(message, "username")) writer.uint32(18).string(message.username);
+                  if (message.password != null && Object.hasOwnProperty.call(message, "password")) writer.uint32(26).string(message.password);
+                  return writer;
+                };
+                CloudSqlSingleUserCredentials.encodeDelimited = function encodeDelimited(message, writer) {
+                  return this.encode(message, writer).ldelim();
+                };
+                CloudSqlSingleUserCredentials.decode = function decode(reader, length, error2, long) {
+                  if (!(reader instanceof $Reader)) reader = $Reader.create(reader);
+                  if (long === void 0) long = 0;
+                  if (long > $Reader.recursionLimit) throw Error("maximum nesting depth exceeded");
+                  var end = length === void 0 ? reader.len : reader.pos + length, message = new $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials();
+                  while (reader.pos < end) {
+                    var tag = reader.uint32();
+                    if (tag === error2) break;
+                    switch (tag >>> 3) {
+                      case 1: {
+                        message.instanceId = reader.string();
+                        break;
+                      }
+                      case 2: {
+                        message.username = reader.string();
+                        break;
+                      }
+                      case 3: {
+                        message.password = reader.string();
+                        break;
+                      }
+                      default:
+                        reader.skipType(tag & 7, long);
+                        break;
+                    }
+                  }
+                  return message;
+                };
+                CloudSqlSingleUserCredentials.decodeDelimited = function decodeDelimited(reader) {
+                  if (!(reader instanceof $Reader)) reader = new $Reader(reader);
+                  return this.decode(reader, reader.uint32());
+                };
+                CloudSqlSingleUserCredentials.verify = function verify(message, long) {
+                  if (typeof message !== "object" || message === null) return "object expected";
+                  if (long === void 0) long = 0;
+                  if (long > $util.recursionLimit) return "maximum nesting depth exceeded";
+                  if (message.instanceId != null && message.hasOwnProperty("instanceId")) {
+                    if (!$util.isString(message.instanceId)) return "instanceId: string expected";
+                  }
+                  if (message.username != null && message.hasOwnProperty("username")) {
+                    if (!$util.isString(message.username)) return "username: string expected";
+                  }
+                  if (message.password != null && message.hasOwnProperty("password")) {
+                    if (!$util.isString(message.password)) return "password: string expected";
+                  }
+                  return null;
+                };
+                CloudSqlSingleUserCredentials.fromObject = function fromObject(object, long) {
+                  if (object instanceof $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials) return object;
+                  if (long === void 0) long = 0;
+                  if (long > $util.recursionLimit) throw Error("maximum nesting depth exceeded");
+                  var message = new $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials();
+                  if (object.instanceId != null) message.instanceId = String(object.instanceId);
+                  if (object.username != null) message.username = String(object.username);
+                  if (object.password != null) message.password = String(object.password);
+                  return message;
+                };
+                CloudSqlSingleUserCredentials.toObject = function toObject(message, options) {
+                  if (!options) options = {};
+                  var object = {};
+                  if (options.defaults) {
+                    object.instanceId = "";
+                    object.username = "";
+                    object.password = "";
+                  }
+                  if (message.instanceId != null && message.hasOwnProperty("instanceId")) object.instanceId = message.instanceId;
+                  if (message.username != null && message.hasOwnProperty("username")) object.username = message.username;
+                  if (message.password != null && message.hasOwnProperty("password")) object.password = message.password;
+                  return object;
+                };
+                CloudSqlSingleUserCredentials.prototype.toJSON = function toJSON() {
+                  return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+                };
+                CloudSqlSingleUserCredentials.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+                  if (typeUrlPrefix === void 0) {
+                    typeUrlPrefix = "type.googleapis.com";
+                  }
+                  return typeUrlPrefix + "/google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials";
+                };
+                return CloudSqlSingleUserCredentials;
+              })();
               v1.SecretManagerService = (function() {
                 function SecretManagerService(rpcImpl, requestDelimited, responseDelimited) {
                   $protobuf.rpc.Service.call(this, rpcImpl, requestDelimited, responseDelimited);
@@ -112090,14 +112191,14 @@ var require_protos2 = __commonJS({
                 EnableManagedRotationRequest.prototype.parent = "";
                 EnableManagedRotationRequest.prototype.cloudSqlSingleUserCredentials = null;
                 var $oneOfFields;
-                Object.defineProperty(EnableManagedRotationRequest.prototype, "credentials", { get: $util.oneOfGetter($oneOfFields = ["cloudSqlSingleUserCredentials"]), set: $util.oneOfSetter($oneOfFields) });
+                Object.defineProperty(EnableManagedRotationRequest.prototype, "credential", { get: $util.oneOfGetter($oneOfFields = ["cloudSqlSingleUserCredentials"]), set: $util.oneOfSetter($oneOfFields) });
                 EnableManagedRotationRequest.create = function create(properties) {
                   return new EnableManagedRotationRequest(properties);
                 };
                 EnableManagedRotationRequest.encode = function encode(message, writer) {
                   if (!writer) writer = $Writer.create();
                   if (message.parent != null && Object.hasOwnProperty.call(message, "parent")) writer.uint32(10).string(message.parent);
-                  if (message.cloudSqlSingleUserCredentials != null && Object.hasOwnProperty.call(message, "cloudSqlSingleUserCredentials")) $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.encode(message.cloudSqlSingleUserCredentials, writer.uint32(18).fork()).ldelim();
+                  if (message.cloudSqlSingleUserCredentials != null && Object.hasOwnProperty.call(message, "cloudSqlSingleUserCredentials")) $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.encode(message.cloudSqlSingleUserCredentials, writer.uint32(18).fork()).ldelim();
                   return writer;
                 };
                 EnableManagedRotationRequest.encodeDelimited = function encodeDelimited(message, writer) {
@@ -112117,7 +112218,7 @@ var require_protos2 = __commonJS({
                         break;
                       }
                       case 2: {
-                        message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.decode(reader, reader.uint32(), void 0, long + 1);
+                        message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.decode(reader, reader.uint32(), void 0, long + 1);
                         break;
                       }
                       default:
@@ -112140,9 +112241,9 @@ var require_protos2 = __commonJS({
                     if (!$util.isString(message.parent)) return "parent: string expected";
                   }
                   if (message.cloudSqlSingleUserCredentials != null && message.hasOwnProperty("cloudSqlSingleUserCredentials")) {
-                    properties.credentials = 1;
+                    properties.credential = 1;
                     {
-                      var error2 = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.verify(message.cloudSqlSingleUserCredentials, long + 1);
+                      var error2 = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.verify(message.cloudSqlSingleUserCredentials, long + 1);
                       if (error2) return "cloudSqlSingleUserCredentials." + error2;
                     }
                   }
@@ -112156,7 +112257,7 @@ var require_protos2 = __commonJS({
                   if (object.parent != null) message.parent = String(object.parent);
                   if (object.cloudSqlSingleUserCredentials != null) {
                     if (typeof object.cloudSqlSingleUserCredentials !== "object") throw TypeError(".google.cloud.secretmanager.v1.EnableManagedRotationRequest.cloudSqlSingleUserCredentials: object expected");
-                    message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.fromObject(object.cloudSqlSingleUserCredentials, long + 1);
+                    message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.fromObject(object.cloudSqlSingleUserCredentials, long + 1);
                   }
                   return message;
                 };
@@ -112166,8 +112267,8 @@ var require_protos2 = __commonJS({
                   if (options.defaults) object.parent = "";
                   if (message.parent != null && message.hasOwnProperty("parent")) object.parent = message.parent;
                   if (message.cloudSqlSingleUserCredentials != null && message.hasOwnProperty("cloudSqlSingleUserCredentials")) {
-                    object.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.toObject(message.cloudSqlSingleUserCredentials, options);
-                    if (options.oneofs) object.credentials = "cloudSqlSingleUserCredentials";
+                    object.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.toObject(message.cloudSqlSingleUserCredentials, options);
+                    if (options.oneofs) object.credential = "cloudSqlSingleUserCredentials";
                   }
                   return object;
                 };
@@ -112180,109 +112281,6 @@ var require_protos2 = __commonJS({
                   }
                   return typeUrlPrefix + "/google.cloud.secretmanager.v1.EnableManagedRotationRequest";
                 };
-                EnableManagedRotationRequest.CloudSQLSingleUserCredentials = (function() {
-                  function CloudSQLSingleUserCredentials(properties) {
-                    if (properties) {
-                      for (var keys = Object.keys(properties), i2 = 0; i2 < keys.length; ++i2) if (properties[keys[i2]] != null && keys[i2] !== "__proto__") this[keys[i2]] = properties[keys[i2]];
-                    }
-                  }
-                  CloudSQLSingleUserCredentials.prototype.instanceId = "";
-                  CloudSQLSingleUserCredentials.prototype.username = "";
-                  CloudSQLSingleUserCredentials.prototype.password = "";
-                  CloudSQLSingleUserCredentials.create = function create(properties) {
-                    return new CloudSQLSingleUserCredentials(properties);
-                  };
-                  CloudSQLSingleUserCredentials.encode = function encode(message, writer) {
-                    if (!writer) writer = $Writer.create();
-                    if (message.instanceId != null && Object.hasOwnProperty.call(message, "instanceId")) writer.uint32(10).string(message.instanceId);
-                    if (message.username != null && Object.hasOwnProperty.call(message, "username")) writer.uint32(18).string(message.username);
-                    if (message.password != null && Object.hasOwnProperty.call(message, "password")) writer.uint32(26).string(message.password);
-                    return writer;
-                  };
-                  CloudSQLSingleUserCredentials.encodeDelimited = function encodeDelimited(message, writer) {
-                    return this.encode(message, writer).ldelim();
-                  };
-                  CloudSQLSingleUserCredentials.decode = function decode(reader, length, error2, long) {
-                    if (!(reader instanceof $Reader)) reader = $Reader.create(reader);
-                    if (long === void 0) long = 0;
-                    if (long > $Reader.recursionLimit) throw Error("maximum nesting depth exceeded");
-                    var end = length === void 0 ? reader.len : reader.pos + length, message = new $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials();
-                    while (reader.pos < end) {
-                      var tag = reader.uint32();
-                      if (tag === error2) break;
-                      switch (tag >>> 3) {
-                        case 1: {
-                          message.instanceId = reader.string();
-                          break;
-                        }
-                        case 2: {
-                          message.username = reader.string();
-                          break;
-                        }
-                        case 3: {
-                          message.password = reader.string();
-                          break;
-                        }
-                        default:
-                          reader.skipType(tag & 7, long);
-                          break;
-                      }
-                    }
-                    return message;
-                  };
-                  CloudSQLSingleUserCredentials.decodeDelimited = function decodeDelimited(reader) {
-                    if (!(reader instanceof $Reader)) reader = new $Reader(reader);
-                    return this.decode(reader, reader.uint32());
-                  };
-                  CloudSQLSingleUserCredentials.verify = function verify(message, long) {
-                    if (typeof message !== "object" || message === null) return "object expected";
-                    if (long === void 0) long = 0;
-                    if (long > $util.recursionLimit) return "maximum nesting depth exceeded";
-                    if (message.instanceId != null && message.hasOwnProperty("instanceId")) {
-                      if (!$util.isString(message.instanceId)) return "instanceId: string expected";
-                    }
-                    if (message.username != null && message.hasOwnProperty("username")) {
-                      if (!$util.isString(message.username)) return "username: string expected";
-                    }
-                    if (message.password != null && message.hasOwnProperty("password")) {
-                      if (!$util.isString(message.password)) return "password: string expected";
-                    }
-                    return null;
-                  };
-                  CloudSQLSingleUserCredentials.fromObject = function fromObject(object, long) {
-                    if (object instanceof $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials) return object;
-                    if (long === void 0) long = 0;
-                    if (long > $util.recursionLimit) throw Error("maximum nesting depth exceeded");
-                    var message = new $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials();
-                    if (object.instanceId != null) message.instanceId = String(object.instanceId);
-                    if (object.username != null) message.username = String(object.username);
-                    if (object.password != null) message.password = String(object.password);
-                    return message;
-                  };
-                  CloudSQLSingleUserCredentials.toObject = function toObject(message, options) {
-                    if (!options) options = {};
-                    var object = {};
-                    if (options.defaults) {
-                      object.instanceId = "";
-                      object.username = "";
-                      object.password = "";
-                    }
-                    if (message.instanceId != null && message.hasOwnProperty("instanceId")) object.instanceId = message.instanceId;
-                    if (message.username != null && message.hasOwnProperty("username")) object.username = message.username;
-                    if (message.password != null && message.hasOwnProperty("password")) object.password = message.password;
-                    return object;
-                  };
-                  CloudSQLSingleUserCredentials.prototype.toJSON = function toJSON() {
-                    return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
-                  };
-                  CloudSQLSingleUserCredentials.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
-                    if (typeUrlPrefix === void 0) {
-                      typeUrlPrefix = "type.googleapis.com";
-                    }
-                    return typeUrlPrefix + "/google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials";
-                  };
-                  return CloudSQLSingleUserCredentials;
-                })();
                 return EnableManagedRotationRequest;
               })();
               v1.RotateSecretRequest = (function() {

@@ -31187,7 +31187,7 @@ var require_package2 = __commonJS({
   "node_modules/google-auth-library/package.json"(exports2, module2) {
     module2.exports = {
       name: "google-auth-library",
-      version: "11.3.3",
+      version: "11.3.4",
       author: "Google Inc.",
       description: "Google APIs Authentication Client Library for Node.js",
       engines: {
@@ -33249,6 +33249,7 @@ var require_tokenHandler = __commonJS({
           const credentials = await (0, getCredentials_1.getCredentials)(this.tokenOptions.keyFile);
           this.tokenOptions.key = credentials.privateKey;
           this.tokenOptions.email = credentials.clientEmail;
+          this.tokenOptions.iss = this.tokenOptions.iss || credentials.clientEmail;
         }
       }
       /**
@@ -33269,10 +33270,9 @@ var require_tokenHandler = __commonJS({
        * @returns true if the token has expired, false otherwise.
        */
       hasExpired() {
-        const now = (/* @__PURE__ */ new Date()).getTime();
         if (this.token && this.tokenExpiresAt) {
-          const now2 = (/* @__PURE__ */ new Date()).getTime();
-          return now2 >= this.tokenExpiresAt;
+          const now = (/* @__PURE__ */ new Date()).getTime();
+          return now >= this.tokenExpiresAt;
         }
         return true;
       }
@@ -38272,6 +38272,31 @@ var require_protos = __commonJS({
                             }
                           }
                         },
+                        CloudSqlSingleUserCredentials: {
+                          fields: {
+                            instanceId: {
+                              type: "string",
+                              id: 1,
+                              options: {
+                                "(google.api.field_behavior)": "REQUIRED"
+                              }
+                            },
+                            username: {
+                              type: "string",
+                              id: 2,
+                              options: {
+                                "(google.api.field_behavior)": "REQUIRED"
+                              }
+                            },
+                            password: {
+                              type: "string",
+                              id: 3,
+                              options: {
+                                "(google.api.field_behavior)": "OPTIONAL"
+                              }
+                            }
+                          }
+                        },
                         SecretManagerService: {
                           options: {
                             "(google.api.default_host)": "secretmanager.googleapis.com",
@@ -38779,7 +38804,7 @@ var require_protos = __commonJS({
                         },
                         EnableManagedRotationRequest: {
                           oneofs: {
-                            credentials: {
+                            credential: {
                               oneof: [
                                 "cloudSqlSingleUserCredentials"
                               ]
@@ -38795,35 +38820,8 @@ var require_protos = __commonJS({
                               }
                             },
                             cloudSqlSingleUserCredentials: {
-                              type: "CloudSQLSingleUserCredentials",
+                              type: "CloudSqlSingleUserCredentials",
                               id: 2
-                            }
-                          },
-                          nested: {
-                            CloudSQLSingleUserCredentials: {
-                              fields: {
-                                instanceId: {
-                                  type: "string",
-                                  id: 1,
-                                  options: {
-                                    "(google.api.field_behavior)": "REQUIRED"
-                                  }
-                                },
-                                username: {
-                                  type: "string",
-                                  id: 2,
-                                  options: {
-                                    "(google.api.field_behavior)": "REQUIRED"
-                                  }
-                                },
-                                password: {
-                                  type: "string",
-                                  id: 3,
-                                  options: {
-                                    "(google.api.field_behavior)": "OPTIONAL"
-                                  }
-                                }
-                              }
                             }
                           }
                         },
@@ -41957,8 +41955,8 @@ var require_protos = __commonJS({
                         retention: "RETENTION_SOURCE",
                         targets: "TARGET_TYPE_FILE",
                         "feature_support.edition_introduced": "EDITION_2024",
-                        "edition_defaults.edition": "EDITION_2024",
-                        "edition_defaults.value": "EXPORT_TOP_LEVEL"
+                        "edition_defaults.edition": "EDITION_2026",
+                        "edition_defaults.value": "STRICT"
                       }
                     },
                     enforceProtoLimits: {
@@ -106441,10 +106439,12 @@ var require_secret_manager_service_client_config = __commonJS({
               retry_params_name: "default"
             },
             EnableManagedRotation: {
+              timeout_millis: 6e4,
               retry_codes_name: "non_idempotent",
               retry_params_name: "default"
             },
             RotateSecret: {
+              timeout_millis: 6e4,
               retry_codes_name: "non_idempotent",
               retry_params_name: "default"
             }
@@ -106460,7 +106460,7 @@ var require_package5 = __commonJS({
   "node_modules/@google-cloud/secret-manager/package.json"(exports2, module2) {
     module2.exports = {
       name: "@google-cloud/secret-manager",
-      version: "7.2.0",
+      version: "8.0.0",
       description: "Secrets client for Node.js",
       repository: {
         type: "git",
@@ -106484,20 +106484,6 @@ var require_package5 = __commonJS({
         "cloud"
       ],
       main: "build/src/index.js",
-      scripts: {
-        clean: "gts clean",
-        compile: "tsc -p . && cp -r protos build/",
-        "compile-protos": "compileProtos src",
-        docs: "jsdoc -c .jsdoc.js",
-        fix: "gts fix",
-        lint: "gts check",
-        prepare: "npm run compile",
-        prelint: "cd samples; npm link ../; npm i",
-        postpack: "minifyProtoJson",
-        "samples-test": "cd samples/ && npm link ../ && npm i && npm test",
-        "system-test": "node ../../bin/run-test.cjs --config ../../.mocharc.cjs --no-parallel build/system-test",
-        test: "node ../../bin/run-test.cjs --config ../../.mocharc.cjs build/test"
-      },
       dependencies: {
         "google-gax": "^6.5.0"
       },
@@ -106523,6 +106509,18 @@ var require_package5 = __commonJS({
       homepage: "https://github.com/googleapis/google-cloud-node/tree/main/packages/google-cloud-secretmanager",
       overrides: {
         "@sinonjs/fake-timers": "15.2.1"
+      },
+      scripts: {
+        clean: "gts clean",
+        compile: "tsc -p . && cp -r protos build/",
+        "compile-protos": "compileProtos src",
+        docs: "jsdoc -c .jsdoc.js",
+        fix: "gts fix",
+        lint: "gts check",
+        prelint: "cd samples; npm link ../; npm i",
+        "samples-test": "cd samples/ && npm link ../ && npm i && npm test",
+        "system-test": "node ../../bin/run-test.cjs --config ../../.mocharc.cjs --no-parallel build/system-test",
+        test: "node ../../bin/run-test.cjs --config ../../.mocharc.cjs build/test"
       }
     };
   }
@@ -111584,6 +111582,109 @@ var require_protos2 = __commonJS({
                 };
                 return SecretPayload;
               })();
+              v1.CloudSqlSingleUserCredentials = (function() {
+                function CloudSqlSingleUserCredentials(properties) {
+                  if (properties) {
+                    for (var keys = Object.keys(properties), i6 = 0; i6 < keys.length; ++i6) if (properties[keys[i6]] != null && keys[i6] !== "__proto__") this[keys[i6]] = properties[keys[i6]];
+                  }
+                }
+                CloudSqlSingleUserCredentials.prototype.instanceId = "";
+                CloudSqlSingleUserCredentials.prototype.username = "";
+                CloudSqlSingleUserCredentials.prototype.password = "";
+                CloudSqlSingleUserCredentials.create = function create(properties) {
+                  return new CloudSqlSingleUserCredentials(properties);
+                };
+                CloudSqlSingleUserCredentials.encode = function encode(message, writer) {
+                  if (!writer) writer = $Writer.create();
+                  if (message.instanceId != null && Object.hasOwnProperty.call(message, "instanceId")) writer.uint32(10).string(message.instanceId);
+                  if (message.username != null && Object.hasOwnProperty.call(message, "username")) writer.uint32(18).string(message.username);
+                  if (message.password != null && Object.hasOwnProperty.call(message, "password")) writer.uint32(26).string(message.password);
+                  return writer;
+                };
+                CloudSqlSingleUserCredentials.encodeDelimited = function encodeDelimited(message, writer) {
+                  return this.encode(message, writer).ldelim();
+                };
+                CloudSqlSingleUserCredentials.decode = function decode(reader, length, error3, long) {
+                  if (!(reader instanceof $Reader)) reader = $Reader.create(reader);
+                  if (long === void 0) long = 0;
+                  if (long > $Reader.recursionLimit) throw Error("maximum nesting depth exceeded");
+                  var end2 = length === void 0 ? reader.len : reader.pos + length, message = new $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials();
+                  while (reader.pos < end2) {
+                    var tag = reader.uint32();
+                    if (tag === error3) break;
+                    switch (tag >>> 3) {
+                      case 1: {
+                        message.instanceId = reader.string();
+                        break;
+                      }
+                      case 2: {
+                        message.username = reader.string();
+                        break;
+                      }
+                      case 3: {
+                        message.password = reader.string();
+                        break;
+                      }
+                      default:
+                        reader.skipType(tag & 7, long);
+                        break;
+                    }
+                  }
+                  return message;
+                };
+                CloudSqlSingleUserCredentials.decodeDelimited = function decodeDelimited(reader) {
+                  if (!(reader instanceof $Reader)) reader = new $Reader(reader);
+                  return this.decode(reader, reader.uint32());
+                };
+                CloudSqlSingleUserCredentials.verify = function verify(message, long) {
+                  if (typeof message !== "object" || message === null) return "object expected";
+                  if (long === void 0) long = 0;
+                  if (long > $util.recursionLimit) return "maximum nesting depth exceeded";
+                  if (message.instanceId != null && message.hasOwnProperty("instanceId")) {
+                    if (!$util.isString(message.instanceId)) return "instanceId: string expected";
+                  }
+                  if (message.username != null && message.hasOwnProperty("username")) {
+                    if (!$util.isString(message.username)) return "username: string expected";
+                  }
+                  if (message.password != null && message.hasOwnProperty("password")) {
+                    if (!$util.isString(message.password)) return "password: string expected";
+                  }
+                  return null;
+                };
+                CloudSqlSingleUserCredentials.fromObject = function fromObject(object, long) {
+                  if (object instanceof $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials) return object;
+                  if (long === void 0) long = 0;
+                  if (long > $util.recursionLimit) throw Error("maximum nesting depth exceeded");
+                  var message = new $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials();
+                  if (object.instanceId != null) message.instanceId = String(object.instanceId);
+                  if (object.username != null) message.username = String(object.username);
+                  if (object.password != null) message.password = String(object.password);
+                  return message;
+                };
+                CloudSqlSingleUserCredentials.toObject = function toObject(message, options) {
+                  if (!options) options = {};
+                  var object = {};
+                  if (options.defaults) {
+                    object.instanceId = "";
+                    object.username = "";
+                    object.password = "";
+                  }
+                  if (message.instanceId != null && message.hasOwnProperty("instanceId")) object.instanceId = message.instanceId;
+                  if (message.username != null && message.hasOwnProperty("username")) object.username = message.username;
+                  if (message.password != null && message.hasOwnProperty("password")) object.password = message.password;
+                  return object;
+                };
+                CloudSqlSingleUserCredentials.prototype.toJSON = function toJSON() {
+                  return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+                };
+                CloudSqlSingleUserCredentials.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+                  if (typeUrlPrefix === void 0) {
+                    typeUrlPrefix = "type.googleapis.com";
+                  }
+                  return typeUrlPrefix + "/google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials";
+                };
+                return CloudSqlSingleUserCredentials;
+              })();
               v1.SecretManagerService = (function() {
                 function SecretManagerService(rpcImpl, requestDelimited, responseDelimited) {
                   $protobuf.rpc.Service.call(this, rpcImpl, requestDelimited, responseDelimited);
@@ -112090,14 +112191,14 @@ var require_protos2 = __commonJS({
                 EnableManagedRotationRequest.prototype.parent = "";
                 EnableManagedRotationRequest.prototype.cloudSqlSingleUserCredentials = null;
                 var $oneOfFields;
-                Object.defineProperty(EnableManagedRotationRequest.prototype, "credentials", { get: $util.oneOfGetter($oneOfFields = ["cloudSqlSingleUserCredentials"]), set: $util.oneOfSetter($oneOfFields) });
+                Object.defineProperty(EnableManagedRotationRequest.prototype, "credential", { get: $util.oneOfGetter($oneOfFields = ["cloudSqlSingleUserCredentials"]), set: $util.oneOfSetter($oneOfFields) });
                 EnableManagedRotationRequest.create = function create(properties) {
                   return new EnableManagedRotationRequest(properties);
                 };
                 EnableManagedRotationRequest.encode = function encode(message, writer) {
                   if (!writer) writer = $Writer.create();
                   if (message.parent != null && Object.hasOwnProperty.call(message, "parent")) writer.uint32(10).string(message.parent);
-                  if (message.cloudSqlSingleUserCredentials != null && Object.hasOwnProperty.call(message, "cloudSqlSingleUserCredentials")) $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.encode(message.cloudSqlSingleUserCredentials, writer.uint32(18).fork()).ldelim();
+                  if (message.cloudSqlSingleUserCredentials != null && Object.hasOwnProperty.call(message, "cloudSqlSingleUserCredentials")) $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.encode(message.cloudSqlSingleUserCredentials, writer.uint32(18).fork()).ldelim();
                   return writer;
                 };
                 EnableManagedRotationRequest.encodeDelimited = function encodeDelimited(message, writer) {
@@ -112117,7 +112218,7 @@ var require_protos2 = __commonJS({
                         break;
                       }
                       case 2: {
-                        message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.decode(reader, reader.uint32(), void 0, long + 1);
+                        message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.decode(reader, reader.uint32(), void 0, long + 1);
                         break;
                       }
                       default:
@@ -112140,9 +112241,9 @@ var require_protos2 = __commonJS({
                     if (!$util.isString(message.parent)) return "parent: string expected";
                   }
                   if (message.cloudSqlSingleUserCredentials != null && message.hasOwnProperty("cloudSqlSingleUserCredentials")) {
-                    properties.credentials = 1;
+                    properties.credential = 1;
                     {
-                      var error3 = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.verify(message.cloudSqlSingleUserCredentials, long + 1);
+                      var error3 = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.verify(message.cloudSqlSingleUserCredentials, long + 1);
                       if (error3) return "cloudSqlSingleUserCredentials." + error3;
                     }
                   }
@@ -112156,7 +112257,7 @@ var require_protos2 = __commonJS({
                   if (object.parent != null) message.parent = String(object.parent);
                   if (object.cloudSqlSingleUserCredentials != null) {
                     if (typeof object.cloudSqlSingleUserCredentials !== "object") throw TypeError(".google.cloud.secretmanager.v1.EnableManagedRotationRequest.cloudSqlSingleUserCredentials: object expected");
-                    message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.fromObject(object.cloudSqlSingleUserCredentials, long + 1);
+                    message.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.fromObject(object.cloudSqlSingleUserCredentials, long + 1);
                   }
                   return message;
                 };
@@ -112166,8 +112267,8 @@ var require_protos2 = __commonJS({
                   if (options.defaults) object.parent = "";
                   if (message.parent != null && message.hasOwnProperty("parent")) object.parent = message.parent;
                   if (message.cloudSqlSingleUserCredentials != null && message.hasOwnProperty("cloudSqlSingleUserCredentials")) {
-                    object.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials.toObject(message.cloudSqlSingleUserCredentials, options);
-                    if (options.oneofs) object.credentials = "cloudSqlSingleUserCredentials";
+                    object.cloudSqlSingleUserCredentials = $root.google.cloud.secretmanager.v1.CloudSqlSingleUserCredentials.toObject(message.cloudSqlSingleUserCredentials, options);
+                    if (options.oneofs) object.credential = "cloudSqlSingleUserCredentials";
                   }
                   return object;
                 };
@@ -112180,109 +112281,6 @@ var require_protos2 = __commonJS({
                   }
                   return typeUrlPrefix + "/google.cloud.secretmanager.v1.EnableManagedRotationRequest";
                 };
-                EnableManagedRotationRequest.CloudSQLSingleUserCredentials = (function() {
-                  function CloudSQLSingleUserCredentials(properties) {
-                    if (properties) {
-                      for (var keys = Object.keys(properties), i6 = 0; i6 < keys.length; ++i6) if (properties[keys[i6]] != null && keys[i6] !== "__proto__") this[keys[i6]] = properties[keys[i6]];
-                    }
-                  }
-                  CloudSQLSingleUserCredentials.prototype.instanceId = "";
-                  CloudSQLSingleUserCredentials.prototype.username = "";
-                  CloudSQLSingleUserCredentials.prototype.password = "";
-                  CloudSQLSingleUserCredentials.create = function create(properties) {
-                    return new CloudSQLSingleUserCredentials(properties);
-                  };
-                  CloudSQLSingleUserCredentials.encode = function encode(message, writer) {
-                    if (!writer) writer = $Writer.create();
-                    if (message.instanceId != null && Object.hasOwnProperty.call(message, "instanceId")) writer.uint32(10).string(message.instanceId);
-                    if (message.username != null && Object.hasOwnProperty.call(message, "username")) writer.uint32(18).string(message.username);
-                    if (message.password != null && Object.hasOwnProperty.call(message, "password")) writer.uint32(26).string(message.password);
-                    return writer;
-                  };
-                  CloudSQLSingleUserCredentials.encodeDelimited = function encodeDelimited(message, writer) {
-                    return this.encode(message, writer).ldelim();
-                  };
-                  CloudSQLSingleUserCredentials.decode = function decode(reader, length, error3, long) {
-                    if (!(reader instanceof $Reader)) reader = $Reader.create(reader);
-                    if (long === void 0) long = 0;
-                    if (long > $Reader.recursionLimit) throw Error("maximum nesting depth exceeded");
-                    var end2 = length === void 0 ? reader.len : reader.pos + length, message = new $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials();
-                    while (reader.pos < end2) {
-                      var tag = reader.uint32();
-                      if (tag === error3) break;
-                      switch (tag >>> 3) {
-                        case 1: {
-                          message.instanceId = reader.string();
-                          break;
-                        }
-                        case 2: {
-                          message.username = reader.string();
-                          break;
-                        }
-                        case 3: {
-                          message.password = reader.string();
-                          break;
-                        }
-                        default:
-                          reader.skipType(tag & 7, long);
-                          break;
-                      }
-                    }
-                    return message;
-                  };
-                  CloudSQLSingleUserCredentials.decodeDelimited = function decodeDelimited(reader) {
-                    if (!(reader instanceof $Reader)) reader = new $Reader(reader);
-                    return this.decode(reader, reader.uint32());
-                  };
-                  CloudSQLSingleUserCredentials.verify = function verify(message, long) {
-                    if (typeof message !== "object" || message === null) return "object expected";
-                    if (long === void 0) long = 0;
-                    if (long > $util.recursionLimit) return "maximum nesting depth exceeded";
-                    if (message.instanceId != null && message.hasOwnProperty("instanceId")) {
-                      if (!$util.isString(message.instanceId)) return "instanceId: string expected";
-                    }
-                    if (message.username != null && message.hasOwnProperty("username")) {
-                      if (!$util.isString(message.username)) return "username: string expected";
-                    }
-                    if (message.password != null && message.hasOwnProperty("password")) {
-                      if (!$util.isString(message.password)) return "password: string expected";
-                    }
-                    return null;
-                  };
-                  CloudSQLSingleUserCredentials.fromObject = function fromObject(object, long) {
-                    if (object instanceof $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials) return object;
-                    if (long === void 0) long = 0;
-                    if (long > $util.recursionLimit) throw Error("maximum nesting depth exceeded");
-                    var message = new $root.google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials();
-                    if (object.instanceId != null) message.instanceId = String(object.instanceId);
-                    if (object.username != null) message.username = String(object.username);
-                    if (object.password != null) message.password = String(object.password);
-                    return message;
-                  };
-                  CloudSQLSingleUserCredentials.toObject = function toObject(message, options) {
-                    if (!options) options = {};
-                    var object = {};
-                    if (options.defaults) {
-                      object.instanceId = "";
-                      object.username = "";
-                      object.password = "";
-                    }
-                    if (message.instanceId != null && message.hasOwnProperty("instanceId")) object.instanceId = message.instanceId;
-                    if (message.username != null && message.hasOwnProperty("username")) object.username = message.username;
-                    if (message.password != null && message.hasOwnProperty("password")) object.password = message.password;
-                    return object;
-                  };
-                  CloudSQLSingleUserCredentials.prototype.toJSON = function toJSON() {
-                    return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
-                  };
-                  CloudSQLSingleUserCredentials.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
-                    if (typeUrlPrefix === void 0) {
-                      typeUrlPrefix = "type.googleapis.com";
-                    }
-                    return typeUrlPrefix + "/google.cloud.secretmanager.v1.EnableManagedRotationRequest.CloudSQLSingleUserCredentials";
-                  };
-                  return CloudSQLSingleUserCredentials;
-                })();
                 return EnableManagedRotationRequest;
               })();
               v1.RotateSecretRequest = (function() {
@@ -178041,286 +178039,203 @@ var init_setCredentialFeature = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js
-var import_node_stream3, isStreamingPayload;
-var init_isStreamingPayload = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js"() {
-    import_node_stream3 = require("node:stream");
-    isStreamingPayload = (request) => request?.body instanceof import_node_stream3.Readable || typeof ReadableStream !== "undefined" && request?.body instanceof ReadableStream;
+// node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js
+function setFeature(context2, feature, value) {
+  if (!context2.__aws_sdk_context) {
+    context2.__aws_sdk_context = {
+      features: {}
+    };
+  } else if (!context2.__aws_sdk_context.features) {
+    context2.__aws_sdk_context.features = {};
+  }
+  context2.__aws_sdk_context.features[feature] = value;
+}
+var init_setFeature = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js"() {
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/client/middleware-stack/MiddlewareStack.js
-var getAllAliases, getMiddlewareNameWithAliases, constructStack, stepWeights, priorityWeights;
-var init_MiddlewareStack = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/middleware-stack/MiddlewareStack.js"() {
-    getAllAliases = (name, aliases) => {
-      const _aliases = [];
-      if (name) {
-        _aliases.push(name);
+// node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js
+function setTokenFeature(token, feature, value) {
+  if (!token.$source) {
+    token.$source = {};
+  }
+  token.$source[feature] = value;
+  return token;
+}
+var init_setTokenFeature = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js"() {
+  }
+});
+
+// node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js
+var isDefaultSocketTimeoutEnabled, getDefaultSocketTimeout;
+var init_getDefaultSocketTimeout = __esm({
+  "node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js"() {
+    isDefaultSocketTimeoutEnabled = () => typeof process === "object" && process?.env?.AWS_ENABLE_DEFAULT_SOCKET_TIMEOUT_2026 === "true";
+    getDefaultSocketTimeout = (requestHandler, timeoutMs) => {
+      if (!isDefaultSocketTimeoutEnabled()) {
+        return void 0;
       }
-      if (aliases) {
-        for (const alias of aliases) {
-          _aliases.push(alias);
-        }
+      if (typeof requestHandler?.handle === "function") {
+        return void 0;
       }
-      return _aliases;
+      return timeoutMs;
     };
-    getMiddlewareNameWithAliases = (name, aliases) => {
-      return `${name || "anonymous"}${aliases && aliases.length > 0 ? ` (a.k.a. ${aliases.join(",")})` : ""}`;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/is-array-buffer/is-array-buffer.js
+var isArrayBuffer;
+var init_is_array_buffer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/is-array-buffer/is-array-buffer.js"() {
+    isArrayBuffer = (arg) => typeof ArrayBuffer === "function" && arg instanceof ArrayBuffer || Object.prototype.toString.call(arg) === "[object ArrayBuffer]";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/util-buffer-from/buffer-from.js
+var fromArrayBuffer, fromString;
+var init_buffer_from = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/util-buffer-from/buffer-from.js"() {
+    init_is_array_buffer();
+    fromArrayBuffer = (input, offset = 0, length = input.byteLength - offset) => {
+      if (!isArrayBuffer(input)) {
+        throw new TypeError(`The "input" argument must be ArrayBuffer. Received type ${typeof input} (${input})`);
+      }
+      return Buffer.from(input, offset, length);
     };
-    constructStack = () => {
-      let absoluteEntries = [];
-      let relativeEntries = [];
-      let identifyOnResolve = false;
-      const entriesNameSet = /* @__PURE__ */ new Set();
-      const sort = (entries) => entries.sort((a5, b5) => stepWeights[b5.step] - stepWeights[a5.step] || priorityWeights[b5.priority || "normal"] - priorityWeights[a5.priority || "normal"]);
-      const removeByName = (toRemove) => {
-        let isRemoved = false;
-        const filterCb = (entry) => {
-          const aliases = getAllAliases(entry.name, entry.aliases);
-          if (aliases.includes(toRemove)) {
-            isRemoved = true;
-            for (const alias of aliases) {
-              entriesNameSet.delete(alias);
-            }
-            return false;
-          }
-          return true;
-        };
-        absoluteEntries = absoluteEntries.filter(filterCb);
-        relativeEntries = relativeEntries.filter(filterCb);
-        return isRemoved;
-      };
-      const removeByReference = (toRemove) => {
-        let isRemoved = false;
-        const filterCb = (entry) => {
-          if (entry.middleware === toRemove) {
-            isRemoved = true;
-            for (const alias of getAllAliases(entry.name, entry.aliases)) {
-              entriesNameSet.delete(alias);
-            }
-            return false;
-          }
-          return true;
-        };
-        absoluteEntries = absoluteEntries.filter(filterCb);
-        relativeEntries = relativeEntries.filter(filterCb);
-        return isRemoved;
-      };
-      const cloneTo = (toStack) => {
-        absoluteEntries.forEach((entry) => {
-          toStack.add(entry.middleware, { ...entry });
-        });
-        relativeEntries.forEach((entry) => {
-          toStack.addRelativeTo(entry.middleware, { ...entry });
-        });
-        toStack.identifyOnResolve?.(stack.identifyOnResolve());
-        return toStack;
-      };
-      const expandRelativeMiddlewareList = (from) => {
-        const expandedMiddlewareList = [];
-        from.before.forEach((entry) => {
-          if (entry.before.length === 0 && entry.after.length === 0) {
-            expandedMiddlewareList.push(entry);
-          } else {
-            expandedMiddlewareList.push(...expandRelativeMiddlewareList(entry));
-          }
-        });
-        expandedMiddlewareList.push(from);
-        from.after.reverse().forEach((entry) => {
-          if (entry.before.length === 0 && entry.after.length === 0) {
-            expandedMiddlewareList.push(entry);
-          } else {
-            expandedMiddlewareList.push(...expandRelativeMiddlewareList(entry));
-          }
-        });
-        return expandedMiddlewareList;
-      };
-      const getMiddlewareList = (debug2 = false) => {
-        const normalizedAbsoluteEntries = [];
-        const normalizedRelativeEntries = [];
-        const normalizedEntriesNameMap = {};
-        absoluteEntries.forEach((entry) => {
-          const normalizedEntry = {
-            ...entry,
-            before: [],
-            after: []
-          };
-          for (const alias of getAllAliases(normalizedEntry.name, normalizedEntry.aliases)) {
-            normalizedEntriesNameMap[alias] = normalizedEntry;
-          }
-          normalizedAbsoluteEntries.push(normalizedEntry);
-        });
-        relativeEntries.forEach((entry) => {
-          const normalizedEntry = {
-            ...entry,
-            before: [],
-            after: []
-          };
-          for (const alias of getAllAliases(normalizedEntry.name, normalizedEntry.aliases)) {
-            normalizedEntriesNameMap[alias] = normalizedEntry;
-          }
-          normalizedRelativeEntries.push(normalizedEntry);
-        });
-        normalizedRelativeEntries.forEach((entry) => {
-          if (entry.toMiddleware) {
-            const toMiddleware = normalizedEntriesNameMap[entry.toMiddleware];
-            if (toMiddleware === void 0) {
-              if (debug2) {
-                return;
-              }
-              throw new Error(`${entry.toMiddleware} is not found when adding ${getMiddlewareNameWithAliases(entry.name, entry.aliases)} middleware ${entry.relation} ${entry.toMiddleware}`);
-            }
-            if (entry.relation === "after") {
-              toMiddleware.after.push(entry);
-            }
-            if (entry.relation === "before") {
-              toMiddleware.before.push(entry);
-            }
-          }
-        });
-        const mainChain = sort(normalizedAbsoluteEntries).map(expandRelativeMiddlewareList).reduce((wholeList, expandedMiddlewareList) => {
-          wholeList.push(...expandedMiddlewareList);
-          return wholeList;
-        }, []);
-        return mainChain;
-      };
-      const stack = {
-        add: (middleware, options = {}) => {
-          const { name, override, aliases: _aliases } = options;
-          const entry = {
-            step: "initialize",
-            priority: "normal",
-            middleware,
-            ...options
-          };
-          const aliases = getAllAliases(name, _aliases);
-          if (aliases.length > 0) {
-            if (aliases.some((alias) => entriesNameSet.has(alias))) {
-              if (!override) {
-                throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
-              }
-              for (const alias of aliases) {
-                const toOverrideIndex = absoluteEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
-                if (toOverrideIndex === -1) {
-                  continue;
-                }
-                const toOverride = absoluteEntries[toOverrideIndex];
-                if (toOverride.step !== entry.step || entry.priority !== toOverride.priority) {
-                  throw new Error(`"${getMiddlewareNameWithAliases(toOverride.name, toOverride.aliases)}" middleware with ${toOverride.priority} priority in ${toOverride.step} step cannot be overridden by "${getMiddlewareNameWithAliases(name, _aliases)}" middleware with ${entry.priority} priority in ${entry.step} step.`);
-                }
-                absoluteEntries.splice(toOverrideIndex, 1);
-              }
-            }
-            for (const alias of aliases) {
-              entriesNameSet.add(alias);
-            }
-          }
-          absoluteEntries.push(entry);
-        },
-        addRelativeTo: (middleware, options) => {
-          const { name, override, aliases: _aliases } = options;
-          const entry = {
-            middleware,
-            ...options
-          };
-          const aliases = getAllAliases(name, _aliases);
-          if (aliases.length > 0) {
-            if (aliases.some((alias) => entriesNameSet.has(alias))) {
-              if (!override) {
-                throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
-              }
-              for (const alias of aliases) {
-                const toOverrideIndex = relativeEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
-                if (toOverrideIndex === -1) {
-                  continue;
-                }
-                const toOverride = relativeEntries[toOverrideIndex];
-                if (toOverride.toMiddleware !== entry.toMiddleware || toOverride.relation !== entry.relation) {
-                  throw new Error(`"${getMiddlewareNameWithAliases(toOverride.name, toOverride.aliases)}" middleware ${toOverride.relation} "${toOverride.toMiddleware}" middleware cannot be overridden by "${getMiddlewareNameWithAliases(name, _aliases)}" middleware ${entry.relation} "${entry.toMiddleware}" middleware.`);
-                }
-                relativeEntries.splice(toOverrideIndex, 1);
-              }
-            }
-            for (const alias of aliases) {
-              entriesNameSet.add(alias);
-            }
-          }
-          relativeEntries.push(entry);
-        },
-        clone: () => cloneTo(constructStack()),
-        use: (plugin) => {
-          plugin.applyToStack(stack);
-        },
-        remove: (toRemove) => {
-          if (typeof toRemove === "string") {
-            return removeByName(toRemove);
-          } else {
-            return removeByReference(toRemove);
-          }
-        },
-        removeByTag: (toRemove) => {
-          let isRemoved = false;
-          const filterCb = (entry) => {
-            const { tags, name, aliases: _aliases } = entry;
-            if (tags && tags.includes(toRemove)) {
-              const aliases = getAllAliases(name, _aliases);
-              for (const alias of aliases) {
-                entriesNameSet.delete(alias);
-              }
-              isRemoved = true;
-              return false;
-            }
-            return true;
-          };
-          absoluteEntries = absoluteEntries.filter(filterCb);
-          relativeEntries = relativeEntries.filter(filterCb);
-          return isRemoved;
-        },
-        concat: (from) => {
-          const cloned = cloneTo(constructStack());
-          cloned.use(from);
-          cloned.identifyOnResolve(identifyOnResolve || cloned.identifyOnResolve() || (from.identifyOnResolve?.() ?? false));
-          return cloned;
-        },
-        applyToStack: cloneTo,
-        identify: () => {
-          return getMiddlewareList(true).map((mw) => {
-            const step = mw.step ?? mw.relation + " " + mw.toMiddleware;
-            return getMiddlewareNameWithAliases(mw.name, mw.aliases) + " - " + step;
-          });
-        },
-        identifyOnResolve(toggle) {
-          if (typeof toggle === "boolean") {
-            identifyOnResolve = toggle;
-          }
-          return identifyOnResolve;
-        },
-        resolve: (handler, context2) => {
-          for (const middleware of getMiddlewareList().map((entry) => entry.middleware).reverse()) {
-            handler = middleware(handler, context2);
-          }
-          if (identifyOnResolve) {
-            console.log(stack.identify());
-          }
-          return handler;
+    fromString = (input, encoding) => {
+      if (typeof input !== "string") {
+        throw new TypeError(`The "input" argument must be of type string. Received type ${typeof input} (${input})`);
+      }
+      return encoding ? Buffer.from(input, encoding) : Buffer.from(input);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/util-base64/fromBase64.js
+var BASE64_REGEX, fromBase64;
+var init_fromBase64 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/util-base64/fromBase64.js"() {
+    init_buffer_from();
+    BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
+    fromBase64 = (input) => {
+      if (input.length * 3 % 4 !== 0) {
+        throw new TypeError(`Incorrect padding on base64 string.`);
+      }
+      if (!BASE64_REGEX.exec(input)) {
+        throw new TypeError(`Invalid base64 string.`);
+      }
+      const buffer = fromString(input, "base64");
+      return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/fromUtf8.js
+var fromUtf8;
+var init_fromUtf8 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/fromUtf8.js"() {
+    init_buffer_from();
+    fromUtf8 = (input) => {
+      const buf2 = fromString(input, "utf8");
+      return new Uint8Array(buf2.buffer, buf2.byteOffset, buf2.byteLength / Uint8Array.BYTES_PER_ELEMENT);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/util-base64/toBase64.js
+var toBase64;
+var init_toBase64 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/util-base64/toBase64.js"() {
+    init_buffer_from();
+    init_fromUtf8();
+    toBase64 = (_input) => {
+      let input;
+      if (typeof _input === "string") {
+        input = fromUtf8(_input);
+      } else {
+        input = _input;
+      }
+      if (typeof input !== "object" || typeof input.byteOffset !== "number" || typeof input.byteLength !== "number") {
+        throw new Error("@smithy/util-base64: toBase64 encoder function only accepts string | Uint8Array.");
+      }
+      return fromArrayBuffer(input.buffer, input.byteOffset, input.byteLength).toString("base64");
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/util-stream/blob/Uint8ArrayBlobAdapter.js
+function bindUint8ArrayBlobAdapter(toUtf83, fromUtf83, toBase643, fromBase642) {
+  return class Uint8ArrayBlobAdapter2 extends Uint8Array {
+    static fromString(source, encoding = "utf-8") {
+      if (typeof source === "string") {
+        if (encoding === "base64") {
+          return Uint8ArrayBlobAdapter2.mutate(fromBase642(source));
         }
-      };
-      return stack;
+        return Uint8ArrayBlobAdapter2.mutate(fromUtf83(source));
+      }
+      throw new Error(`Unsupported conversion from ${typeof source} to Uint8ArrayBlobAdapter.`);
+    }
+    static mutate(source) {
+      Object.setPrototypeOf(source, Uint8ArrayBlobAdapter2.prototype);
+      return source;
+    }
+    transformToString(encoding = "utf-8") {
+      if (encoding === "base64") {
+        return toBase643(this);
+      }
+      return toUtf83(this);
+    }
+  };
+}
+var init_Uint8ArrayBlobAdapter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/blob/Uint8ArrayBlobAdapter.js"() {
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/toUtf8.js
+var toUtf8;
+var init_toUtf8 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/toUtf8.js"() {
+    init_buffer_from();
+    toUtf8 = (input) => {
+      if (typeof input === "string") {
+        return input;
+      }
+      if (typeof input !== "object" || typeof input.byteOffset !== "number" || typeof input.byteLength !== "number") {
+        throw new Error("@smithy/util-utf8: toUtf8 encoder function only accepts string | Uint8Array.");
+      }
+      return fromArrayBuffer(input.buffer, input.byteOffset, input.byteLength).toString("utf8");
     };
-    stepWeights = {
-      initialize: 5,
-      serialize: 4,
-      build: 3,
-      finalizeRequest: 2,
-      deserialize: 1
-    };
-    priorityWeights = {
-      high: 3,
-      normal: 2,
-      low: 1
-    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/uuid/v4.js
+function bindV4(getRandomValues2) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return () => crypto.randomUUID();
+  }
+  return () => {
+    const rnds = new Uint8Array(16);
+    getRandomValues2(rnds);
+    rnds[6] = rnds[6] & 15 | 64;
+    rnds[8] = rnds[8] & 63 | 128;
+    return decimalToHex[rnds[0]] + decimalToHex[rnds[1]] + decimalToHex[rnds[2]] + decimalToHex[rnds[3]] + "-" + decimalToHex[rnds[4]] + decimalToHex[rnds[5]] + "-" + decimalToHex[rnds[6]] + decimalToHex[rnds[7]] + "-" + decimalToHex[rnds[8]] + decimalToHex[rnds[9]] + "-" + decimalToHex[rnds[10]] + decimalToHex[rnds[11]] + decimalToHex[rnds[12]] + decimalToHex[rnds[13]] + decimalToHex[rnds[14]] + decimalToHex[rnds[15]];
+  };
+}
+var decimalToHex;
+var init_v4 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/uuid/v4.js"() {
+    decimalToHex = Array.from({ length: 256 }, (_, i6) => i6.toString(16).padStart(2, "0"));
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/serde/copyDocumentWithTransform.js
+var copyDocumentWithTransform;
+var init_copyDocumentWithTransform = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/serde/copyDocumentWithTransform.js"() {
+    copyDocumentWithTransform = (source, _schemaRef, _transform = (_) => _) => source;
   }
 });
 
@@ -178391,7 +178306,7 @@ var require_dist_cjs = __commonJS({
       FieldPosition3[FieldPosition3["HEADER"] = 0] = "HEADER";
       FieldPosition3[FieldPosition3["TRAILER"] = 1] = "TRAILER";
     })(FieldPosition2 || (FieldPosition2 = {}));
-    var SMITHY_CONTEXT_KEY4 = "__smithy_context";
+    var SMITHY_CONTEXT_KEY5 = "__smithy_context";
     var IniSectionType4;
     (function(IniSectionType5) {
       IniSectionType5["PROFILE"] = "profile";
@@ -178411,7 +178326,7 @@ var require_dist_cjs = __commonJS({
     exports2.HttpAuthLocation = HttpAuthLocation;
     exports2.IniSectionType = IniSectionType4;
     exports2.RequestHandlerProtocol = RequestHandlerProtocol;
-    exports2.SMITHY_CONTEXT_KEY = SMITHY_CONTEXT_KEY4;
+    exports2.SMITHY_CONTEXT_KEY = SMITHY_CONTEXT_KEY5;
     exports2.getDefaultClientConfiguration = getDefaultClientConfiguration2;
     exports2.resolveDefaultRuntimeConfig = resolveDefaultRuntimeConfig2;
   }
@@ -178660,2105 +178575,6 @@ var init_transport = __esm({
     init_parseQueryString();
     init_parseUrl();
     init_toEndpointV1();
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidFunction.js
-var invalidFunction;
-var init_invalidFunction = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidFunction.js"() {
-    invalidFunction = (message) => () => {
-      throw new Error(message);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidProvider.js
-var invalidProvider;
-var init_invalidProvider = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidProvider.js"() {
-    invalidProvider = (message) => () => Promise.reject(message);
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/circularReplacer.js
-var getCircularReplacer;
-var init_circularReplacer = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/circularReplacer.js"() {
-    getCircularReplacer = () => {
-      const seen = /* @__PURE__ */ new WeakSet();
-      return (key, value) => {
-        if (typeof value === "object" && value !== null) {
-          if (seen.has(value)) {
-            return "[Circular]";
-          }
-          seen.add(value);
-        }
-        return value;
-      };
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/sleep.js
-var sleep;
-var init_sleep = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/sleep.js"() {
-    sleep = (seconds) => {
-      return new Promise((resolve) => setTimeout(resolve, seconds * 1e3));
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/waiter.js
-var waiterServiceDefaults, WaiterState, checkExceptions;
-var init_waiter = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/waiter.js"() {
-    init_circularReplacer();
-    waiterServiceDefaults = {
-      minDelay: 2,
-      maxDelay: 120
-    };
-    (function(WaiterState2) {
-      WaiterState2["ABORTED"] = "ABORTED";
-      WaiterState2["FAILURE"] = "FAILURE";
-      WaiterState2["SUCCESS"] = "SUCCESS";
-      WaiterState2["RETRY"] = "RETRY";
-      WaiterState2["TIMEOUT"] = "TIMEOUT";
-    })(WaiterState || (WaiterState = {}));
-    checkExceptions = (result) => {
-      if (result.state === WaiterState.ABORTED) {
-        const abortError = new Error(`${JSON.stringify({
-          ...result,
-          reason: "Request was aborted"
-        }, getCircularReplacer())}`);
-        abortError.name = "AbortError";
-        throw abortError;
-      } else if (result.state === WaiterState.TIMEOUT) {
-        const timeoutError = new Error(`${JSON.stringify({
-          ...result,
-          reason: "Waiter has timed out"
-        }, getCircularReplacer())}`);
-        timeoutError.name = "TimeoutError";
-        throw timeoutError;
-      } else if (result.state !== WaiterState.SUCCESS) {
-        throw new Error(`${JSON.stringify(result, getCircularReplacer())}`);
-      }
-      return result;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/poller.js
-var runPolling, checkWarn403, createMessageFromResponse, exponentialBackoffWithJitter, randomInRange;
-var init_poller = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/poller.js"() {
-    init_circularReplacer();
-    init_sleep();
-    init_waiter();
-    runPolling = async ({ minDelay, maxDelay, maxWaitTime, abortController, client, abortSignal }, input, acceptorChecks) => {
-      const observedResponses = {};
-      const [minDelayMs, maxDelayMs] = [minDelay * 1e3, maxDelay * 1e3];
-      let currentAttempt = 0;
-      const waitUntil = Date.now() + maxWaitTime * 1e3;
-      const warn403Time = Date.now() + 6e4;
-      let didWarn403 = false;
-      while (true) {
-        if (currentAttempt > 0) {
-          const delayMs = exponentialBackoffWithJitter(minDelayMs, maxDelayMs, currentAttempt, waitUntil);
-          if (abortController?.signal?.aborted || abortSignal?.aborted) {
-            const message = "AbortController signal aborted.";
-            observedResponses[message] |= 0;
-            observedResponses[message] += 1;
-            return { state: WaiterState.ABORTED, observedResponses };
-          }
-          if (Date.now() + delayMs > waitUntil) {
-            return { state: WaiterState.TIMEOUT, observedResponses };
-          }
-          await sleep(delayMs / 1e3);
-        }
-        const { state: state2, reason } = await acceptorChecks(client, input);
-        if (reason) {
-          const message = createMessageFromResponse(reason);
-          observedResponses[message] |= 0;
-          observedResponses[message] += 1;
-        }
-        if (state2 !== WaiterState.RETRY) {
-          return { state: state2, reason, final: reason, observedResponses };
-        }
-        currentAttempt += 1;
-        if (!didWarn403 && Date.now() >= warn403Time) {
-          checkWarn403(observedResponses, client);
-          didWarn403 = true;
-        }
-      }
-    };
-    checkWarn403 = (observedResponses = {}, client) => {
-      const orderedErrors = Object.keys(observedResponses);
-      let maxCount = 0;
-      let count403 = 0;
-      for (const response of orderedErrors) {
-        const n3 = observedResponses[response] | 0;
-        maxCount = Math.max(n3, maxCount);
-        if (response.startsWith("403:")) {
-          count403 += n3;
-        }
-      }
-      const clientLogger = client?.config?.logger;
-      const warningLogger = typeof clientLogger?.warn === "function" && !clientLogger.constructor?.name?.includes?.("NoOpLogger") ? clientLogger : console;
-      if (count403 >= 3 || orderedErrors[orderedErrors.length - 1]?.startsWith("403:")) {
-        warningLogger.warn(`@smithy/util-waiter WARN - 403 status code encountered during waiter polling.`);
-      }
-    };
-    createMessageFromResponse = (reason) => {
-      const status = reason?.$response?.statusCode ?? reason?.$metadata?.httpStatusCode;
-      if (reason?.$responseBodyText) {
-        return `${status ? status + ": " : ""}Deserialization error for body: ${reason.$responseBodyText}`;
-      }
-      if (status) {
-        if (reason?.$response || reason?.message) {
-          return `${status ?? "Unknown"}: ${reason?.message}`;
-        }
-        return `${status}: OK`;
-      }
-      return String(reason?.message ?? JSON.stringify(reason, getCircularReplacer()) ?? "Unknown");
-    };
-    exponentialBackoffWithJitter = (minDelayMs, maxDelayMs, attempt, waitUntil) => {
-      const attemptCountCeiling = Math.log(maxDelayMs / minDelayMs) / Math.log(2) + 1;
-      if (attempt > attemptCountCeiling) {
-        return maxDelayMs;
-      }
-      const delay = minDelayMs * 2 ** (attempt - 1);
-      const capped = Math.min(delay, maxDelayMs);
-      const waitFor = randomInRange(minDelayMs, capped);
-      if (Date.now() + waitFor > waitUntil) {
-        const timeRemaining = waitUntil - Date.now();
-        return Math.max(0, timeRemaining - 500);
-      }
-      return waitFor;
-    };
-    randomInRange = (min, max) => min + Math.random() * (max - min);
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/validate.js
-var validateWaiterOptions;
-var init_validate = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/validate.js"() {
-    validateWaiterOptions = (options) => {
-      if (options.maxWaitTime <= 0) {
-        throw new Error(`WaiterConfiguration.maxWaitTime must be greater than 0`);
-      } else if (options.minDelay <= 0) {
-        throw new Error(`WaiterConfiguration.minDelay must be greater than 0`);
-      } else if (options.maxDelay <= 0) {
-        throw new Error(`WaiterConfiguration.maxDelay must be greater than 0`);
-      } else if (options.maxWaitTime <= options.minDelay) {
-        throw new Error(`WaiterConfiguration.maxWaitTime [${options.maxWaitTime}] must be greater than WaiterConfiguration.minDelay [${options.minDelay}] for this waiter`);
-      } else if (options.maxDelay < options.minDelay) {
-        throw new Error(`WaiterConfiguration.maxDelay [${options.maxDelay}] must be greater than WaiterConfiguration.minDelay [${options.minDelay}] for this waiter`);
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/createWaiter.js
-var abortTimeout, createWaiter;
-var init_createWaiter = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/createWaiter.js"() {
-    init_poller();
-    init_validate();
-    init_waiter();
-    abortTimeout = (abortSignal) => {
-      let onAbort;
-      const promise = new Promise((resolve) => {
-        onAbort = () => resolve({ state: WaiterState.ABORTED });
-        if (typeof abortSignal.addEventListener === "function") {
-          abortSignal.addEventListener("abort", onAbort);
-        } else {
-          abortSignal.onabort = onAbort;
-        }
-      });
-      return {
-        clearListener() {
-          if (typeof abortSignal.removeEventListener === "function") {
-            abortSignal.removeEventListener("abort", onAbort);
-          }
-        },
-        aborted: promise
-      };
-    };
-    createWaiter = async (options, input, acceptorChecks) => {
-      const params = {
-        ...waiterServiceDefaults,
-        ...options
-      };
-      validateWaiterOptions(params);
-      const exitConditions = [runPolling(params, input, acceptorChecks)];
-      const finalize = [];
-      if (options.abortSignal) {
-        const { aborted, clearListener } = abortTimeout(options.abortSignal);
-        finalize.push(clearListener);
-        exitConditions.push(aborted);
-      }
-      if (options.abortController?.signal) {
-        const { aborted, clearListener } = abortTimeout(options.abortController.signal);
-        finalize.push(clearListener);
-        exitConditions.push(aborted);
-      }
-      return Promise.race(exitConditions).then((result) => {
-        for (const fn of finalize) {
-          fn();
-        }
-        return result;
-      });
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client.js
-var Client;
-var init_client = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client.js"() {
-    init_MiddlewareStack();
-    Client = class {
-      config;
-      middlewareStack = constructStack();
-      initConfig;
-      handlers;
-      constructor(config) {
-        this.config = config;
-        const { protocol, protocolSettings } = config;
-        if (protocolSettings) {
-          if (typeof protocol === "function") {
-            config.protocol = new protocol(protocolSettings);
-          }
-        }
-      }
-      send(command5, optionsOrCb, cb) {
-        const options = typeof optionsOrCb !== "function" ? optionsOrCb : void 0;
-        const callback = typeof optionsOrCb === "function" ? optionsOrCb : cb;
-        const useHandlerCache = options === void 0 && this.config.cacheMiddleware === true;
-        let handler;
-        if (useHandlerCache) {
-          if (!this.handlers) {
-            this.handlers = /* @__PURE__ */ new WeakMap();
-          }
-          const handlers = this.handlers;
-          if (handlers.has(command5.constructor)) {
-            handler = handlers.get(command5.constructor);
-          } else {
-            handler = command5.resolveMiddleware(this.middlewareStack, this.config, options);
-            handlers.set(command5.constructor, handler);
-          }
-        } else {
-          delete this.handlers;
-          handler = command5.resolveMiddleware(this.middlewareStack, this.config, options);
-        }
-        if (callback) {
-          handler(command5).then((result) => callback(null, result.output), (err) => callback(err)).catch(() => {
-          });
-        } else {
-          return handler(command5).then((result) => result.output);
-        }
-      }
-      destroy() {
-        this.config?.requestHandler?.destroy?.();
-        delete this.handlers;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/deref.js
-var deref;
-var init_deref = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/deref.js"() {
-    deref = (schemaRef) => {
-      if (typeof schemaRef === "function") {
-        return schemaRef();
-      }
-      return schemaRef;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/operation.js
-var operation;
-var init_operation = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/operation.js"() {
-    operation = (namespace, name, traits, input, output) => ({
-      name,
-      namespace,
-      traits,
-      input,
-      output
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaDeserializationMiddleware.js
-var schemaDeserializationMiddleware, findHeader;
-var init_schemaDeserializationMiddleware = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaDeserializationMiddleware.js"() {
-    init_transport();
-    init_operation();
-    schemaDeserializationMiddleware = (config) => (next, context2) => async (args) => {
-      const { response } = await next(args);
-      const { operationSchema } = getSmithyContext(context2);
-      const [, ns, n3, t2, i6, o3] = operationSchema ?? [];
-      try {
-        const parsed = await config.protocol.deserializeResponse(operation(ns, n3, t2, i6, o3), {
-          ...config,
-          ...context2
-        }, response);
-        return {
-          response,
-          output: parsed
-        };
-      } catch (error3) {
-        Object.defineProperty(error3, "$response", {
-          value: response,
-          enumerable: false,
-          writable: false,
-          configurable: false
-        });
-        if (!("$metadata" in error3)) {
-          const hint = `Deserialization error: to see the raw response, inspect the hidden field {error}.$response on this object.`;
-          try {
-            error3.message += "\n  " + hint;
-          } catch (ignored) {
-            if (!context2.logger || context2.logger?.constructor?.name === "NoOpLogger") {
-              console.warn(hint);
-            } else {
-              context2.logger?.warn?.(hint);
-            }
-          }
-          if (typeof error3.$responseBodyText !== "undefined") {
-            if (error3.$response) {
-              error3.$response.body = error3.$responseBodyText;
-            }
-          }
-          try {
-            if (HttpResponse.isInstance(response)) {
-              const { headers = {}, statusCode } = response;
-              const headerEntries = Object.entries(headers);
-              error3.$metadata = {
-                httpStatusCode: statusCode,
-                requestId: findHeader(/^x-[\w-]+-request-?id$/, headerEntries),
-                extendedRequestId: findHeader(/^x-[\w-]+-id-2$/, headerEntries),
-                cfId: findHeader(/^x-[\w-]+-cf-id$/, headerEntries)
-              };
-            }
-          } catch (ignored) {
-          }
-        }
-        throw error3;
-      }
-    };
-    findHeader = (pattern, headers) => {
-      return (headers.find(([k5]) => {
-        return k5.match(pattern);
-      }) || [void 0, void 0])[1];
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaSerializationMiddleware.js
-var schemaSerializationMiddleware;
-var init_schemaSerializationMiddleware = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaSerializationMiddleware.js"() {
-    init_transport();
-    init_operation();
-    schemaSerializationMiddleware = (config) => (next, context2) => async (args) => {
-      const { operationSchema } = getSmithyContext(context2);
-      const [, ns, n3, t2, i6, o3] = operationSchema ?? [];
-      const endpoint = context2.endpointV2 ? async () => toEndpointV1(context2.endpointV2) : config.endpoint;
-      const request = await config.protocol.serializeRequest(operation(ns, n3, t2, i6, o3), args.input, {
-        ...config,
-        ...context2,
-        endpoint
-      });
-      return next({
-        ...args,
-        request
-      });
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/middleware/getSchemaSerdePlugin.js
-function getSchemaSerdePlugin(config) {
-  return {
-    applyToStack: (commandStack) => {
-      commandStack.add(schemaSerializationMiddleware(config), serializerMiddlewareOption);
-      commandStack.add(schemaDeserializationMiddleware(config), deserializerMiddlewareOption);
-      config.protocol.setSerdeContext(config);
-    }
-  };
-}
-var deserializerMiddlewareOption, serializerMiddlewareOption;
-var init_getSchemaSerdePlugin = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/middleware/getSchemaSerdePlugin.js"() {
-    init_schemaDeserializationMiddleware();
-    init_schemaSerializationMiddleware();
-    deserializerMiddlewareOption = {
-      name: "deserializerMiddleware",
-      step: "deserialize",
-      tags: ["DESERIALIZER"],
-      override: true
-    };
-    serializerMiddlewareOption = {
-      name: "serializerMiddleware",
-      step: "serialize",
-      tags: ["SERIALIZER"],
-      override: true
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/Schema.js
-var Schema;
-var init_Schema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/Schema.js"() {
-    Schema = class {
-      name;
-      namespace;
-      traits;
-      static assign(instance, values) {
-        const schema = Object.assign(instance, values);
-        return schema;
-      }
-      static [Symbol.hasInstance](lhs) {
-        const isPrototype = this.prototype.isPrototypeOf(lhs);
-        if (!isPrototype && typeof lhs === "object" && lhs !== null) {
-          const list2 = lhs;
-          return list2.symbol === this.symbol;
-        }
-        return isPrototype;
-      }
-      getName() {
-        return this.namespace + "#" + this.name;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/ListSchema.js
-var ListSchema, list;
-var init_ListSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/ListSchema.js"() {
-    init_Schema();
-    ListSchema = class _ListSchema extends Schema {
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/lis");
-      valueSchema;
-      symbol = _ListSchema.symbol;
-    };
-    list = (namespace, name, traits, valueSchema) => Schema.assign(new ListSchema(), {
-      name,
-      namespace,
-      traits,
-      valueSchema
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/MapSchema.js
-var MapSchema, map;
-var init_MapSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/MapSchema.js"() {
-    init_Schema();
-    MapSchema = class _MapSchema extends Schema {
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/map");
-      keySchema;
-      valueSchema;
-      symbol = _MapSchema.symbol;
-    };
-    map = (namespace, name, traits, keySchema, valueSchema) => Schema.assign(new MapSchema(), {
-      name,
-      namespace,
-      traits,
-      keySchema,
-      valueSchema
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/OperationSchema.js
-var OperationSchema, op;
-var init_OperationSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/OperationSchema.js"() {
-    init_Schema();
-    OperationSchema = class _OperationSchema extends Schema {
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/ope");
-      input;
-      output;
-      symbol = _OperationSchema.symbol;
-    };
-    op = (namespace, name, traits, input, output) => Schema.assign(new OperationSchema(), {
-      name,
-      namespace,
-      traits,
-      input,
-      output
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/StructureSchema.js
-var StructureSchema, struct;
-var init_StructureSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/StructureSchema.js"() {
-    init_Schema();
-    StructureSchema = class _StructureSchema extends Schema {
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/str");
-      memberNames;
-      memberList;
-      symbol = _StructureSchema.symbol;
-    };
-    struct = (namespace, name, traits, memberNames, memberList) => Schema.assign(new StructureSchema(), {
-      name,
-      namespace,
-      traits,
-      memberNames,
-      memberList
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/ErrorSchema.js
-var ErrorSchema, error2;
-var init_ErrorSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/ErrorSchema.js"() {
-    init_Schema();
-    init_StructureSchema();
-    ErrorSchema = class _ErrorSchema extends StructureSchema {
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/err");
-      ctor;
-      symbol = _ErrorSchema.symbol;
-    };
-    error2 = (namespace, name, traits, memberNames, memberList, _ctor) => Schema.assign(new ErrorSchema(), {
-      name,
-      namespace,
-      traits,
-      memberNames,
-      memberList,
-      ctor: null
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/translateTraits.js
-function translateTraits(indicator) {
-  if (typeof indicator === "object") {
-    return indicator;
-  }
-  indicator = indicator | 0;
-  if (traitsCache[indicator]) {
-    return traitsCache[indicator];
-  }
-  const traits = {};
-  let i6 = 0;
-  for (const trait of [
-    "httpLabel",
-    "idempotent",
-    "idempotencyToken",
-    "sensitive",
-    "httpPayload",
-    "httpResponseCode",
-    "httpQueryParams"
-  ]) {
-    if ((indicator >> i6++ & 1) === 1) {
-      traits[trait] = 1;
-    }
-  }
-  return traitsCache[indicator] = traits;
-}
-var traitsCache;
-var init_translateTraits = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/translateTraits.js"() {
-    traitsCache = [];
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/NormalizedSchema.js
-function member(memberSchema, memberName) {
-  if (memberSchema instanceof NormalizedSchema) {
-    return Object.assign(memberSchema, {
-      memberName,
-      _isMemberSchema: true
-    });
-  }
-  const internalCtorAccess = NormalizedSchema;
-  return new internalCtorAccess(memberSchema, memberName);
-}
-var anno, simpleSchemaCacheN, simpleSchemaCacheS, NormalizedSchema, isMemberSchema, isStaticSchema;
-var init_NormalizedSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/NormalizedSchema.js"() {
-    init_deref();
-    init_translateTraits();
-    anno = {
-      it: /* @__PURE__ */ Symbol.for("@smithy/nor-struct-it"),
-      ns: /* @__PURE__ */ Symbol.for("@smithy/ns")
-    };
-    simpleSchemaCacheN = [];
-    simpleSchemaCacheS = {};
-    NormalizedSchema = class _NormalizedSchema {
-      ref;
-      memberName;
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/nor");
-      symbol = _NormalizedSchema.symbol;
-      name;
-      schema;
-      _isMemberSchema;
-      traits;
-      memberTraits;
-      normalizedTraits;
-      constructor(ref, memberName) {
-        this.ref = ref;
-        this.memberName = memberName;
-        const traitStack = [];
-        let _ref = ref;
-        let schema = ref;
-        this._isMemberSchema = false;
-        while (isMemberSchema(_ref)) {
-          traitStack.push(_ref[1]);
-          _ref = _ref[0];
-          schema = deref(_ref);
-          this._isMemberSchema = true;
-        }
-        if (traitStack.length > 0) {
-          this.memberTraits = {};
-          for (let i6 = traitStack.length - 1; i6 >= 0; --i6) {
-            const traitSet = traitStack[i6];
-            Object.assign(this.memberTraits, translateTraits(traitSet));
-          }
-        } else {
-          this.memberTraits = 0;
-        }
-        if (schema instanceof _NormalizedSchema) {
-          const computedMemberTraits = this.memberTraits;
-          Object.assign(this, schema);
-          this.memberTraits = Object.assign({}, computedMemberTraits, schema.getMemberTraits(), this.getMemberTraits());
-          this.normalizedTraits = void 0;
-          this.memberName = memberName ?? schema.memberName;
-          return;
-        }
-        this.schema = deref(schema);
-        if (isStaticSchema(this.schema)) {
-          this.name = `${this.schema[1]}#${this.schema[2]}`;
-          this.traits = this.schema[3];
-        } else {
-          this.name = this.memberName ?? String(schema);
-          this.traits = 0;
-        }
-        if (this._isMemberSchema && !memberName) {
-          throw new Error(`@smithy/core/schema - NormalizedSchema member init ${this.getName(true)} missing member name.`);
-        }
-      }
-      static [Symbol.hasInstance](lhs) {
-        const isPrototype = this.prototype.isPrototypeOf(lhs);
-        if (!isPrototype && typeof lhs === "object" && lhs !== null) {
-          const ns = lhs;
-          return ns.symbol === this.symbol;
-        }
-        return isPrototype;
-      }
-      static of(ref) {
-        const keyAble = typeof ref === "function" || typeof ref === "object" && ref !== null;
-        if (typeof ref === "number") {
-          if (simpleSchemaCacheN[ref]) {
-            return simpleSchemaCacheN[ref];
-          }
-        } else if (typeof ref === "string") {
-          if (simpleSchemaCacheS[ref]) {
-            return simpleSchemaCacheS[ref];
-          }
-        } else if (keyAble) {
-          if (ref[anno.ns]) {
-            return ref[anno.ns];
-          }
-        }
-        const sc = deref(ref);
-        if (sc instanceof _NormalizedSchema) {
-          return sc;
-        }
-        if (isMemberSchema(sc)) {
-          const [ns2, traits] = sc;
-          if (ns2 instanceof _NormalizedSchema) {
-            Object.assign(ns2.getMergedTraits(), translateTraits(traits));
-            return ns2;
-          }
-          throw new Error(`@smithy/core/schema - may not init unwrapped member schema=${JSON.stringify(ref, null, 2)}.`);
-        }
-        const ns = new _NormalizedSchema(sc);
-        if (keyAble) {
-          return ref[anno.ns] = ns;
-        }
-        if (typeof sc === "string") {
-          return simpleSchemaCacheS[sc] = ns;
-        }
-        if (typeof sc === "number") {
-          return simpleSchemaCacheN[sc] = ns;
-        }
-        return ns;
-      }
-      getSchema() {
-        const sc = this.schema;
-        if (Array.isArray(sc) && sc[0] === 0) {
-          return sc[4];
-        }
-        return sc;
-      }
-      getName(withNamespace = false) {
-        const { name } = this;
-        const short = !withNamespace && name && name.includes("#");
-        return short ? name.split("#")[1] : name || void 0;
-      }
-      getMemberName() {
-        return this.memberName;
-      }
-      isMemberSchema() {
-        return this._isMemberSchema;
-      }
-      isListSchema() {
-        const sc = this.getSchema();
-        return typeof sc === "number" ? sc >= 64 && sc < 128 : sc[0] === 1;
-      }
-      isMapSchema() {
-        const sc = this.getSchema();
-        return typeof sc === "number" ? sc >= 128 && sc <= 255 : sc[0] === 2;
-      }
-      isStructSchema() {
-        const sc = this.getSchema();
-        if (typeof sc !== "object") {
-          return false;
-        }
-        const id = sc[0];
-        return id === 3 || id === -3 || id === 4;
-      }
-      isUnionSchema() {
-        const sc = this.getSchema();
-        if (typeof sc !== "object") {
-          return false;
-        }
-        return sc[0] === 4;
-      }
-      isBlobSchema() {
-        const sc = this.getSchema();
-        return sc === 21 || sc === 42;
-      }
-      isTimestampSchema() {
-        const sc = this.getSchema();
-        return typeof sc === "number" && sc >= 4 && sc <= 7;
-      }
-      isUnitSchema() {
-        return this.getSchema() === "unit";
-      }
-      isDocumentSchema() {
-        return this.getSchema() === 15;
-      }
-      isStringSchema() {
-        return this.getSchema() === 0;
-      }
-      isBooleanSchema() {
-        return this.getSchema() === 2;
-      }
-      isNumericSchema() {
-        return this.getSchema() === 1;
-      }
-      isBigIntegerSchema() {
-        return this.getSchema() === 17;
-      }
-      isBigDecimalSchema() {
-        return this.getSchema() === 19;
-      }
-      isStreaming() {
-        const { streaming } = this.getMergedTraits();
-        return !!streaming || this.getSchema() === 42;
-      }
-      isIdempotencyToken() {
-        return !!this.getMergedTraits().idempotencyToken;
-      }
-      getMergedTraits() {
-        return this.normalizedTraits ?? (this.normalizedTraits = {
-          ...this.getOwnTraits(),
-          ...this.getMemberTraits()
-        });
-      }
-      getMemberTraits() {
-        return translateTraits(this.memberTraits);
-      }
-      getOwnTraits() {
-        return translateTraits(this.traits);
-      }
-      getKeySchema() {
-        const [isDoc, isMap] = [this.isDocumentSchema(), this.isMapSchema()];
-        if (!isDoc && !isMap) {
-          throw new Error(`@smithy/core/schema - cannot get key for non-map: ${this.getName(true)}`);
-        }
-        const schema = this.getSchema();
-        const memberSchema = isDoc ? 15 : schema[4] ?? 0;
-        return member([memberSchema, 0], "key");
-      }
-      getValueSchema() {
-        const sc = this.getSchema();
-        const [isDoc, isMap, isList] = [this.isDocumentSchema(), this.isMapSchema(), this.isListSchema()];
-        const memberSchema = typeof sc === "number" ? 63 & sc : sc && typeof sc === "object" && (isMap || isList) ? sc[3 + sc[0]] : isDoc ? 15 : void 0;
-        if (memberSchema != null) {
-          return member([memberSchema, 0], isMap ? "value" : "member");
-        }
-        throw new Error(`@smithy/core/schema - ${this.getName(true)} has no value member.`);
-      }
-      getMemberSchema(memberName) {
-        const struct2 = this.getSchema();
-        if (this.isStructSchema() && struct2[4].includes(memberName)) {
-          const i6 = struct2[4].indexOf(memberName);
-          const memberSchema = struct2[5][i6];
-          return member(isMemberSchema(memberSchema) ? memberSchema : [memberSchema, 0], memberName);
-        }
-        if (this.isDocumentSchema()) {
-          return member([15, 0], memberName);
-        }
-        throw new Error(`@smithy/core/schema - ${this.getName(true)} has no member=${memberName}.`);
-      }
-      getMemberSchemas() {
-        const buffer = {};
-        try {
-          for (const [k5, v] of this.structIterator()) {
-            buffer[k5] = v;
-          }
-        } catch (ignored) {
-        }
-        return buffer;
-      }
-      getEventStreamMember() {
-        if (this.isStructSchema()) {
-          for (const [memberName, memberSchema] of this.structIterator()) {
-            if (memberSchema.isStreaming() && memberSchema.isStructSchema()) {
-              return memberName;
-            }
-          }
-        }
-        return "";
-      }
-      *structIterator() {
-        if (this.isUnitSchema()) {
-          return;
-        }
-        if (!this.isStructSchema()) {
-          throw new Error("@smithy/core/schema - cannot iterate non-struct schema.");
-        }
-        const struct2 = this.getSchema();
-        const z = struct2[4].length;
-        let it = struct2[anno.it];
-        if (it && z === it.length) {
-          yield* it;
-          return;
-        }
-        it = Array(z);
-        for (let i6 = 0; i6 < z; ++i6) {
-          const k5 = struct2[4][i6];
-          const v = member([struct2[5][i6], 0], k5);
-          yield it[i6] = [k5, v];
-        }
-        struct2[anno.it] = it;
-      }
-    };
-    isMemberSchema = (sc) => Array.isArray(sc) && sc.length === 2;
-    isStaticSchema = (sc) => Array.isArray(sc) && sc.length >= 5;
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/SimpleSchema.js
-var SimpleSchema, sim, simAdapter;
-var init_SimpleSchema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/SimpleSchema.js"() {
-    init_Schema();
-    SimpleSchema = class _SimpleSchema extends Schema {
-      static symbol = /* @__PURE__ */ Symbol.for("@smithy/sim");
-      schemaRef;
-      symbol = _SimpleSchema.symbol;
-    };
-    sim = (namespace, name, schemaRef, traits) => Schema.assign(new SimpleSchema(), {
-      name,
-      namespace,
-      traits,
-      schemaRef
-    });
-    simAdapter = (namespace, name, traits, schemaRef) => Schema.assign(new SimpleSchema(), {
-      name,
-      namespace,
-      traits,
-      schemaRef
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/schemas/sentinels.js
-var SCHEMA;
-var init_sentinels = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/sentinels.js"() {
-    SCHEMA = {
-      BLOB: 21,
-      STREAMING_BLOB: 42,
-      BOOLEAN: 2,
-      STRING: 0,
-      NUMERIC: 1,
-      BIG_INTEGER: 17,
-      BIG_DECIMAL: 19,
-      DOCUMENT: 15,
-      TIMESTAMP_DEFAULT: 4,
-      TIMESTAMP_DATE_TIME: 5,
-      TIMESTAMP_HTTP_DATE: 6,
-      TIMESTAMP_EPOCH_SECONDS: 7,
-      LIST_MODIFIER: 64,
-      MAP_MODIFIER: 128
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/TypeRegistry.js
-var TypeRegistry;
-var init_TypeRegistry = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/TypeRegistry.js"() {
-    TypeRegistry = class _TypeRegistry {
-      namespace;
-      schemas;
-      exceptions;
-      static registries = /* @__PURE__ */ new Map();
-      constructor(namespace, schemas = /* @__PURE__ */ new Map(), exceptions = /* @__PURE__ */ new Map()) {
-        this.namespace = namespace;
-        this.schemas = schemas;
-        this.exceptions = exceptions;
-        if (!_TypeRegistry.registries.has(namespace)) {
-          _TypeRegistry.registries.set(namespace, this);
-        }
-      }
-      static for(namespace) {
-        return _TypeRegistry.registries.get(namespace) ?? new _TypeRegistry(namespace);
-      }
-      copyFrom(other) {
-        const { schemas, exceptions } = this;
-        for (const [k5, v] of other.schemas) {
-          if (!schemas.has(k5)) {
-            schemas.set(k5, v);
-          }
-        }
-        for (const [k5, v] of other.exceptions) {
-          if (!exceptions.has(k5)) {
-            exceptions.set(k5, v);
-          }
-        }
-      }
-      register(shapeId, schema) {
-        const qualifiedName = this.normalizeShapeId(shapeId);
-        for (const r6 of [this, _TypeRegistry.for(qualifiedName.split("#")[0])]) {
-          if (!r6.schemas.has(qualifiedName)) {
-            r6.schemas.set(qualifiedName, schema);
-          }
-        }
-      }
-      getSchema(shapeId) {
-        const id = this.normalizeShapeId(shapeId);
-        if (!this.schemas.has(id)) {
-          if (!shapeId.includes("#")) {
-            const suffix = "#" + shapeId;
-            const candidates = [];
-            for (const [shapeId2, schema] of this.schemas.entries()) {
-              if (shapeId2.endsWith(suffix)) {
-                candidates.push(schema);
-              }
-            }
-            if (candidates.length === 1) {
-              return candidates[0];
-            }
-          }
-          throw new Error(`@smithy/core/schema - schema not found for ${id}`);
-        }
-        return this.schemas.get(id);
-      }
-      registerError(es, ctor) {
-        const $error = es;
-        const ns = $error[1];
-        const qualifiedName = ns + "#" + $error[2];
-        if (!ctor.hasOwnProperty?.("shapeId")) {
-          ctor.shapeId = qualifiedName;
-        }
-        for (const r6 of [this, _TypeRegistry.for(ns)]) {
-          if (!r6.schemas.has(qualifiedName) && !r6.exceptions.has($error)) {
-            r6.schemas.set(qualifiedName, $error);
-            r6.exceptions.set($error, ctor);
-          }
-        }
-      }
-      getErrorCtor(es) {
-        const $error = es;
-        if (this.exceptions.has($error)) {
-          return this.exceptions.get($error);
-        }
-        const registry = _TypeRegistry.for($error[1]);
-        return registry.exceptions.get($error);
-      }
-      getBaseException() {
-        for (const exceptionKey of this.exceptions.keys()) {
-          if (Array.isArray(exceptionKey)) {
-            const [, ns, name] = exceptionKey;
-            const id = ns + "#" + name;
-            if (id.startsWith("smithy.ts.sdk.synthetic.") && id.endsWith("ServiceException")) {
-              return exceptionKey;
-            }
-          }
-        }
-        return void 0;
-      }
-      find(predicate) {
-        for (const schema of this.schemas.values()) {
-          if (predicate(schema)) {
-            return schema;
-          }
-        }
-        return void 0;
-      }
-      clear() {
-        this.schemas.clear();
-        this.exceptions.clear();
-      }
-      normalizeShapeId(shapeId) {
-        if (shapeId.includes("#")) {
-          return shapeId;
-        }
-        return this.namespace + "#" + shapeId;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/schema/index.js
-var schema_exports = {};
-__export(schema_exports, {
-  ErrorSchema: () => ErrorSchema,
-  ListSchema: () => ListSchema,
-  MapSchema: () => MapSchema,
-  NormalizedSchema: () => NormalizedSchema,
-  OperationSchema: () => OperationSchema,
-  SCHEMA: () => SCHEMA,
-  Schema: () => Schema,
-  SimpleSchema: () => SimpleSchema,
-  StructureSchema: () => StructureSchema,
-  TypeRegistry: () => TypeRegistry,
-  deref: () => deref,
-  deserializerMiddlewareOption: () => deserializerMiddlewareOption,
-  error: () => error2,
-  getSchemaSerdePlugin: () => getSchemaSerdePlugin,
-  isStaticSchema: () => isStaticSchema,
-  list: () => list,
-  map: () => map,
-  op: () => op,
-  operation: () => operation,
-  serializerMiddlewareOption: () => serializerMiddlewareOption,
-  sim: () => sim,
-  simAdapter: () => simAdapter,
-  simpleSchemaCacheN: () => simpleSchemaCacheN,
-  simpleSchemaCacheS: () => simpleSchemaCacheS,
-  struct: () => struct,
-  traitsCache: () => traitsCache,
-  translateTraits: () => translateTraits
-});
-var init_schema = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/schema/index.js"() {
-    init_deref();
-    init_getSchemaSerdePlugin();
-    init_ListSchema();
-    init_MapSchema();
-    init_OperationSchema();
-    init_operation();
-    init_ErrorSchema();
-    init_NormalizedSchema();
-    init_Schema();
-    init_SimpleSchema();
-    init_StructureSchema();
-    init_sentinels();
-    init_translateTraits();
-    init_TypeRegistry();
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/schemaLogFilter.js
-function schemaLogFilter(schema, data) {
-  if (data == null) {
-    return data;
-  }
-  const ns = NormalizedSchema.of(schema);
-  if (ns.getMergedTraits().sensitive) {
-    return SENSITIVE_STRING;
-  }
-  if (ns.isListSchema()) {
-    const valueSchema = ns.getValueSchema();
-    if (valueSchema.getMergedTraits().sensitive) {
-      return SENSITIVE_STRING;
-    }
-    if (Array.isArray(data)) {
-      return data.map((value) => schemaLogFilter(valueSchema, value));
-    }
-  } else if (ns.isMapSchema()) {
-    const valueSchema = ns.getValueSchema();
-    if (ns.getKeySchema().getMergedTraits().sensitive || valueSchema.getMergedTraits().sensitive) {
-      return SENSITIVE_STRING;
-    }
-    if (typeof data === "object") {
-      return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, schemaLogFilter(valueSchema, value)]));
-    }
-  } else if (ns.isStructSchema() && typeof data === "object") {
-    const object = data;
-    const newObject = {};
-    for (const [member2, memberNs] of ns.structIterator()) {
-      if (object[member2] != null) {
-        newObject[member2] = schemaLogFilter(memberNs, object[member2]);
-      }
-    }
-    return newObject;
-  }
-  return data;
-}
-var SENSITIVE_STRING;
-var init_schemaLogFilter = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/schemaLogFilter.js"() {
-    init_schema();
-    SENSITIVE_STRING = "***SensitiveInformation***";
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/command.js
-var import_types5, operationEventStreamMarker, Command2, ClassBuilder;
-var init_command = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/command.js"() {
-    import_types5 = __toESM(require_dist_cjs());
-    init_MiddlewareStack();
-    init_schemaLogFilter();
-    init_schema();
-    operationEventStreamMarker = /* @__PURE__ */ Symbol.for("@smithy/op-event-stream");
-    Command2 = class {
-      middlewareStack = constructStack();
-      schema;
-      static classBuilder() {
-        return new ClassBuilder();
-      }
-      resolveMiddlewareWithContext(clientStack, configuration, options, { middlewareFn, clientName, commandName, inputFilterSensitiveLog, outputFilterSensitiveLog, smithyContext, additionalContext, CommandCtor }) {
-        for (const mw of middlewareFn.bind(this)(CommandCtor, clientStack, configuration, options)) {
-          this.middlewareStack.use(mw);
-        }
-        const stack = clientStack.concat(this.middlewareStack);
-        const { logger: logger2 } = configuration;
-        const additionalSmithyContext = additionalContext[import_types5.SMITHY_CONTEXT_KEY];
-        const handlerExecutionContext = {
-          logger: logger2,
-          clientName,
-          commandName,
-          inputFilterSensitiveLog,
-          outputFilterSensitiveLog,
-          ...additionalContext,
-          [import_types5.SMITHY_CONTEXT_KEY]: {
-            ...additionalSmithyContext,
-            commandInstance: this,
-            ...smithyContext,
-            ...options?.metricsRecorder === void 0 ? {} : { metricsRecorder: options.metricsRecorder }
-          }
-        };
-        const { requestHandler } = configuration;
-        let requestOptions = options ?? {};
-        if (requestOptions.metricsRecorder) {
-          requestOptions = { ...requestOptions };
-          delete requestOptions.metricsRecorder;
-        }
-        let isEventStream;
-        const schema = this.schema;
-        const marker = schema?.[operationEventStreamMarker];
-        if (marker !== void 0) {
-          isEventStream = marker;
-        } else if (schema) {
-          if (Array.isArray(schema) && schema[0] === 9) {
-            const [, , , , input$, output$] = schema;
-            isEventStream = schema[operationEventStreamMarker] = Boolean(NormalizedSchema.of(input$).getEventStreamMember() || NormalizedSchema.of(output$).getEventStreamMember());
-          }
-        }
-        if (isEventStream) {
-          requestOptions = {
-            isEventStream,
-            ...requestOptions
-          };
-        }
-        return stack.resolve((request) => requestHandler.handle(request.request, requestOptions), handlerExecutionContext);
-      }
-    };
-    ClassBuilder = class {
-      _init = () => {
-      };
-      _ep = {};
-      _middlewareFn = () => [];
-      _commandName = "";
-      _clientName = "";
-      _additionalContext = {};
-      _smithyContext = {};
-      _inputFilterSensitiveLog = void 0;
-      _outputFilterSensitiveLog = void 0;
-      _serializer = null;
-      _deserializer = null;
-      _operationSchema;
-      init(cb) {
-        this._init = cb;
-      }
-      ep(endpointParameterInstructions) {
-        this._ep = endpointParameterInstructions;
-        return this;
-      }
-      m(middlewareSupplier) {
-        this._middlewareFn = middlewareSupplier;
-        return this;
-      }
-      s(service, operation2, smithyContext = {}) {
-        this._smithyContext = {
-          service,
-          operation: operation2,
-          ...smithyContext
-        };
-        return this;
-      }
-      c(additionalContext = {}) {
-        this._additionalContext = additionalContext;
-        return this;
-      }
-      n(clientName, commandName) {
-        this._clientName = clientName;
-        this._commandName = commandName;
-        return this;
-      }
-      f(inputFilter = (_) => _, outputFilter = (_) => _) {
-        this._inputFilterSensitiveLog = inputFilter;
-        this._outputFilterSensitiveLog = outputFilter;
-        return this;
-      }
-      ser(serializer) {
-        this._serializer = serializer;
-        return this;
-      }
-      de(deserializer) {
-        this._deserializer = deserializer;
-        return this;
-      }
-      sc(operation2) {
-        this._operationSchema = operation2;
-        this._smithyContext.operationSchema = operation2;
-        return this;
-      }
-      build() {
-        const closure = this;
-        let CommandRef;
-        return CommandRef = class extends Command2 {
-          input;
-          static getEndpointParameterInstructions() {
-            return closure._ep;
-          }
-          constructor(...[input]) {
-            super();
-            this.input = input ?? {};
-            closure._init(this);
-            this.schema = closure._operationSchema;
-          }
-          resolveMiddleware(stack, configuration, options) {
-            const op2 = closure._operationSchema;
-            const input = op2?.[4] ?? op2?.input;
-            const output = op2?.[5] ?? op2?.output;
-            return this.resolveMiddlewareWithContext(stack, configuration, options, {
-              CommandCtor: CommandRef,
-              middlewareFn: closure._middlewareFn,
-              clientName: closure._clientName,
-              commandName: closure._commandName,
-              inputFilterSensitiveLog: closure._inputFilterSensitiveLog ?? (op2 ? schemaLogFilter.bind(null, input) : (_) => _),
-              outputFilterSensitiveLog: closure._outputFilterSensitiveLog ?? (op2 ? schemaLogFilter.bind(null, output) : (_) => _),
-              smithyContext: closure._smithyContext,
-              additionalContext: closure._additionalContext
-            });
-          }
-          serialize = closure._serializer;
-          deserialize = closure._deserializer;
-        };
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/constants.js
-var SENSITIVE_STRING2;
-var init_constants = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/constants.js"() {
-    SENSITIVE_STRING2 = "***SensitiveInformation***";
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/create-aggregated-client.js
-var createAggregatedClient;
-var init_create_aggregated_client = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/create-aggregated-client.js"() {
-    createAggregatedClient = (commands5, Client2, options) => {
-      for (const [command5, CommandCtor] of Object.entries(commands5)) {
-        const methodImpl = async function(args, optionsOrCb, cb) {
-          const command6 = new CommandCtor(args);
-          if (typeof optionsOrCb === "function") {
-            this.send(command6, optionsOrCb);
-          } else if (typeof cb === "function") {
-            if (typeof optionsOrCb !== "object") {
-              throw new Error(`Expected http options but got ${typeof optionsOrCb}`);
-            }
-            this.send(command6, optionsOrCb || {}, cb);
-          } else {
-            return this.send(command6, optionsOrCb);
-          }
-        };
-        const methodName = (command5[0].toLowerCase() + command5.slice(1)).replace(/Command$/, "");
-        Client2.prototype[methodName] = methodImpl;
-      }
-      const { paginators = {}, waiters = {} } = options ?? {};
-      for (const [paginatorName, paginatorFn] of Object.entries(paginators)) {
-        if (Client2.prototype[paginatorName] === void 0) {
-          Client2.prototype[paginatorName] = function(commandInput = {}, paginationConfiguration, ...rest) {
-            return paginatorFn({
-              ...paginationConfiguration,
-              client: this
-            }, commandInput, ...rest);
-          };
-        }
-      }
-      for (const [waiterName, waiterFn] of Object.entries(waiters)) {
-        if (Client2.prototype[waiterName] === void 0) {
-          Client2.prototype[waiterName] = async function(commandInput = {}, waiterConfiguration, ...rest) {
-            let config = waiterConfiguration;
-            if (typeof waiterConfiguration === "number") {
-              config = {
-                maxWaitTime: waiterConfiguration
-              };
-            }
-            return waiterFn({
-              ...config,
-              client: this
-            }, commandInput, ...rest);
-          };
-        }
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js
-var ServiceException, decorateServiceException;
-var init_exceptions = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js"() {
-    ServiceException = class _ServiceException extends Error {
-      static shapeId = "smithy.ts.sdk.synthetic.nonamespace.client#ServiceException";
-      $fault;
-      $response;
-      $retryable;
-      $metadata;
-      constructor(options) {
-        super(options.message);
-        Object.setPrototypeOf(this, Object.getPrototypeOf(this).constructor.prototype);
-        this.name = options.name;
-        this.$fault = options.$fault;
-        this.$metadata = options.$metadata;
-      }
-      static isInstance(value) {
-        if (!value) {
-          return false;
-        }
-        const candidate = value;
-        return _ServiceException.prototype.isPrototypeOf(candidate) || Boolean(candidate.$fault) && Boolean(candidate.$metadata) && (candidate.$fault === "client" || candidate.$fault === "server");
-      }
-      static [Symbol.hasInstance](instance) {
-        if (!instance) {
-          return false;
-        }
-        const candidate = instance;
-        if (this === _ServiceException) {
-          return _ServiceException.isInstance(instance);
-        }
-        if (_ServiceException.isInstance(instance)) {
-          if (this.prototype.isPrototypeOf(instance)) {
-            return true;
-          }
-          const targetId = Object.prototype.hasOwnProperty.call(this, "shapeId") ? this.shapeId : void 0;
-          let candidateHasShapeId = false;
-          if (targetId) {
-            let proto = Object.getPrototypeOf(candidate);
-            while (proto && proto !== Object.prototype) {
-              const ctor = proto.constructor;
-              const candidateId = ctor !== _ServiceException && Object.prototype.hasOwnProperty.call(ctor, "shapeId") ? ctor?.shapeId : void 0;
-              if (candidateId) {
-                candidateHasShapeId = true;
-                if (candidateId === targetId) {
-                  return true;
-                }
-              }
-              proto = Object.getPrototypeOf(proto);
-            }
-          }
-          if (targetId && candidateHasShapeId) {
-            return false;
-          }
-          const targetName = this.name;
-          if (targetName && targetName.length >= 6) {
-            if (candidate.name === targetName) {
-              return true;
-            }
-            let proto = Object.getPrototypeOf(candidate);
-            while (proto && proto !== Object.prototype) {
-              const ctorName = proto.constructor?.name;
-              if (ctorName && ctorName !== "Error" && ctorName === targetName) {
-                return true;
-              }
-              proto = Object.getPrototypeOf(proto);
-            }
-          }
-        }
-        return false;
-      }
-    };
-    decorateServiceException = (exception, additions = {}) => {
-      Object.entries(additions).filter(([, v]) => v !== void 0).forEach(([k5, v]) => {
-        if (exception[k5] == void 0 || exception[k5] === "") {
-          exception[k5] = v;
-        }
-      });
-      const message = exception.message || exception.Message || "UnknownError";
-      exception.message = message;
-      delete exception.Message;
-      return exception;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/default-error-handler.js
-var throwDefaultError, withBaseException, deserializeMetadata;
-var init_default_error_handler = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/default-error-handler.js"() {
-    init_exceptions();
-    throwDefaultError = ({ output, parsedBody, exceptionCtor, errorCode }) => {
-      const $metadata = deserializeMetadata(output);
-      const statusCode = $metadata.httpStatusCode ? $metadata.httpStatusCode + "" : void 0;
-      const response = new exceptionCtor({
-        name: parsedBody?.code || parsedBody?.Code || errorCode || statusCode || "UnknownError",
-        $fault: "client",
-        $metadata
-      });
-      throw decorateServiceException(response, parsedBody);
-    };
-    withBaseException = (ExceptionCtor) => {
-      return ({ output, parsedBody, errorCode }) => {
-        throwDefaultError({ output, parsedBody, exceptionCtor: ExceptionCtor, errorCode });
-      };
-    };
-    deserializeMetadata = (output) => ({
-      httpStatusCode: output.statusCode,
-      requestId: output.headers["x-amzn-requestid"] ?? output.headers["x-amzn-request-id"] ?? output.headers["x-amz-request-id"],
-      extendedRequestId: output.headers["x-amz-id-2"],
-      cfId: output.headers["x-amz-cf-id"]
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/defaults-mode.js
-var loadConfigsForDefaultMode;
-var init_defaults_mode = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/defaults-mode.js"() {
-    loadConfigsForDefaultMode = (mode) => {
-      switch (mode) {
-        case "standard":
-          return {
-            retryMode: "standard",
-            connectionTimeout: 3100
-          };
-        case "in-region":
-          return {
-            retryMode: "standard",
-            connectionTimeout: 1100
-          };
-        case "cross-region":
-          return {
-            retryMode: "standard",
-            connectionTimeout: 3100
-          };
-        case "mobile":
-          return {
-            retryMode: "standard",
-            connectionTimeout: 3e4
-          };
-        default:
-          return {};
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/emitWarningIfUnsupportedVersion.js
-var warningEmitted, emitWarningIfUnsupportedVersion2;
-var init_emitWarningIfUnsupportedVersion2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/emitWarningIfUnsupportedVersion.js"() {
-    warningEmitted = false;
-    emitWarningIfUnsupportedVersion2 = (version) => {
-      if (version && !warningEmitted && parseInt(version.substring(1, version.indexOf("."))) < 16) {
-        warningEmitted = true;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/checksum.js
-var import_types6, knownAlgorithms, getChecksumConfiguration, resolveChecksumRuntimeConfig;
-var init_checksum = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/checksum.js"() {
-    init_transport();
-    import_types6 = __toESM(require_dist_cjs());
-    knownAlgorithms = Object.values(import_types6.AlgorithmId);
-    getChecksumConfiguration = (runtimeConfig) => {
-      const checksumAlgorithms = [];
-      for (const id in import_types6.AlgorithmId) {
-        if (!hasOwn(import_types6.AlgorithmId, id)) {
-          continue;
-        }
-        const algorithmId = import_types6.AlgorithmId[id];
-        if (runtimeConfig[algorithmId] === void 0) {
-          continue;
-        }
-        checksumAlgorithms.push({
-          algorithmId: () => algorithmId,
-          checksumConstructor: () => runtimeConfig[algorithmId]
-        });
-      }
-      for (const [id, ChecksumCtor] of Object.entries(runtimeConfig.checksumAlgorithms ?? {})) {
-        checksumAlgorithms.push({
-          algorithmId: () => id,
-          checksumConstructor: () => ChecksumCtor
-        });
-      }
-      return {
-        addChecksumAlgorithm(algo) {
-          runtimeConfig.checksumAlgorithms = runtimeConfig.checksumAlgorithms ?? {};
-          const id = algo.algorithmId();
-          const ctor = algo.checksumConstructor();
-          if (knownAlgorithms.includes(id)) {
-            runtimeConfig.checksumAlgorithms[id.toUpperCase()] = ctor;
-          } else {
-            runtimeConfig.checksumAlgorithms[id] = ctor;
-          }
-          checksumAlgorithms.push(algo);
-        },
-        checksumAlgorithms() {
-          return checksumAlgorithms;
-        }
-      };
-    };
-    resolveChecksumRuntimeConfig = (clientConfig) => {
-      const runtimeConfig = {};
-      clientConfig.checksumAlgorithms().forEach((checksumAlgorithm) => {
-        const id = checksumAlgorithm.algorithmId();
-        if (knownAlgorithms.includes(id)) {
-          runtimeConfig[id] = checksumAlgorithm.checksumConstructor();
-        }
-      });
-      return runtimeConfig;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/retry.js
-var getRetryConfiguration, resolveRetryRuntimeConfig;
-var init_retry = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/retry.js"() {
-    getRetryConfiguration = (runtimeConfig) => {
-      return {
-        setRetryStrategy(retryStrategy) {
-          runtimeConfig.retryStrategy = retryStrategy;
-        },
-        retryStrategy() {
-          return runtimeConfig.retryStrategy;
-        }
-      };
-    };
-    resolveRetryRuntimeConfig = (retryStrategyConfiguration) => {
-      const runtimeConfig = {};
-      runtimeConfig.retryStrategy = retryStrategyConfiguration.retryStrategy();
-      return runtimeConfig;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/defaultExtensionConfiguration.js
-var getDefaultExtensionConfiguration, getDefaultClientConfiguration, resolveDefaultRuntimeConfig;
-var init_defaultExtensionConfiguration = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/defaultExtensionConfiguration.js"() {
-    init_checksum();
-    init_retry();
-    getDefaultExtensionConfiguration = (runtimeConfig) => {
-      return Object.assign(getChecksumConfiguration(runtimeConfig), getRetryConfiguration(runtimeConfig));
-    };
-    getDefaultClientConfiguration = getDefaultExtensionConfiguration;
-    resolveDefaultRuntimeConfig = (config) => {
-      return Object.assign(resolveChecksumRuntimeConfig(config), resolveRetryRuntimeConfig(config));
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-array-if-single-item.js
-var getArrayIfSingleItem;
-var init_get_array_if_single_item = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-array-if-single-item.js"() {
-    getArrayIfSingleItem = (mayBeArray) => Array.isArray(mayBeArray) ? mayBeArray : [mayBeArray];
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-value-from-text-node.js
-var getValueFromTextNode;
-var init_get_value_from_text_node = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-value-from-text-node.js"() {
-    init_transport();
-    getValueFromTextNode = (obj) => {
-      const textNodeName = "#text";
-      for (const key in obj) {
-        if (!hasOwn(obj, key)) {
-          continue;
-        }
-        if (obj[key][textNodeName] !== void 0) {
-          obj[key] = obj[key][textNodeName];
-        } else if (typeof obj[key] === "object" && obj[key] !== null) {
-          obj[key] = getValueFromTextNode(obj[key]);
-        }
-      }
-      return obj;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/is-serializable-header-value.js
-var isSerializableHeaderValue;
-var init_is_serializable_header_value = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/is-serializable-header-value.js"() {
-    isSerializableHeaderValue = (value) => {
-      return value != null;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/NoOpLogger.js
-var NoOpLogger;
-var init_NoOpLogger = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/NoOpLogger.js"() {
-    NoOpLogger = class {
-      trace() {
-      }
-      debug() {
-      }
-      info() {
-      }
-      warn() {
-      }
-      error() {
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/object-mapping.js
-function map2(arg0, arg1, arg2) {
-  let target;
-  let filter;
-  let instructions;
-  if (typeof arg1 === "undefined" && typeof arg2 === "undefined") {
-    target = {};
-    instructions = arg0;
-  } else {
-    target = arg0;
-    if (typeof arg1 === "function") {
-      filter = arg1;
-      instructions = arg2;
-      return mapWithFilter(target, filter, instructions);
-    } else {
-      instructions = arg1;
-    }
-  }
-  for (const key in instructions) {
-    if (!hasOwn(instructions, key)) {
-      continue;
-    }
-    if (!Array.isArray(instructions[key])) {
-      target[key] = instructions[key];
-      continue;
-    }
-    applyInstruction(target, null, instructions, key);
-  }
-  return target;
-}
-var convertMap, take, mapWithFilter, applyInstruction, nonNullish, pass;
-var init_object_mapping = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/object-mapping.js"() {
-    init_transport();
-    convertMap = (target) => {
-      const output = {};
-      for (const [k5, v] of Object.entries(target || {})) {
-        output[k5] = [, v];
-      }
-      return output;
-    };
-    take = (source, instructions) => {
-      const out = {};
-      for (const key in instructions) {
-        if (!hasOwn(instructions, key)) {
-          continue;
-        }
-        applyInstruction(out, source, instructions, key);
-      }
-      return out;
-    };
-    mapWithFilter = (target, filter, instructions) => {
-      return map2(target, Object.entries(instructions).reduce((_instructions, [key, value]) => {
-        if (Array.isArray(value)) {
-          _instructions[key] = value;
-        } else {
-          if (typeof value === "function") {
-            _instructions[key] = [filter, value()];
-          } else {
-            _instructions[key] = [filter, value];
-          }
-        }
-        return _instructions;
-      }, {}));
-    };
-    applyInstruction = (target, source, instructions, targetKey) => {
-      if (source !== null) {
-        let instruction = instructions[targetKey];
-        if (typeof instruction === "function") {
-          instruction = [, instruction];
-        }
-        const [filter2 = nonNullish, valueFn = pass, sourceKey = targetKey] = instruction;
-        if (typeof filter2 === "function" && filter2(source[sourceKey]) || typeof filter2 !== "function" && !!filter2) {
-          target[targetKey] = valueFn(source[sourceKey]);
-        }
-        return;
-      }
-      let [filter, value] = instructions[targetKey];
-      if (typeof value === "function") {
-        let _value;
-        const defaultFilterPassed = filter === void 0 && (_value = value()) != null;
-        const customFilterPassed = typeof filter === "function" && !!filter(void 0) || typeof filter !== "function" && !!filter;
-        if (defaultFilterPassed) {
-          target[targetKey] = _value;
-        } else if (customFilterPassed) {
-          target[targetKey] = value();
-        }
-      } else {
-        const defaultFilterPassed = filter === void 0 && value != null;
-        const customFilterPassed = typeof filter === "function" && !!filter(value) || typeof filter !== "function" && !!filter;
-        if (defaultFilterPassed || customFilterPassed) {
-          target[targetKey] = value;
-        }
-      }
-    };
-    nonNullish = (_) => _ != null;
-    pass = (_) => _;
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/ser-utils.js
-var serializeFloat, serializeDateTime;
-var init_ser_utils = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/ser-utils.js"() {
-    serializeFloat = (value) => {
-      if (value !== value) {
-        return "NaN";
-      }
-      switch (value) {
-        case Infinity:
-          return "Infinity";
-        case -Infinity:
-          return "-Infinity";
-        default:
-          return value;
-      }
-    };
-    serializeDateTime = (date2) => date2.toISOString().replace(".000Z", "Z");
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/serde-json.js
-var _json;
-var init_serde_json = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/serde-json.js"() {
-    init_transport();
-    _json = (obj) => {
-      if (obj == null) {
-        return {};
-      }
-      if (Array.isArray(obj)) {
-        return obj.filter((_) => _ != null).map(_json);
-      }
-      if (typeof obj === "object") {
-        const target = {};
-        for (const key in obj) {
-          if (!hasOwn(obj, key)) {
-            continue;
-          }
-          if (obj[key] == null) {
-            continue;
-          }
-          target[key] = _json(obj[key]);
-        }
-        return target;
-      }
-      return obj;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client-command-builder.js
-function makeBuilder(common, service, name, ep) {
-  return function makeCommand(added, plugins, op2, $, smithyContext = {}) {
-    const epMerged = Object.assign({}, common, added);
-    return Command2.classBuilder().ep(epMerged).m(function(CommandCtor, clientStack, config, options) {
-      const list2 = plugins.call(this, CommandCtor, clientStack, config, options);
-      list2.unshift(ep(config, CommandCtor.getEndpointParameterInstructions()));
-      return list2;
-    }).s(service, op2, smithyContext).n(name, op2.charAt(0).toUpperCase() + op2.slice(1) + "Command").sc($).build();
-  };
-}
-var init_client_command_builder = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client-command-builder.js"() {
-    init_command();
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/client/index.js
-var client_exports = {};
-__export(client_exports, {
-  AlgorithmId: () => import_types6.AlgorithmId,
-  Client: () => Client,
-  Command: () => Command2,
-  NoOpLogger: () => NoOpLogger,
-  SENSITIVE_STRING: () => SENSITIVE_STRING2,
-  ServiceException: () => ServiceException,
-  WaiterState: () => WaiterState,
-  _json: () => _json,
-  checkExceptions: () => checkExceptions,
-  constructStack: () => constructStack,
-  convertMap: () => convertMap,
-  createAggregatedClient: () => createAggregatedClient,
-  createWaiter: () => createWaiter,
-  decorateServiceException: () => decorateServiceException,
-  emitWarningIfUnsupportedVersion: () => emitWarningIfUnsupportedVersion2,
-  getArrayIfSingleItem: () => getArrayIfSingleItem,
-  getChecksumConfiguration: () => getChecksumConfiguration,
-  getDefaultClientConfiguration: () => getDefaultClientConfiguration,
-  getDefaultExtensionConfiguration: () => getDefaultExtensionConfiguration,
-  getRetryConfiguration: () => getRetryConfiguration,
-  getSmithyContext: () => getSmithyContext,
-  getValueFromTextNode: () => getValueFromTextNode,
-  invalidFunction: () => invalidFunction,
-  invalidProvider: () => invalidProvider,
-  isSerializableHeaderValue: () => isSerializableHeaderValue,
-  loadConfigsForDefaultMode: () => loadConfigsForDefaultMode,
-  makeBuilder: () => makeBuilder,
-  map: () => map2,
-  normalizeProvider: () => normalizeProvider,
-  resolveChecksumRuntimeConfig: () => resolveChecksumRuntimeConfig,
-  resolveDefaultRuntimeConfig: () => resolveDefaultRuntimeConfig,
-  resolveRetryRuntimeConfig: () => resolveRetryRuntimeConfig,
-  schemaLogFilter: () => schemaLogFilter,
-  serializeDateTime: () => serializeDateTime,
-  serializeFloat: () => serializeFloat,
-  take: () => take,
-  throwDefaultError: () => throwDefaultError,
-  waiterServiceDefaults: () => waiterServiceDefaults,
-  withBaseException: () => withBaseException
-});
-var init_client2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/client/index.js"() {
-    init_MiddlewareStack();
-    init_transport();
-    init_transport();
-    init_invalidFunction();
-    init_invalidProvider();
-    init_createWaiter();
-    init_waiter();
-    init_client();
-    init_command();
-    init_constants();
-    init_create_aggregated_client();
-    init_default_error_handler();
-    init_defaults_mode();
-    init_emitWarningIfUnsupportedVersion2();
-    init_exceptions();
-    init_defaultExtensionConfiguration();
-    init_checksum();
-    init_retry();
-    init_get_array_if_single_item();
-    init_get_value_from_text_node();
-    init_is_serializable_header_value();
-    init_NoOpLogger();
-    init_object_mapping();
-    init_schemaLogFilter();
-    init_ser_utils();
-    init_serde_json();
-    init_client_command_builder();
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/is-array-buffer/is-array-buffer.js
-var isArrayBuffer;
-var init_is_array_buffer = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/is-array-buffer/is-array-buffer.js"() {
-    isArrayBuffer = (arg) => typeof ArrayBuffer === "function" && arg instanceof ArrayBuffer || Object.prototype.toString.call(arg) === "[object ArrayBuffer]";
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/util-buffer-from/buffer-from.js
-var fromArrayBuffer, fromString;
-var init_buffer_from = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/util-buffer-from/buffer-from.js"() {
-    init_is_array_buffer();
-    fromArrayBuffer = (input, offset = 0, length = input.byteLength - offset) => {
-      if (!isArrayBuffer(input)) {
-        throw new TypeError(`The "input" argument must be ArrayBuffer. Received type ${typeof input} (${input})`);
-      }
-      return Buffer.from(input, offset, length);
-    };
-    fromString = (input, encoding) => {
-      if (typeof input !== "string") {
-        throw new TypeError(`The "input" argument must be of type string. Received type ${typeof input} (${input})`);
-      }
-      return encoding ? Buffer.from(input, encoding) : Buffer.from(input);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/util-base64/fromBase64.js
-var BASE64_REGEX, fromBase64;
-var init_fromBase64 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/util-base64/fromBase64.js"() {
-    init_buffer_from();
-    BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
-    fromBase64 = (input) => {
-      if (input.length * 3 % 4 !== 0) {
-        throw new TypeError(`Incorrect padding on base64 string.`);
-      }
-      if (!BASE64_REGEX.exec(input)) {
-        throw new TypeError(`Invalid base64 string.`);
-      }
-      const buffer = fromString(input, "base64");
-      return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/fromUtf8.js
-var fromUtf8;
-var init_fromUtf8 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/fromUtf8.js"() {
-    init_buffer_from();
-    fromUtf8 = (input) => {
-      const buf2 = fromString(input, "utf8");
-      return new Uint8Array(buf2.buffer, buf2.byteOffset, buf2.byteLength / Uint8Array.BYTES_PER_ELEMENT);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/util-base64/toBase64.js
-var toBase64;
-var init_toBase64 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/util-base64/toBase64.js"() {
-    init_buffer_from();
-    init_fromUtf8();
-    toBase64 = (_input) => {
-      let input;
-      if (typeof _input === "string") {
-        input = fromUtf8(_input);
-      } else {
-        input = _input;
-      }
-      if (typeof input !== "object" || typeof input.byteOffset !== "number" || typeof input.byteLength !== "number") {
-        throw new Error("@smithy/util-base64: toBase64 encoder function only accepts string | Uint8Array.");
-      }
-      return fromArrayBuffer(input.buffer, input.byteOffset, input.byteLength).toString("base64");
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/util-stream/blob/Uint8ArrayBlobAdapter.js
-function bindUint8ArrayBlobAdapter(toUtf83, fromUtf83, toBase643, fromBase642) {
-  return class Uint8ArrayBlobAdapter2 extends Uint8Array {
-    static fromString(source, encoding = "utf-8") {
-      if (typeof source === "string") {
-        if (encoding === "base64") {
-          return Uint8ArrayBlobAdapter2.mutate(fromBase642(source));
-        }
-        return Uint8ArrayBlobAdapter2.mutate(fromUtf83(source));
-      }
-      throw new Error(`Unsupported conversion from ${typeof source} to Uint8ArrayBlobAdapter.`);
-    }
-    static mutate(source) {
-      Object.setPrototypeOf(source, Uint8ArrayBlobAdapter2.prototype);
-      return source;
-    }
-    transformToString(encoding = "utf-8") {
-      if (encoding === "base64") {
-        return toBase643(this);
-      }
-      return toUtf83(this);
-    }
-  };
-}
-var init_Uint8ArrayBlobAdapter = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/blob/Uint8ArrayBlobAdapter.js"() {
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/toUtf8.js
-var toUtf8;
-var init_toUtf8 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/util-utf8/toUtf8.js"() {
-    init_buffer_from();
-    toUtf8 = (input) => {
-      if (typeof input === "string") {
-        return input;
-      }
-      if (typeof input !== "object" || typeof input.byteOffset !== "number" || typeof input.byteLength !== "number") {
-        throw new Error("@smithy/util-utf8: toUtf8 encoder function only accepts string | Uint8Array.");
-      }
-      return fromArrayBuffer(input.buffer, input.byteOffset, input.byteLength).toString("utf8");
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/uuid/v4.js
-function bindV4(getRandomValues2) {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return () => crypto.randomUUID();
-  }
-  return () => {
-    const rnds = new Uint8Array(16);
-    getRandomValues2(rnds);
-    rnds[6] = rnds[6] & 15 | 64;
-    rnds[8] = rnds[8] & 63 | 128;
-    return decimalToHex[rnds[0]] + decimalToHex[rnds[1]] + decimalToHex[rnds[2]] + decimalToHex[rnds[3]] + "-" + decimalToHex[rnds[4]] + decimalToHex[rnds[5]] + "-" + decimalToHex[rnds[6]] + decimalToHex[rnds[7]] + "-" + decimalToHex[rnds[8]] + decimalToHex[rnds[9]] + "-" + decimalToHex[rnds[10]] + decimalToHex[rnds[11]] + decimalToHex[rnds[12]] + decimalToHex[rnds[13]] + decimalToHex[rnds[14]] + decimalToHex[rnds[15]];
-  };
-}
-var decimalToHex;
-var init_v4 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/uuid/v4.js"() {
-    decimalToHex = Array.from({ length: 256 }, (_, i6) => i6.toString(16).padStart(2, "0"));
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/serde/copyDocumentWithTransform.js
-var copyDocumentWithTransform;
-var init_copyDocumentWithTransform = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/serde/copyDocumentWithTransform.js"() {
-    copyDocumentWithTransform = (source, _schemaRef, _transform = (_) => _) => source;
   }
 });
 
@@ -181558,7 +179374,7 @@ var init_concatBytes = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/middleware-serde/deserializerMiddleware.js
-var deserializerMiddleware, findHeader2;
+var deserializerMiddleware, findHeader;
 var init_deserializerMiddleware = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/middleware-serde/deserializerMiddleware.js"() {
     init_transport();
@@ -181599,9 +179415,9 @@ var init_deserializerMiddleware = __esm({
               const headerEntries = Object.entries(headers);
               error3.$metadata = {
                 httpStatusCode: response.statusCode,
-                requestId: findHeader2(/^x-[\w-]+-request-?id$/, headerEntries),
-                extendedRequestId: findHeader2(/^x-[\w-]+-id-2$/, headerEntries),
-                cfId: findHeader2(/^x-[\w-]+-cf-id$/, headerEntries)
+                requestId: findHeader(/^x-[\w-]+-request-?id$/, headerEntries),
+                extendedRequestId: findHeader(/^x-[\w-]+-id-2$/, headerEntries),
+                cfId: findHeader(/^x-[\w-]+-cf-id$/, headerEntries)
               };
             }
           } catch (ignored) {
@@ -181610,7 +179426,7 @@ var init_deserializerMiddleware = __esm({
         throw error3;
       }
     };
-    findHeader2 = (pattern, headers) => {
+    findHeader = (pattern, headers) => {
       return (headers.find(([k5]) => {
         return k5.match(pattern);
       }) || [void 0, void 0])[1];
@@ -181888,27 +179704,27 @@ var init_getSSOTokenFromFile = __esm({
 
 // node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/constants.js
 var CONFIG_PREFIX_SEPARATOR;
-var init_constants2 = __esm({
+var init_constants = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/constants.js"() {
     CONFIG_PREFIX_SEPARATOR = ".";
   }
 });
 
 // node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/getConfigData.js
-var import_types7, getConfigData;
+var import_types5, getConfigData;
 var init_getConfigData = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/getConfigData.js"() {
-    import_types7 = __toESM(require_dist_cjs());
-    init_constants2();
+    import_types5 = __toESM(require_dist_cjs());
+    init_constants();
     getConfigData = (data) => Object.entries(data).filter(([key]) => {
       const indexOfSeparator = key.indexOf(CONFIG_PREFIX_SEPARATOR);
       if (indexOfSeparator === -1) {
         return false;
       }
-      return Object.values(import_types7.IniSectionType).includes(key.substring(0, indexOfSeparator));
+      return Object.values(import_types5.IniSectionType).includes(key.substring(0, indexOfSeparator));
     }).reduce((acc, [key, value]) => {
       const indexOfSeparator = key.indexOf(CONFIG_PREFIX_SEPARATOR);
-      const updatedKey = key.substring(0, indexOfSeparator) === import_types7.IniSectionType.PROFILE ? key.substring(indexOfSeparator + 1) : key;
+      const updatedKey = key.substring(0, indexOfSeparator) === import_types5.IniSectionType.PROFILE ? key.substring(indexOfSeparator + 1) : key;
       acc[updatedKey] = value;
       return acc;
     }, {
@@ -181940,11 +179756,11 @@ var init_getCredentialsFilepath = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/parseIni.js
-var import_types8, prefixKeyRegex, profileNameBlockList, parseIni;
+var import_types6, prefixKeyRegex, profileNameBlockList, parseIni;
 var init_parseIni = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/parseIni.js"() {
-    import_types8 = __toESM(require_dist_cjs());
-    init_constants2();
+    import_types6 = __toESM(require_dist_cjs());
+    init_constants();
     prefixKeyRegex = /^([\w-]+)\s(["'])?([\w-@+.%:/]+)\2$/;
     profileNameBlockList = ["__proto__", "profile __proto__"];
     parseIni = (iniData) => {
@@ -181961,7 +179777,7 @@ var init_parseIni = __esm({
           const matches = prefixKeyRegex.exec(sectionName);
           if (matches) {
             const [, prefix, , name] = matches;
-            if (Object.values(import_types8.IniSectionType).includes(prefix)) {
+            if (Object.values(import_types6.IniSectionType).includes(prefix)) {
               currentSection = [prefix, name].join(CONFIG_PREFIX_SEPARATOR);
             }
           } else {
@@ -182025,7 +179841,7 @@ var init_loadSharedConfigFiles = __esm({
     init_getHomeDir();
     init_parseIni();
     init_readFile();
-    init_constants2();
+    init_constants();
     swallowError = () => ({});
     loadSharedConfigFiles = async (init = {}) => {
       const { filepath = getCredentialsFilepath(), configFilepath = getConfigFilepath() } = init;
@@ -182056,12 +179872,12 @@ var init_loadSharedConfigFiles = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/getSsoSessionData.js
-var import_types9, getSsoSessionData;
+var import_types7, getSsoSessionData;
 var init_getSsoSessionData = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/shared-ini-file-loader/getSsoSessionData.js"() {
-    import_types9 = __toESM(require_dist_cjs());
+    import_types7 = __toESM(require_dist_cjs());
     init_loadSharedConfigFiles();
-    getSsoSessionData = (data) => Object.entries(data).filter(([key]) => key.startsWith(import_types9.IniSectionType.SSO_SESSION + CONFIG_PREFIX_SEPARATOR)).reduce((acc, [key, value]) => ({ ...acc, [key.substring(key.indexOf(CONFIG_PREFIX_SEPARATOR) + 1)]: value }), {});
+    getSsoSessionData = (data) => Object.entries(data).filter(([key]) => key.startsWith(import_types7.IniSectionType.SSO_SESSION + CONFIG_PREFIX_SEPARATOR)).reduce((acc, [key, value]) => ({ ...acc, [key.substring(key.indexOf(CONFIG_PREFIX_SEPARATOR) + 1)]: value }), {});
   }
 });
 
@@ -182267,6 +180083,2226 @@ var init_NodeUseFipsEndpointConfigOptions = __esm({
       configFileSelector: (profile) => booleanSelector(profile, CONFIG_USE_FIPS_ENDPOINT, SelectorType.CONFIG),
       default: void 0
     };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/middleware-stack/MiddlewareStack.js
+var getAllAliases, getMiddlewareNameWithAliases, constructStack, stepWeights, priorityWeights;
+var init_MiddlewareStack = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/middleware-stack/MiddlewareStack.js"() {
+    getAllAliases = (name, aliases) => {
+      const _aliases = [];
+      if (name) {
+        _aliases.push(name);
+      }
+      if (aliases) {
+        for (const alias of aliases) {
+          _aliases.push(alias);
+        }
+      }
+      return _aliases;
+    };
+    getMiddlewareNameWithAliases = (name, aliases) => {
+      return `${name || "anonymous"}${aliases && aliases.length > 0 ? ` (a.k.a. ${aliases.join(",")})` : ""}`;
+    };
+    constructStack = () => {
+      let absoluteEntries = [];
+      let relativeEntries = [];
+      let identifyOnResolve = false;
+      const entriesNameSet = /* @__PURE__ */ new Set();
+      const sort = (entries) => entries.sort((a5, b5) => stepWeights[b5.step] - stepWeights[a5.step] || priorityWeights[b5.priority || "normal"] - priorityWeights[a5.priority || "normal"]);
+      const removeByName = (toRemove) => {
+        let isRemoved = false;
+        const filterCb = (entry) => {
+          const aliases = getAllAliases(entry.name, entry.aliases);
+          if (aliases.includes(toRemove)) {
+            isRemoved = true;
+            for (const alias of aliases) {
+              entriesNameSet.delete(alias);
+            }
+            return false;
+          }
+          return true;
+        };
+        absoluteEntries = absoluteEntries.filter(filterCb);
+        relativeEntries = relativeEntries.filter(filterCb);
+        return isRemoved;
+      };
+      const removeByReference = (toRemove) => {
+        let isRemoved = false;
+        const filterCb = (entry) => {
+          if (entry.middleware === toRemove) {
+            isRemoved = true;
+            for (const alias of getAllAliases(entry.name, entry.aliases)) {
+              entriesNameSet.delete(alias);
+            }
+            return false;
+          }
+          return true;
+        };
+        absoluteEntries = absoluteEntries.filter(filterCb);
+        relativeEntries = relativeEntries.filter(filterCb);
+        return isRemoved;
+      };
+      const cloneTo = (toStack) => {
+        absoluteEntries.forEach((entry) => {
+          toStack.add(entry.middleware, { ...entry });
+        });
+        relativeEntries.forEach((entry) => {
+          toStack.addRelativeTo(entry.middleware, { ...entry });
+        });
+        toStack.identifyOnResolve?.(stack.identifyOnResolve());
+        return toStack;
+      };
+      const expandRelativeMiddlewareList = (from) => {
+        const expandedMiddlewareList = [];
+        from.before.forEach((entry) => {
+          if (entry.before.length === 0 && entry.after.length === 0) {
+            expandedMiddlewareList.push(entry);
+          } else {
+            expandedMiddlewareList.push(...expandRelativeMiddlewareList(entry));
+          }
+        });
+        expandedMiddlewareList.push(from);
+        from.after.reverse().forEach((entry) => {
+          if (entry.before.length === 0 && entry.after.length === 0) {
+            expandedMiddlewareList.push(entry);
+          } else {
+            expandedMiddlewareList.push(...expandRelativeMiddlewareList(entry));
+          }
+        });
+        return expandedMiddlewareList;
+      };
+      const getMiddlewareList = (debug2 = false) => {
+        const normalizedAbsoluteEntries = [];
+        const normalizedRelativeEntries = [];
+        const normalizedEntriesNameMap = {};
+        absoluteEntries.forEach((entry) => {
+          const normalizedEntry = {
+            ...entry,
+            before: [],
+            after: []
+          };
+          for (const alias of getAllAliases(normalizedEntry.name, normalizedEntry.aliases)) {
+            normalizedEntriesNameMap[alias] = normalizedEntry;
+          }
+          normalizedAbsoluteEntries.push(normalizedEntry);
+        });
+        relativeEntries.forEach((entry) => {
+          const normalizedEntry = {
+            ...entry,
+            before: [],
+            after: []
+          };
+          for (const alias of getAllAliases(normalizedEntry.name, normalizedEntry.aliases)) {
+            normalizedEntriesNameMap[alias] = normalizedEntry;
+          }
+          normalizedRelativeEntries.push(normalizedEntry);
+        });
+        normalizedRelativeEntries.forEach((entry) => {
+          if (entry.toMiddleware) {
+            const toMiddleware = normalizedEntriesNameMap[entry.toMiddleware];
+            if (toMiddleware === void 0) {
+              if (debug2) {
+                return;
+              }
+              throw new Error(`${entry.toMiddleware} is not found when adding ${getMiddlewareNameWithAliases(entry.name, entry.aliases)} middleware ${entry.relation} ${entry.toMiddleware}`);
+            }
+            if (entry.relation === "after") {
+              toMiddleware.after.push(entry);
+            }
+            if (entry.relation === "before") {
+              toMiddleware.before.push(entry);
+            }
+          }
+        });
+        const mainChain = sort(normalizedAbsoluteEntries).map(expandRelativeMiddlewareList).reduce((wholeList, expandedMiddlewareList) => {
+          wholeList.push(...expandedMiddlewareList);
+          return wholeList;
+        }, []);
+        return mainChain;
+      };
+      const stack = {
+        add: (middleware, options = {}) => {
+          const { name, override, aliases: _aliases } = options;
+          const entry = {
+            step: "initialize",
+            priority: "normal",
+            middleware,
+            ...options
+          };
+          const aliases = getAllAliases(name, _aliases);
+          if (aliases.length > 0) {
+            if (aliases.some((alias) => entriesNameSet.has(alias))) {
+              if (!override) {
+                throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
+              }
+              for (const alias of aliases) {
+                const toOverrideIndex = absoluteEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
+                if (toOverrideIndex === -1) {
+                  continue;
+                }
+                const toOverride = absoluteEntries[toOverrideIndex];
+                if (toOverride.step !== entry.step || entry.priority !== toOverride.priority) {
+                  throw new Error(`"${getMiddlewareNameWithAliases(toOverride.name, toOverride.aliases)}" middleware with ${toOverride.priority} priority in ${toOverride.step} step cannot be overridden by "${getMiddlewareNameWithAliases(name, _aliases)}" middleware with ${entry.priority} priority in ${entry.step} step.`);
+                }
+                absoluteEntries.splice(toOverrideIndex, 1);
+              }
+            }
+            for (const alias of aliases) {
+              entriesNameSet.add(alias);
+            }
+          }
+          absoluteEntries.push(entry);
+        },
+        addRelativeTo: (middleware, options) => {
+          const { name, override, aliases: _aliases } = options;
+          const entry = {
+            middleware,
+            ...options
+          };
+          const aliases = getAllAliases(name, _aliases);
+          if (aliases.length > 0) {
+            if (aliases.some((alias) => entriesNameSet.has(alias))) {
+              if (!override) {
+                throw new Error(`Duplicate middleware name '${getMiddlewareNameWithAliases(name, _aliases)}'`);
+              }
+              for (const alias of aliases) {
+                const toOverrideIndex = relativeEntries.findIndex((entry2) => entry2.name === alias || entry2.aliases?.some((a5) => a5 === alias));
+                if (toOverrideIndex === -1) {
+                  continue;
+                }
+                const toOverride = relativeEntries[toOverrideIndex];
+                if (toOverride.toMiddleware !== entry.toMiddleware || toOverride.relation !== entry.relation) {
+                  throw new Error(`"${getMiddlewareNameWithAliases(toOverride.name, toOverride.aliases)}" middleware ${toOverride.relation} "${toOverride.toMiddleware}" middleware cannot be overridden by "${getMiddlewareNameWithAliases(name, _aliases)}" middleware ${entry.relation} "${entry.toMiddleware}" middleware.`);
+                }
+                relativeEntries.splice(toOverrideIndex, 1);
+              }
+            }
+            for (const alias of aliases) {
+              entriesNameSet.add(alias);
+            }
+          }
+          relativeEntries.push(entry);
+        },
+        clone: () => cloneTo(constructStack()),
+        use: (plugin) => {
+          plugin.applyToStack(stack);
+        },
+        remove: (toRemove) => {
+          if (typeof toRemove === "string") {
+            return removeByName(toRemove);
+          } else {
+            return removeByReference(toRemove);
+          }
+        },
+        removeByTag: (toRemove) => {
+          let isRemoved = false;
+          const filterCb = (entry) => {
+            const { tags, name, aliases: _aliases } = entry;
+            if (tags && tags.includes(toRemove)) {
+              const aliases = getAllAliases(name, _aliases);
+              for (const alias of aliases) {
+                entriesNameSet.delete(alias);
+              }
+              isRemoved = true;
+              return false;
+            }
+            return true;
+          };
+          absoluteEntries = absoluteEntries.filter(filterCb);
+          relativeEntries = relativeEntries.filter(filterCb);
+          return isRemoved;
+        },
+        concat: (from) => {
+          const cloned = cloneTo(constructStack());
+          cloned.use(from);
+          cloned.identifyOnResolve(identifyOnResolve || cloned.identifyOnResolve() || (from.identifyOnResolve?.() ?? false));
+          return cloned;
+        },
+        applyToStack: cloneTo,
+        identify: () => {
+          return getMiddlewareList(true).map((mw) => {
+            const step = mw.step ?? mw.relation + " " + mw.toMiddleware;
+            return getMiddlewareNameWithAliases(mw.name, mw.aliases) + " - " + step;
+          });
+        },
+        identifyOnResolve(toggle) {
+          if (typeof toggle === "boolean") {
+            identifyOnResolve = toggle;
+          }
+          return identifyOnResolve;
+        },
+        resolve: (handler, context2) => {
+          for (const middleware of getMiddlewareList().map((entry) => entry.middleware).reverse()) {
+            handler = middleware(handler, context2);
+          }
+          if (identifyOnResolve) {
+            console.log(stack.identify());
+          }
+          return handler;
+        }
+      };
+      return stack;
+    };
+    stepWeights = {
+      initialize: 5,
+      serialize: 4,
+      build: 3,
+      finalizeRequest: 2,
+      deserialize: 1
+    };
+    priorityWeights = {
+      high: 3,
+      normal: 2,
+      low: 1
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidFunction.js
+var invalidFunction;
+var init_invalidFunction = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidFunction.js"() {
+    invalidFunction = (message) => () => {
+      throw new Error(message);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidProvider.js
+var invalidProvider;
+var init_invalidProvider = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/invalid-dependency/invalidProvider.js"() {
+    invalidProvider = (message) => () => Promise.reject(message);
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/circularReplacer.js
+var getCircularReplacer;
+var init_circularReplacer = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/circularReplacer.js"() {
+    getCircularReplacer = () => {
+      const seen = /* @__PURE__ */ new WeakSet();
+      return (key, value) => {
+        if (typeof value === "object" && value !== null) {
+          if (seen.has(value)) {
+            return "[Circular]";
+          }
+          seen.add(value);
+        }
+        return value;
+      };
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/sleep.js
+var sleep;
+var init_sleep = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/sleep.js"() {
+    sleep = (seconds) => {
+      return new Promise((resolve) => setTimeout(resolve, seconds * 1e3));
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/waiter.js
+var waiterServiceDefaults, WaiterState, checkExceptions;
+var init_waiter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/waiter.js"() {
+    init_circularReplacer();
+    waiterServiceDefaults = {
+      minDelay: 2,
+      maxDelay: 120
+    };
+    (function(WaiterState2) {
+      WaiterState2["ABORTED"] = "ABORTED";
+      WaiterState2["FAILURE"] = "FAILURE";
+      WaiterState2["SUCCESS"] = "SUCCESS";
+      WaiterState2["RETRY"] = "RETRY";
+      WaiterState2["TIMEOUT"] = "TIMEOUT";
+    })(WaiterState || (WaiterState = {}));
+    checkExceptions = (result) => {
+      if (result.state === WaiterState.ABORTED) {
+        const abortError = new Error(`${JSON.stringify({
+          ...result,
+          reason: "Request was aborted"
+        }, getCircularReplacer())}`);
+        abortError.name = "AbortError";
+        throw abortError;
+      } else if (result.state === WaiterState.TIMEOUT) {
+        const timeoutError = new Error(`${JSON.stringify({
+          ...result,
+          reason: "Waiter has timed out"
+        }, getCircularReplacer())}`);
+        timeoutError.name = "TimeoutError";
+        throw timeoutError;
+      } else if (result.state !== WaiterState.SUCCESS) {
+        throw new Error(`${JSON.stringify(result, getCircularReplacer())}`);
+      }
+      return result;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/poller.js
+var runPolling, checkWarn403, createMessageFromResponse, exponentialBackoffWithJitter, randomInRange;
+var init_poller = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/poller.js"() {
+    init_circularReplacer();
+    init_sleep();
+    init_waiter();
+    runPolling = async ({ minDelay, maxDelay, maxWaitTime, abortController, client, abortSignal }, input, acceptorChecks) => {
+      const observedResponses = {};
+      const [minDelayMs, maxDelayMs] = [minDelay * 1e3, maxDelay * 1e3];
+      let currentAttempt = 0;
+      const waitUntil = Date.now() + maxWaitTime * 1e3;
+      const warn403Time = Date.now() + 6e4;
+      let didWarn403 = false;
+      while (true) {
+        if (currentAttempt > 0) {
+          const delayMs = exponentialBackoffWithJitter(minDelayMs, maxDelayMs, currentAttempt, waitUntil);
+          if (abortController?.signal?.aborted || abortSignal?.aborted) {
+            const message = "AbortController signal aborted.";
+            observedResponses[message] |= 0;
+            observedResponses[message] += 1;
+            return { state: WaiterState.ABORTED, observedResponses };
+          }
+          if (Date.now() + delayMs > waitUntil) {
+            return { state: WaiterState.TIMEOUT, observedResponses };
+          }
+          await sleep(delayMs / 1e3);
+        }
+        const { state: state2, reason } = await acceptorChecks(client, input);
+        if (reason) {
+          const message = createMessageFromResponse(reason);
+          observedResponses[message] |= 0;
+          observedResponses[message] += 1;
+        }
+        if (state2 !== WaiterState.RETRY) {
+          return { state: state2, reason, final: reason, observedResponses };
+        }
+        currentAttempt += 1;
+        if (!didWarn403 && Date.now() >= warn403Time) {
+          checkWarn403(observedResponses, client);
+          didWarn403 = true;
+        }
+      }
+    };
+    checkWarn403 = (observedResponses = {}, client) => {
+      const orderedErrors = Object.keys(observedResponses);
+      let maxCount = 0;
+      let count403 = 0;
+      for (const response of orderedErrors) {
+        const n3 = observedResponses[response] | 0;
+        maxCount = Math.max(n3, maxCount);
+        if (response.startsWith("403:")) {
+          count403 += n3;
+        }
+      }
+      const clientLogger = client?.config?.logger;
+      const warningLogger = typeof clientLogger?.warn === "function" && !clientLogger.constructor?.name?.includes?.("NoOpLogger") ? clientLogger : console;
+      if (count403 >= 3 || orderedErrors[orderedErrors.length - 1]?.startsWith("403:")) {
+        warningLogger.warn(`@smithy/util-waiter WARN - 403 status code encountered during waiter polling.`);
+      }
+    };
+    createMessageFromResponse = (reason) => {
+      const status = reason?.$response?.statusCode ?? reason?.$metadata?.httpStatusCode;
+      if (reason?.$responseBodyText) {
+        return `${status ? status + ": " : ""}Deserialization error for body: ${reason.$responseBodyText}`;
+      }
+      if (status) {
+        if (reason?.$response || reason?.message) {
+          return `${status ?? "Unknown"}: ${reason?.message}`;
+        }
+        return `${status}: OK`;
+      }
+      return String(reason?.message ?? JSON.stringify(reason, getCircularReplacer()) ?? "Unknown");
+    };
+    exponentialBackoffWithJitter = (minDelayMs, maxDelayMs, attempt, waitUntil) => {
+      const attemptCountCeiling = Math.log(maxDelayMs / minDelayMs) / Math.log(2) + 1;
+      if (attempt > attemptCountCeiling) {
+        return maxDelayMs;
+      }
+      const delay = minDelayMs * 2 ** (attempt - 1);
+      const capped = Math.min(delay, maxDelayMs);
+      const waitFor = randomInRange(minDelayMs, capped);
+      if (Date.now() + waitFor > waitUntil) {
+        const timeRemaining = waitUntil - Date.now();
+        return Math.max(0, timeRemaining - 500);
+      }
+      return waitFor;
+    };
+    randomInRange = (min, max) => min + Math.random() * (max - min);
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/validate.js
+var validateWaiterOptions;
+var init_validate = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/utils/validate.js"() {
+    validateWaiterOptions = (options) => {
+      if (options.maxWaitTime <= 0) {
+        throw new Error(`WaiterConfiguration.maxWaitTime must be greater than 0`);
+      } else if (options.minDelay <= 0) {
+        throw new Error(`WaiterConfiguration.minDelay must be greater than 0`);
+      } else if (options.maxDelay <= 0) {
+        throw new Error(`WaiterConfiguration.maxDelay must be greater than 0`);
+      } else if (options.maxWaitTime <= options.minDelay) {
+        throw new Error(`WaiterConfiguration.maxWaitTime [${options.maxWaitTime}] must be greater than WaiterConfiguration.minDelay [${options.minDelay}] for this waiter`);
+      } else if (options.maxDelay < options.minDelay) {
+        throw new Error(`WaiterConfiguration.maxDelay [${options.maxDelay}] must be greater than WaiterConfiguration.minDelay [${options.minDelay}] for this waiter`);
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/util-waiter/createWaiter.js
+var abortTimeout, createWaiter;
+var init_createWaiter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/util-waiter/createWaiter.js"() {
+    init_poller();
+    init_validate();
+    init_waiter();
+    abortTimeout = (abortSignal) => {
+      let onAbort;
+      const promise = new Promise((resolve) => {
+        onAbort = () => resolve({ state: WaiterState.ABORTED });
+        if (typeof abortSignal.addEventListener === "function") {
+          abortSignal.addEventListener("abort", onAbort);
+        } else {
+          abortSignal.onabort = onAbort;
+        }
+      });
+      return {
+        clearListener() {
+          if (typeof abortSignal.removeEventListener === "function") {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+        },
+        aborted: promise
+      };
+    };
+    createWaiter = async (options, input, acceptorChecks) => {
+      const params = {
+        ...waiterServiceDefaults,
+        ...options
+      };
+      validateWaiterOptions(params);
+      const exitConditions = [runPolling(params, input, acceptorChecks)];
+      const finalize = [];
+      if (options.abortSignal) {
+        const { aborted, clearListener } = abortTimeout(options.abortSignal);
+        finalize.push(clearListener);
+        exitConditions.push(aborted);
+      }
+      if (options.abortController?.signal) {
+        const { aborted, clearListener } = abortTimeout(options.abortController.signal);
+        finalize.push(clearListener);
+        exitConditions.push(aborted);
+      }
+      return Promise.race(exitConditions).then((result) => {
+        for (const fn of finalize) {
+          fn();
+        }
+        return result;
+      });
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client.js
+var Client;
+var init_client = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client.js"() {
+    init_MiddlewareStack();
+    Client = class {
+      config;
+      middlewareStack = constructStack();
+      initConfig;
+      handlers;
+      constructor(config) {
+        this.config = config;
+        const { protocol, protocolSettings } = config;
+        if (protocolSettings) {
+          if (typeof protocol === "function") {
+            config.protocol = new protocol(protocolSettings);
+          }
+        }
+      }
+      send(command5, optionsOrCb, cb) {
+        const options = typeof optionsOrCb !== "function" ? optionsOrCb : void 0;
+        const callback = typeof optionsOrCb === "function" ? optionsOrCb : cb;
+        const useHandlerCache = options === void 0 && this.config.cacheMiddleware === true;
+        let handler;
+        if (useHandlerCache) {
+          if (!this.handlers) {
+            this.handlers = /* @__PURE__ */ new WeakMap();
+          }
+          const handlers = this.handlers;
+          if (handlers.has(command5.constructor)) {
+            handler = handlers.get(command5.constructor);
+          } else {
+            handler = command5.resolveMiddleware(this.middlewareStack, this.config, options);
+            handlers.set(command5.constructor, handler);
+          }
+        } else {
+          delete this.handlers;
+          handler = command5.resolveMiddleware(this.middlewareStack, this.config, options);
+        }
+        if (callback) {
+          handler(command5).then((result) => callback(null, result.output), (err) => callback(err)).catch(() => {
+          });
+        } else {
+          return handler(command5).then((result) => result.output);
+        }
+      }
+      destroy() {
+        this.config?.requestHandler?.destroy?.();
+        delete this.handlers;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/deref.js
+var deref;
+var init_deref = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/deref.js"() {
+    deref = (schemaRef) => {
+      if (typeof schemaRef === "function") {
+        return schemaRef();
+      }
+      return schemaRef;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/operation.js
+var operation;
+var init_operation = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/operation.js"() {
+    operation = (namespace, name, traits, input, output) => ({
+      name,
+      namespace,
+      traits,
+      input,
+      output
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaDeserializationMiddleware.js
+var schemaDeserializationMiddleware, findHeader2;
+var init_schemaDeserializationMiddleware = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaDeserializationMiddleware.js"() {
+    init_transport();
+    init_operation();
+    schemaDeserializationMiddleware = (config) => (next, context2) => async (args) => {
+      const { response } = await next(args);
+      const { operationSchema } = getSmithyContext(context2);
+      const [, ns, n3, t2, i6, o3] = operationSchema ?? [];
+      try {
+        const parsed = await config.protocol.deserializeResponse(operation(ns, n3, t2, i6, o3), {
+          ...config,
+          ...context2
+        }, response);
+        return {
+          response,
+          output: parsed
+        };
+      } catch (error3) {
+        Object.defineProperty(error3, "$response", {
+          value: response,
+          enumerable: false,
+          writable: false,
+          configurable: false
+        });
+        if (!("$metadata" in error3)) {
+          const hint = `Deserialization error: to see the raw response, inspect the hidden field {error}.$response on this object.`;
+          try {
+            error3.message += "\n  " + hint;
+          } catch (ignored) {
+            if (!context2.logger || context2.logger?.constructor?.name === "NoOpLogger") {
+              console.warn(hint);
+            } else {
+              context2.logger?.warn?.(hint);
+            }
+          }
+          if (typeof error3.$responseBodyText !== "undefined") {
+            if (error3.$response) {
+              error3.$response.body = error3.$responseBodyText;
+            }
+          }
+          try {
+            if (HttpResponse.isInstance(response)) {
+              const { headers = {}, statusCode } = response;
+              const headerEntries = Object.entries(headers);
+              error3.$metadata = {
+                httpStatusCode: statusCode,
+                requestId: findHeader2(/^x-[\w-]+-request-?id$/, headerEntries),
+                extendedRequestId: findHeader2(/^x-[\w-]+-id-2$/, headerEntries),
+                cfId: findHeader2(/^x-[\w-]+-cf-id$/, headerEntries)
+              };
+            }
+          } catch (ignored) {
+          }
+        }
+        throw error3;
+      }
+    };
+    findHeader2 = (pattern, headers) => {
+      return (headers.find(([k5]) => {
+        return k5.match(pattern);
+      }) || [void 0, void 0])[1];
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaSerializationMiddleware.js
+var schemaSerializationMiddleware;
+var init_schemaSerializationMiddleware = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/middleware/schemaSerializationMiddleware.js"() {
+    init_transport();
+    init_operation();
+    schemaSerializationMiddleware = (config) => (next, context2) => async (args) => {
+      const { operationSchema } = getSmithyContext(context2);
+      const [, ns, n3, t2, i6, o3] = operationSchema ?? [];
+      const endpoint = context2.endpointV2 ? async () => toEndpointV1(context2.endpointV2) : config.endpoint;
+      const request = await config.protocol.serializeRequest(operation(ns, n3, t2, i6, o3), args.input, {
+        ...config,
+        ...context2,
+        endpoint
+      });
+      return next({
+        ...args,
+        request
+      });
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/middleware/getSchemaSerdePlugin.js
+function getSchemaSerdePlugin(config) {
+  return {
+    applyToStack: (commandStack) => {
+      commandStack.add(schemaSerializationMiddleware(config), serializerMiddlewareOption);
+      commandStack.add(schemaDeserializationMiddleware(config), deserializerMiddlewareOption);
+      config.protocol.setSerdeContext(config);
+    }
+  };
+}
+var deserializerMiddlewareOption, serializerMiddlewareOption;
+var init_getSchemaSerdePlugin = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/middleware/getSchemaSerdePlugin.js"() {
+    init_schemaDeserializationMiddleware();
+    init_schemaSerializationMiddleware();
+    deserializerMiddlewareOption = {
+      name: "deserializerMiddleware",
+      step: "deserialize",
+      tags: ["DESERIALIZER"],
+      override: true
+    };
+    serializerMiddlewareOption = {
+      name: "serializerMiddleware",
+      step: "serialize",
+      tags: ["SERIALIZER"],
+      override: true
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/Schema.js
+var Schema;
+var init_Schema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/Schema.js"() {
+    Schema = class {
+      name;
+      namespace;
+      traits;
+      static assign(instance, values) {
+        const schema = Object.assign(instance, values);
+        return schema;
+      }
+      static [Symbol.hasInstance](lhs) {
+        const isPrototype = this.prototype.isPrototypeOf(lhs);
+        if (!isPrototype && typeof lhs === "object" && lhs !== null) {
+          const list2 = lhs;
+          return list2.symbol === this.symbol;
+        }
+        return isPrototype;
+      }
+      getName() {
+        return this.namespace + "#" + this.name;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/ListSchema.js
+var ListSchema, list;
+var init_ListSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/ListSchema.js"() {
+    init_Schema();
+    ListSchema = class _ListSchema extends Schema {
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/lis");
+      valueSchema;
+      symbol = _ListSchema.symbol;
+    };
+    list = (namespace, name, traits, valueSchema) => Schema.assign(new ListSchema(), {
+      name,
+      namespace,
+      traits,
+      valueSchema
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/MapSchema.js
+var MapSchema, map;
+var init_MapSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/MapSchema.js"() {
+    init_Schema();
+    MapSchema = class _MapSchema extends Schema {
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/map");
+      keySchema;
+      valueSchema;
+      symbol = _MapSchema.symbol;
+    };
+    map = (namespace, name, traits, keySchema, valueSchema) => Schema.assign(new MapSchema(), {
+      name,
+      namespace,
+      traits,
+      keySchema,
+      valueSchema
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/OperationSchema.js
+var OperationSchema, op;
+var init_OperationSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/OperationSchema.js"() {
+    init_Schema();
+    OperationSchema = class _OperationSchema extends Schema {
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/ope");
+      input;
+      output;
+      symbol = _OperationSchema.symbol;
+    };
+    op = (namespace, name, traits, input, output) => Schema.assign(new OperationSchema(), {
+      name,
+      namespace,
+      traits,
+      input,
+      output
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/StructureSchema.js
+var StructureSchema, struct;
+var init_StructureSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/StructureSchema.js"() {
+    init_Schema();
+    StructureSchema = class _StructureSchema extends Schema {
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/str");
+      memberNames;
+      memberList;
+      symbol = _StructureSchema.symbol;
+    };
+    struct = (namespace, name, traits, memberNames, memberList) => Schema.assign(new StructureSchema(), {
+      name,
+      namespace,
+      traits,
+      memberNames,
+      memberList
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/ErrorSchema.js
+var ErrorSchema, error2;
+var init_ErrorSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/ErrorSchema.js"() {
+    init_Schema();
+    init_StructureSchema();
+    ErrorSchema = class _ErrorSchema extends StructureSchema {
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/err");
+      ctor;
+      symbol = _ErrorSchema.symbol;
+    };
+    error2 = (namespace, name, traits, memberNames, memberList, _ctor) => Schema.assign(new ErrorSchema(), {
+      name,
+      namespace,
+      traits,
+      memberNames,
+      memberList,
+      ctor: null
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/translateTraits.js
+function translateTraits(indicator) {
+  if (typeof indicator === "object") {
+    return indicator;
+  }
+  indicator = indicator | 0;
+  if (traitsCache[indicator]) {
+    return traitsCache[indicator];
+  }
+  const traits = {};
+  let i6 = 0;
+  for (const trait of [
+    "httpLabel",
+    "idempotent",
+    "idempotencyToken",
+    "sensitive",
+    "httpPayload",
+    "httpResponseCode",
+    "httpQueryParams"
+  ]) {
+    if ((indicator >> i6++ & 1) === 1) {
+      traits[trait] = 1;
+    }
+  }
+  return traitsCache[indicator] = traits;
+}
+var traitsCache;
+var init_translateTraits = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/translateTraits.js"() {
+    traitsCache = [];
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/NormalizedSchema.js
+function member(memberSchema, memberName) {
+  if (memberSchema instanceof NormalizedSchema) {
+    return Object.assign(memberSchema, {
+      memberName,
+      _isMemberSchema: true
+    });
+  }
+  const internalCtorAccess = NormalizedSchema;
+  return new internalCtorAccess(memberSchema, memberName);
+}
+var anno, simpleSchemaCacheN, simpleSchemaCacheS, NormalizedSchema, isMemberSchema, isStaticSchema;
+var init_NormalizedSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/NormalizedSchema.js"() {
+    init_deref();
+    init_translateTraits();
+    anno = {
+      it: /* @__PURE__ */ Symbol.for("@smithy/nor-struct-it"),
+      ns: /* @__PURE__ */ Symbol.for("@smithy/ns")
+    };
+    simpleSchemaCacheN = [];
+    simpleSchemaCacheS = {};
+    NormalizedSchema = class _NormalizedSchema {
+      ref;
+      memberName;
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/nor");
+      symbol = _NormalizedSchema.symbol;
+      name;
+      schema;
+      _isMemberSchema;
+      traits;
+      memberTraits;
+      normalizedTraits;
+      constructor(ref, memberName) {
+        this.ref = ref;
+        this.memberName = memberName;
+        const traitStack = [];
+        let _ref = ref;
+        let schema = ref;
+        this._isMemberSchema = false;
+        while (isMemberSchema(_ref)) {
+          traitStack.push(_ref[1]);
+          _ref = _ref[0];
+          schema = deref(_ref);
+          this._isMemberSchema = true;
+        }
+        if (traitStack.length > 0) {
+          this.memberTraits = {};
+          for (let i6 = traitStack.length - 1; i6 >= 0; --i6) {
+            const traitSet = traitStack[i6];
+            Object.assign(this.memberTraits, translateTraits(traitSet));
+          }
+        } else {
+          this.memberTraits = 0;
+        }
+        if (schema instanceof _NormalizedSchema) {
+          const computedMemberTraits = this.memberTraits;
+          Object.assign(this, schema);
+          this.memberTraits = Object.assign({}, computedMemberTraits, schema.getMemberTraits(), this.getMemberTraits());
+          this.normalizedTraits = void 0;
+          this.memberName = memberName ?? schema.memberName;
+          return;
+        }
+        this.schema = deref(schema);
+        if (isStaticSchema(this.schema)) {
+          this.name = `${this.schema[1]}#${this.schema[2]}`;
+          this.traits = this.schema[3];
+        } else {
+          this.name = this.memberName ?? String(schema);
+          this.traits = 0;
+        }
+        if (this._isMemberSchema && !memberName) {
+          throw new Error(`@smithy/core/schema - NormalizedSchema member init ${this.getName(true)} missing member name.`);
+        }
+      }
+      static [Symbol.hasInstance](lhs) {
+        const isPrototype = this.prototype.isPrototypeOf(lhs);
+        if (!isPrototype && typeof lhs === "object" && lhs !== null) {
+          const ns = lhs;
+          return ns.symbol === this.symbol;
+        }
+        return isPrototype;
+      }
+      static of(ref) {
+        const keyAble = typeof ref === "function" || typeof ref === "object" && ref !== null;
+        if (typeof ref === "number") {
+          if (simpleSchemaCacheN[ref]) {
+            return simpleSchemaCacheN[ref];
+          }
+        } else if (typeof ref === "string") {
+          if (simpleSchemaCacheS[ref]) {
+            return simpleSchemaCacheS[ref];
+          }
+        } else if (keyAble) {
+          if (ref[anno.ns]) {
+            return ref[anno.ns];
+          }
+        }
+        const sc = deref(ref);
+        if (sc instanceof _NormalizedSchema) {
+          return sc;
+        }
+        if (isMemberSchema(sc)) {
+          const [ns2, traits] = sc;
+          if (ns2 instanceof _NormalizedSchema) {
+            Object.assign(ns2.getMergedTraits(), translateTraits(traits));
+            return ns2;
+          }
+          throw new Error(`@smithy/core/schema - may not init unwrapped member schema=${JSON.stringify(ref, null, 2)}.`);
+        }
+        const ns = new _NormalizedSchema(sc);
+        if (keyAble) {
+          return ref[anno.ns] = ns;
+        }
+        if (typeof sc === "string") {
+          return simpleSchemaCacheS[sc] = ns;
+        }
+        if (typeof sc === "number") {
+          return simpleSchemaCacheN[sc] = ns;
+        }
+        return ns;
+      }
+      getSchema() {
+        const sc = this.schema;
+        if (Array.isArray(sc) && sc[0] === 0) {
+          return sc[4];
+        }
+        return sc;
+      }
+      getName(withNamespace = false) {
+        const { name } = this;
+        const short = !withNamespace && name && name.includes("#");
+        return short ? name.split("#")[1] : name || void 0;
+      }
+      getMemberName() {
+        return this.memberName;
+      }
+      isMemberSchema() {
+        return this._isMemberSchema;
+      }
+      isListSchema() {
+        const sc = this.getSchema();
+        return typeof sc === "number" ? sc >= 64 && sc < 128 : sc[0] === 1;
+      }
+      isMapSchema() {
+        const sc = this.getSchema();
+        return typeof sc === "number" ? sc >= 128 && sc <= 255 : sc[0] === 2;
+      }
+      isStructSchema() {
+        const sc = this.getSchema();
+        if (typeof sc !== "object") {
+          return false;
+        }
+        const id = sc[0];
+        return id === 3 || id === -3 || id === 4;
+      }
+      isUnionSchema() {
+        const sc = this.getSchema();
+        if (typeof sc !== "object") {
+          return false;
+        }
+        return sc[0] === 4;
+      }
+      isBlobSchema() {
+        const sc = this.getSchema();
+        return sc === 21 || sc === 42;
+      }
+      isTimestampSchema() {
+        const sc = this.getSchema();
+        return typeof sc === "number" && sc >= 4 && sc <= 7;
+      }
+      isUnitSchema() {
+        return this.getSchema() === "unit";
+      }
+      isDocumentSchema() {
+        return this.getSchema() === 15;
+      }
+      isStringSchema() {
+        return this.getSchema() === 0;
+      }
+      isBooleanSchema() {
+        return this.getSchema() === 2;
+      }
+      isNumericSchema() {
+        return this.getSchema() === 1;
+      }
+      isBigIntegerSchema() {
+        return this.getSchema() === 17;
+      }
+      isBigDecimalSchema() {
+        return this.getSchema() === 19;
+      }
+      isStreaming() {
+        const { streaming } = this.getMergedTraits();
+        return !!streaming || this.getSchema() === 42;
+      }
+      isIdempotencyToken() {
+        return !!this.getMergedTraits().idempotencyToken;
+      }
+      getMergedTraits() {
+        return this.normalizedTraits ?? (this.normalizedTraits = {
+          ...this.getOwnTraits(),
+          ...this.getMemberTraits()
+        });
+      }
+      getMemberTraits() {
+        return translateTraits(this.memberTraits);
+      }
+      getOwnTraits() {
+        return translateTraits(this.traits);
+      }
+      getKeySchema() {
+        const [isDoc, isMap] = [this.isDocumentSchema(), this.isMapSchema()];
+        if (!isDoc && !isMap) {
+          throw new Error(`@smithy/core/schema - cannot get key for non-map: ${this.getName(true)}`);
+        }
+        const schema = this.getSchema();
+        const memberSchema = isDoc ? 15 : schema[4] ?? 0;
+        return member([memberSchema, 0], "key");
+      }
+      getValueSchema() {
+        const sc = this.getSchema();
+        const [isDoc, isMap, isList] = [this.isDocumentSchema(), this.isMapSchema(), this.isListSchema()];
+        const memberSchema = typeof sc === "number" ? 63 & sc : sc && typeof sc === "object" && (isMap || isList) ? sc[3 + sc[0]] : isDoc ? 15 : void 0;
+        if (memberSchema != null) {
+          return member([memberSchema, 0], isMap ? "value" : "member");
+        }
+        throw new Error(`@smithy/core/schema - ${this.getName(true)} has no value member.`);
+      }
+      getMemberSchema(memberName) {
+        const struct2 = this.getSchema();
+        if (this.isStructSchema() && struct2[4].includes(memberName)) {
+          const i6 = struct2[4].indexOf(memberName);
+          const memberSchema = struct2[5][i6];
+          return member(isMemberSchema(memberSchema) ? memberSchema : [memberSchema, 0], memberName);
+        }
+        if (this.isDocumentSchema()) {
+          return member([15, 0], memberName);
+        }
+        throw new Error(`@smithy/core/schema - ${this.getName(true)} has no member=${memberName}.`);
+      }
+      getMemberSchemas() {
+        const buffer = {};
+        try {
+          for (const [k5, v] of this.structIterator()) {
+            buffer[k5] = v;
+          }
+        } catch (ignored) {
+        }
+        return buffer;
+      }
+      getEventStreamMember() {
+        if (this.isStructSchema()) {
+          for (const [memberName, memberSchema] of this.structIterator()) {
+            if (memberSchema.isStreaming() && memberSchema.isStructSchema()) {
+              return memberName;
+            }
+          }
+        }
+        return "";
+      }
+      *structIterator() {
+        if (this.isUnitSchema()) {
+          return;
+        }
+        if (!this.isStructSchema()) {
+          throw new Error("@smithy/core/schema - cannot iterate non-struct schema.");
+        }
+        const struct2 = this.getSchema();
+        const z = struct2[4].length;
+        let it = struct2[anno.it];
+        if (it && z === it.length) {
+          yield* it;
+          return;
+        }
+        it = Array(z);
+        for (let i6 = 0; i6 < z; ++i6) {
+          const k5 = struct2[4][i6];
+          const v = member([struct2[5][i6], 0], k5);
+          yield it[i6] = [k5, v];
+        }
+        struct2[anno.it] = it;
+      }
+    };
+    isMemberSchema = (sc) => Array.isArray(sc) && sc.length === 2;
+    isStaticSchema = (sc) => Array.isArray(sc) && sc.length >= 5;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/SimpleSchema.js
+var SimpleSchema, sim, simAdapter;
+var init_SimpleSchema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/SimpleSchema.js"() {
+    init_Schema();
+    SimpleSchema = class _SimpleSchema extends Schema {
+      static symbol = /* @__PURE__ */ Symbol.for("@smithy/sim");
+      schemaRef;
+      symbol = _SimpleSchema.symbol;
+    };
+    sim = (namespace, name, schemaRef, traits) => Schema.assign(new SimpleSchema(), {
+      name,
+      namespace,
+      traits,
+      schemaRef
+    });
+    simAdapter = (namespace, name, traits, schemaRef) => Schema.assign(new SimpleSchema(), {
+      name,
+      namespace,
+      traits,
+      schemaRef
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/schemas/sentinels.js
+var SCHEMA;
+var init_sentinels = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/schemas/sentinels.js"() {
+    SCHEMA = {
+      BLOB: 21,
+      STREAMING_BLOB: 42,
+      BOOLEAN: 2,
+      STRING: 0,
+      NUMERIC: 1,
+      BIG_INTEGER: 17,
+      BIG_DECIMAL: 19,
+      DOCUMENT: 15,
+      TIMESTAMP_DEFAULT: 4,
+      TIMESTAMP_DATE_TIME: 5,
+      TIMESTAMP_HTTP_DATE: 6,
+      TIMESTAMP_EPOCH_SECONDS: 7,
+      LIST_MODIFIER: 64,
+      MAP_MODIFIER: 128
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/TypeRegistry.js
+var TypeRegistry;
+var init_TypeRegistry = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/TypeRegistry.js"() {
+    TypeRegistry = class _TypeRegistry {
+      namespace;
+      schemas;
+      exceptions;
+      static registries = /* @__PURE__ */ new Map();
+      constructor(namespace, schemas = /* @__PURE__ */ new Map(), exceptions = /* @__PURE__ */ new Map()) {
+        this.namespace = namespace;
+        this.schemas = schemas;
+        this.exceptions = exceptions;
+        if (!_TypeRegistry.registries.has(namespace)) {
+          _TypeRegistry.registries.set(namespace, this);
+        }
+      }
+      static for(namespace) {
+        return _TypeRegistry.registries.get(namespace) ?? new _TypeRegistry(namespace);
+      }
+      copyFrom(other) {
+        const { schemas, exceptions } = this;
+        for (const [k5, v] of other.schemas) {
+          if (!schemas.has(k5)) {
+            schemas.set(k5, v);
+          }
+        }
+        for (const [k5, v] of other.exceptions) {
+          if (!exceptions.has(k5)) {
+            exceptions.set(k5, v);
+          }
+        }
+      }
+      register(shapeId, schema) {
+        const qualifiedName = this.normalizeShapeId(shapeId);
+        for (const r6 of [this, _TypeRegistry.for(qualifiedName.split("#")[0])]) {
+          if (!r6.schemas.has(qualifiedName)) {
+            r6.schemas.set(qualifiedName, schema);
+          }
+        }
+      }
+      getSchema(shapeId) {
+        const id = this.normalizeShapeId(shapeId);
+        if (!this.schemas.has(id)) {
+          if (!shapeId.includes("#")) {
+            const suffix = "#" + shapeId;
+            const candidates = [];
+            for (const [shapeId2, schema] of this.schemas.entries()) {
+              if (shapeId2.endsWith(suffix)) {
+                candidates.push(schema);
+              }
+            }
+            if (candidates.length === 1) {
+              return candidates[0];
+            }
+          }
+          throw new Error(`@smithy/core/schema - schema not found for ${id}`);
+        }
+        return this.schemas.get(id);
+      }
+      registerError(es, ctor) {
+        const $error = es;
+        const ns = $error[1];
+        const qualifiedName = ns + "#" + $error[2];
+        if (!ctor.hasOwnProperty?.("shapeId")) {
+          ctor.shapeId = qualifiedName;
+        }
+        for (const r6 of [this, _TypeRegistry.for(ns)]) {
+          if (!r6.schemas.has(qualifiedName) && !r6.exceptions.has($error)) {
+            r6.schemas.set(qualifiedName, $error);
+            r6.exceptions.set($error, ctor);
+          }
+        }
+      }
+      getErrorCtor(es) {
+        const $error = es;
+        if (this.exceptions.has($error)) {
+          return this.exceptions.get($error);
+        }
+        const registry = _TypeRegistry.for($error[1]);
+        return registry.exceptions.get($error);
+      }
+      getBaseException() {
+        for (const exceptionKey of this.exceptions.keys()) {
+          if (Array.isArray(exceptionKey)) {
+            const [, ns, name] = exceptionKey;
+            const id = ns + "#" + name;
+            if (id.startsWith("smithy.ts.sdk.synthetic.") && id.endsWith("ServiceException")) {
+              return exceptionKey;
+            }
+          }
+        }
+        return void 0;
+      }
+      find(predicate) {
+        for (const schema of this.schemas.values()) {
+          if (predicate(schema)) {
+            return schema;
+          }
+        }
+        return void 0;
+      }
+      clear() {
+        this.schemas.clear();
+        this.exceptions.clear();
+      }
+      normalizeShapeId(shapeId) {
+        if (shapeId.includes("#")) {
+          return shapeId;
+        }
+        return this.namespace + "#" + shapeId;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/schema/index.js
+var schema_exports = {};
+__export(schema_exports, {
+  ErrorSchema: () => ErrorSchema,
+  ListSchema: () => ListSchema,
+  MapSchema: () => MapSchema,
+  NormalizedSchema: () => NormalizedSchema,
+  OperationSchema: () => OperationSchema,
+  SCHEMA: () => SCHEMA,
+  Schema: () => Schema,
+  SimpleSchema: () => SimpleSchema,
+  StructureSchema: () => StructureSchema,
+  TypeRegistry: () => TypeRegistry,
+  deref: () => deref,
+  deserializerMiddlewareOption: () => deserializerMiddlewareOption,
+  error: () => error2,
+  getSchemaSerdePlugin: () => getSchemaSerdePlugin,
+  isStaticSchema: () => isStaticSchema,
+  list: () => list,
+  map: () => map,
+  op: () => op,
+  operation: () => operation,
+  serializerMiddlewareOption: () => serializerMiddlewareOption,
+  sim: () => sim,
+  simAdapter: () => simAdapter,
+  simpleSchemaCacheN: () => simpleSchemaCacheN,
+  simpleSchemaCacheS: () => simpleSchemaCacheS,
+  struct: () => struct,
+  traitsCache: () => traitsCache,
+  translateTraits: () => translateTraits
+});
+var init_schema = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/schema/index.js"() {
+    init_deref();
+    init_getSchemaSerdePlugin();
+    init_ListSchema();
+    init_MapSchema();
+    init_OperationSchema();
+    init_operation();
+    init_ErrorSchema();
+    init_NormalizedSchema();
+    init_Schema();
+    init_SimpleSchema();
+    init_StructureSchema();
+    init_sentinels();
+    init_translateTraits();
+    init_TypeRegistry();
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/schemaLogFilter.js
+function schemaLogFilter(schema, data) {
+  if (data == null) {
+    return data;
+  }
+  const ns = NormalizedSchema.of(schema);
+  if (ns.getMergedTraits().sensitive) {
+    return SENSITIVE_STRING;
+  }
+  if (ns.isListSchema()) {
+    const valueSchema = ns.getValueSchema();
+    if (valueSchema.getMergedTraits().sensitive) {
+      return SENSITIVE_STRING;
+    }
+    if (Array.isArray(data)) {
+      return data.map((value) => schemaLogFilter(valueSchema, value));
+    }
+  } else if (ns.isMapSchema()) {
+    const valueSchema = ns.getValueSchema();
+    if (ns.getKeySchema().getMergedTraits().sensitive || valueSchema.getMergedTraits().sensitive) {
+      return SENSITIVE_STRING;
+    }
+    if (typeof data === "object") {
+      return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, schemaLogFilter(valueSchema, value)]));
+    }
+  } else if (ns.isStructSchema() && typeof data === "object") {
+    const object = data;
+    const newObject = {};
+    for (const [member2, memberNs] of ns.structIterator()) {
+      if (object[member2] != null) {
+        newObject[member2] = schemaLogFilter(memberNs, object[member2]);
+      }
+    }
+    return newObject;
+  }
+  return data;
+}
+var SENSITIVE_STRING;
+var init_schemaLogFilter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/schemaLogFilter.js"() {
+    init_schema();
+    SENSITIVE_STRING = "***SensitiveInformation***";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/command.js
+var import_types10, operationEventStreamMarker, Command2, ClassBuilder;
+var init_command = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/command.js"() {
+    import_types10 = __toESM(require_dist_cjs());
+    init_MiddlewareStack();
+    init_schemaLogFilter();
+    init_schema();
+    operationEventStreamMarker = /* @__PURE__ */ Symbol.for("@smithy/op-event-stream");
+    Command2 = class {
+      middlewareStack = constructStack();
+      schema;
+      static classBuilder() {
+        return new ClassBuilder();
+      }
+      resolveMiddlewareWithContext(clientStack, configuration, options, { middlewareFn, clientName, commandName, inputFilterSensitiveLog, outputFilterSensitiveLog, smithyContext, additionalContext, CommandCtor }) {
+        for (const mw of middlewareFn.bind(this)(CommandCtor, clientStack, configuration, options)) {
+          this.middlewareStack.use(mw);
+        }
+        const stack = clientStack.concat(this.middlewareStack);
+        const { logger: logger2 } = configuration;
+        const additionalSmithyContext = additionalContext[import_types10.SMITHY_CONTEXT_KEY];
+        const handlerExecutionContext = {
+          logger: logger2,
+          clientName,
+          commandName,
+          inputFilterSensitiveLog,
+          outputFilterSensitiveLog,
+          ...additionalContext,
+          [import_types10.SMITHY_CONTEXT_KEY]: {
+            ...additionalSmithyContext,
+            commandInstance: this,
+            ...smithyContext,
+            ...options?.metricsRecorder === void 0 ? {} : { metricsRecorder: options.metricsRecorder },
+            ...options?.abortSignal === void 0 ? {} : { abortSignal: options.abortSignal }
+          }
+        };
+        const { requestHandler } = configuration;
+        let requestOptions = options ?? {};
+        if (requestOptions.metricsRecorder) {
+          requestOptions = { ...requestOptions };
+          delete requestOptions.metricsRecorder;
+        }
+        let isEventStream;
+        const schema = this.schema;
+        const marker = schema?.[operationEventStreamMarker];
+        if (marker !== void 0) {
+          isEventStream = marker;
+        } else if (schema) {
+          if (Array.isArray(schema) && schema[0] === 9) {
+            const [, , , , input$, output$] = schema;
+            isEventStream = schema[operationEventStreamMarker] = Boolean(NormalizedSchema.of(input$).getEventStreamMember() || NormalizedSchema.of(output$).getEventStreamMember());
+          }
+        }
+        if (isEventStream) {
+          requestOptions = {
+            isEventStream,
+            ...requestOptions
+          };
+        }
+        return stack.resolve((request) => requestHandler.handle(request.request, requestOptions), handlerExecutionContext);
+      }
+    };
+    ClassBuilder = class {
+      _init = () => {
+      };
+      _ep = {};
+      _middlewareFn = () => [];
+      _commandName = "";
+      _clientName = "";
+      _additionalContext = {};
+      _smithyContext = {};
+      _inputFilterSensitiveLog = void 0;
+      _outputFilterSensitiveLog = void 0;
+      _serializer = null;
+      _deserializer = null;
+      _operationSchema;
+      init(cb) {
+        this._init = cb;
+      }
+      ep(endpointParameterInstructions) {
+        this._ep = endpointParameterInstructions;
+        return this;
+      }
+      m(middlewareSupplier) {
+        this._middlewareFn = middlewareSupplier;
+        return this;
+      }
+      s(service, operation2, smithyContext = {}) {
+        this._smithyContext = {
+          service,
+          operation: operation2,
+          ...smithyContext
+        };
+        return this;
+      }
+      c(additionalContext = {}) {
+        this._additionalContext = additionalContext;
+        return this;
+      }
+      n(clientName, commandName) {
+        this._clientName = clientName;
+        this._commandName = commandName;
+        return this;
+      }
+      f(inputFilter = (_) => _, outputFilter = (_) => _) {
+        this._inputFilterSensitiveLog = inputFilter;
+        this._outputFilterSensitiveLog = outputFilter;
+        return this;
+      }
+      ser(serializer) {
+        this._serializer = serializer;
+        return this;
+      }
+      de(deserializer) {
+        this._deserializer = deserializer;
+        return this;
+      }
+      sc(operation2) {
+        this._operationSchema = operation2;
+        this._smithyContext.operationSchema = operation2;
+        return this;
+      }
+      build() {
+        const closure = this;
+        let CommandRef;
+        return CommandRef = class extends Command2 {
+          input;
+          static getEndpointParameterInstructions() {
+            return closure._ep;
+          }
+          constructor(...[input]) {
+            super();
+            this.input = input ?? {};
+            closure._init(this);
+            this.schema = closure._operationSchema;
+          }
+          resolveMiddleware(stack, configuration, options) {
+            const op2 = closure._operationSchema;
+            const input = op2?.[4] ?? op2?.input;
+            const output = op2?.[5] ?? op2?.output;
+            return this.resolveMiddlewareWithContext(stack, configuration, options, {
+              CommandCtor: CommandRef,
+              middlewareFn: closure._middlewareFn,
+              clientName: closure._clientName,
+              commandName: closure._commandName,
+              inputFilterSensitiveLog: closure._inputFilterSensitiveLog ?? (op2 ? schemaLogFilter.bind(null, input) : (_) => _),
+              outputFilterSensitiveLog: closure._outputFilterSensitiveLog ?? (op2 ? schemaLogFilter.bind(null, output) : (_) => _),
+              smithyContext: closure._smithyContext,
+              additionalContext: closure._additionalContext
+            });
+          }
+          serialize = closure._serializer;
+          deserialize = closure._deserializer;
+        };
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/constants.js
+var SENSITIVE_STRING2;
+var init_constants2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/constants.js"() {
+    SENSITIVE_STRING2 = "***SensitiveInformation***";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/create-aggregated-client.js
+var createAggregatedClient;
+var init_create_aggregated_client = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/create-aggregated-client.js"() {
+    createAggregatedClient = (commands5, Client2, options) => {
+      for (const [command5, CommandCtor] of Object.entries(commands5)) {
+        const methodImpl = async function(args, optionsOrCb, cb) {
+          const command6 = new CommandCtor(args);
+          if (typeof optionsOrCb === "function") {
+            this.send(command6, optionsOrCb);
+          } else if (typeof cb === "function") {
+            if (typeof optionsOrCb !== "object") {
+              throw new Error(`Expected http options but got ${typeof optionsOrCb}`);
+            }
+            this.send(command6, optionsOrCb || {}, cb);
+          } else {
+            return this.send(command6, optionsOrCb);
+          }
+        };
+        const methodName = (command5[0].toLowerCase() + command5.slice(1)).replace(/Command$/, "");
+        Client2.prototype[methodName] = methodImpl;
+      }
+      const { paginators = {}, waiters = {} } = options ?? {};
+      for (const [paginatorName, paginatorFn] of Object.entries(paginators)) {
+        if (Client2.prototype[paginatorName] === void 0) {
+          Client2.prototype[paginatorName] = function(commandInput = {}, paginationConfiguration, ...rest) {
+            return paginatorFn({
+              ...paginationConfiguration,
+              client: this
+            }, commandInput, ...rest);
+          };
+        }
+      }
+      for (const [waiterName, waiterFn] of Object.entries(waiters)) {
+        if (Client2.prototype[waiterName] === void 0) {
+          Client2.prototype[waiterName] = async function(commandInput = {}, waiterConfiguration, ...rest) {
+            let config = waiterConfiguration;
+            if (typeof waiterConfiguration === "number") {
+              config = {
+                maxWaitTime: waiterConfiguration
+              };
+            }
+            return waiterFn({
+              ...config,
+              client: this
+            }, commandInput, ...rest);
+          };
+        }
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js
+var ServiceException, decorateServiceException;
+var init_exceptions = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/exceptions.js"() {
+    ServiceException = class _ServiceException extends Error {
+      static shapeId = "smithy.ts.sdk.synthetic.nonamespace.client#ServiceException";
+      $fault;
+      $response;
+      $retryable;
+      $metadata;
+      constructor(options) {
+        super(options.message);
+        Object.setPrototypeOf(this, Object.getPrototypeOf(this).constructor.prototype);
+        this.name = options.name;
+        this.$fault = options.$fault;
+        this.$metadata = options.$metadata;
+      }
+      static isInstance(value) {
+        if (!value) {
+          return false;
+        }
+        const candidate = value;
+        return _ServiceException.prototype.isPrototypeOf(candidate) || Boolean(candidate.$fault) && Boolean(candidate.$metadata) && (candidate.$fault === "client" || candidate.$fault === "server");
+      }
+      static [Symbol.hasInstance](instance) {
+        if (!instance) {
+          return false;
+        }
+        const candidate = instance;
+        if (this === _ServiceException) {
+          return _ServiceException.isInstance(instance);
+        }
+        if (_ServiceException.isInstance(instance)) {
+          if (this.prototype.isPrototypeOf(instance)) {
+            return true;
+          }
+          const targetId = Object.prototype.hasOwnProperty.call(this, "shapeId") ? this.shapeId : void 0;
+          let candidateHasShapeId = false;
+          if (targetId) {
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctor = proto.constructor;
+              const candidateId = ctor !== _ServiceException && Object.prototype.hasOwnProperty.call(ctor, "shapeId") ? ctor?.shapeId : void 0;
+              if (candidateId) {
+                candidateHasShapeId = true;
+                if (candidateId === targetId) {
+                  return true;
+                }
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
+          }
+          if (targetId && candidateHasShapeId) {
+            return false;
+          }
+          const targetName = this.name;
+          if (targetName && targetName.length >= 6) {
+            if (candidate.name === targetName) {
+              return true;
+            }
+            let proto = Object.getPrototypeOf(candidate);
+            while (proto && proto !== Object.prototype) {
+              const ctorName = proto.constructor?.name;
+              if (ctorName && ctorName !== "Error" && ctorName === targetName) {
+                return true;
+              }
+              proto = Object.getPrototypeOf(proto);
+            }
+          }
+        }
+        return false;
+      }
+    };
+    decorateServiceException = (exception, additions = {}) => {
+      Object.entries(additions).filter(([, v]) => v !== void 0).forEach(([k5, v]) => {
+        if (exception[k5] == void 0 || exception[k5] === "") {
+          exception[k5] = v;
+        }
+      });
+      const message = exception.message || exception.Message || "UnknownError";
+      exception.message = message;
+      delete exception.Message;
+      return exception;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/default-error-handler.js
+var throwDefaultError, withBaseException, deserializeMetadata;
+var init_default_error_handler = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/default-error-handler.js"() {
+    init_exceptions();
+    throwDefaultError = ({ output, parsedBody, exceptionCtor, errorCode }) => {
+      const $metadata = deserializeMetadata(output);
+      const statusCode = $metadata.httpStatusCode ? $metadata.httpStatusCode + "" : void 0;
+      const response = new exceptionCtor({
+        name: parsedBody?.code || parsedBody?.Code || errorCode || statusCode || "UnknownError",
+        $fault: "client",
+        $metadata
+      });
+      throw decorateServiceException(response, parsedBody);
+    };
+    withBaseException = (ExceptionCtor) => {
+      return ({ output, parsedBody, errorCode }) => {
+        throwDefaultError({ output, parsedBody, exceptionCtor: ExceptionCtor, errorCode });
+      };
+    };
+    deserializeMetadata = (output) => ({
+      httpStatusCode: output.statusCode,
+      requestId: output.headers["x-amzn-requestid"] ?? output.headers["x-amzn-request-id"] ?? output.headers["x-amz-request-id"],
+      extendedRequestId: output.headers["x-amz-id-2"],
+      cfId: output.headers["x-amz-cf-id"]
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/defaults-mode.js
+var loadConfigsForDefaultMode;
+var init_defaults_mode = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/defaults-mode.js"() {
+    loadConfigsForDefaultMode = (mode) => {
+      switch (mode) {
+        case "standard":
+          return {
+            retryMode: "standard",
+            connectionTimeout: 3100
+          };
+        case "in-region":
+          return {
+            retryMode: "standard",
+            connectionTimeout: 1100
+          };
+        case "cross-region":
+          return {
+            retryMode: "standard",
+            connectionTimeout: 3100
+          };
+        case "mobile":
+          return {
+            retryMode: "standard",
+            connectionTimeout: 3e4
+          };
+        default:
+          return {};
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/emitWarningIfUnsupportedVersion.js
+var warningEmitted, emitWarningIfUnsupportedVersion2;
+var init_emitWarningIfUnsupportedVersion2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/emitWarningIfUnsupportedVersion.js"() {
+    warningEmitted = false;
+    emitWarningIfUnsupportedVersion2 = (version) => {
+      if (version && !warningEmitted && parseInt(version.substring(1, version.indexOf("."))) < 16) {
+        warningEmitted = true;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/checksum.js
+var import_types11, knownAlgorithms, getChecksumConfiguration, resolveChecksumRuntimeConfig;
+var init_checksum = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/checksum.js"() {
+    init_transport();
+    import_types11 = __toESM(require_dist_cjs());
+    knownAlgorithms = Object.values(import_types11.AlgorithmId);
+    getChecksumConfiguration = (runtimeConfig) => {
+      const checksumAlgorithms = [];
+      for (const id in import_types11.AlgorithmId) {
+        if (!hasOwn(import_types11.AlgorithmId, id)) {
+          continue;
+        }
+        const algorithmId = import_types11.AlgorithmId[id];
+        if (runtimeConfig[algorithmId] === void 0) {
+          continue;
+        }
+        checksumAlgorithms.push({
+          algorithmId: () => algorithmId,
+          checksumConstructor: () => runtimeConfig[algorithmId]
+        });
+      }
+      for (const [id, ChecksumCtor] of Object.entries(runtimeConfig.checksumAlgorithms ?? {})) {
+        checksumAlgorithms.push({
+          algorithmId: () => id,
+          checksumConstructor: () => ChecksumCtor
+        });
+      }
+      return {
+        addChecksumAlgorithm(algo) {
+          runtimeConfig.checksumAlgorithms = runtimeConfig.checksumAlgorithms ?? {};
+          const id = algo.algorithmId();
+          const ctor = algo.checksumConstructor();
+          if (knownAlgorithms.includes(id)) {
+            runtimeConfig.checksumAlgorithms[id.toUpperCase()] = ctor;
+          } else {
+            runtimeConfig.checksumAlgorithms[id] = ctor;
+          }
+          checksumAlgorithms.push(algo);
+        },
+        checksumAlgorithms() {
+          return checksumAlgorithms;
+        }
+      };
+    };
+    resolveChecksumRuntimeConfig = (clientConfig) => {
+      const runtimeConfig = {};
+      clientConfig.checksumAlgorithms().forEach((checksumAlgorithm) => {
+        const id = checksumAlgorithm.algorithmId();
+        if (knownAlgorithms.includes(id)) {
+          runtimeConfig[id] = checksumAlgorithm.checksumConstructor();
+        }
+      });
+      return runtimeConfig;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/retry.js
+var getRetryConfiguration, resolveRetryRuntimeConfig;
+var init_retry = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/retry.js"() {
+    getRetryConfiguration = (runtimeConfig) => {
+      return {
+        setRetryStrategy(retryStrategy) {
+          runtimeConfig.retryStrategy = retryStrategy;
+        },
+        retryStrategy() {
+          return runtimeConfig.retryStrategy;
+        }
+      };
+    };
+    resolveRetryRuntimeConfig = (retryStrategyConfiguration) => {
+      const runtimeConfig = {};
+      runtimeConfig.retryStrategy = retryStrategyConfiguration.retryStrategy();
+      return runtimeConfig;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/defaultExtensionConfiguration.js
+var getDefaultExtensionConfiguration, getDefaultClientConfiguration, resolveDefaultRuntimeConfig;
+var init_defaultExtensionConfiguration = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/extensions/defaultExtensionConfiguration.js"() {
+    init_checksum();
+    init_retry();
+    getDefaultExtensionConfiguration = (runtimeConfig) => {
+      return Object.assign(getChecksumConfiguration(runtimeConfig), getRetryConfiguration(runtimeConfig));
+    };
+    getDefaultClientConfiguration = getDefaultExtensionConfiguration;
+    resolveDefaultRuntimeConfig = (config) => {
+      return Object.assign(resolveChecksumRuntimeConfig(config), resolveRetryRuntimeConfig(config));
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-array-if-single-item.js
+var getArrayIfSingleItem;
+var init_get_array_if_single_item = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-array-if-single-item.js"() {
+    getArrayIfSingleItem = (mayBeArray) => Array.isArray(mayBeArray) ? mayBeArray : [mayBeArray];
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-value-from-text-node.js
+var getValueFromTextNode;
+var init_get_value_from_text_node = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/get-value-from-text-node.js"() {
+    init_transport();
+    getValueFromTextNode = (obj) => {
+      const textNodeName = "#text";
+      for (const key in obj) {
+        if (!hasOwn(obj, key)) {
+          continue;
+        }
+        if (obj[key][textNodeName] !== void 0) {
+          obj[key] = obj[key][textNodeName];
+        } else if (typeof obj[key] === "object" && obj[key] !== null) {
+          obj[key] = getValueFromTextNode(obj[key]);
+        }
+      }
+      return obj;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/is-serializable-header-value.js
+var isSerializableHeaderValue;
+var init_is_serializable_header_value = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/is-serializable-header-value.js"() {
+    isSerializableHeaderValue = (value) => {
+      return value != null;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/NoOpLogger.js
+var NoOpLogger;
+var init_NoOpLogger = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/NoOpLogger.js"() {
+    NoOpLogger = class {
+      trace() {
+      }
+      debug() {
+      }
+      info() {
+      }
+      warn() {
+      }
+      error() {
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/object-mapping.js
+function map2(arg0, arg1, arg2) {
+  let target;
+  let filter;
+  let instructions;
+  if (typeof arg1 === "undefined" && typeof arg2 === "undefined") {
+    target = {};
+    instructions = arg0;
+  } else {
+    target = arg0;
+    if (typeof arg1 === "function") {
+      filter = arg1;
+      instructions = arg2;
+      return mapWithFilter(target, filter, instructions);
+    } else {
+      instructions = arg1;
+    }
+  }
+  for (const key in instructions) {
+    if (!hasOwn(instructions, key)) {
+      continue;
+    }
+    if (!Array.isArray(instructions[key])) {
+      target[key] = instructions[key];
+      continue;
+    }
+    applyInstruction(target, null, instructions, key);
+  }
+  return target;
+}
+var convertMap, take, mapWithFilter, applyInstruction, nonNullish, pass;
+var init_object_mapping = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/object-mapping.js"() {
+    init_transport();
+    convertMap = (target) => {
+      const output = {};
+      for (const [k5, v] of Object.entries(target || {})) {
+        output[k5] = [, v];
+      }
+      return output;
+    };
+    take = (source, instructions) => {
+      const out = {};
+      for (const key in instructions) {
+        if (!hasOwn(instructions, key)) {
+          continue;
+        }
+        applyInstruction(out, source, instructions, key);
+      }
+      return out;
+    };
+    mapWithFilter = (target, filter, instructions) => {
+      return map2(target, Object.entries(instructions).reduce((_instructions, [key, value]) => {
+        if (Array.isArray(value)) {
+          _instructions[key] = value;
+        } else {
+          if (typeof value === "function") {
+            _instructions[key] = [filter, value()];
+          } else {
+            _instructions[key] = [filter, value];
+          }
+        }
+        return _instructions;
+      }, {}));
+    };
+    applyInstruction = (target, source, instructions, targetKey) => {
+      if (source !== null) {
+        let instruction = instructions[targetKey];
+        if (typeof instruction === "function") {
+          instruction = [, instruction];
+        }
+        const [filter2 = nonNullish, valueFn = pass, sourceKey = targetKey] = instruction;
+        if (typeof filter2 === "function" && filter2(source[sourceKey]) || typeof filter2 !== "function" && !!filter2) {
+          target[targetKey] = valueFn(source[sourceKey]);
+        }
+        return;
+      }
+      let [filter, value] = instructions[targetKey];
+      if (typeof value === "function") {
+        let _value;
+        const defaultFilterPassed = filter === void 0 && (_value = value()) != null;
+        const customFilterPassed = typeof filter === "function" && !!filter(void 0) || typeof filter !== "function" && !!filter;
+        if (defaultFilterPassed) {
+          target[targetKey] = _value;
+        } else if (customFilterPassed) {
+          target[targetKey] = value();
+        }
+      } else {
+        const defaultFilterPassed = filter === void 0 && value != null;
+        const customFilterPassed = typeof filter === "function" && !!filter(value) || typeof filter !== "function" && !!filter;
+        if (defaultFilterPassed || customFilterPassed) {
+          target[targetKey] = value;
+        }
+      }
+    };
+    nonNullish = (_) => _ != null;
+    pass = (_) => _;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/ser-utils.js
+var serializeFloat, serializeDateTime;
+var init_ser_utils = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/ser-utils.js"() {
+    serializeFloat = (value) => {
+      if (value !== value) {
+        return "NaN";
+      }
+      switch (value) {
+        case Infinity:
+          return "Infinity";
+        case -Infinity:
+          return "-Infinity";
+        default:
+          return value;
+      }
+    };
+    serializeDateTime = (date2) => date2.toISOString().replace(".000Z", "Z");
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/serde-json.js
+var _json;
+var init_serde_json = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/serde-json.js"() {
+    init_transport();
+    _json = (obj) => {
+      if (obj == null) {
+        return {};
+      }
+      if (Array.isArray(obj)) {
+        return obj.filter((_) => _ != null).map(_json);
+      }
+      if (typeof obj === "object") {
+        const target = {};
+        for (const key in obj) {
+          if (!hasOwn(obj, key)) {
+            continue;
+          }
+          if (obj[key] == null) {
+            continue;
+          }
+          target[key] = _json(obj[key]);
+        }
+        return target;
+      }
+      return obj;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client-command-builder.js
+function makeBuilder(common, service, name, ep) {
+  return function makeCommand(added, plugins, op2, $, smithyContext = {}) {
+    const epMerged = Object.assign({}, common, added);
+    return Command2.classBuilder().ep(epMerged).m(function(CommandCtor, clientStack, config, options) {
+      const list2 = plugins.call(this, CommandCtor, clientStack, config, options);
+      list2.unshift(ep(config, CommandCtor.getEndpointParameterInstructions()));
+      return list2;
+    }).s(service, op2, smithyContext).n(name, op2.charAt(0).toUpperCase() + op2.slice(1) + "Command").sc($).build();
+  };
+}
+var init_client_command_builder = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/smithy-client/client-command-builder.js"() {
+    init_command();
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/client/index.js
+var client_exports = {};
+__export(client_exports, {
+  AlgorithmId: () => import_types11.AlgorithmId,
+  Client: () => Client,
+  Command: () => Command2,
+  NoOpLogger: () => NoOpLogger,
+  SENSITIVE_STRING: () => SENSITIVE_STRING2,
+  ServiceException: () => ServiceException,
+  WaiterState: () => WaiterState,
+  _json: () => _json,
+  checkExceptions: () => checkExceptions,
+  constructStack: () => constructStack,
+  convertMap: () => convertMap,
+  createAggregatedClient: () => createAggregatedClient,
+  createWaiter: () => createWaiter,
+  decorateServiceException: () => decorateServiceException,
+  emitWarningIfUnsupportedVersion: () => emitWarningIfUnsupportedVersion2,
+  getArrayIfSingleItem: () => getArrayIfSingleItem,
+  getChecksumConfiguration: () => getChecksumConfiguration,
+  getDefaultClientConfiguration: () => getDefaultClientConfiguration,
+  getDefaultExtensionConfiguration: () => getDefaultExtensionConfiguration,
+  getRetryConfiguration: () => getRetryConfiguration,
+  getSmithyContext: () => getSmithyContext,
+  getValueFromTextNode: () => getValueFromTextNode,
+  invalidFunction: () => invalidFunction,
+  invalidProvider: () => invalidProvider,
+  isSerializableHeaderValue: () => isSerializableHeaderValue,
+  loadConfigsForDefaultMode: () => loadConfigsForDefaultMode,
+  makeBuilder: () => makeBuilder,
+  map: () => map2,
+  normalizeProvider: () => normalizeProvider,
+  resolveChecksumRuntimeConfig: () => resolveChecksumRuntimeConfig,
+  resolveDefaultRuntimeConfig: () => resolveDefaultRuntimeConfig,
+  resolveRetryRuntimeConfig: () => resolveRetryRuntimeConfig,
+  schemaLogFilter: () => schemaLogFilter,
+  serializeDateTime: () => serializeDateTime,
+  serializeFloat: () => serializeFloat,
+  take: () => take,
+  throwDefaultError: () => throwDefaultError,
+  waiterServiceDefaults: () => waiterServiceDefaults,
+  withBaseException: () => withBaseException
+});
+var init_client2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/client/index.js"() {
+    init_MiddlewareStack();
+    init_transport();
+    init_transport();
+    init_invalidFunction();
+    init_invalidProvider();
+    init_createWaiter();
+    init_waiter();
+    init_client();
+    init_command();
+    init_constants2();
+    init_create_aggregated_client();
+    init_default_error_handler();
+    init_defaults_mode();
+    init_emitWarningIfUnsupportedVersion2();
+    init_exceptions();
+    init_defaultExtensionConfiguration();
+    init_checksum();
+    init_retry();
+    init_get_array_if_single_item();
+    init_get_value_from_text_node();
+    init_is_serializable_header_value();
+    init_NoOpLogger();
+    init_object_mapping();
+    init_schemaLogFilter();
+    init_ser_utils();
+    init_serde_json();
+    init_client_command_builder();
   }
 });
 
@@ -182740,7 +182776,7 @@ var init_config2 = __esm({
     init_getProfileName();
     init_getSSOTokenFilepath();
     init_getSSOTokenFromFile();
-    init_constants2();
+    init_constants();
     init_loadSharedConfigFiles();
     init_loadSsoSessionData();
     init_parseKnownFiles();
@@ -183016,7 +183052,7 @@ var init_getEndpointFromInstructions = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/endpoints/middleware-endpoint/endpointMiddleware.js
-function setFeature(context2, feature, value) {
+function setFeature2(context2, feature, value) {
   if (!context2.__smithy_context) {
     context2.__smithy_context = { features: {} };
   } else if (!context2.__smithy_context.features) {
@@ -183029,7 +183065,7 @@ function bindEndpointMiddleware(getEndpointFromConfig2) {
   return ({ config, instructions }) => {
     return (next, context2) => async (args) => {
       if (config.isCustomEndpoint) {
-        setFeature(context2, "ENDPOINT_OVERRIDE", "N");
+        setFeature2(context2, "ENDPOINT_OVERRIDE", "N");
       }
       const endpoint = await getEndpointFromInstructions2(args.input, {
         getEndpointParameterInstructions() {
@@ -184105,12 +184141,12 @@ var init_hash_node = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/checksum/ChecksumStream.js
-var import_node_stream4, ChecksumStream;
+var import_node_stream3, ChecksumStream;
 var init_ChecksumStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/checksum/ChecksumStream.js"() {
-    import_node_stream4 = require("node:stream");
+    import_node_stream3 = require("node:stream");
     init_toBase64();
-    ChecksumStream = class extends import_node_stream4.Readable {
+    ChecksumStream = class extends import_node_stream3.Readable {
       expectedChecksum;
       checksumSourceLocation;
       checksum;
@@ -184467,7 +184503,7 @@ function createBufferedReadable(upstream, size, logger2) {
   if (isReadableStream(upstream)) {
     return createBufferedReadableStream(upstream, size, logger2);
   }
-  const downstream = new import_node_stream5.Readable({ read() {
+  const downstream = new import_node_stream4.Readable({ read() {
   } });
   let streamBufferingLoggedWarning = false;
   let bytesSeen = 0;
@@ -184516,10 +184552,10 @@ function createBufferedReadable(upstream, size, logger2) {
   });
   return downstream;
 }
-var import_node_stream5;
+var import_node_stream4;
 var init_createBufferedReadable = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/createBufferedReadable.js"() {
-    import_node_stream5 = require("node:stream");
+    import_node_stream4 = require("node:stream");
     init_ByteArrayCollector();
     init_createBufferedReadable_browser();
     init_stream_type_check();
@@ -184574,7 +184610,7 @@ function getAwsChunkedEncodingStream2(stream, options) {
   const digest2 = checksumRequired ? streamHasher(checksumAlgorithmFn, readable) : void 0;
   Promise.resolve(digest2).catch(() => {
   });
-  const awsChunkedEncodingStream = new import_node_stream6.Readable({
+  const awsChunkedEncodingStream = new import_node_stream5.Readable({
     read() {
       readable.resume();
     }
@@ -184613,10 +184649,10 @@ function getAwsChunkedEncodingStream2(stream, options) {
   });
   return awsChunkedEncodingStream;
 }
-var import_node_stream6;
+var import_node_stream5;
 var init_getAwsChunkedEncodingStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/getAwsChunkedEncodingStream.js"() {
-    import_node_stream6 = require("node:stream");
+    import_node_stream5 = require("node:stream");
     init_getAwsChunkedEncodingStream_browser();
     init_stream_type_check();
   }
@@ -184659,10 +184695,10 @@ var init_headStream_browser = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/headStream.js
-var import_node_stream7, headStream2, Collector;
+var import_node_stream6, headStream2, Collector;
 var init_headStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/headStream.js"() {
-    import_node_stream7 = require("node:stream");
+    import_node_stream6 = require("node:stream");
     init_concatBytes();
     init_headStream_browser();
     init_stream_type_check();
@@ -184685,7 +184721,7 @@ var init_headStream = __esm({
         });
       });
     };
-    Collector = class extends import_node_stream7.Writable {
+    Collector = class extends import_node_stream6.Writable {
       buffers = [];
       limit = Infinity;
       bytesBuffered = 0;
@@ -184819,10 +184855,10 @@ var init_sdk_stream_mixin_browser = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/stream-collector.js
-var import_node_stream8, streamCollector2, Collector2;
+var import_node_stream7, streamCollector2, Collector2;
 var init_stream_collector = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/stream-collector.js"() {
-    import_node_stream8 = require("node:stream");
+    import_node_stream7 = require("node:stream");
     init_concatBytes();
     init_stream_collector_browser();
     init_stream_type_check();
@@ -184848,7 +184884,7 @@ var init_stream_collector = __esm({
         });
       });
     };
-    Collector2 = class extends import_node_stream8.Writable {
+    Collector2 = class extends import_node_stream7.Writable {
       bufferedBytes = [];
       _write(chunk, encoding, callback) {
         this.bufferedBytes.push(chunk);
@@ -184859,16 +184895,16 @@ var init_stream_collector = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/serde/util-stream/sdk-stream-mixin.js
-var import_node_stream9, ERR_MSG_STREAM_HAS_BEEN_TRANSFORMED2, sdkStreamMixin2;
+var import_node_stream8, ERR_MSG_STREAM_HAS_BEEN_TRANSFORMED2, sdkStreamMixin2;
 var init_sdk_stream_mixin = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/sdk-stream-mixin.js"() {
-    import_node_stream9 = require("node:stream");
+    import_node_stream8 = require("node:stream");
     init_buffer_from();
     init_sdk_stream_mixin_browser();
     init_stream_collector();
     ERR_MSG_STREAM_HAS_BEEN_TRANSFORMED2 = "The stream has already been transformed.";
     sdkStreamMixin2 = (stream) => {
-      if (!(stream instanceof import_node_stream9.Readable)) {
+      if (!(stream instanceof import_node_stream8.Readable)) {
         try {
           return sdkStreamMixin(stream);
         } catch (ignored) {
@@ -184902,11 +184938,11 @@ var init_sdk_stream_mixin = __esm({
           if (stream.readableFlowing !== null) {
             throw new Error("The stream has been consumed by other callbacks.");
           }
-          if (typeof import_node_stream9.Readable.toWeb !== "function") {
+          if (typeof import_node_stream8.Readable.toWeb !== "function") {
             throw new Error("Readable.toWeb() is not supported. Please ensure a polyfill is available.");
           }
           transformed = true;
-          return import_node_stream9.Readable.toWeb(stream);
+          return import_node_stream8.Readable.toWeb(stream);
         }
       });
     };
@@ -184931,16 +184967,16 @@ async function splitStream2(stream) {
   if (isReadableStream(stream) || isBlob2(stream)) {
     return splitStream(stream);
   }
-  const stream1 = new import_node_stream10.PassThrough();
-  const stream2 = new import_node_stream10.PassThrough();
+  const stream1 = new import_node_stream9.PassThrough();
+  const stream2 = new import_node_stream9.PassThrough();
   stream.pipe(stream1);
   stream.pipe(stream2);
   return [stream1, stream2];
 }
-var import_node_stream10;
+var import_node_stream9;
 var init_splitStream = __esm({
   "node_modules/@smithy/core/dist-es/submodules/serde/util-stream/splitStream.js"() {
-    import_node_stream10 = require("node:stream");
+    import_node_stream9 = require("node:stream");
     init_splitStream_browser();
     init_stream_type_check();
   }
@@ -185154,12 +185190,12 @@ var init_blobHasher = __esm({
 });
 
 // node_modules/@smithy/core/dist-es/submodules/checksum/hash-stream-node/HashCalculator.js
-var import_node_stream11, HashCalculator;
+var import_node_stream10, HashCalculator;
 var init_HashCalculator = __esm({
   "node_modules/@smithy/core/dist-es/submodules/checksum/hash-stream-node/HashCalculator.js"() {
-    import_node_stream11 = require("node:stream");
+    import_node_stream10 = require("node:stream");
     init_serde();
-    HashCalculator = class extends import_node_stream11.Writable {
+    HashCalculator = class extends import_node_stream10.Writable {
       hash;
       constructor(hash, options) {
         super(options);
@@ -186493,10 +186529,10 @@ async function* readableToIterable(readStream) {
     generationEnded = streamEnded && records.length === 0;
   }
 }
-var import_node_stream12, EventStreamMarshaller2, eventStreamSerdeProvider2;
+var import_node_stream11, EventStreamMarshaller2, eventStreamSerdeProvider2;
 var init_EventStreamMarshaller2 = __esm({
   "node_modules/@smithy/core/dist-es/submodules/event-streams/eventstream-serde/EventStreamMarshaller.js"() {
-    import_node_stream12 = require("node:stream");
+    import_node_stream11 = require("node:stream");
     init_EventStreamMarshaller();
     EventStreamMarshaller2 = class {
       universalMarshaller;
@@ -186511,7 +186547,7 @@ var init_EventStreamMarshaller2 = __esm({
         return this.universalMarshaller.deserialize(bodyIterable, deserializer);
       }
       serialize(input, serializer) {
-        return import_node_stream12.Readable.from(this.universalMarshaller.serialize(input, serializer));
+        return import_node_stream11.Readable.from(this.universalMarshaller.serialize(input, serializer));
       }
     };
     eventStreamSerdeProvider2 = (options) => new EventStreamMarshaller2(options);
@@ -189922,1069 +189958,6 @@ var init_protocols = __esm({
   }
 });
 
-// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js
-var CLOCK_SKEW_ERROR_CODES, THROTTLING_ERROR_CODES, TRANSIENT_ERROR_CODES, TRANSIENT_ERROR_STATUS_CODES, NODEJS_TIMEOUT_ERROR_CODES, NODEJS_NETWORK_ERROR_CODES;
-var init_constants4 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js"() {
-    CLOCK_SKEW_ERROR_CODES = [
-      "AccessDeniedException",
-      "AuthFailure",
-      "InvalidSignatureException",
-      "RequestExpired",
-      "RequestInTheFuture",
-      "RequestTimeTooSkewed",
-      "SignatureDoesNotMatch"
-    ];
-    THROTTLING_ERROR_CODES = [
-      "BandwidthLimitExceeded",
-      "EC2ThrottledException",
-      "LimitExceededException",
-      "PriorRequestNotComplete",
-      "ProvisionedThroughputExceededException",
-      "RequestLimitExceeded",
-      "RequestThrottled",
-      "RequestThrottledException",
-      "SlowDown",
-      "ThrottledException",
-      "Throttling",
-      "ThrottlingException",
-      "TooManyRequestsException",
-      "TransactionInProgressException"
-    ];
-    TRANSIENT_ERROR_CODES = ["TimeoutError", "RequestTimeout", "RequestTimeoutException"];
-    TRANSIENT_ERROR_STATUS_CODES = [500, 502, 503, 504];
-    NODEJS_TIMEOUT_ERROR_CODES = ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT"];
-    NODEJS_NETWORK_ERROR_CODES = ["EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN"];
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js
-function isNodeJsHttp2TransientError(error3) {
-  return error3.code === "ERR_HTTP2_STREAM_ERROR" && error3.message.includes("NGHTTP2_REFUSED_STREAM");
-}
-var isRetryableByTrait, isClockSkewError, isClockSkewCorrectedError, isBrowserNetworkError, isThrottlingError, isTransientError, isServerError;
-var init_service_error_classification = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js"() {
-    init_constants4();
-    isRetryableByTrait = (error3) => error3?.$retryable !== void 0;
-    isClockSkewError = (error3) => CLOCK_SKEW_ERROR_CODES.includes(error3.name);
-    isClockSkewCorrectedError = (error3) => error3.$metadata?.clockSkewCorrected;
-    isBrowserNetworkError = (error3) => {
-      const errorMessages = /* @__PURE__ */ new Set([
-        "Failed to fetch",
-        "NetworkError when attempting to fetch resource",
-        "The Internet connection appears to be offline",
-        "Load failed",
-        "Network request failed"
-      ]);
-      const isValid = error3 && error3 instanceof TypeError;
-      if (!isValid) {
-        return false;
-      }
-      return errorMessages.has(error3.message);
-    };
-    isThrottlingError = (error3) => error3.$metadata?.httpStatusCode === 429 || THROTTLING_ERROR_CODES.includes(error3.name) || error3.$retryable?.throttling == true;
-    isTransientError = (error3, depth = 0) => error3?.name !== "AbortError" && (isRetryableByTrait(error3) || isClockSkewCorrectedError(error3) || error3.name === "InvalidSignatureException" && error3.message?.includes("Signature expired") || TRANSIENT_ERROR_CODES.includes(error3.name) || NODEJS_TIMEOUT_ERROR_CODES.includes(error3?.code || "") || NODEJS_NETWORK_ERROR_CODES.includes(error3?.code || "") || TRANSIENT_ERROR_STATUS_CODES.includes(error3.$metadata?.httpStatusCode || 0) || isBrowserNetworkError(error3) || isNodeJsHttp2TransientError(error3) || error3.cause !== void 0 && depth <= 10 && isTransientError(error3.cause, depth + 1));
-    isServerError = (error3) => {
-      if (error3.$metadata?.httpStatusCode !== void 0) {
-        const statusCode = error3.$metadata.httpStatusCode;
-        if (500 <= statusCode && statusCode <= 599 && !isTransientError(error3)) {
-          return true;
-        }
-        return false;
-      }
-      return false;
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js
-var DEFAULT_RETRY_DELAY_BASE, MAXIMUM_RETRY_DELAY, THROTTLING_RETRY_DELAY_BASE, INITIAL_RETRY_TOKENS, RETRY_COST, TIMEOUT_RETRY_COST, NO_RETRY_INCREMENT, INVOCATION_ID_HEADER, REQUEST_HEADER;
-var init_constants5 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js"() {
-    DEFAULT_RETRY_DELAY_BASE = 100;
-    MAXIMUM_RETRY_DELAY = 20 * 1e3;
-    THROTTLING_RETRY_DELAY_BASE = 500;
-    INITIAL_RETRY_TOKENS = 500;
-    RETRY_COST = 5;
-    TIMEOUT_RETRY_COST = 10;
-    NO_RETRY_INCREMENT = 1;
-    INVOCATION_ID_HEADER = "amz-sdk-invocation-id";
-    REQUEST_HEADER = "amz-sdk-request";
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js
-function parseRetryAfterHeader(response, logger2) {
-  if (!HttpResponse.isInstance(response)) {
-    return;
-  }
-  for (const header in response.headers) {
-    if (!hasOwn(response.headers, header)) {
-      continue;
-    }
-    const h6 = header.toLowerCase();
-    if (h6 === "retry-after") {
-      const retryAfter = response.headers[header];
-      let retryAfterSeconds = NaN;
-      if (retryAfter.endsWith("GMT")) {
-        try {
-          const date2 = parseRfc7231DateTime(retryAfter);
-          retryAfterSeconds = (date2.getTime() - Date.now()) / 1e3;
-        } catch (e6) {
-          logger2?.trace?.("Failed to parse retry-after header");
-          logger2?.trace?.(e6);
-        }
-      } else if (retryAfter.match(/ GMT, ((\d+)|(\d+\.\d+))$/)) {
-        retryAfterSeconds = Number(retryAfter.match(/ GMT, ([\d.]+)$/)?.[1]);
-      } else if (retryAfter.match(/^((\d+)|(\d+\.\d+))$/)) {
-        retryAfterSeconds = Number(retryAfter);
-      } else if (Date.parse(retryAfter) >= Date.now()) {
-        retryAfterSeconds = (Date.parse(retryAfter) - Date.now()) / 1e3;
-      }
-      if (isNaN(retryAfterSeconds)) {
-        return;
-      }
-      return new Date(Date.now() + retryAfterSeconds * 1e3);
-    } else if (h6 === "x-amz-retry-after") {
-      const v = response.headers[header];
-      const backoffMilliseconds = Number(v);
-      if (isNaN(backoffMilliseconds)) {
-        logger2?.trace?.(`Failed to parse x-amz-retry-after=${v}`);
-        return;
-      }
-      return new Date(Date.now() + backoffMilliseconds);
-    }
-  }
-}
-function getRetryAfterHint(response, logger2) {
-  return parseRetryAfterHeader(response, logger2);
-}
-var init_parseRetryAfterHeader = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js"() {
-    init_transport();
-    init_protocols();
-    init_serde();
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js
-var asSdkError;
-var init_util = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js"() {
-    asSdkError = (error3) => {
-      if (error3 instanceof Error) {
-        return error3;
-      }
-      if (error3 instanceof Object) {
-        return Object.assign(new Error(), error3);
-      }
-      if (typeof error3 === "string") {
-        return new Error(error3);
-      }
-      return new Error(`AWS SDK error wrapper for ${error3}`);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js
-function bindRetryMiddleware(isStreamingPayload2) {
-  return (options) => (next, context2) => async (args) => {
-    let retryStrategy = await options.retryStrategy();
-    const maxAttempts = await options.maxAttempts();
-    if (isRetryStrategyV2(retryStrategy)) {
-      retryStrategy = retryStrategy;
-      let retryToken = await retryStrategy.acquireInitialRetryToken((context2["partition_id"] ?? "") + (context2.__retryLongPoll ? ":longpoll" : ""));
-      let lastError = new Error();
-      let attempts = 0;
-      let totalRetryDelay = 0;
-      const { request } = args;
-      const isRequest2 = HttpRequest.isInstance(request);
-      if (isRequest2) {
-        request.headers[INVOCATION_ID_HEADER] = v4();
-      }
-      while (true) {
-        try {
-          if (isRequest2) {
-            request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
-          }
-          const { response, output } = await next(args);
-          retryStrategy.recordSuccess(retryToken);
-          output.$metadata.attempts = attempts + 1;
-          output.$metadata.totalRetryDelay = totalRetryDelay;
-          return { response, output };
-        } catch (e6) {
-          const retryErrorInfo = getRetryErrorInfo(e6, options.logger);
-          lastError = asSdkError(e6);
-          if (isRequest2 && isStreamingPayload2(request)) {
-            (context2.logger instanceof NoOpLogger ? console : context2.logger)?.warn("An error was encountered in a non-retryable streaming request.");
-            throw lastError;
-          }
-          try {
-            retryToken = await retryStrategy.refreshRetryTokenForRetry(retryToken, retryErrorInfo);
-          } catch (ignoredRefreshError) {
-            if (!lastError.$metadata) {
-              lastError.$metadata = {};
-            }
-            lastError.$metadata.attempts = attempts + 1;
-            lastError.$metadata.totalRetryDelay = totalRetryDelay;
-            throw lastError;
-          }
-          attempts = retryToken.getRetryCount();
-          const delay = retryToken.getRetryDelay();
-          totalRetryDelay += (retryToken?.$retryLog?.acquisitionDelay ?? 0) + delay;
-          if (delay > 0) {
-            await cooldown(delay);
-          }
-        }
-      }
-    } else {
-      retryStrategy = retryStrategy;
-      if (retryStrategy?.mode) {
-        context2.userAgent = [...context2.userAgent || [], ["cfg/retry-mode", retryStrategy.mode]];
-      }
-      return retryStrategy.retry(next, args);
-    }
-  };
-}
-function bindGetRetryPlugin(isStreamingPayload2) {
-  const retryMiddleware2 = bindRetryMiddleware(isStreamingPayload2);
-  return (options) => ({
-    applyToStack: (clientStack) => {
-      clientStack.add(retryMiddleware2(options), retryMiddlewareOptions);
-    }
-  });
-}
-var cooldown, isRetryStrategyV2, getRetryErrorInfo, getRetryErrorType, retryMiddlewareOptions;
-var init_retryMiddleware = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js"() {
-    init_client2();
-    init_protocols();
-    init_serde();
-    init_service_error_classification();
-    init_constants5();
-    init_parseRetryAfterHeader();
-    init_util();
-    cooldown = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    isRetryStrategyV2 = (retryStrategy) => typeof retryStrategy.acquireInitialRetryToken !== "undefined" && typeof retryStrategy.refreshRetryTokenForRetry !== "undefined" && typeof retryStrategy.recordSuccess !== "undefined";
-    getRetryErrorInfo = (error3, logger2) => {
-      const errorInfo = {
-        error: error3,
-        errorType: getRetryErrorType(error3)
-      };
-      const retryAfterHint = parseRetryAfterHeader(error3.$response, logger2);
-      if (retryAfterHint) {
-        errorInfo.retryAfterHint = retryAfterHint;
-      }
-      return errorInfo;
-    };
-    getRetryErrorType = (error3) => {
-      if (isThrottlingError(error3)) {
-        return "THROTTLING";
-      }
-      if (isTransientError(error3)) {
-        return "TRANSIENT";
-      }
-      if (isServerError(error3)) {
-        return "SERVER_ERROR";
-      }
-      return "CLIENT_ERROR";
-    };
-    retryMiddlewareOptions = {
-      name: "retryMiddleware",
-      tags: ["RETRY"],
-      step: "finalizeRequest",
-      priority: "high",
-      override: true
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js
-var DefaultRateLimiter;
-var init_DefaultRateLimiter = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js"() {
-    init_service_error_classification();
-    DefaultRateLimiter = class _DefaultRateLimiter {
-      static setTimeoutFn = (fn, delay) => setTimeout(fn, delay);
-      beta;
-      minCapacity;
-      minFillRate;
-      scaleConstant;
-      smooth;
-      enabled = false;
-      availableTokens = 0;
-      lastMaxRate = 0;
-      measuredTxRate = 0;
-      requestCount = 0;
-      fillRate;
-      lastThrottleTime;
-      lastTimestamp = 0;
-      lastTxRateBucket;
-      maxCapacity;
-      timeWindow = 0;
-      constructor(options) {
-        this.beta = options?.beta ?? 0.7;
-        this.minCapacity = options?.minCapacity ?? 1;
-        this.minFillRate = options?.minFillRate ?? 0.5;
-        this.scaleConstant = options?.scaleConstant ?? 0.4;
-        this.smooth = options?.smooth ?? 0.8;
-        this.lastThrottleTime = this.getCurrentTimeInSeconds();
-        this.lastTxRateBucket = Math.floor(this.getCurrentTimeInSeconds());
-        this.fillRate = this.minFillRate;
-        this.maxCapacity = this.minCapacity;
-      }
-      async getSendToken() {
-        return this.acquireTokenBucket(1);
-      }
-      updateClientSendingRate(response) {
-        let calculatedRate;
-        this.updateMeasuredRate();
-        const retryErrorInfo = response;
-        const isThrottling = retryErrorInfo?.errorType === "THROTTLING" || isThrottlingError(retryErrorInfo?.error ?? response);
-        if (isThrottling) {
-          const rateToUse = !this.enabled ? this.measuredTxRate : Math.min(this.measuredTxRate, this.fillRate);
-          this.lastMaxRate = rateToUse;
-          this.calculateTimeWindow();
-          this.lastThrottleTime = this.getCurrentTimeInSeconds();
-          calculatedRate = this.cubicThrottle(rateToUse);
-          this.enableTokenBucket();
-        } else {
-          this.calculateTimeWindow();
-          calculatedRate = this.cubicSuccess(this.getCurrentTimeInSeconds());
-        }
-        const newRate = Math.min(calculatedRate, 2 * this.measuredTxRate);
-        this.updateTokenBucketRate(newRate);
-      }
-      getCurrentTimeInSeconds() {
-        return Date.now() / 1e3;
-      }
-      async acquireTokenBucket(amount) {
-        if (!this.enabled) {
-          return;
-        }
-        this.refillTokenBucket();
-        while (amount > this.availableTokens) {
-          const delay = (amount - this.availableTokens) / this.fillRate * 1e3;
-          await new Promise((resolve) => _DefaultRateLimiter.setTimeoutFn(resolve, delay));
-          this.refillTokenBucket();
-        }
-        this.availableTokens = this.availableTokens - amount;
-      }
-      refillTokenBucket() {
-        const timestamp = this.getCurrentTimeInSeconds();
-        if (!this.lastTimestamp) {
-          this.lastTimestamp = timestamp;
-          return;
-        }
-        const fillAmount = (timestamp - this.lastTimestamp) * this.fillRate;
-        this.availableTokens = Math.min(this.maxCapacity, this.availableTokens + fillAmount);
-        this.lastTimestamp = timestamp;
-      }
-      calculateTimeWindow() {
-        this.timeWindow = this.getPrecise(Math.pow(this.lastMaxRate * (1 - this.beta) / this.scaleConstant, 1 / 3));
-      }
-      cubicThrottle(rateToUse) {
-        return this.getPrecise(rateToUse * this.beta);
-      }
-      cubicSuccess(timestamp) {
-        return this.getPrecise(this.scaleConstant * Math.pow(timestamp - this.lastThrottleTime - this.timeWindow, 3) + this.lastMaxRate);
-      }
-      enableTokenBucket() {
-        this.enabled = true;
-      }
-      updateTokenBucketRate(newRate) {
-        this.refillTokenBucket();
-        this.fillRate = Math.max(newRate, this.minFillRate);
-        this.maxCapacity = Math.max(newRate, this.minCapacity);
-        this.availableTokens = Math.min(this.availableTokens, this.maxCapacity);
-      }
-      updateMeasuredRate() {
-        const t2 = this.getCurrentTimeInSeconds();
-        const timeBucket = Math.floor(t2 * 2) / 2;
-        this.requestCount++;
-        if (timeBucket > this.lastTxRateBucket) {
-          const currentRate = this.requestCount / (timeBucket - this.lastTxRateBucket);
-          this.measuredTxRate = this.getPrecise(currentRate * this.smooth + this.measuredTxRate * (1 - this.smooth));
-          this.requestCount = 0;
-          this.lastTxRateBucket = timeBucket;
-        }
-      }
-      getPrecise(num) {
-        return parseFloat(num.toFixed(8));
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js
-var Retry;
-var init_retries_2026_config = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js"() {
-    Retry = class _Retry {
-      static v2026 = typeof process !== "undefined" && process.env?.SMITHY_NEW_RETRIES_2026 === "true";
-      static delay() {
-        return _Retry.v2026 ? 50 : 100;
-      }
-      static throttlingDelay() {
-        return _Retry.v2026 ? 1e3 : 500;
-      }
-      static cost() {
-        return _Retry.v2026 ? 14 : 5;
-      }
-      static throttlingCost() {
-        return _Retry.v2026 ? 5 : 10;
-      }
-      static modifiedCostType() {
-        return _Retry.v2026 ? "THROTTLING" : "TRANSIENT";
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js
-var DefaultRetryBackoffStrategy;
-var init_DefaultRetryBackoffStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js"() {
-    init_constants5();
-    init_retries_2026_config();
-    DefaultRetryBackoffStrategy = class {
-      x = Retry.delay();
-      computeNextBackoffDelay(i6) {
-        const b5 = Math.random();
-        const r6 = 2;
-        const t_i = b5 * Math.min(this.x * r6 ** i6, MAXIMUM_RETRY_DELAY);
-        return Math.floor(t_i);
-      }
-      setDelayBase(delay) {
-        this.x = delay;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js
-var DefaultRetryToken;
-var init_DefaultRetryToken = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js"() {
-    init_constants5();
-    DefaultRetryToken = class {
-      delay;
-      count;
-      cost;
-      longPoll;
-      $retryLog = {
-        acquisitionDelay: 0
-      };
-      constructor(delay, count, cost, longPoll) {
-        this.delay = delay;
-        this.count = count;
-        this.cost = cost;
-        this.longPoll = longPoll;
-      }
-      getRetryCount() {
-        return this.count;
-      }
-      getRetryDelay() {
-        return Math.min(MAXIMUM_RETRY_DELAY, this.delay);
-      }
-      getRetryCost() {
-        return this.cost;
-      }
-      isLongPoll() {
-        return this.longPoll;
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js
-var RETRY_MODES, DEFAULT_MAX_ATTEMPTS, DEFAULT_RETRY_MODE;
-var init_config3 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js"() {
-    (function(RETRY_MODES2) {
-      RETRY_MODES2["STANDARD"] = "standard";
-      RETRY_MODES2["ADAPTIVE"] = "adaptive";
-    })(RETRY_MODES || (RETRY_MODES = {}));
-    DEFAULT_MAX_ATTEMPTS = 3;
-    DEFAULT_RETRY_MODE = RETRY_MODES.STANDARD;
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js
-var refusal, StandardRetryStrategy;
-var init_StandardRetryStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js"() {
-    init_DefaultRetryBackoffStrategy();
-    init_DefaultRetryToken();
-    init_config3();
-    init_constants5();
-    init_retries_2026_config();
-    refusal = {
-      incompatible: 1,
-      attempts: 2,
-      capacity: 3
-    };
-    StandardRetryStrategy = class {
-      mode = RETRY_MODES.STANDARD;
-      retryBackoffStrategy;
-      capacity = INITIAL_RETRY_TOKENS;
-      maxAttemptsProvider;
-      baseDelay;
-      constructor(arg1) {
-        if (typeof arg1 === "number") {
-          this.maxAttemptsProvider = async () => arg1;
-        } else if (typeof arg1 === "function") {
-          this.maxAttemptsProvider = arg1;
-        } else if (arg1 && typeof arg1 === "object") {
-          this.maxAttemptsProvider = async () => arg1.maxAttempts;
-          this.baseDelay = arg1.baseDelay;
-          this.retryBackoffStrategy = arg1.backoff;
-        }
-        this.maxAttemptsProvider ??= async () => DEFAULT_MAX_ATTEMPTS;
-        this.baseDelay ??= Retry.delay();
-        this.retryBackoffStrategy ??= new DefaultRetryBackoffStrategy();
-      }
-      async acquireInitialRetryToken(retryTokenScope) {
-        return new DefaultRetryToken(Retry.delay(), 0, void 0, Retry.v2026 && retryTokenScope.includes(":longpoll"));
-      }
-      async refreshRetryTokenForRetry(token, errorInfo) {
-        const maxAttempts = await this.getMaxAttempts();
-        const retryCode = this.retryCode(token, errorInfo, maxAttempts);
-        const shouldRetry = retryCode === 0;
-        const isLongPoll = token.isLongPoll?.();
-        if (shouldRetry || isLongPoll) {
-          const errorType = errorInfo.errorType;
-          this.retryBackoffStrategy.setDelayBase(errorType === "THROTTLING" ? Retry.throttlingDelay() : this.baseDelay);
-          const delayFromErrorType = this.retryBackoffStrategy.computeNextBackoffDelay(token.getRetryCount());
-          let retryDelay = delayFromErrorType;
-          if (errorInfo.retryAfterHint instanceof Date) {
-            retryDelay = Math.max(delayFromErrorType, Math.min(errorInfo.retryAfterHint.getTime() - Date.now(), delayFromErrorType + 5e3));
-          }
-          if (!shouldRetry) {
-            const longPollBackoff = Retry.v2026 && retryCode === refusal.capacity && isLongPoll ? retryDelay : 0;
-            if (longPollBackoff > 0) {
-              await new Promise((r6) => setTimeout(r6, longPollBackoff));
-            }
-          } else {
-            const capacityCost = this.getCapacityCost(errorType);
-            this.capacity -= capacityCost;
-            const nextToken = new DefaultRetryToken(0, token.getRetryCount() + 1, capacityCost, token.isLongPoll?.() ?? false);
-            await new Promise((r6) => setTimeout(r6, retryDelay));
-            nextToken.$retryLog.acquisitionDelay = retryDelay;
-            return nextToken;
-          }
-        }
-        throw new Error("No retry token available");
-      }
-      recordSuccess(token) {
-        this.capacity = Math.min(INITIAL_RETRY_TOKENS, this.capacity + (token.getRetryCost() ?? NO_RETRY_INCREMENT));
-      }
-      getCapacity() {
-        return this.capacity;
-      }
-      async maxAttempts() {
-        return this.maxAttemptsProvider();
-      }
-      async getMaxAttempts() {
-        try {
-          return await this.maxAttemptsProvider();
-        } catch (ignored) {
-          console.warn(`Max attempts provider could not resolve. Using default of ${DEFAULT_MAX_ATTEMPTS}`);
-          return DEFAULT_MAX_ATTEMPTS;
-        }
-      }
-      retryCode(tokenToRenew, errorInfo, maxAttempts) {
-        const attempts = tokenToRenew.getRetryCount() + 1;
-        const retryableStatus = this.isRetryableError(errorInfo.errorType) ? 0 : refusal.incompatible;
-        const attemptStatus = attempts < maxAttempts ? 0 : refusal.attempts;
-        const capacityStatus = this.capacity >= this.getCapacityCost(errorInfo.errorType) ? 0 : refusal.capacity;
-        return retryableStatus || attemptStatus || capacityStatus;
-      }
-      getCapacityCost(errorType) {
-        return errorType === Retry.modifiedCostType() ? Retry.throttlingCost() : Retry.cost();
-      }
-      isRetryableError(errorType) {
-        return errorType === "THROTTLING" || errorType === "TRANSIENT";
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js
-var AdaptiveRetryStrategy;
-var init_AdaptiveRetryStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js"() {
-    init_DefaultRateLimiter();
-    init_StandardRetryStrategy();
-    init_config3();
-    AdaptiveRetryStrategy = class {
-      mode = RETRY_MODES.ADAPTIVE;
-      rateLimiter;
-      standardRetryStrategy;
-      constructor(maxAttemptsProvider, options) {
-        const { rateLimiter } = options ?? {};
-        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
-        this.standardRetryStrategy = options ? new StandardRetryStrategy({
-          maxAttempts: typeof maxAttemptsProvider === "number" ? maxAttemptsProvider : 3,
-          ...options
-        }) : new StandardRetryStrategy(maxAttemptsProvider);
-      }
-      async acquireInitialRetryToken(retryTokenScope) {
-        const token = await this.standardRetryStrategy.acquireInitialRetryToken(retryTokenScope);
-        await this.rateLimiter.getSendToken();
-        return token;
-      }
-      async refreshRetryTokenForRetry(tokenToRenew, errorInfo) {
-        this.rateLimiter.updateClientSendingRate(errorInfo);
-        const token = await this.standardRetryStrategy.refreshRetryTokenForRetry(tokenToRenew, errorInfo);
-        await this.rateLimiter.getSendToken();
-        return token;
-      }
-      recordSuccess(token) {
-        this.rateLimiter.updateClientSendingRate({});
-        this.standardRetryStrategy.recordSuccess(token);
-      }
-      async maxAttemptsProvider() {
-        return this.standardRetryStrategy.maxAttempts();
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js
-var ConfiguredRetryStrategy;
-var init_ConfiguredRetryStrategy = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js"() {
-    init_StandardRetryStrategy();
-    init_retries_2026_config();
-    ConfiguredRetryStrategy = class extends StandardRetryStrategy {
-      computeNextBackoffDelay;
-      constructor(maxAttempts, computeNextBackoffDelay = Retry.delay()) {
-        super(typeof maxAttempts === "function" ? maxAttempts : async () => maxAttempts);
-        if (typeof computeNextBackoffDelay === "number") {
-          this.computeNextBackoffDelay = () => computeNextBackoffDelay;
-        } else {
-          this.computeNextBackoffDelay = computeNextBackoffDelay;
-        }
-        this.retryBackoffStrategy.computeNextBackoffDelay = (completedAttempt) => {
-          const nextAttempt = completedAttempt + 1;
-          return this.computeNextBackoffDelay(nextAttempt);
-        };
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js
-var getDefaultRetryQuota;
-var init_defaultRetryQuota = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js"() {
-    init_constants5();
-    getDefaultRetryQuota = (initialRetryTokens, options) => {
-      const MAX_CAPACITY = initialRetryTokens;
-      const noRetryIncrement = options?.noRetryIncrement ?? NO_RETRY_INCREMENT;
-      const retryCost = options?.retryCost ?? RETRY_COST;
-      const timeoutRetryCost = options?.timeoutRetryCost ?? TIMEOUT_RETRY_COST;
-      let availableCapacity = initialRetryTokens;
-      const getCapacityAmount = (error3) => error3.name === "TimeoutError" ? timeoutRetryCost : retryCost;
-      const hasRetryTokens = (error3) => getCapacityAmount(error3) <= availableCapacity;
-      const retrieveRetryTokens = (error3) => {
-        if (!hasRetryTokens(error3)) {
-          throw new Error("No retry token available");
-        }
-        const capacityAmount = getCapacityAmount(error3);
-        availableCapacity -= capacityAmount;
-        return capacityAmount;
-      };
-      const releaseRetryTokens = (capacityReleaseAmount) => {
-        availableCapacity += capacityReleaseAmount ?? noRetryIncrement;
-        availableCapacity = Math.min(availableCapacity, MAX_CAPACITY);
-      };
-      return Object.freeze({
-        hasRetryTokens,
-        retrieveRetryTokens,
-        releaseRetryTokens
-      });
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js
-var defaultDelayDecider;
-var init_delayDecider = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js"() {
-    init_constants5();
-    defaultDelayDecider = (delayBase, attempts) => Math.floor(Math.min(MAXIMUM_RETRY_DELAY, Math.random() * 2 ** attempts * delayBase));
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js
-var defaultRetryDecider;
-var init_retryDecider = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js"() {
-    init_service_error_classification();
-    defaultRetryDecider = (error3) => {
-      if (!error3) {
-        return false;
-      }
-      return isRetryableByTrait(error3) || isClockSkewError(error3) || isThrottlingError(error3) || isTransientError(error3);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js
-var StandardRetryStrategy2, getDelayFromRetryAfterHeader;
-var init_StandardRetryStrategy2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js"() {
-    init_protocols();
-    init_serde();
-    init_service_error_classification();
-    init_config3();
-    init_constants5();
-    init_util();
-    init_defaultRetryQuota();
-    init_delayDecider();
-    init_retryDecider();
-    StandardRetryStrategy2 = class {
-      maxAttemptsProvider;
-      retryDecider;
-      delayDecider;
-      retryQuota;
-      mode = RETRY_MODES.STANDARD;
-      constructor(maxAttemptsProvider, options) {
-        this.maxAttemptsProvider = maxAttemptsProvider;
-        this.retryDecider = options?.retryDecider ?? defaultRetryDecider;
-        this.delayDecider = options?.delayDecider ?? defaultDelayDecider;
-        this.retryQuota = options?.retryQuota ?? getDefaultRetryQuota(INITIAL_RETRY_TOKENS);
-      }
-      shouldRetry(error3, attempts, maxAttempts) {
-        return attempts < maxAttempts && this.retryDecider(error3) && this.retryQuota.hasRetryTokens(error3);
-      }
-      async getMaxAttempts() {
-        let maxAttempts;
-        try {
-          maxAttempts = await this.maxAttemptsProvider();
-        } catch (ignored) {
-          maxAttempts = DEFAULT_MAX_ATTEMPTS;
-        }
-        return maxAttempts;
-      }
-      async retry(next, args, options) {
-        let retryTokenAmount;
-        let attempts = 0;
-        let totalDelay = 0;
-        const maxAttempts = await this.getMaxAttempts();
-        const { request } = args;
-        if (HttpRequest.isInstance(request)) {
-          request.headers[INVOCATION_ID_HEADER] = v4();
-        }
-        while (true) {
-          try {
-            if (HttpRequest.isInstance(request)) {
-              request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
-            }
-            if (options?.beforeRequest) {
-              await options.beforeRequest();
-            }
-            const { response, output } = await next(args);
-            if (options?.afterRequest) {
-              options.afterRequest(response);
-            }
-            this.retryQuota.releaseRetryTokens(retryTokenAmount);
-            output.$metadata.attempts = attempts + 1;
-            output.$metadata.totalRetryDelay = totalDelay;
-            return { response, output };
-          } catch (e6) {
-            const err = asSdkError(e6);
-            attempts++;
-            if (this.shouldRetry(err, attempts, maxAttempts)) {
-              retryTokenAmount = this.retryQuota.retrieveRetryTokens(err);
-              const delayFromDecider = this.delayDecider(isThrottlingError(err) ? THROTTLING_RETRY_DELAY_BASE : DEFAULT_RETRY_DELAY_BASE, attempts);
-              const delayFromResponse = getDelayFromRetryAfterHeader(err.$response);
-              const delay = Math.max(delayFromResponse || 0, delayFromDecider);
-              totalDelay += delay;
-              await new Promise((resolve) => setTimeout(resolve, delay));
-              continue;
-            }
-            if (!err.$metadata) {
-              err.$metadata = {};
-            }
-            err.$metadata.attempts = attempts;
-            err.$metadata.totalRetryDelay = totalDelay;
-            throw err;
-          }
-        }
-      }
-    };
-    getDelayFromRetryAfterHeader = (response) => {
-      if (!HttpResponse.isInstance(response)) {
-        return;
-      }
-      const retryAfterHeaderName = Object.keys(response.headers).find((key) => key.toLowerCase() === "retry-after");
-      if (!retryAfterHeaderName) {
-        return;
-      }
-      const retryAfter = response.headers[retryAfterHeaderName];
-      const retryAfterSeconds = Number(retryAfter);
-      if (!Number.isNaN(retryAfterSeconds)) {
-        return Math.min(retryAfterSeconds * 1e3, 2e4);
-      }
-      const retryAfterDate = new Date(retryAfter);
-      return Math.min(retryAfterDate.getTime() - Date.now(), 2e4);
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js
-var AdaptiveRetryStrategy2;
-var init_AdaptiveRetryStrategy2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js"() {
-    init_DefaultRateLimiter();
-    init_config3();
-    init_StandardRetryStrategy2();
-    AdaptiveRetryStrategy2 = class extends StandardRetryStrategy2 {
-      rateLimiter;
-      constructor(maxAttemptsProvider, options) {
-        const { rateLimiter, ...superOptions } = options ?? {};
-        super(maxAttemptsProvider, superOptions);
-        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
-        this.mode = RETRY_MODES.ADAPTIVE;
-      }
-      async retry(next, args) {
-        return super.retry(next, args, {
-          beforeRequest: async () => {
-            return this.rateLimiter.getSendToken();
-          },
-          afterRequest: (response) => {
-            this.rateLimiter.updateClientSendingRate(response);
-          }
-        });
-      }
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js
-var ENV_MAX_ATTEMPTS, CONFIG_MAX_ATTEMPTS, NODE_MAX_ATTEMPT_CONFIG_OPTIONS, resolveRetryConfig, ENV_RETRY_MODE, CONFIG_RETRY_MODE, NODE_RETRY_MODE_CONFIG_OPTIONS;
-var init_configurations = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js"() {
-    init_client2();
-    init_AdaptiveRetryStrategy();
-    init_StandardRetryStrategy();
-    init_config3();
-    init_retries_2026_config();
-    ENV_MAX_ATTEMPTS = "AWS_MAX_ATTEMPTS";
-    CONFIG_MAX_ATTEMPTS = "max_attempts";
-    NODE_MAX_ATTEMPT_CONFIG_OPTIONS = {
-      environmentVariableSelector: (env2) => {
-        const value = env2[ENV_MAX_ATTEMPTS];
-        if (!value) {
-          return void 0;
-        }
-        const maxAttempt = parseInt(value);
-        if (Number.isNaN(maxAttempt)) {
-          throw new Error(`Environment variable ${ENV_MAX_ATTEMPTS} mast be a number, got "${value}"`);
-        }
-        return maxAttempt;
-      },
-      configFileSelector: (profile) => {
-        const value = profile[CONFIG_MAX_ATTEMPTS];
-        if (!value) {
-          return void 0;
-        }
-        const maxAttempt = parseInt(value);
-        if (Number.isNaN(maxAttempt)) {
-          throw new Error(`Shared config file entry ${CONFIG_MAX_ATTEMPTS} mast be a number, got "${value}"`);
-        }
-        return maxAttempt;
-      },
-      default: DEFAULT_MAX_ATTEMPTS
-    };
-    resolveRetryConfig = (input, defaults) => {
-      const { retryStrategy, retryMode } = input;
-      const { defaultMaxAttempts = DEFAULT_MAX_ATTEMPTS, defaultBaseDelay = Retry.delay() } = defaults ?? {};
-      const maxAttemptsProvider = normalizeProvider(input.maxAttempts ?? defaultMaxAttempts);
-      let controller = retryStrategy ? Promise.resolve(retryStrategy) : void 0;
-      const getDefault = async () => {
-        const maxAttempts = await maxAttemptsProvider();
-        const adaptive = await normalizeProvider(retryMode)() === RETRY_MODES.ADAPTIVE;
-        if (adaptive) {
-          return new AdaptiveRetryStrategy(maxAttemptsProvider, {
-            maxAttempts,
-            baseDelay: defaultBaseDelay
-          });
-        }
-        return new StandardRetryStrategy({
-          maxAttempts,
-          baseDelay: defaultBaseDelay
-        });
-      };
-      return Object.assign(input, {
-        maxAttempts: maxAttemptsProvider,
-        retryStrategy: () => controller ??= getDefault()
-      });
-    };
-    ENV_RETRY_MODE = "AWS_RETRY_MODE";
-    CONFIG_RETRY_MODE = "retry_mode";
-    NODE_RETRY_MODE_CONFIG_OPTIONS = {
-      environmentVariableSelector: (env2) => env2[ENV_RETRY_MODE],
-      configFileSelector: (profile) => profile[CONFIG_RETRY_MODE],
-      default: DEFAULT_RETRY_MODE
-    };
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js
-var omitRetryHeadersMiddleware, omitRetryHeadersMiddlewareOptions, getOmitRetryHeadersPlugin;
-var init_omitRetryHeadersMiddleware = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js"() {
-    init_protocols();
-    init_constants5();
-    omitRetryHeadersMiddleware = () => (next) => async (args) => {
-      const { request } = args;
-      if (HttpRequest.isInstance(request)) {
-        delete request.headers[INVOCATION_ID_HEADER];
-        delete request.headers[REQUEST_HEADER];
-      }
-      return next(args);
-    };
-    omitRetryHeadersMiddlewareOptions = {
-      name: "omitRetryHeadersMiddleware",
-      tags: ["RETRY", "HEADERS", "OMIT_RETRY_HEADERS"],
-      relation: "before",
-      toMiddleware: "awsAuthMiddleware",
-      override: true
-    };
-    getOmitRetryHeadersPlugin = (options) => ({
-      applyToStack: (clientStack) => {
-        clientStack.addRelativeTo(omitRetryHeadersMiddleware(), omitRetryHeadersMiddlewareOptions);
-      }
-    });
-  }
-});
-
-// node_modules/@smithy/core/dist-es/submodules/retry/index.js
-var retry_exports = {};
-__export(retry_exports, {
-  AdaptiveRetryStrategy: () => AdaptiveRetryStrategy,
-  CONFIG_MAX_ATTEMPTS: () => CONFIG_MAX_ATTEMPTS,
-  CONFIG_RETRY_MODE: () => CONFIG_RETRY_MODE,
-  ConfiguredRetryStrategy: () => ConfiguredRetryStrategy,
-  DEFAULT_MAX_ATTEMPTS: () => DEFAULT_MAX_ATTEMPTS,
-  DEFAULT_RETRY_DELAY_BASE: () => DEFAULT_RETRY_DELAY_BASE,
-  DEFAULT_RETRY_MODE: () => DEFAULT_RETRY_MODE,
-  DefaultRateLimiter: () => DefaultRateLimiter,
-  DeprecatedAdaptiveRetryStrategy: () => AdaptiveRetryStrategy2,
-  DeprecatedStandardRetryStrategy: () => StandardRetryStrategy2,
-  ENV_MAX_ATTEMPTS: () => ENV_MAX_ATTEMPTS,
-  ENV_RETRY_MODE: () => ENV_RETRY_MODE,
-  INITIAL_RETRY_TOKENS: () => INITIAL_RETRY_TOKENS,
-  INVOCATION_ID_HEADER: () => INVOCATION_ID_HEADER,
-  MAXIMUM_RETRY_DELAY: () => MAXIMUM_RETRY_DELAY,
-  NODE_MAX_ATTEMPT_CONFIG_OPTIONS: () => NODE_MAX_ATTEMPT_CONFIG_OPTIONS,
-  NODE_RETRY_MODE_CONFIG_OPTIONS: () => NODE_RETRY_MODE_CONFIG_OPTIONS,
-  NO_RETRY_INCREMENT: () => NO_RETRY_INCREMENT,
-  REQUEST_HEADER: () => REQUEST_HEADER,
-  RETRY_COST: () => RETRY_COST,
-  RETRY_MODES: () => RETRY_MODES,
-  Retry: () => Retry,
-  StandardRetryStrategy: () => StandardRetryStrategy,
-  THROTTLING_RETRY_DELAY_BASE: () => THROTTLING_RETRY_DELAY_BASE,
-  TIMEOUT_RETRY_COST: () => TIMEOUT_RETRY_COST,
-  defaultDelayDecider: () => defaultDelayDecider,
-  defaultRetryDecider: () => defaultRetryDecider,
-  getOmitRetryHeadersPlugin: () => getOmitRetryHeadersPlugin,
-  getRetryAfterHint: () => getRetryAfterHint,
-  getRetryPlugin: () => getRetryPlugin,
-  isBrowserNetworkError: () => isBrowserNetworkError,
-  isClockSkewCorrectedError: () => isClockSkewCorrectedError,
-  isClockSkewError: () => isClockSkewError,
-  isNodeJsHttp2TransientError: () => isNodeJsHttp2TransientError,
-  isRetryableByTrait: () => isRetryableByTrait,
-  isServerError: () => isServerError,
-  isThrottlingError: () => isThrottlingError,
-  isTransientError: () => isTransientError,
-  omitRetryHeadersMiddleware: () => omitRetryHeadersMiddleware,
-  omitRetryHeadersMiddlewareOptions: () => omitRetryHeadersMiddlewareOptions,
-  resolveRetryConfig: () => resolveRetryConfig,
-  retryMiddleware: () => retryMiddleware,
-  retryMiddlewareOptions: () => retryMiddlewareOptions
-});
-var retryMiddleware, getRetryPlugin;
-var init_retry2 = __esm({
-  "node_modules/@smithy/core/dist-es/submodules/retry/index.js"() {
-    init_isStreamingPayload();
-    init_retryMiddleware();
-    init_service_error_classification();
-    init_AdaptiveRetryStrategy();
-    init_ConfiguredRetryStrategy();
-    init_DefaultRateLimiter();
-    init_StandardRetryStrategy();
-    init_config3();
-    init_constants5();
-    init_retries_2026_config();
-    init_AdaptiveRetryStrategy2();
-    init_StandardRetryStrategy2();
-    init_delayDecider();
-    init_retryDecider();
-    init_configurations();
-    init_omitRetryHeadersMiddleware();
-    init_retryMiddleware();
-    init_parseRetryAfterHeader();
-    retryMiddleware = bindRetryMiddleware(isStreamingPayload);
-    getRetryPlugin = bindGetRetryPlugin(isStreamingPayload);
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js
-function setFeature2(context2, feature, value) {
-  if (!context2.__aws_sdk_context) {
-    context2.__aws_sdk_context = {
-      features: {}
-    };
-  } else if (!context2.__aws_sdk_context.features) {
-    context2.__aws_sdk_context.features = {};
-  }
-  context2.__aws_sdk_context.features[feature] = value;
-}
-var init_setFeature = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/client/setFeature.js"() {
-    init_retry2();
-    Retry.v2026 ||= typeof process === "object" && process.env?.AWS_NEW_RETRIES_2026 === "true";
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js
-function setTokenFeature(token, feature, value) {
-  if (!token.$source) {
-    token.$source = {};
-  }
-  token.$source[feature] = value;
-  return token;
-}
-var init_setTokenFeature = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/client/setTokenFeature.js"() {
-  }
-});
-
-// node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js
-var isDefaultSocketTimeoutEnabled, getDefaultSocketTimeout;
-var init_getDefaultSocketTimeout = __esm({
-  "node_modules/@aws-sdk/core/dist-es/submodules/client/getDefaultSocketTimeout.js"() {
-    isDefaultSocketTimeoutEnabled = () => typeof process === "object" && process?.env?.AWS_ENABLE_DEFAULT_SOCKET_TIMEOUT_2026 === "true";
-    getDefaultSocketTimeout = (requestHandler, timeoutMs) => {
-      if (!isDefaultSocketTimeoutEnabled()) {
-        return void 0;
-      }
-      if (typeof requestHandler?.handle === "function") {
-        return void 0;
-      }
-      return timeoutMs;
-    };
-  }
-});
-
 // node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-host-header/hostHeaderMiddleware.js
 function resolveHostHeaderConfig(input) {
   return input;
@@ -191798,7 +190771,7 @@ function resolveUserAgentConfig(input) {
   });
 }
 var DEFAULT_UA_APP_ID;
-var init_configurations2 = __esm({
+var init_configurations = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-user-agent/configurations.js"() {
     init_dist_es();
     DEFAULT_UA_APP_ID = void 0;
@@ -191910,11 +190883,17 @@ var init_partitions = __esm({
             "me-south-1": {
               "description": "Middle East (Bahrain)"
             },
+            "me-west-1": {
+              "description": "Middle East (Saudi Arabia)"
+            },
             "mx-central-1": {
               "description": "Mexico (Central)"
             },
             "sa-east-1": {
               "description": "South America (Sao Paulo)"
+            },
+            "sa-west-1": {
+              "description": "South America (Chile)"
             },
             "us-east-1": {
               "description": "US East (N. Virginia)"
@@ -192135,21 +191114,1079 @@ var init_partition = __esm({
   }
 });
 
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js
+var import_node_stream12, isStreamingPayload;
+var init_isStreamingPayload = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/isStreamingPayload/isStreamingPayload.js"() {
+    import_node_stream12 = require("node:stream");
+    isStreamingPayload = (request) => request?.body instanceof import_node_stream12.Readable || typeof ReadableStream !== "undefined" && request?.body instanceof ReadableStream;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js
+var CLOCK_SKEW_ERROR_CODES, THROTTLING_ERROR_CODES, TRANSIENT_ERROR_CODES, TRANSIENT_ERROR_STATUS_CODES, NODEJS_TIMEOUT_ERROR_CODES, NODEJS_NETWORK_ERROR_CODES;
+var init_constants4 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/constants.js"() {
+    CLOCK_SKEW_ERROR_CODES = [
+      "AccessDeniedException",
+      "AuthFailure",
+      "InvalidSignatureException",
+      "RequestExpired",
+      "RequestInTheFuture",
+      "RequestTimeTooSkewed",
+      "SignatureDoesNotMatch"
+    ];
+    THROTTLING_ERROR_CODES = [
+      "BandwidthLimitExceeded",
+      "EC2ThrottledException",
+      "LimitExceededException",
+      "PriorRequestNotComplete",
+      "ProvisionedThroughputExceededException",
+      "RequestLimitExceeded",
+      "RequestThrottled",
+      "RequestThrottledException",
+      "SlowDown",
+      "ThrottledException",
+      "Throttling",
+      "ThrottlingException",
+      "TooManyRequestsException",
+      "TransactionInProgressException"
+    ];
+    TRANSIENT_ERROR_CODES = ["TimeoutError", "RequestTimeout", "RequestTimeoutException"];
+    TRANSIENT_ERROR_STATUS_CODES = [500, 502, 503, 504];
+    NODEJS_TIMEOUT_ERROR_CODES = ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT"];
+    NODEJS_NETWORK_ERROR_CODES = ["EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN"];
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js
+function isNodeJsHttp2TransientError(error3) {
+  return error3.code === "ERR_HTTP2_STREAM_ERROR" && error3.message.includes("NGHTTP2_REFUSED_STREAM");
+}
+var isRetryableByTrait, isClockSkewError, isClockSkewCorrectedError, isBrowserNetworkError, isThrottlingError, isTransientError, isServerError;
+var init_service_error_classification = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/service-error-classification/service-error-classification.js"() {
+    init_constants4();
+    isRetryableByTrait = (error3) => error3?.$retryable !== void 0;
+    isClockSkewError = (error3) => CLOCK_SKEW_ERROR_CODES.includes(error3.name);
+    isClockSkewCorrectedError = (error3) => error3.$metadata?.clockSkewCorrected;
+    isBrowserNetworkError = (error3) => {
+      const errorMessages = /* @__PURE__ */ new Set([
+        "Failed to fetch",
+        "NetworkError when attempting to fetch resource",
+        "The Internet connection appears to be offline",
+        "Load failed",
+        "Network request failed"
+      ]);
+      const isValid = error3 && error3 instanceof TypeError;
+      if (!isValid) {
+        return false;
+      }
+      return errorMessages.has(error3.message);
+    };
+    isThrottlingError = (error3) => error3.$metadata?.httpStatusCode === 429 || THROTTLING_ERROR_CODES.includes(error3.name) || error3.$retryable?.throttling == true;
+    isTransientError = (error3, depth = 0) => error3?.name !== "AbortError" && (isRetryableByTrait(error3) || isClockSkewCorrectedError(error3) || error3.name === "InvalidSignatureException" && error3.message?.includes("Signature expired") || TRANSIENT_ERROR_CODES.includes(error3.name) || NODEJS_TIMEOUT_ERROR_CODES.includes(error3?.code || "") || NODEJS_NETWORK_ERROR_CODES.includes(error3?.code || "") || TRANSIENT_ERROR_STATUS_CODES.includes(error3.$metadata?.httpStatusCode || 0) || isBrowserNetworkError(error3) || isNodeJsHttp2TransientError(error3) || error3.cause !== void 0 && depth <= 10 && isTransientError(error3.cause, depth + 1));
+    isServerError = (error3) => {
+      if (error3.$metadata?.httpStatusCode !== void 0) {
+        const statusCode = error3.$metadata.httpStatusCode;
+        if (500 <= statusCode && statusCode <= 599 && !isTransientError(error3)) {
+          return true;
+        }
+        return false;
+      }
+      return false;
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/race.js
+var race, createAbortError, isAbortError;
+var init_race = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/race.js"() {
+    race = (promise, signal) => {
+      if (!signal) {
+        return promise;
+      }
+      let cleanup = () => {
+      };
+      const aborted = new Promise((_, reject) => {
+        const handler = () => reject(createAbortError());
+        if (signal.aborted) {
+          handler();
+        } else if (typeof signal.addEventListener === "function") {
+          signal.addEventListener("abort", handler, { once: true });
+          cleanup = () => signal.removeEventListener("abort", handler);
+        } else {
+          signal.onabort = handler;
+        }
+      });
+      return Promise.race([promise, aborted]).finally(cleanup);
+    };
+    createAbortError = () => Object.assign(new Error("Request aborted"), { name: "AbortError" });
+    isAbortError = (error3) => typeof error3 === "object" && error3 !== null && "name" in error3 && error3.name === "AbortError";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js
+var DEFAULT_RETRY_DELAY_BASE, MAXIMUM_RETRY_DELAY, THROTTLING_RETRY_DELAY_BASE, INITIAL_RETRY_TOKENS, RETRY_COST, TIMEOUT_RETRY_COST, NO_RETRY_INCREMENT, INVOCATION_ID_HEADER, REQUEST_HEADER;
+var init_constants5 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/constants.js"() {
+    DEFAULT_RETRY_DELAY_BASE = 100;
+    MAXIMUM_RETRY_DELAY = 20 * 1e3;
+    THROTTLING_RETRY_DELAY_BASE = 500;
+    INITIAL_RETRY_TOKENS = 500;
+    RETRY_COST = 5;
+    TIMEOUT_RETRY_COST = 10;
+    NO_RETRY_INCREMENT = 1;
+    INVOCATION_ID_HEADER = "amz-sdk-invocation-id";
+    REQUEST_HEADER = "amz-sdk-request";
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js
+function parseRetryAfterHeader(response, logger2) {
+  if (!HttpResponse.isInstance(response)) {
+    return;
+  }
+  for (const header in response.headers) {
+    if (!hasOwn(response.headers, header)) {
+      continue;
+    }
+    const h6 = header.toLowerCase();
+    if (h6 === "retry-after") {
+      const retryAfter = response.headers[header];
+      let retryAfterSeconds = NaN;
+      if (retryAfter.endsWith("GMT")) {
+        try {
+          const date2 = parseRfc7231DateTime(retryAfter);
+          retryAfterSeconds = (date2.getTime() - Date.now()) / 1e3;
+        } catch (e6) {
+          logger2?.trace?.("Failed to parse retry-after header");
+          logger2?.trace?.(e6);
+        }
+      } else if (retryAfter.match(/ GMT, ((\d+)|(\d+\.\d+))$/)) {
+        retryAfterSeconds = Number(retryAfter.match(/ GMT, ([\d.]+)$/)?.[1]);
+      } else if (retryAfter.match(/^((\d+)|(\d+\.\d+))$/)) {
+        retryAfterSeconds = Number(retryAfter);
+      } else if (Date.parse(retryAfter) >= Date.now()) {
+        retryAfterSeconds = (Date.parse(retryAfter) - Date.now()) / 1e3;
+      }
+      if (isNaN(retryAfterSeconds)) {
+        return;
+      }
+      return new Date(Date.now() + retryAfterSeconds * 1e3);
+    } else if (h6 === "x-amz-retry-after") {
+      const v = response.headers[header];
+      const backoffMilliseconds = Number(v);
+      if (isNaN(backoffMilliseconds)) {
+        logger2?.trace?.(`Failed to parse x-amz-retry-after=${v}`);
+        return;
+      }
+      return new Date(Date.now() + backoffMilliseconds);
+    }
+  }
+}
+function getRetryAfterHint(response, logger2) {
+  return parseRetryAfterHeader(response, logger2);
+}
+var init_parseRetryAfterHeader = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/parseRetryAfterHeader.js"() {
+    init_transport();
+    init_protocols();
+    init_serde();
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js
+var asSdkError;
+var init_util = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/util.js"() {
+    asSdkError = (error3) => {
+      if (error3 instanceof Error) {
+        return error3;
+      }
+      if (error3 instanceof Object) {
+        return Object.assign(new Error(), error3);
+      }
+      if (typeof error3 === "string") {
+        return new Error(error3);
+      }
+      return new Error(`AWS SDK error wrapper for ${error3}`);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js
+function bindRetryMiddleware(isStreamingPayload2) {
+  return (options) => (next, context2) => async (args) => {
+    let retryStrategy = await options.retryStrategy();
+    const maxAttempts = await options.maxAttempts();
+    const abortSignal = context2[import_types28.SMITHY_CONTEXT_KEY]?.abortSignal;
+    if (isRetryStrategyV2(retryStrategy)) {
+      retryStrategy = retryStrategy;
+      const retryTokenScope = (context2["partition_id"] ?? "") + (context2.__retryLongPoll ? ":longpoll" : "");
+      let retryToken = await race(retryStrategy.acquireInitialRetryToken(retryTokenScope), abortSignal);
+      let lastError = new Error();
+      let attempts = 0;
+      let totalRetryDelay = 0;
+      const { request } = args;
+      const isRequest2 = HttpRequest.isInstance(request);
+      if (isRequest2) {
+        request.headers[INVOCATION_ID_HEADER] = v4();
+      }
+      while (true) {
+        try {
+          if (isRequest2) {
+            request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
+          }
+          const { response, output } = await next(args);
+          retryStrategy.recordSuccess(retryToken);
+          output.$metadata.attempts = attempts + 1;
+          output.$metadata.totalRetryDelay = totalRetryDelay;
+          return { response, output };
+        } catch (e6) {
+          const retryErrorInfo = getRetryErrorInfo(e6, options.logger);
+          lastError = asSdkError(e6);
+          if (isRequest2 && isStreamingPayload2(request)) {
+            (context2.logger instanceof NoOpLogger ? console : context2.logger)?.warn("An error was encountered in a non-retryable streaming request.");
+            throw lastError;
+          }
+          try {
+            retryToken = await race(retryStrategy.refreshRetryTokenForRetry(retryToken, retryErrorInfo), abortSignal);
+          } catch (refreshError) {
+            if (abortSignal?.aborted && isAbortError(refreshError)) {
+              throw refreshError;
+            }
+            if (!lastError.$metadata) {
+              lastError.$metadata = {};
+            }
+            lastError.$metadata.attempts = attempts + 1;
+            lastError.$metadata.totalRetryDelay = totalRetryDelay;
+            throw lastError;
+          }
+          attempts = retryToken.getRetryCount();
+          const delay = retryToken.getRetryDelay();
+          totalRetryDelay += (retryToken?.$retryLog?.acquisitionDelay ?? 0) + delay;
+          if (delay > 0) {
+            await race(new Promise((resolve) => setTimeout(resolve, delay)), abortSignal);
+          }
+        }
+      }
+    } else {
+      retryStrategy = retryStrategy;
+      if (retryStrategy?.mode) {
+        context2.userAgent = [...context2.userAgent || [], ["cfg/retry-mode", retryStrategy.mode]];
+      }
+      return retryStrategy.retry(next, args);
+    }
+  };
+}
+function bindGetRetryPlugin(isStreamingPayload2) {
+  const retryMiddleware2 = bindRetryMiddleware(isStreamingPayload2);
+  return (options) => ({
+    applyToStack: (clientStack) => {
+      clientStack.add(retryMiddleware2(options), retryMiddlewareOptions);
+    }
+  });
+}
+var import_types28, isRetryStrategyV2, getRetryErrorInfo, getRetryErrorType, retryMiddlewareOptions;
+var init_retryMiddleware = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retryMiddleware.js"() {
+    init_client2();
+    init_protocols();
+    init_serde();
+    import_types28 = __toESM(require_dist_cjs());
+    init_service_error_classification();
+    init_race();
+    init_constants5();
+    init_parseRetryAfterHeader();
+    init_util();
+    isRetryStrategyV2 = (retryStrategy) => typeof retryStrategy.acquireInitialRetryToken !== "undefined" && typeof retryStrategy.refreshRetryTokenForRetry !== "undefined" && typeof retryStrategy.recordSuccess !== "undefined";
+    getRetryErrorInfo = (error3, logger2) => {
+      const errorInfo = {
+        error: error3,
+        errorType: getRetryErrorType(error3)
+      };
+      const retryAfterHint = parseRetryAfterHeader(error3.$response, logger2);
+      if (retryAfterHint) {
+        errorInfo.retryAfterHint = retryAfterHint;
+      }
+      return errorInfo;
+    };
+    getRetryErrorType = (error3) => {
+      if (isThrottlingError(error3)) {
+        return "THROTTLING";
+      }
+      if (isTransientError(error3)) {
+        return "TRANSIENT";
+      }
+      if (isServerError(error3)) {
+        return "SERVER_ERROR";
+      }
+      return "CLIENT_ERROR";
+    };
+    retryMiddlewareOptions = {
+      name: "retryMiddleware",
+      tags: ["RETRY"],
+      step: "finalizeRequest",
+      priority: "high",
+      override: true
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js
+var DefaultRateLimiter;
+var init_DefaultRateLimiter = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRateLimiter.js"() {
+    init_service_error_classification();
+    DefaultRateLimiter = class _DefaultRateLimiter {
+      static setTimeoutFn = (fn, delay) => setTimeout(fn, delay);
+      beta;
+      minCapacity;
+      minFillRate;
+      scaleConstant;
+      smooth;
+      enabled = false;
+      availableTokens = 0;
+      lastMaxRate = 0;
+      measuredTxRate = 0;
+      requestCount = 0;
+      fillRate;
+      lastThrottleTime;
+      lastTimestamp = 0;
+      lastTxRateBucket;
+      maxCapacity;
+      timeWindow = 0;
+      constructor(options) {
+        this.beta = options?.beta ?? 0.7;
+        this.minCapacity = options?.minCapacity ?? 1;
+        this.minFillRate = options?.minFillRate ?? 0.5;
+        this.scaleConstant = options?.scaleConstant ?? 0.4;
+        this.smooth = options?.smooth ?? 0.8;
+        this.lastThrottleTime = this.getCurrentTimeInSeconds();
+        this.lastTxRateBucket = Math.floor(this.getCurrentTimeInSeconds());
+        this.fillRate = this.minFillRate;
+        this.maxCapacity = this.minCapacity;
+      }
+      async getSendToken() {
+        return this.acquireTokenBucket(1);
+      }
+      updateClientSendingRate(response) {
+        let calculatedRate;
+        this.updateMeasuredRate();
+        const retryErrorInfo = response;
+        const isThrottling = retryErrorInfo?.errorType === "THROTTLING" || isThrottlingError(retryErrorInfo?.error ?? response);
+        if (isThrottling) {
+          const rateToUse = !this.enabled ? this.measuredTxRate : Math.min(this.measuredTxRate, this.fillRate);
+          this.lastMaxRate = rateToUse;
+          this.calculateTimeWindow();
+          this.lastThrottleTime = this.getCurrentTimeInSeconds();
+          calculatedRate = this.cubicThrottle(rateToUse);
+          this.enableTokenBucket();
+        } else {
+          this.calculateTimeWindow();
+          calculatedRate = this.cubicSuccess(this.getCurrentTimeInSeconds());
+        }
+        const newRate = Math.min(calculatedRate, 2 * this.measuredTxRate);
+        this.updateTokenBucketRate(newRate);
+      }
+      getCurrentTimeInSeconds() {
+        return Date.now() / 1e3;
+      }
+      async acquireTokenBucket(amount) {
+        if (!this.enabled) {
+          return;
+        }
+        this.refillTokenBucket();
+        while (amount > this.availableTokens) {
+          const delay = (amount - this.availableTokens) / this.fillRate * 1e3;
+          await new Promise((resolve) => _DefaultRateLimiter.setTimeoutFn(resolve, delay));
+          this.refillTokenBucket();
+        }
+        this.availableTokens = this.availableTokens - amount;
+      }
+      refillTokenBucket() {
+        const timestamp = this.getCurrentTimeInSeconds();
+        if (!this.lastTimestamp) {
+          this.lastTimestamp = timestamp;
+          return;
+        }
+        const fillAmount = (timestamp - this.lastTimestamp) * this.fillRate;
+        this.availableTokens = Math.min(this.maxCapacity, this.availableTokens + fillAmount);
+        this.lastTimestamp = timestamp;
+      }
+      calculateTimeWindow() {
+        this.timeWindow = this.getPrecise(Math.pow(this.lastMaxRate * (1 - this.beta) / this.scaleConstant, 1 / 3));
+      }
+      cubicThrottle(rateToUse) {
+        return this.getPrecise(rateToUse * this.beta);
+      }
+      cubicSuccess(timestamp) {
+        return this.getPrecise(this.scaleConstant * Math.pow(timestamp - this.lastThrottleTime - this.timeWindow, 3) + this.lastMaxRate);
+      }
+      enableTokenBucket() {
+        this.enabled = true;
+      }
+      updateTokenBucketRate(newRate) {
+        this.refillTokenBucket();
+        this.fillRate = Math.max(newRate, this.minFillRate);
+        this.maxCapacity = Math.max(newRate, this.minCapacity);
+        this.availableTokens = Math.min(this.availableTokens, this.maxCapacity);
+      }
+      updateMeasuredRate() {
+        const t2 = this.getCurrentTimeInSeconds();
+        const timeBucket = Math.floor(t2 * 2) / 2;
+        this.requestCount++;
+        if (timeBucket > this.lastTxRateBucket) {
+          const currentRate = this.requestCount / (timeBucket - this.lastTxRateBucket);
+          this.measuredTxRate = this.getPrecise(currentRate * this.smooth + this.measuredTxRate * (1 - this.smooth));
+          this.requestCount = 0;
+          this.lastTxRateBucket = timeBucket;
+        }
+      }
+      getPrecise(num) {
+        return parseFloat(num.toFixed(8));
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js
+var Retry;
+var init_retries_2026_config = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/retries-2026-config.js"() {
+    Retry = class {
+      static v2026 = true;
+      static delay() {
+        return 50;
+      }
+      static throttlingDelay() {
+        return 1e3;
+      }
+      static cost() {
+        return 14;
+      }
+      static throttlingCost() {
+        return 5;
+      }
+      static modifiedCostType() {
+        return "THROTTLING";
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js
+var DefaultRetryBackoffStrategy;
+var init_DefaultRetryBackoffStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryBackoffStrategy.js"() {
+    init_constants5();
+    init_retries_2026_config();
+    DefaultRetryBackoffStrategy = class {
+      x = Retry.delay();
+      computeNextBackoffDelay(i6) {
+        const b5 = Math.random();
+        const r6 = 2;
+        const t_i = b5 * Math.min(this.x * r6 ** i6, MAXIMUM_RETRY_DELAY);
+        return Math.floor(t_i);
+      }
+      setDelayBase(delay) {
+        this.x = delay;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js
+var DefaultRetryToken;
+var init_DefaultRetryToken = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/DefaultRetryToken.js"() {
+    init_constants5();
+    DefaultRetryToken = class {
+      delay;
+      count;
+      cost;
+      longPoll;
+      $retryLog = {
+        acquisitionDelay: 0
+      };
+      constructor(delay, count, cost, longPoll) {
+        this.delay = delay;
+        this.count = count;
+        this.cost = cost;
+        this.longPoll = longPoll;
+      }
+      getRetryCount() {
+        return this.count;
+      }
+      getRetryDelay() {
+        return Math.min(MAXIMUM_RETRY_DELAY, this.delay);
+      }
+      getRetryCost() {
+        return this.cost;
+      }
+      isLongPoll() {
+        return this.longPoll;
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js
+var RETRY_MODES, DEFAULT_MAX_ATTEMPTS, DEFAULT_RETRY_MODE;
+var init_config3 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/config.js"() {
+    (function(RETRY_MODES2) {
+      RETRY_MODES2["STANDARD"] = "standard";
+      RETRY_MODES2["ADAPTIVE"] = "adaptive";
+    })(RETRY_MODES || (RETRY_MODES = {}));
+    DEFAULT_MAX_ATTEMPTS = 3;
+    DEFAULT_RETRY_MODE = RETRY_MODES.STANDARD;
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js
+var refusal, StandardRetryStrategy;
+var init_StandardRetryStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/StandardRetryStrategy.js"() {
+    init_DefaultRetryBackoffStrategy();
+    init_DefaultRetryToken();
+    init_config3();
+    init_constants5();
+    init_retries_2026_config();
+    refusal = {
+      incompatible: 1,
+      attempts: 2,
+      capacity: 3
+    };
+    StandardRetryStrategy = class {
+      mode = RETRY_MODES.STANDARD;
+      retryBackoffStrategy;
+      capacity = INITIAL_RETRY_TOKENS;
+      maxAttemptsProvider;
+      baseDelay;
+      constructor(arg1) {
+        if (typeof arg1 === "number") {
+          this.maxAttemptsProvider = async () => arg1;
+        } else if (typeof arg1 === "function") {
+          this.maxAttemptsProvider = arg1;
+        } else if (arg1 && typeof arg1 === "object") {
+          this.maxAttemptsProvider = async () => arg1.maxAttempts;
+          this.baseDelay = arg1.baseDelay;
+          this.retryBackoffStrategy = arg1.backoff;
+        }
+        this.maxAttemptsProvider ??= async () => DEFAULT_MAX_ATTEMPTS;
+        this.baseDelay ??= Retry.delay();
+        this.retryBackoffStrategy ??= new DefaultRetryBackoffStrategy();
+      }
+      async acquireInitialRetryToken(retryTokenScope) {
+        return new DefaultRetryToken(Retry.delay(), 0, void 0, retryTokenScope.includes(":longpoll"));
+      }
+      async refreshRetryTokenForRetry(token, errorInfo) {
+        const maxAttempts = await this.getMaxAttempts();
+        const retryCode = this.retryCode(token, errorInfo, maxAttempts);
+        const shouldRetry = retryCode === 0;
+        const isLongPoll = token.isLongPoll?.();
+        if (shouldRetry || isLongPoll) {
+          const errorType = errorInfo.errorType;
+          this.retryBackoffStrategy.setDelayBase(errorType === "THROTTLING" ? Retry.throttlingDelay() : this.baseDelay);
+          const delayFromErrorType = this.retryBackoffStrategy.computeNextBackoffDelay(token.getRetryCount());
+          let retryDelay = delayFromErrorType;
+          if (errorInfo.retryAfterHint instanceof Date) {
+            retryDelay = Math.max(delayFromErrorType, Math.min(errorInfo.retryAfterHint.getTime() - Date.now(), delayFromErrorType + 5e3));
+          }
+          if (!shouldRetry) {
+            const longPollBackoff = retryCode === refusal.capacity && isLongPoll ? retryDelay : 0;
+            if (longPollBackoff > 0) {
+              await new Promise((r6) => setTimeout(r6, longPollBackoff));
+            }
+          } else {
+            const capacityCost = this.getCapacityCost(errorType);
+            this.capacity -= capacityCost;
+            const nextToken = new DefaultRetryToken(0, token.getRetryCount() + 1, capacityCost, token.isLongPoll?.() ?? false);
+            await new Promise((r6) => setTimeout(r6, retryDelay));
+            nextToken.$retryLog.acquisitionDelay = retryDelay;
+            return nextToken;
+          }
+        }
+        throw new Error("No retry token available");
+      }
+      recordSuccess(token) {
+        this.capacity = Math.min(INITIAL_RETRY_TOKENS, this.capacity + (token.getRetryCost() ?? NO_RETRY_INCREMENT));
+      }
+      getCapacity() {
+        return this.capacity;
+      }
+      async maxAttempts() {
+        return this.maxAttemptsProvider();
+      }
+      async getMaxAttempts() {
+        try {
+          return await this.maxAttemptsProvider();
+        } catch (ignored) {
+          console.warn(`Max attempts provider could not resolve. Using default of ${DEFAULT_MAX_ATTEMPTS}`);
+          return DEFAULT_MAX_ATTEMPTS;
+        }
+      }
+      retryCode(tokenToRenew, errorInfo, maxAttempts) {
+        const attempts = tokenToRenew.getRetryCount() + 1;
+        const retryableStatus = this.isRetryableError(errorInfo.errorType) ? 0 : refusal.incompatible;
+        const attemptStatus = attempts < maxAttempts ? 0 : refusal.attempts;
+        const capacityStatus = this.capacity >= this.getCapacityCost(errorInfo.errorType) ? 0 : refusal.capacity;
+        return retryableStatus || attemptStatus || capacityStatus;
+      }
+      getCapacityCost(errorType) {
+        return errorType === Retry.modifiedCostType() ? Retry.throttlingCost() : Retry.cost();
+      }
+      isRetryableError(errorType) {
+        return errorType === "THROTTLING" || errorType === "TRANSIENT";
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js
+var AdaptiveRetryStrategy;
+var init_AdaptiveRetryStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/AdaptiveRetryStrategy.js"() {
+    init_DefaultRateLimiter();
+    init_StandardRetryStrategy();
+    init_config3();
+    AdaptiveRetryStrategy = class {
+      mode = RETRY_MODES.ADAPTIVE;
+      rateLimiter;
+      standardRetryStrategy;
+      constructor(maxAttemptsProvider, options) {
+        const { rateLimiter } = options ?? {};
+        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
+        this.standardRetryStrategy = options ? new StandardRetryStrategy({
+          maxAttempts: typeof maxAttemptsProvider === "number" ? maxAttemptsProvider : 3,
+          ...options
+        }) : new StandardRetryStrategy(maxAttemptsProvider);
+      }
+      async acquireInitialRetryToken(retryTokenScope) {
+        const token = await this.standardRetryStrategy.acquireInitialRetryToken(retryTokenScope);
+        await this.rateLimiter.getSendToken();
+        return token;
+      }
+      async refreshRetryTokenForRetry(tokenToRenew, errorInfo) {
+        this.rateLimiter.updateClientSendingRate(errorInfo);
+        const token = await this.standardRetryStrategy.refreshRetryTokenForRetry(tokenToRenew, errorInfo);
+        await this.rateLimiter.getSendToken();
+        return token;
+      }
+      recordSuccess(token) {
+        this.rateLimiter.updateClientSendingRate({});
+        this.standardRetryStrategy.recordSuccess(token);
+      }
+      async maxAttemptsProvider() {
+        return this.standardRetryStrategy.maxAttempts();
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js
+var ConfiguredRetryStrategy;
+var init_ConfiguredRetryStrategy = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/util-retry/ConfiguredRetryStrategy.js"() {
+    init_StandardRetryStrategy();
+    init_retries_2026_config();
+    ConfiguredRetryStrategy = class extends StandardRetryStrategy {
+      computeNextBackoffDelay;
+      constructor(maxAttempts, computeNextBackoffDelay = Retry.delay()) {
+        super(typeof maxAttempts === "function" ? maxAttempts : async () => maxAttempts);
+        if (typeof computeNextBackoffDelay === "number") {
+          this.computeNextBackoffDelay = () => computeNextBackoffDelay;
+        } else {
+          this.computeNextBackoffDelay = computeNextBackoffDelay;
+        }
+        this.retryBackoffStrategy.computeNextBackoffDelay = (completedAttempt) => {
+          const nextAttempt = completedAttempt + 1;
+          return this.computeNextBackoffDelay(nextAttempt);
+        };
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js
+var getDefaultRetryQuota;
+var init_defaultRetryQuota = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/defaultRetryQuota.js"() {
+    init_constants5();
+    getDefaultRetryQuota = (initialRetryTokens, options) => {
+      const MAX_CAPACITY = initialRetryTokens;
+      const noRetryIncrement = options?.noRetryIncrement ?? NO_RETRY_INCREMENT;
+      const retryCost = options?.retryCost ?? RETRY_COST;
+      const timeoutRetryCost = options?.timeoutRetryCost ?? TIMEOUT_RETRY_COST;
+      let availableCapacity = initialRetryTokens;
+      const getCapacityAmount = (error3) => error3.name === "TimeoutError" ? timeoutRetryCost : retryCost;
+      const hasRetryTokens = (error3) => getCapacityAmount(error3) <= availableCapacity;
+      const retrieveRetryTokens = (error3) => {
+        if (!hasRetryTokens(error3)) {
+          throw new Error("No retry token available");
+        }
+        const capacityAmount = getCapacityAmount(error3);
+        availableCapacity -= capacityAmount;
+        return capacityAmount;
+      };
+      const releaseRetryTokens = (capacityReleaseAmount) => {
+        availableCapacity += capacityReleaseAmount ?? noRetryIncrement;
+        availableCapacity = Math.min(availableCapacity, MAX_CAPACITY);
+      };
+      return Object.freeze({
+        hasRetryTokens,
+        retrieveRetryTokens,
+        releaseRetryTokens
+      });
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js
+var defaultDelayDecider;
+var init_delayDecider = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/delayDecider.js"() {
+    init_constants5();
+    defaultDelayDecider = (delayBase, attempts) => Math.floor(Math.min(MAXIMUM_RETRY_DELAY, Math.random() * 2 ** attempts * delayBase));
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js
+var defaultRetryDecider;
+var init_retryDecider = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/retryDecider.js"() {
+    init_service_error_classification();
+    defaultRetryDecider = (error3) => {
+      if (!error3) {
+        return false;
+      }
+      return isRetryableByTrait(error3) || isClockSkewError(error3) || isThrottlingError(error3) || isTransientError(error3);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js
+var StandardRetryStrategy2, getDelayFromRetryAfterHeader;
+var init_StandardRetryStrategy2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/StandardRetryStrategy.js"() {
+    init_protocols();
+    init_serde();
+    init_service_error_classification();
+    init_config3();
+    init_constants5();
+    init_util();
+    init_defaultRetryQuota();
+    init_delayDecider();
+    init_retryDecider();
+    StandardRetryStrategy2 = class {
+      maxAttemptsProvider;
+      retryDecider;
+      delayDecider;
+      retryQuota;
+      mode = RETRY_MODES.STANDARD;
+      constructor(maxAttemptsProvider, options) {
+        this.maxAttemptsProvider = maxAttemptsProvider;
+        this.retryDecider = options?.retryDecider ?? defaultRetryDecider;
+        this.delayDecider = options?.delayDecider ?? defaultDelayDecider;
+        this.retryQuota = options?.retryQuota ?? getDefaultRetryQuota(INITIAL_RETRY_TOKENS);
+      }
+      shouldRetry(error3, attempts, maxAttempts) {
+        return attempts < maxAttempts && this.retryDecider(error3) && this.retryQuota.hasRetryTokens(error3);
+      }
+      async getMaxAttempts() {
+        let maxAttempts;
+        try {
+          maxAttempts = await this.maxAttemptsProvider();
+        } catch (ignored) {
+          maxAttempts = DEFAULT_MAX_ATTEMPTS;
+        }
+        return maxAttempts;
+      }
+      async retry(next, args, options) {
+        let retryTokenAmount;
+        let attempts = 0;
+        let totalDelay = 0;
+        const maxAttempts = await this.getMaxAttempts();
+        const { request } = args;
+        if (HttpRequest.isInstance(request)) {
+          request.headers[INVOCATION_ID_HEADER] = v4();
+        }
+        while (true) {
+          try {
+            if (HttpRequest.isInstance(request)) {
+              request.headers[REQUEST_HEADER] = `attempt=${attempts + 1}; max=${maxAttempts}`;
+            }
+            if (options?.beforeRequest) {
+              await options.beforeRequest();
+            }
+            const { response, output } = await next(args);
+            if (options?.afterRequest) {
+              options.afterRequest(response);
+            }
+            this.retryQuota.releaseRetryTokens(retryTokenAmount);
+            output.$metadata.attempts = attempts + 1;
+            output.$metadata.totalRetryDelay = totalDelay;
+            return { response, output };
+          } catch (e6) {
+            const err = asSdkError(e6);
+            attempts++;
+            if (this.shouldRetry(err, attempts, maxAttempts)) {
+              retryTokenAmount = this.retryQuota.retrieveRetryTokens(err);
+              const delayFromDecider = this.delayDecider(isThrottlingError(err) ? THROTTLING_RETRY_DELAY_BASE : DEFAULT_RETRY_DELAY_BASE, attempts);
+              const delayFromResponse = getDelayFromRetryAfterHeader(err.$response);
+              const delay = Math.max(delayFromResponse || 0, delayFromDecider);
+              totalDelay += delay;
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              continue;
+            }
+            if (!err.$metadata) {
+              err.$metadata = {};
+            }
+            err.$metadata.attempts = attempts;
+            err.$metadata.totalRetryDelay = totalDelay;
+            throw err;
+          }
+        }
+      }
+    };
+    getDelayFromRetryAfterHeader = (response) => {
+      if (!HttpResponse.isInstance(response)) {
+        return;
+      }
+      const retryAfterHeaderName = Object.keys(response.headers).find((key) => key.toLowerCase() === "retry-after");
+      if (!retryAfterHeaderName) {
+        return;
+      }
+      const retryAfter = response.headers[retryAfterHeaderName];
+      const retryAfterSeconds = Number(retryAfter);
+      if (!Number.isNaN(retryAfterSeconds)) {
+        return Math.min(retryAfterSeconds * 1e3, 2e4);
+      }
+      const retryAfterDate = new Date(retryAfter);
+      return Math.min(retryAfterDate.getTime() - Date.now(), 2e4);
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js
+var AdaptiveRetryStrategy2;
+var init_AdaptiveRetryStrategy2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/retry-pre-sra-deprecated/AdaptiveRetryStrategy.js"() {
+    init_DefaultRateLimiter();
+    init_config3();
+    init_StandardRetryStrategy2();
+    AdaptiveRetryStrategy2 = class extends StandardRetryStrategy2 {
+      rateLimiter;
+      constructor(maxAttemptsProvider, options) {
+        const { rateLimiter, ...superOptions } = options ?? {};
+        super(maxAttemptsProvider, superOptions);
+        this.rateLimiter = rateLimiter ?? new DefaultRateLimiter();
+        this.mode = RETRY_MODES.ADAPTIVE;
+      }
+      async retry(next, args) {
+        return super.retry(next, args, {
+          beforeRequest: async () => {
+            return this.rateLimiter.getSendToken();
+          },
+          afterRequest: (response) => {
+            this.rateLimiter.updateClientSendingRate(response);
+          }
+        });
+      }
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js
+var ENV_MAX_ATTEMPTS, CONFIG_MAX_ATTEMPTS, NODE_MAX_ATTEMPT_CONFIG_OPTIONS, resolveRetryConfig, ENV_RETRY_MODE, CONFIG_RETRY_MODE, NODE_RETRY_MODE_CONFIG_OPTIONS;
+var init_configurations2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/configurations.js"() {
+    init_client2();
+    init_AdaptiveRetryStrategy();
+    init_StandardRetryStrategy();
+    init_config3();
+    init_retries_2026_config();
+    ENV_MAX_ATTEMPTS = "AWS_MAX_ATTEMPTS";
+    CONFIG_MAX_ATTEMPTS = "max_attempts";
+    NODE_MAX_ATTEMPT_CONFIG_OPTIONS = {
+      environmentVariableSelector: (env2) => {
+        const value = env2[ENV_MAX_ATTEMPTS];
+        if (!value) {
+          return void 0;
+        }
+        const maxAttempt = parseInt(value);
+        if (Number.isNaN(maxAttempt)) {
+          throw new Error(`Environment variable ${ENV_MAX_ATTEMPTS} mast be a number, got "${value}"`);
+        }
+        return maxAttempt;
+      },
+      configFileSelector: (profile) => {
+        const value = profile[CONFIG_MAX_ATTEMPTS];
+        if (!value) {
+          return void 0;
+        }
+        const maxAttempt = parseInt(value);
+        if (Number.isNaN(maxAttempt)) {
+          throw new Error(`Shared config file entry ${CONFIG_MAX_ATTEMPTS} mast be a number, got "${value}"`);
+        }
+        return maxAttempt;
+      },
+      default: DEFAULT_MAX_ATTEMPTS
+    };
+    resolveRetryConfig = (input, defaults) => {
+      const { retryStrategy, retryMode } = input;
+      const { defaultMaxAttempts = DEFAULT_MAX_ATTEMPTS, defaultBaseDelay = Retry.delay() } = defaults ?? {};
+      const maxAttemptsProvider = normalizeProvider(input.maxAttempts ?? defaultMaxAttempts);
+      let controller = retryStrategy ? Promise.resolve(retryStrategy) : void 0;
+      const getDefault = async () => {
+        const maxAttempts = await maxAttemptsProvider();
+        const adaptive = await normalizeProvider(retryMode)() === RETRY_MODES.ADAPTIVE;
+        if (adaptive) {
+          return new AdaptiveRetryStrategy(maxAttemptsProvider, {
+            maxAttempts,
+            baseDelay: defaultBaseDelay
+          });
+        }
+        return new StandardRetryStrategy({
+          maxAttempts,
+          baseDelay: defaultBaseDelay
+        });
+      };
+      return Object.assign(input, {
+        maxAttempts: maxAttemptsProvider,
+        retryStrategy: () => controller ??= getDefault()
+      });
+    };
+    ENV_RETRY_MODE = "AWS_RETRY_MODE";
+    CONFIG_RETRY_MODE = "retry_mode";
+    NODE_RETRY_MODE_CONFIG_OPTIONS = {
+      environmentVariableSelector: (env2) => env2[ENV_RETRY_MODE],
+      configFileSelector: (profile) => profile[CONFIG_RETRY_MODE],
+      default: DEFAULT_RETRY_MODE
+    };
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js
+var omitRetryHeadersMiddleware, omitRetryHeadersMiddlewareOptions, getOmitRetryHeadersPlugin;
+var init_omitRetryHeadersMiddleware = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/middleware-retry/omitRetryHeadersMiddleware.js"() {
+    init_protocols();
+    init_constants5();
+    omitRetryHeadersMiddleware = () => (next) => async (args) => {
+      const { request } = args;
+      if (HttpRequest.isInstance(request)) {
+        delete request.headers[INVOCATION_ID_HEADER];
+        delete request.headers[REQUEST_HEADER];
+      }
+      return next(args);
+    };
+    omitRetryHeadersMiddlewareOptions = {
+      name: "omitRetryHeadersMiddleware",
+      tags: ["RETRY", "HEADERS", "OMIT_RETRY_HEADERS"],
+      relation: "before",
+      toMiddleware: "awsAuthMiddleware",
+      override: true
+    };
+    getOmitRetryHeadersPlugin = (options) => ({
+      applyToStack: (clientStack) => {
+        clientStack.addRelativeTo(omitRetryHeadersMiddleware(), omitRetryHeadersMiddlewareOptions);
+      }
+    });
+  }
+});
+
+// node_modules/@smithy/core/dist-es/submodules/retry/index.js
+var retry_exports = {};
+__export(retry_exports, {
+  AdaptiveRetryStrategy: () => AdaptiveRetryStrategy,
+  CONFIG_MAX_ATTEMPTS: () => CONFIG_MAX_ATTEMPTS,
+  CONFIG_RETRY_MODE: () => CONFIG_RETRY_MODE,
+  ConfiguredRetryStrategy: () => ConfiguredRetryStrategy,
+  DEFAULT_MAX_ATTEMPTS: () => DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_RETRY_DELAY_BASE: () => DEFAULT_RETRY_DELAY_BASE,
+  DEFAULT_RETRY_MODE: () => DEFAULT_RETRY_MODE,
+  DefaultRateLimiter: () => DefaultRateLimiter,
+  DeprecatedAdaptiveRetryStrategy: () => AdaptiveRetryStrategy2,
+  DeprecatedStandardRetryStrategy: () => StandardRetryStrategy2,
+  ENV_MAX_ATTEMPTS: () => ENV_MAX_ATTEMPTS,
+  ENV_RETRY_MODE: () => ENV_RETRY_MODE,
+  INITIAL_RETRY_TOKENS: () => INITIAL_RETRY_TOKENS,
+  INVOCATION_ID_HEADER: () => INVOCATION_ID_HEADER,
+  MAXIMUM_RETRY_DELAY: () => MAXIMUM_RETRY_DELAY,
+  NODE_MAX_ATTEMPT_CONFIG_OPTIONS: () => NODE_MAX_ATTEMPT_CONFIG_OPTIONS,
+  NODE_RETRY_MODE_CONFIG_OPTIONS: () => NODE_RETRY_MODE_CONFIG_OPTIONS,
+  NO_RETRY_INCREMENT: () => NO_RETRY_INCREMENT,
+  REQUEST_HEADER: () => REQUEST_HEADER,
+  RETRY_COST: () => RETRY_COST,
+  RETRY_MODES: () => RETRY_MODES,
+  Retry: () => Retry,
+  StandardRetryStrategy: () => StandardRetryStrategy,
+  THROTTLING_RETRY_DELAY_BASE: () => THROTTLING_RETRY_DELAY_BASE,
+  TIMEOUT_RETRY_COST: () => TIMEOUT_RETRY_COST,
+  defaultDelayDecider: () => defaultDelayDecider,
+  defaultRetryDecider: () => defaultRetryDecider,
+  getOmitRetryHeadersPlugin: () => getOmitRetryHeadersPlugin,
+  getRetryAfterHint: () => getRetryAfterHint,
+  getRetryPlugin: () => getRetryPlugin,
+  isBrowserNetworkError: () => isBrowserNetworkError,
+  isClockSkewCorrectedError: () => isClockSkewCorrectedError,
+  isClockSkewError: () => isClockSkewError,
+  isNodeJsHttp2TransientError: () => isNodeJsHttp2TransientError,
+  isRetryableByTrait: () => isRetryableByTrait,
+  isServerError: () => isServerError,
+  isThrottlingError: () => isThrottlingError,
+  isTransientError: () => isTransientError,
+  omitRetryHeadersMiddleware: () => omitRetryHeadersMiddleware,
+  omitRetryHeadersMiddlewareOptions: () => omitRetryHeadersMiddlewareOptions,
+  resolveRetryConfig: () => resolveRetryConfig,
+  retryMiddleware: () => retryMiddleware,
+  retryMiddlewareOptions: () => retryMiddlewareOptions
+});
+var retryMiddleware, getRetryPlugin;
+var init_retry2 = __esm({
+  "node_modules/@smithy/core/dist-es/submodules/retry/index.js"() {
+    init_isStreamingPayload();
+    init_retryMiddleware();
+    init_service_error_classification();
+    init_AdaptiveRetryStrategy();
+    init_ConfiguredRetryStrategy();
+    init_DefaultRateLimiter();
+    init_StandardRetryStrategy();
+    init_config3();
+    init_constants5();
+    init_retries_2026_config();
+    init_AdaptiveRetryStrategy2();
+    init_StandardRetryStrategy2();
+    init_delayDecider();
+    init_retryDecider();
+    init_configurations2();
+    init_omitRetryHeadersMiddleware();
+    init_retryMiddleware();
+    init_parseRetryAfterHeader();
+    retryMiddleware = bindRetryMiddleware(isStreamingPayload);
+    getRetryPlugin = bindGetRetryPlugin(isStreamingPayload);
+  }
+});
+
 // node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-user-agent/check-features.js
 async function checkFeatures(context2, config, args) {
   const request = args.request;
   if (request?.headers?.["smithy-protocol"] === "rpc-v2-cbor") {
-    setFeature2(context2, "PROTOCOL_RPC_V2_CBOR", "M");
+    setFeature(context2, "PROTOCOL_RPC_V2_CBOR", "M");
   }
   if (typeof config.retryStrategy === "function") {
     const retryStrategy = await config.retryStrategy();
     if (typeof retryStrategy.mode === "string") {
       switch (retryStrategy.mode) {
         case RETRY_MODES.ADAPTIVE:
-          setFeature2(context2, "RETRY_MODE_ADAPTIVE", "F");
+          setFeature(context2, "RETRY_MODE_ADAPTIVE", "F");
           break;
         case RETRY_MODES.STANDARD:
-          setFeature2(context2, "RETRY_MODE_STANDARD", "E");
+          setFeature(context2, "RETRY_MODE_STANDARD", "E");
           break;
       }
     }
@@ -192157,17 +192194,17 @@ async function checkFeatures(context2, config, args) {
   if (typeof config.accountIdEndpointMode === "function") {
     const endpointV2 = context2.endpointV2;
     if (String(endpointV2?.url?.hostname).match(ACCOUNT_ID_ENDPOINT_REGEX)) {
-      setFeature2(context2, "ACCOUNT_ID_ENDPOINT", "O");
+      setFeature(context2, "ACCOUNT_ID_ENDPOINT", "O");
     }
     switch (await config.accountIdEndpointMode?.()) {
       case "disabled":
-        setFeature2(context2, "ACCOUNT_ID_MODE_DISABLED", "Q");
+        setFeature(context2, "ACCOUNT_ID_MODE_DISABLED", "Q");
         break;
       case "preferred":
-        setFeature2(context2, "ACCOUNT_ID_MODE_PREFERRED", "P");
+        setFeature(context2, "ACCOUNT_ID_MODE_PREFERRED", "P");
         break;
       case "required":
-        setFeature2(context2, "ACCOUNT_ID_MODE_REQUIRED", "R");
+        setFeature(context2, "ACCOUNT_ID_MODE_REQUIRED", "R");
         break;
     }
   }
@@ -192175,10 +192212,10 @@ async function checkFeatures(context2, config, args) {
   if (identity?.$source) {
     const credentials = identity;
     if (credentials.accountId) {
-      setFeature2(context2, "RESOLVED_ACCOUNT_ID", "T");
+      setFeature(context2, "RESOLVED_ACCOUNT_ID", "T");
     }
     for (const [key, value] of Object.entries(credentials.$source ?? {})) {
-      setFeature2(context2, key, value);
+      setFeature(context2, key, value);
     }
   }
 }
@@ -192391,7 +192428,7 @@ var init_defaultUserAgent = __esm({
 var UA_APP_ID_ENV_NAME, UA_APP_ID_INI_NAME, UA_APP_ID_INI_NAME_DEPRECATED, NODE_APP_ID_CONFIG_OPTIONS;
 var init_nodeAppIdConfigOptions = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/util-user-agent-node/nodeAppIdConfigOptions.js"() {
-    init_configurations2();
+    init_configurations();
     UA_APP_ID_ENV_NAME = "AWS_SDK_UA_APP_ID";
     UA_APP_ID_INI_NAME = "sdk_ua_app_id";
     UA_APP_ID_INI_NAME_DEPRECATED = "sdk-ua-app-id";
@@ -193508,7 +193545,7 @@ __export(client_exports2, {
   resolveRegionConfig: () => resolveRegionConfig,
   resolveUserAgentConfig: () => resolveUserAgentConfig,
   setCredentialFeature: () => setCredentialFeature,
-  setFeature: () => setFeature2,
+  setFeature: () => setFeature,
   setPartitionInfo: () => setPartitionInfo,
   setTokenFeature: () => setTokenFeature,
   state: () => state,
@@ -193531,7 +193568,7 @@ var init_client3 = __esm({
     init_configuration();
     init_getRecursionDetectionPlugin();
     init_recursionDetectionMiddleware();
-    init_configurations2();
+    init_configurations();
     init_user_agent_middleware();
     init_defaultUserAgent();
     init_nodeAppIdConfigOptions();
@@ -193578,6 +193615,9 @@ var init_getUpdatedSystemClockOffset = __esm({
         return currentSystemClockOffset;
       }
       const serverTime = Date.parse(clockTime);
+      if (Number.isNaN(serverTime)) {
+        return currentSystemClockOffset;
+      }
       const timeResponseReceived = Date.now();
       if (timeRequestSent !== void 0 && timeResponseReceived - timeRequestSent > 9e5) {
         return currentSystemClockOffset;
@@ -193597,11 +193637,11 @@ var init_utils5 = __esm({
 });
 
 // node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/AwsSdkSigV4Signer.js
-var import_types28, throwSigningPropertyError, hasEventStreamOutput, validateSigningProperties, AwsSdkSigV4Signer, AWSSDKSigV4Signer;
+var import_types29, throwSigningPropertyError, hasEventStreamOutput, validateSigningProperties, AwsSdkSigV4Signer, AWSSDKSigV4Signer;
 var init_AwsSdkSigV4Signer = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/AwsSdkSigV4Signer.js"() {
     init_protocols();
-    import_types28 = __toESM(require_dist_cjs());
+    import_types29 = __toESM(require_dist_cjs());
     init_utils5();
     throwSigningPropertyError = (name, property) => {
       if (!property) {
@@ -193611,7 +193651,7 @@ var init_AwsSdkSigV4Signer = __esm({
     };
     hasEventStreamOutput = (signingProperties) => {
       const context2 = signingProperties.context;
-      const eventStream = context2?.[import_types28.SMITHY_CONTEXT_KEY]?.eventStream;
+      const eventStream = context2?.[import_types29.SMITHY_CONTEXT_KEY]?.eventStream;
       return eventStream?.output === true;
     };
     validateSigningProperties = async (signingProperties) => {
@@ -195081,38 +195121,39 @@ var require_dist_cjs5 = __commonJS({
       return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
     };
     var DEFER_EVENT_LISTENER_TIME = 3e3;
-    var setSocketTimeout = (request, reject, timeoutInMs = 0, destroyResponseBodyOnTimeout = false) => {
-      let response;
-      if (destroyResponseBodyOnTimeout) {
-        request.once("response", (res) => response = res);
+    var setSocketTimeout = (request, reject, timeoutInMs = 0, isServiceDefault = false) => {
+      if (!Number.isFinite(timeoutInMs) || timeoutInMs <= 0) {
+        return;
       }
-      const registerTimeout = (offset) => {
-        const timeout = timeoutInMs - offset;
-        const onTimeout = () => {
-          const error3 = Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (${destroyResponseBodyOnTimeout ? "service default socket timeout" : "configured by client requestHandler"}).`), { name: "TimeoutError" });
-          if (destroyResponseBodyOnTimeout) {
-            response?.destroy(error3);
-          }
-          request.destroy();
-          reject(error3);
-        };
-        if (request.socket) {
-          request.socket.setTimeout(timeout, onTimeout);
-          request.on("close", () => request.socket?.removeListener("timeout", onTimeout));
+      let response;
+      request.once("response", (res) => response = res);
+      const onTimeout = () => {
+        if (response?.complete) {
+          request.socket?.destroy();
+          return;
+        }
+        const error3 = Object.assign(new Error(`@smithy/node-http-handler - the request socket timed out after ${timeoutInMs} ms of inactivity (${isServiceDefault ? "service default socket timeout" : "configured by client requestHandler"}).`), { name: "TimeoutError" });
+        response?.destroy(error3);
+        request.destroy();
+        reject(error3);
+      };
+      const registerTimeout = () => {
+        const { socket } = request;
+        if (!socket) {
+          request.once("socket", registerTimeout);
+        } else if (socket.connecting) {
+          socket.once("connect", registerTimeout);
         } else {
-          request.setTimeout(timeout, onTimeout);
+          socket.setTimeout(timeoutInMs, onTimeout);
+          request.on("close", () => socket.removeListener("timeout", onTimeout));
         }
       };
-      if (0 < timeoutInMs && timeoutInMs < 6e3) {
-        registerTimeout(0);
-        return 0;
+      if (timeoutInMs < 6e3) {
+        registerTimeout();
+        return;
       }
-      const deferralId = timing.setTimeout(registerTimeout.bind(null, timeoutInMs === 0 ? 0 : DEFER_EVENT_LISTENER_TIME), DEFER_EVENT_LISTENER_TIME);
-      if (destroyResponseBodyOnTimeout) {
-        request.once("close", () => timing.clearTimeout(deferralId));
-        return 0;
-      }
-      return deferralId;
+      const deferralId = timing.setTimeout(registerTimeout, DEFER_EVENT_LISTENER_TIME);
+      request.once("close", () => timing.clearTimeout(deferralId));
     };
     var MIN_WAIT_TIME = 6e3;
     async function writeRequestBody(httpRequest, request, maxContinueTimeoutMs = MIN_WAIT_TIME, externalAgent = false) {
@@ -195242,13 +195283,11 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
           let socketWarningTimeoutId = -1;
           let connectionTimeoutId = -1;
           let requestTimeoutId = -1;
-          let socketTimeoutId = -1;
           let keepAliveTimeoutId = -1;
           const clearTimeouts = () => {
             timing.clearTimeout(socketWarningTimeoutId);
             timing.clearTimeout(connectionTimeoutId);
             timing.clearTimeout(requestTimeoutId);
-            timing.clearTimeout(socketTimeoutId);
             timing.clearTimeout(keepAliveTimeoutId);
           };
           const resolve = async (arg) => {
@@ -195343,9 +195382,9 @@ or increase socketAcquisitionWarningTimeout=(millis) in the NodeHttpHandler conf
           requestTimeoutId = setRequestTimeout(req, reject, effectiveRequestTimeout, config.throwOnRequestTimeout, logger2 ?? console);
           const defaultSocketTimeout = config.socketTimeout === void 0 ? resolveDefaultSocketTimeout(config) : void 0;
           if (defaultSocketTimeout) {
-            socketTimeoutId = setSocketTimeout(req, reject, defaultSocketTimeout, true);
+            setSocketTimeout(req, reject, defaultSocketTimeout, true);
           } else {
-            socketTimeoutId = setSocketTimeout(req, reject, config.socketTimeout);
+            setSocketTimeout(req, reject, config.socketTimeout);
           }
           const httpAgent = nodeHttpsOptions.agent;
           if (typeof httpAgent === "object" && "keepAlive" in httpAgent) {
@@ -196077,7 +196116,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.998.1",
+      version: "3.998.3",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -196177,13 +196216,13 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.980.1",
-        "@aws-sdk/signature-v4-multi-region": "^3.996.51",
-        "@aws-sdk/types": "^3.975.0",
-        "@smithy/core": "^3.38.0",
-        "@smithy/fetch-http-handler": "^5.8.0",
-        "@smithy/node-http-handler": "^4.14.0",
-        "@smithy/types": "^4.19.0",
+        "@aws-sdk/core": "^3.981.0",
+        "@aws-sdk/signature-v4-multi-region": "^3.996.52",
+        "@aws-sdk/types": "^3.975.1",
+        "@smithy/core": "^3.40.0",
+        "@smithy/fetch-http-handler": "^5.8.1",
+        "@smithy/node-http-handler": "^4.14.2",
+        "@smithy/types": "^4.20.0",
         tslib: "^2.6.2"
       },
       devDependencies: {
@@ -203848,7 +203887,8 @@ var require_dist_cjs11 = __commonJS({
           return requestHandler2?.metadata?.handlerProtocol === "h2";
         };
         const requestHandler = isH22(this.callerClientConfig?.requestHandler) ? void 0 : this.callerClientConfig?.requestHandler;
-        const region = this.profileData.region ?? await this.callerClientConfig?.region?.() ?? process.env.AWS_REGION;
+        const signInRegion = typeof freshToken.signInRegion === "string" && freshToken.signInRegion.length > 0 ? freshToken.signInRegion : void 0;
+        const region = signInRegion ?? this.profileData.region ?? await this.callerClientConfig?.region?.() ?? process.env.AWS_REGION;
         const client = new SigninClient2({
           credentials: {
             accessKeyId: "",
@@ -203858,7 +203898,8 @@ var require_dist_cjs11 = __commonJS({
           requestHandler,
           logger: logger2,
           userAgentAppId,
-          ...this.init?.clientConfig
+          ...this.init?.clientConfig,
+          ...signInRegion && { region: signInRegion }
         });
         this.createDPoPInterceptor(client.middlewareStack);
         const commandInput = {
@@ -204626,7 +204667,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1163.0";
+    var version = "3.1168.0";
     var packageInfo = {
       version
     };
