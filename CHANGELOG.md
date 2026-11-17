@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.1](https://github.com/CruGlobal/.github/compare/v2.24.0...v2.24.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **v2:** skip a stage deploy of a candidate older than the one running ([#587](https://github.com/CruGlobal/.github/issues/587)) ([6394308](https://github.com/CruGlobal/.github/commit/63943080941d018901ea76acc9ffca0588bf1404))
+
 ## [2.24.0](https://github.com/CruGlobal/.github/compare/v2.23.0...v2.24.0) (2026-11-16)
 
 
