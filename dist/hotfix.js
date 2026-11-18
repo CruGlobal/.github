@@ -20510,6 +20510,9 @@ var ExitCode;
   ExitCode2[ExitCode2["Success"] = 0] = "Success";
   ExitCode2[ExitCode2["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
+function setSecret(secret) {
+  issueCommand("add-mask", {}, secret);
+}
 function getInput(name, options) {
   const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
   if (options && options.required && !val) {
@@ -24875,24 +24878,45 @@ async function cherryPick(git, { onto, commit, committer }) {
   }
   return must(await git(["rev-parse", "HEAD"]), "reading the cherry-pick").stdout.trim();
 }
-async function pushHotfixBranch(git, { head, branch, defaultBranch }) {
+var basicCredential = (token) => Buffer.from(`x-access-token:${token}`, "utf8").toString("base64");
+async function tokenPushEnv(git, token) {
+  const url = must(await git(["remote", "get-url", "--push", "origin"]), "reading the app repo's push URL").stdout.trim();
+  const key = `http.${url}.extraheader`;
+  return {
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: key,
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: key,
+    GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${basicCredential(token)}`,
+    GIT_CONFIG_KEY_2: "credential.helper",
+    GIT_CONFIG_VALUE_2: ""
+  };
+}
+var PUSH_NOT_ALLOWED = /permission .* denied|error: 403|returned error: 403|not allowed to push|protected branch|rule violations?/i;
+var TOKEN_NOT_TAKEN = /returned error: 401|authentication failed|could not read username/i;
+async function pushHotfixBranch(git, { head, branch, defaultBranch, token = "" }) {
   const destination = `refs/heads/${branch}`;
   if (!releaseFromRef(destination) || branch === defaultBranch) {
     throw new Error(`refusing to push to ${destination}: hotfix runs push only to hotfix/<release tag>`);
   }
-  const result = await git(["push", "--porcelain", "origin", `${head}:${destination}`]);
+  const env = token ? await tokenPushEnv(git, token) : {};
+  const result = await git(["push", "--porcelain", "origin", `${head}:${destination}`], { env });
   if (result.code === 0) return;
   const output = `${result.stdout}
 ${result.stderr}`;
   if (/\[rejected\]|non-fast-forward|fetch first|\[remote rejected\].*(cannot lock ref|reference already exists|incorrect old value)/i.test(output)) {
     throw new HotfixRefusal(REASONS.branchMoved, `${branch} changed on the remote while this run was cutting it, so the push was refused and nothing was pushed. Run the hotfix again`);
   }
-  if (/permission .* denied|error: 403|returned error: 403|not allowed to push|protected branch|rule violations?/i.test(output)) {
-    throw new Error(`the app repo refused the push of ${branch} (${output.trim().split("\n").slice(-2).join(" ")}). authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix/* branches. Nothing was pushed`);
+  const said = output.trim().split("\n").slice(-2).join(" ");
+  if (token && (PUSH_NOT_ALLOWED.test(output) || TOKEN_NOT_TAKEN.test(output))) {
+    throw new Error(`the app repo refused the push of ${branch} with push-token, the GitHub App's token (${said}). The App must be installed on the app repo with Contents: Read and write, its token must not have expired, and no ruleset may stop the App creating or updating hotfix/* branches. Nothing was pushed, and the push was not tried with any other token`);
+  }
+  if (PUSH_NOT_ALLOWED.test(output)) {
+    throw new Error(`the app repo refused the push of ${branch} (${said}). authz-token needs contents: write on the app repo, and no ruleset may block creating or updating hotfix/* branches. Nothing was pushed`);
   }
   must(result, `pushing ${branch}`);
 }
-async function cutHotfix({ git, project, commit, expectedRelease, readLedger, push = true, committer = COMMITTER }) {
+async function cutHotfix({ git, project, commit, expectedRelease, readLedger, push = true, pushToken = "", committer = COMMITTER }) {
   const expected = normalizeRelease(expectedRelease);
   if (!expected) {
     throw new HotfixRefusal(REASONS.invalidInput, `invalid expected-release '${oneLine(expectedRelease)}'; expected 'release-[<yyyy-mm-dd>-]<n>' (the release- prefix is optional). Refusing to cut a hotfix. Nothing was pushed`);
@@ -25001,7 +25025,7 @@ async function cutHotfix({ git, project, commit, expectedRelease, readLedger, pu
   let pushed = false;
   if (!already && push) {
     await confirmLiveRelease({ readLedger, project, expected, when: "refusing to push the hotfix branch" });
-    await pushHotfixBranch(git, { head, branch, defaultBranch });
+    await pushHotfixBranch(git, { head, branch, defaultBranch, token: pushToken });
     pushed = true;
   }
   return {
@@ -25223,6 +25247,16 @@ async function runVerify({ readLedger }) {
     refuse(buildRefusal({ ref, defaultBranch, why, reason: refusal ? error2.reason : "", wayOut: refusal ? error2.wayOut : void 0 }), "Build Candidate");
   }
 }
+function pushCredential({ asApp, token }) {
+  const flag = String(asApp ?? "").trim().toLowerCase();
+  if (!["", "true", "false"].includes(flag)) {
+    return { refusal: `push-as-app must be true or false, not '${oneLine(asApp)}'; refusing to cut a hotfix. Nothing was pushed` };
+  }
+  if (flag === "true" && !token) {
+    return { refusal: "push-as-app is true, but no push-token was given, so there is no GitHub App token to push with, and the run does not fall back to the checkout's token; refusing to cut a hotfix. Nothing was pushed" };
+  }
+  return { token };
+}
 async function runCut({ env, readLedger }) {
   try {
     assertAttemptAuthorized("push a hotfix branch", env);
@@ -25231,13 +25265,24 @@ async function runCut({ env, readLedger }) {
     refuse(error2.message, "actor_not_allowed");
     return;
   }
+  const { token: pushToken, refusal } = pushCredential({ asApp: getInput("push-as-app"), token: getInput("push-token") });
+  if (refusal) {
+    refuse(refusal, "push_app_failed");
+    return;
+  }
+  if (pushToken) {
+    setSecret(pushToken);
+    setSecret(basicCredential(pushToken));
+  }
+  const pushedAs = pushToken ? " with push-token, the GitHub App's token" : "";
   try {
     const result = await cutHotfix({
       git: gitIn(repoPath(getInput("path"))),
       project: getInput("project-name"),
       commit: getInput("commit"),
       expectedRelease: getInput("expected-release"),
-      readLedger
+      readLedger,
+      pushToken
     });
     setOutput("release", result.release);
     setOutput("branch", result.branch);
@@ -25247,14 +25292,14 @@ async function runCut({ env, readLedger }) {
     setOutput("pushed", String(result.pushed));
     setOutput("already-applied", String(result.alreadyApplied));
     for (const warning2 of result.warnings) warning(warning2, { title: "Hotfix build may not run" });
-    const what = result.alreadyApplied ? `${result.branch} already has a cherry-pick of ${short(result.commit)} (${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built` : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch`;
+    const what = result.alreadyApplied ? `${result.branch} already has a cherry-pick of ${short(result.commit)} (${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built` : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch${pushedAs}`;
     notice(what, { title: "Hotfix branch" });
     await writeSummary([
       `## Hotfix for ${result.release}`,
       "",
       `- Production runs \`${result.release}\`, commit \`${short(result.base)}\`. The hotfix branch starts there, not at the tip of \`${result.defaultBranch}\`.`,
       `- Fix: \`${short(result.commit)}\` from \`${result.defaultBranch}\`, cherry-picked with \`-x\`.`,
-      result.alreadyApplied ? `- \`${result.branch}\` already has a cherry-pick of this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.` : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`.`,
+      result.alreadyApplied ? `- \`${result.branch}\` already has a cherry-pick of this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.` : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`${pushedAs}.`,
       ...result.warnings.map((warning2) => `- :warning: ${warning2}`)
     ]);
   } catch (error2) {
