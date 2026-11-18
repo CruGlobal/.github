@@ -1,5 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { loadYaml, findStep, runShellStep, removeFakes, workflowAndActionFiles } from './support/workflow-steps.js'
+import { generateKeyPairSync, createPrivateKey, verify } from 'node:crypto'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { root, loadYaml, findStep, runShellStep, removeFakes, workflowAndActionFiles } from './support/workflow-steps.js'
 import { MODES } from '../src/hotfix.js'
 
 // How the hotfix path is wired into the workflows: build-candidate's guard,
@@ -131,7 +135,7 @@ describe('hotfix.yml', () => {
 
   it('takes the inputs the wrapper passes, with defaults that change nothing for others', () => {
     const { inputs, secrets } = workflow.on.workflow_call
-    expect(Object.keys(inputs).sort()).toEqual(['allow-push-access', 'break-glass-team', 'commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
+    expect(Object.keys(inputs).sort()).toEqual(['allow-push-access', 'break-glass-team', 'commit', 'expected-release', 'gate-actor-id', 'gate-audience', 'gate-claim-audience', 'gate-claim-url', 'gate-issuer', 'gate-public-keys', 'project-name', 'push-app-client-id', 'push-app-key-role-arn', 'push-app-key-secret-id', 'refused-actor-ids', 'signed-request', 'trusted-automation-actor-ids', 'workflow-ref'])
     for (const name of ['commit', 'expected-release', 'project-name']) expect(inputs[name].required, name).toBe(true)
     expect(inputs['trusted-automation-actor-ids']).toMatchObject({ required: false, default: '' })
     expect(inputs['refused-actor-ids']).toMatchObject({ type: 'string', required: false, default: '' })
@@ -140,6 +144,10 @@ describe('hotfix.yml', () => {
     expect(inputs['gate-claim-url']).toMatchObject({ type: 'string', required: false, default: '' })
     expect(inputs['gate-claim-audience']).toMatchObject({ type: 'string', required: false, default: '' })
     for (const name of ['gate-actor-id', 'signed-request', 'gate-public-keys', 'gate-issuer', 'gate-audience']) {
+      expect(inputs[name], name).toMatchObject({ type: 'string', required: false, default: '' })
+    }
+    // Empty pushes with authz-token, as before.
+    for (const name of ['push-app-client-id', 'push-app-key-secret-id', 'push-app-key-role-arn']) {
       expect(inputs[name], name).toMatchObject({ type: 'string', required: false, default: '' })
     }
     expect(inputs['workflow-ref']).toMatchObject({ required: false, default: 'main' })
@@ -163,7 +171,12 @@ describe('hotfix.yml', () => {
       'Checkout Cru Actions & Workflows',
       'Authorize actor',
       'Checkout the app repo',
+      'Choose who pushes the hotfix branch',
+      "Assume the role that reads the push App's key",
+      "Explain a failed assume of the push App's role",
+      "Mint the push App's token",
       'Cut the hotfix branch',
+      "Revoke the push App's token",
       'Build the hotfix branch',
       'Explain a failed build dispatch',
       "Report the app's CI on the hotfix branch"
@@ -194,7 +207,15 @@ describe('hotfix.yml', () => {
     expect(step('Cut the hotfix branch')).toMatchObject({
       id: 'cut',
       uses: HOTFIX_ACTION,
-      with: { mode: 'cut', path: 'app', 'project-name': '${{ inputs.project-name }}', commit: '${{ inputs.commit }}', 'expected-release': '${{ inputs.expected-release }}' }
+      with: {
+        mode: 'cut',
+        path: 'app',
+        'project-name': '${{ inputs.project-name }}',
+        commit: '${{ inputs.commit }}',
+        'expected-release': '${{ inputs.expected-release }}',
+        'push-as-app': '${{ steps.push-app.outputs.enabled }}',
+        'push-token': '${{ steps.push-token.outputs.token }}'
+      }
     })
     expect(step('Cut the hotfix branch')['continue-on-error']).toBeUndefined()
   })
@@ -251,6 +272,614 @@ describe('hotfix.yml', () => {
     })
     expect(result.status).toBe(1)
     expect(result.stdout).toMatch(/^::error title=dispatch_failed::hotfix\/release-2026-10-20-10140 is on CruGlobal\/example-app, but dispatching its pipeline-v2\.yml failed/m)
+  })
+})
+
+describe('hotfix.yml: pushing as a GitHub App', () => {
+  const workflow = loadYaml('.github/workflows/hotfix.yml')
+  const job = workflow.jobs.hotfix
+  const names = job.steps.map((s) => s.name)
+  const step = (name) => findStep(workflow, 'hotfix', name).step
+  const CHOOSE = 'Choose who pushes the hotfix branch'
+  const ASSUME = "Assume the role that reads the push App's key"
+  const EXPLAIN = "Explain a failed assume of the push App's role"
+  const MINT = "Mint the push App's token"
+  const CUT = 'Cut the hotfix branch'
+  const REVOKE = "Revoke the push App's token"
+  const ENABLED = "steps.push-app.outputs.enabled == 'true'"
+
+  const CLIENT_ID = 'Iv1.example'
+  const SECRET_ID = 'example-hotfix-push/example-app-key'
+  const ROLE_ARN = 'arn:aws:iam::000000000000:role/ExampleHotfixPush'
+  const REPOSITORY = 'example-org/example-app'
+  const ALL = { clientId: CLIENT_ID, secretId: SECRET_ID, roleArn: ROLE_ARN }
+  const INSTALLATION_ID = 4242
+  const TOKEN = 'example-installation-token-0001'
+  // A throwaway key, made for these tests alone.
+  const { privateKey: KEY, publicKey: PUBLIC_KEY } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' }
+  })
+  // The base64 lines of a PEM, which must never show in the log.
+  const pemBody = (pem) => pem.split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('-----'))
+  const KEY_BODY = pemBody(KEY)
+
+  // The job's workspace, with this repo where the job checks CruGlobal/.github
+  // out, or with a hotfix action from before push-as-app there.
+  const workspaces = []
+  afterAll(() => { for (const dir of workspaces) rmSync(dir, { recursive: true, force: true }) })
+  function workspace ({ olderAction = false } = {}) {
+    const dir = mkdtempSync(path.join(tmpdir(), 'hotfix-workspace-'))
+    workspaces.push(dir)
+    if (olderAction) {
+      const actionDir = path.join(dir, 'cru-github-actions', 'actions', 'hotfix')
+      mkdirSync(actionDir, { recursive: true })
+      writeFileSync(path.join(actionDir, 'action.yml'), "name: Hotfix\ninputs:\n  mode:\n    required: true\n  path:\n    default: '.'\nruns:\n  using: 'node24'\n  main: '../../dist/hotfix.js'\n")
+    } else {
+      symlinkSync(root, path.join(dir, 'cru-github-actions'))
+    }
+    return dir
+  }
+
+  const choose = ({ clientId = '', secretId = '', roleArn = '' }, { repository = REPOSITORY, olderAction = false } = {}) => runShellStep(findStep(workflow, 'hotfix', CHOOSE), {
+    context: {
+      'inputs.project-name': 'example-app',
+      'inputs.push-app-client-id': clientId,
+      'inputs.push-app-key-secret-id': secretId,
+      'inputs.push-app-key-role-arn': roleArn,
+      'inputs.workflow-ref': 'v2',
+      'steps.app-info.outputs.repository': repository
+    },
+    runnerEnv: { GITHUB_WORKSPACE: workspace({ olderAction }) }
+  })
+
+  const ROLE_KEYS = { 'steps.push-role.outputs.aws-access-key-id': 'role-access-key', 'steps.push-role.outputs.aws-secret-access-key': 'role-secret-key', 'steps.push-role.outputs.aws-session-token': 'role-session-token' }
+  // The job's own keys, from the deploy role it assumed first.
+  const JOB_KEYS = { AWS_ACCESS_KEY_ID: 'deploy-access-key', AWS_SECRET_ACCESS_KEY: 'deploy-secret-key', AWS_SESSION_TOKEN: 'deploy-session-token' }
+  // What GitHub answers when it mints the token asked for.
+  const minted = (changes = {}) => ({
+    token: TOKEN,
+    expires_at: '2026-01-01T01:00:00Z',
+    permissions: { contents: 'write', metadata: 'read' },
+    repository_selection: 'selected',
+    repositories: [{ id: 1, name: 'example-app', full_name: REPOSITORY }],
+    ...changes
+  })
+  const mint = ({ secret = KEY, secretFails = false, roleKeys = ROLE_KEYS, githubApp = {}, runnerPath = null } = {}) => runShellStep(findStep(workflow, 'hotfix', MINT), {
+    context: {
+      'inputs.project-name': 'example-app',
+      'steps.push-app.outputs.client-id': CLIENT_ID,
+      'steps.push-app.outputs.key-secret-id': SECRET_ID,
+      'steps.push-app.outputs.owner': 'example-org',
+      'steps.push-app.outputs.repo': 'example-app',
+      ...roleKeys
+    },
+    runnerEnv: runnerPath ? { ...JOB_KEYS, PATH: runnerPath } : JOB_KEYS,
+    awsSecret: secret,
+    awsSecretFails: secretFails,
+    githubApp: { installation: { id: INSTALLATION_ID, account: { login: 'example-org' } }, token: minted(), ...githubApp }
+  })
+
+  const errors = (stdout) => stdout.split('\n').filter((line) => line.startsWith('::error'))
+  const masks = (stdout) => stdout.split('\n').filter((line) => line.startsWith('::add-mask::')).map((line) => line.slice('::add-mask::'.length))
+  // Everything the step printed, except the lines that register a mask.
+  const shown = (result) => `${result.stdout}\n${result.stderr}`.split('\n').filter((line) => !line.startsWith('::add-mask::')).join('\n')
+  const BEARER = 'Authorization: Bearer '
+  const bearerOf = (call) => call.headers.find((header) => header.startsWith(BEARER))?.slice(BEARER.length)
+  const basic = (token) => Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
+  const refusal = (message) => `::error title=push_app_failed::${message}; refusing to cut a hotfix. Nothing was pushed`
+  const NO_ANSWER = 'GitHub did not answer on any of three tries'
+  const SERVER_ERROR = 'GitHub had an error of its own on each of three tries, so run the hotfix again in a few minutes'
+  const NOT_MINTED = (status, why = `the App needs Contents: Read and write, and its installation must cover ${REPOSITORY}`) => `GitHub did not mint a token for ${REPOSITORY} as the GitHub App ${CLIENT_ID} (GitHub answered ${status}): ${why}`
+  const NOT_REVOKED = (status) => `::warning title=push_app_token_not_revoked::GitHub answered ${status} to revoking the token it gave. It expires on its own within an hour`
+
+  it('sets the App up after the permission check and right before the cut, revokes its token right after, and stops the job if any of it fails', () => {
+    const at = (name) => names.indexOf(name)
+    expect(at(CHOOSE)).toBeGreaterThan(at('Authorize actor'))
+    expect([ASSUME, EXPLAIN, MINT, CUT, REVOKE].map(at)).toEqual([1, 2, 3, 4, 5].map((n) => at(CHOOSE) + n))
+    for (const name of [CHOOSE, ASSUME, EXPLAIN, MINT, REVOKE]) expect(step(name)['continue-on-error'], name).toBeUndefined()
+    // The choice always runs, so the cut always learns whether the App is set.
+    expect(step(CHOOSE)).toMatchObject({ id: 'push-app' })
+    expect(step(CHOOSE).if).toBeUndefined()
+    for (const name of [ASSUME, MINT]) expect(step(name).if, name).toBe(ENABLED)
+    expect(step(EXPLAIN).if).toBe("failure() && steps.push-role.outcome == 'failure'")
+    // On a failed or cancelled cut too, and only once a token was minted.
+    expect(step(REVOKE).if).toBe("always() && steps.push-token.outputs.token != ''")
+  })
+
+  it('assumes the role in this job, keeping its keys out of the job env, so the deploy role stays the job\'s AWS identity', () => {
+    expect(step(ASSUME)).toMatchObject({ id: 'push-role', uses: step('Configure AWS credentials for app-info').uses })
+    expect(step(ASSUME).with).toEqual({
+      'aws-region': 'us-east-1',
+      'role-to-assume': '${{ steps.push-app.outputs.key-role-arn }}',
+      'output-credentials': true,
+      'output-env-credentials': false,
+      'retry-max-attempts': 2
+    })
+    // Nothing after the deploy role sets the job's AWS keys again.
+    const awsKeys = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE']
+    for (const s of job.steps.slice(1)) {
+      for (const key of awsKeys) expect(Object.keys(s.env ?? {}), `${s.name} sets ${key}`).not.toContain(key)
+      expect(s.uses === 'aws-actions/configure-aws-credentials@v6' ? s.with['output-env-credentials'] : false, s.name).toBe(false)
+    }
+  })
+
+  it('keeps the App\'s key inside the one step that mints the token: never a step output or a step input', () => {
+    const text = readFileSync(path.join(root, '.github/workflows/hotfix.yml'), 'utf8')
+    expect(text).not.toContain('create-github-app-token')
+    expect(text).not.toMatch(/private-key|push-key/)
+    expect(step(MINT)).toMatchObject({ id: 'push-token' })
+    expect(step(MINT).uses).toBeUndefined()
+    expect(step(MINT).with).toBeUndefined()
+    // The only step that reads the secret, and its only output is the token.
+    expect(job.steps.filter((s) => /secretsmanager/.test(s.run ?? '')).map((s) => s.name)).toEqual([MINT])
+    expect(step(MINT).run.match(/>> "\$GITHUB_OUTPUT"/g)).toHaveLength(1)
+    expect(step(MINT).run).toContain('echo "token=$token" >> "$GITHUB_OUTPUT"')
+    expect(step(MINT).run).not.toContain('GITHUB_ENV')
+    // The cut gets the token, and nothing else of the App's.
+    expect(step(CUT).with['push-token']).toBe('${{ steps.push-token.outputs.token }}')
+  })
+
+  it('never traces the steps that hold the key, the JWT or the token, and never runs curl verbose', () => {
+    for (const name of [MINT, REVOKE]) {
+      const run = step(name).run
+      expect(run, name).toMatch(/^set \+x$/m)
+      expect(run, name).not.toMatch(/set -x|set -o xtrace|set -[a-z]*x/)
+      expect(run, name).not.toMatch(/(^|\s)(-v|--verbose|--trace|--trace-ascii)(\s|$)/m)
+    }
+  })
+
+  describe(CHOOSE, () => {
+    it('keeps authz-token, silently, when none of the three is set', async () => {
+      const result = await choose({})
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ enabled: 'false' })
+      expect(errors(result.stdout)).toEqual([])
+    })
+
+    it('chooses the App when all three are set, with the app repo split for the token', async () => {
+      const result = await choose(ALL)
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ enabled: 'true', 'client-id': CLIENT_ID, 'key-secret-id': SECRET_ID, 'key-role-arn': ROLE_ARN, owner: 'example-org', repo: 'example-app' })
+      expect(errors(result.stdout)).toEqual([])
+    })
+
+    it('trims a stray space or line break at either end', async () => {
+      const result = await choose({ clientId: ` ${CLIENT_ID}\n`, secretId: `${SECRET_ID} `, roleArn: `\n${ROLE_ARN}` })
+      expect(result.status).toBe(0)
+      expect(result.outputs).toMatchObject({ 'client-id': CLIENT_ID, 'key-secret-id': SECRET_ID, 'key-role-arn': ROLE_ARN })
+    })
+
+    it.each([
+      [{ clientId: CLIENT_ID }, 'push-app-key-secret-id and push-app-key-role-arn are empty'],
+      [{ clientId: CLIENT_ID, secretId: SECRET_ID }, 'push-app-key-role-arn is empty'],
+      [{ roleArn: ROLE_ARN }, 'push-app-client-id and push-app-key-secret-id are empty'],
+      [{ clientId: ' ', secretId: SECRET_ID, roleArn: ROLE_ARN }, 'push-app-client-id is empty']
+    ])('refuses a mix of set and empty (%j), naming what is missing', async (inputs, missing) => {
+      const result = await choose(inputs)
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`push-app-client-id, push-app-key-secret-id and push-app-key-role-arn go together, but ${missing}. Set all three to push the hotfix branch as the GitHub App, or none to push it with authz-token`)])
+      expect(result.outputs).toEqual({})
+    })
+
+    // A line break inside would start a new output line, such as enabled=.
+    it.each([
+      [{ ...ALL, secretId: 'example key' }, 'push-app-key-secret-id'],
+      [{ ...ALL, roleArn: `${ROLE_ARN}\nenabled=false` }, 'push-app-key-role-arn'],
+      [{ ...ALL, clientId: 'Iv1.\texample' }, 'push-app-client-id']
+    ])('refuses a value with a space or line break inside it (%j)', async (inputs, name) => {
+      const result = await choose(inputs)
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`${name} has a space or a line break inside it`)])
+      expect(result.outputs).toEqual({})
+    })
+
+    it('refuses a hotfix action from before push-as-app, which would push with authz-token', async () => {
+      const result = await choose(ALL, { olderAction: true })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal('the hotfix action at workflow-ref v2 cannot push as a GitHub App (it takes no push-as-app input), so it would push with authz-token. Point workflow-ref at the CruGlobal/.github release that added push-app-client-id, or a later one')])
+      expect(result.outputs).toEqual({})
+    })
+
+    it('lets an older hotfix action push with authz-token as before when the App is not set', async () => {
+      const result = await choose({}, { olderAction: true })
+      expect(result.status).toBe(0)
+      expect(result.outputs).toEqual({ enabled: 'false' })
+    })
+
+    it.each(['example-app', 'example-org/example-app/extra', '/example-app', 'example-org/'])('refuses an app repo that is not owner/name (%j)', async (repository) => {
+      const result = await choose(ALL, { repository })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`the app repo '${repository}' is not in owner/name form, so a token cannot be limited to it`)])
+      expect(result.outputs).toEqual({})
+    })
+  })
+
+  describe(MINT, () => {
+    it('reads the key with the role\'s keys alone, and mints a token for the app repo alone, with contents: write alone', async () => {
+      const result = await mint()
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+      expect(errors(result.stdout)).toEqual([])
+      expect(result.secretCall).toBe(`secretsmanager get-secret-value --region us-east-1 --secret-id ${SECRET_ID} --query SecretString --output text`)
+      expect(result.secretCallKeys).toBe('role-access-key|role-secret-key|role-session-token')
+      // The job's own keys are not changed for later steps.
+      expect(result.env).toEqual({})
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method, path, data }) => ({ method, path, data }))).toEqual([
+        { method: 'GET', path: 'repos/example-org/example-app/installation', data: '' },
+        { method: 'POST', path: `app/installations/${INSTALLATION_ID}/access_tokens`, data: '{"repositories":["example-app"],"permissions":{"contents":"write"}}' }
+      ])
+      // Both with the one JWT, given on standard input.
+      for (const call of calls) {
+        expect(call.headers).toEqual([`${BEARER}${bearerOf(call)}`, 'Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28'])
+        expect(call.args).toContain('-H @-')
+      }
+      expect(bearerOf(calls[1])).toBe(bearerOf(calls[0]))
+      expect(result.stdout.split('\n').filter((line) => line && !line.startsWith('::add-mask::'))).toEqual([`Minted a token for ${REPOSITORY} alone, with contents: write alone, as the GitHub App ${CLIENT_ID}. It is revoked once the cut is done.`])
+    })
+
+    it('signs an RS256 JWT with the App\'s key, issued by the client id a minute ago and ending within nine minutes', async () => {
+      const before = Math.floor(Date.now() / 1000)
+      const result = await mint()
+      const after = Math.floor(Date.now() / 1000)
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      const jwt = bearerOf(result.githubAppCalls[0])
+      const [header, claims, signature] = jwt.split('.')
+      const decode = (part) => JSON.parse(Buffer.from(part, 'base64url').toString('utf8'))
+      expect(decode(header)).toEqual({ alg: 'RS256', typ: 'JWT' })
+      const { iat, exp, iss, ...rest } = decode(claims)
+      expect(rest).toEqual({})
+      // Exactly the JSON, with no line break after it: what is signed is
+      // what GitHub reads.
+      expect(Buffer.from(header, 'base64url').toString('utf8')).toBe('{"alg":"RS256","typ":"JWT"}')
+      expect(Buffer.from(claims, 'base64url').toString('utf8')).toBe(JSON.stringify({ iat, exp, iss }))
+      expect(iss).toBe(CLIENT_ID)
+      expect(iat).toBeGreaterThanOrEqual(before - 60)
+      expect(iat).toBeLessThanOrEqual(after - 60)
+      expect(exp - iat).toBe(600)
+      expect(exp).toBeLessThanOrEqual(after + 540)
+      // base64url, with no padding, as a JWT is written.
+      for (const part of [header, claims, signature]) expect(part).toMatch(/^[A-Za-z0-9_-]+$/)
+      expect(verify('RSA-SHA256', Buffer.from(`${header}.${claims}`), PUBLIC_KEY, Buffer.from(signature, 'base64url'))).toBe(true)
+    })
+
+    it('masks the JWT, the token and the credential git sends for it, and shows nothing of them, the key or the role\'s keys', async () => {
+      const result = await mint()
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      const jwt = bearerOf(result.githubAppCalls[0])
+      expect(masks(result.stdout)).toEqual([jwt, TOKEN, basic(TOKEN)])
+      const log = shown(result)
+      for (const secret of [jwt, ...jwt.split('.').slice(1), TOKEN, basic(TOKEN), ...KEY_BODY, 'role-secret-key', 'role-session-token']) {
+        expect(log).not.toContain(secret)
+      }
+      // The key is never even masked: no line of it reaches the runner.
+      for (const line of KEY_BODY) expect(result.stdout + result.stderr).not.toContain(line)
+      // No command line carries the JWT or a token.
+      for (const call of result.githubAppCalls) {
+        expect(call.args).not.toContain(jwt)
+        expect(call.args).not.toContain('Authorization')
+      }
+    })
+
+    it.each([
+      ['a PKCS#8 key', createPrivateKey(KEY).export({ type: 'pkcs8', format: 'pem' })],
+      ['a key saved with Windows line endings', KEY.replaceAll('\n', '\r\n')],
+      ['a key with blank lines around it', `\n${KEY}\n\n`]
+    ])('takes %s', async (_what, secret) => {
+      const result = await mint({ secret })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+    })
+
+    const ONE_LINE = `the Secrets Manager secret ${SECRET_ID} holds the key on one line, with \\n written where its line breaks should be. Store the key file the App's settings page downloads as it is, with its line breaks`
+    const SINGLE_LINE = `the Secrets Manager secret ${SECRET_ID} holds a single line, so it is not a PEM key file. Its secret string must be the key file the App's settings page downloads, with its line breaks`
+    const NOT_PEM = `the Secrets Manager secret ${SECRET_ID} does not hold a PEM private key. Its secret string must be the key file the App's settings page downloads`
+    const NOT_RSA = `the Secrets Manager secret ${SECRET_ID} holds a PEM block that openssl cannot read as an RSA private key with no passphrase. It must be one of the App's private keys, as the App's settings page downloads it`
+    it.each([
+      ['the key on one line with \\n for its line breaks', KEY.trim().replaceAll('\n', '\\n'), ONE_LINE],
+      // The aws CLI prints None for a secret with no secret string.
+      ['None', 'None', SINGLE_LINE],
+      ['JSON', '{"private_key":"example"}', SINGLE_LINE],
+      ['bare base64', KEY_BODY.join(''), SINGLE_LINE],
+      ['a public key', PUBLIC_KEY, NOT_PEM],
+      ['a key with text before it', `key:\n${KEY}`, NOT_PEM],
+      ['a key cut short', KEY.split('\n').slice(0, -2).join('\n'), NOT_PEM],
+      ['an EC key', generateKeyPairSync('ec', { namedCurve: 'P-256', privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } }).privateKey, NOT_RSA],
+      ['an RSA block that is not a key', '-----BEGIN RSA PRIVATE KEY-----\nZXhhbXBsZSBub3QgYSBrZXk=\n-----END RSA PRIVATE KEY-----', NOT_RSA]
+    ])('refuses %s before asking GitHub for anything, saying nothing of the value', async (_what, secret, message) => {
+      const result = await mint({ secret })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(message)])
+      expect(result.githubAppCalls).toEqual([])
+      expect(result.outputs).toEqual({})
+      expect(masks(result.stdout)).toEqual([])
+      const log = result.stdout + result.stderr
+      for (const line of pemBody(secret.replaceAll('\\n', '\n'))) expect(log).not.toContain(line)
+    })
+
+    it('fails, saying what to check, when the key cannot be read', async () => {
+      const result = await mint({ secretFails: true })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`could not read the push App's private key from the Secrets Manager secret ${SECRET_ID} in us-east-1 (see the aws error above). push-app-key-role-arn must be allowed secretsmanager:GetSecretValue on it, and the secret must have a value`)])
+      expect(result.githubAppCalls).toEqual([])
+      expect(result.outputs).toEqual({})
+    })
+
+    it('never reads the key with the job\'s own keys', async () => {
+      const result = await mint({ roleKeys: { ...ROLE_KEYS, 'steps.push-role.outputs.aws-access-key-id': '' } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal("assuming the role that reads the push App's key gave no credentials, so the key was not read")])
+      expect(result.secretCall).toBeNull()
+    })
+
+    it.each([
+      ['401', 1, `GitHub did not take the App's JWT. push-app-client-id must be the App's client id, and ${SECRET_ID} must hold one of the App's current private keys`],
+      ['404', 1, `the App is not installed on ${REPOSITORY}`],
+      ['422', 1, `push-app-client-id must be the App's client id, and the App must be installed on ${REPOSITORY}`],
+      ['000', 3, NO_ANSWER],
+      ['500', 3, SERVER_ERROR],
+      ['503', 3, SERVER_ERROR]
+    ])('fails, saying what to check, when GitHub answers %s to the installation lookup (tried %i times), and mints nothing', async (status, tries, why) => {
+      const result = await mint({ githubApp: { installationStatus: status, installation: { message: 'example error' } } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`could not find the GitHub App ${CLIENT_ID}'s installation on ${REPOSITORY} (GitHub answered ${status}): ${why}`)])
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(Array(tries).fill('GET'))
+      // A 4xx is GitHub's answer and is not tried again; no answer or a 5xx
+      // is, 2 and then 4 seconds apart.
+      expect(result.sleeps).toEqual(['2', '4'].slice(0, tries - 1))
+      expect(result.outputs).toEqual({})
+      // GitHub's answer is not printed.
+      expect(shown(result)).not.toContain('example error')
+    })
+
+    it('tries the installation lookup again after no answer or a 5xx, with the same JWT on standard input, and goes on once GitHub answers', async () => {
+      const result = await mint({ githubApp: { installationStatus: ['503', '000', '200'] } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+      expect(errors(result.stdout)).toEqual([])
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method }) => method)).toEqual(['GET', 'GET', 'GET', 'POST'])
+      expect(result.sleeps).toEqual(['2', '4'])
+      const jwt = bearerOf(calls[0])
+      for (const call of calls) {
+        expect(bearerOf(call)).toBe(jwt)
+        expect(call.args).not.toContain(jwt)
+      }
+      expect(result.stdout).toContain('GitHub answered 503 to GET /repos/example-org/example-app/installation, so it is tried again in 2 seconds.')
+      expect(result.stdout).toContain('GitHub answered 000 to GET /repos/example-org/example-app/installation, so it is tried again in 4 seconds.')
+    })
+
+    it('tries minting the token again after a 5xx, and takes the token GitHub then gives', async () => {
+      const result = await mint({ githubApp: { tokenStatus: ['502', '201'] } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+      expect(result.githubAppCalls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+        'GET repos/example-org/example-app/installation',
+        `POST app/installations/${INSTALLATION_ID}/access_tokens`,
+        `POST app/installations/${INSTALLATION_ID}/access_tokens`
+      ])
+      // The same request both times.
+      expect(result.githubAppCalls[2].data).toBe(result.githubAppCalls[1].data)
+      expect(result.sleeps).toEqual(['2'])
+    })
+
+    it.each([
+      ['000', NO_ANSWER],
+      ['503', SERVER_ERROR]
+    ])('gives up minting the token after three tries that GitHub answers %s', async (status, why) => {
+      const result = await mint({ githubApp: { tokenStatus: status, token: { message: 'example error' } } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED(status, why))])
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST', 'POST', 'POST'])
+      expect(result.sleeps).toEqual(['2', '4'])
+      expect(result.outputs).toEqual({})
+      expect(shown(result)).not.toContain('example error')
+    })
+
+    it('fails when the installation GitHub names has no id', async () => {
+      const result = await mint({ githubApp: { installation: { id: 'example' } } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`could not find the GitHub App ${CLIENT_ID}'s installation on ${REPOSITORY} (GitHub answered 200): push-app-client-id must be the App's client id, and the App must be installed on ${REPOSITORY}`)])
+      expect(result.githubAppCalls).toHaveLength(1)
+    })
+
+    it.each([
+      ['422', { message: 'The permissions requested are not granted to this installation.' }],
+      ['403', { message: 'example error' }],
+      ['201', { expires_at: '2026-01-01T01:00:00Z' }]
+    ])('fails when GitHub answers %s to minting the token, without printing its answer or trying again', async (status, answer) => {
+      const result = await mint({ githubApp: { tokenStatus: status, token: answer } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED(status))])
+      expect(result.outputs).toEqual({})
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST'])
+      expect(result.sleeps).toEqual([])
+      expect(shown(result)).not.toContain(answer.message ?? answer.expires_at)
+    })
+
+    // GitHub should never do this, but a token it gave is live whatever the
+    // status it came with.
+    it.each([
+      ['422', 1],
+      ['200', 1],
+      ['503', 3]
+    ])('revokes a token that came with a %s, and refuses', async (status, tries) => {
+      const result = await mint({ githubApp: { tokenStatus: status } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED(status, status === '503' ? SERVER_ERROR : undefined))])
+      expect(result.outputs).toEqual({})
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method }) => method)).toEqual(['GET', ...Array(tries).fill('POST'), 'DELETE'])
+      expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'installation/token', data: '' })
+      expect(bearerOf(calls.at(-1))).toBe(TOKEN)
+      expect(calls.at(-1).args).not.toContain(TOKEN)
+      expect(result.stdout).not.toContain('::warning')
+      expect(shown(result)).not.toContain(TOKEN)
+    })
+
+    it('warns when revoking a token that came with the wrong status fails, and still refuses with the mint\'s status', async () => {
+      const result = await mint({ githubApp: { tokenStatus: '422', revokeStatus: '401' } })
+      expect(result.status).toBe(1)
+      expect(result.stdout).toContain(NOT_REVOKED('401'))
+      expect(errors(result.stdout)).toEqual([refusal(NOT_MINTED('422'))])
+    })
+
+    it('refuses a token that is not a single word, revoking it, without showing it', async () => {
+      const token = 'example-token example-second-word'
+      const result = await mint({ githubApp: { token: minted({ token }) } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal("GitHub's answer held a token that is not a single word, so it was not used")])
+      expect(result.outputs).toEqual({})
+      const calls = result.githubAppCalls
+      expect(calls.map(({ method }) => method)).toEqual(['GET', 'POST', 'DELETE'])
+      expect(bearerOf(calls[2])).toBe(token)
+      expect(calls[2].args).not.toContain('example-second-word')
+      expect(result.stdout + result.stderr).not.toContain('example-second-word')
+    })
+
+    it('refuses a token with a line break in it, and warns that it could not be sent back to revoke it', async () => {
+      const result = await mint({ githubApp: { token: minted({ token: 'example-token\nexample-second-line' }) } })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal("GitHub's answer held a token that is not a single word, so it was not used")])
+      expect(result.stdout).toContain('::warning title=push_app_token_not_revoked::the token GitHub gave has a line break in it, so it was not sent back to revoke it. It expires on its own within an hour')
+      expect(result.outputs).toEqual({})
+      // One header line cannot carry it, so nothing is sent.
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST'])
+      expect(result.stdout + result.stderr).not.toContain('example-second-line')
+    })
+
+    it.each([
+      ['a workflows permission too', { permissions: { contents: 'write', metadata: 'read', workflows: 'write' } }],
+      ['contents: read', { permissions: { contents: 'read', metadata: 'read' } }],
+      ['metadata: write', { permissions: { contents: 'write', metadata: 'write' } }],
+      ['no permissions', { permissions: undefined }],
+      ['another repo', { repositories: [{ full_name: 'example-org/other-app' }] }],
+      ['another repo too', { repositories: [{ full_name: REPOSITORY }, { full_name: 'example-org/other-app' }] }],
+      ['no repos', { repositories: undefined }]
+    ])('revokes, unused, a token with %s, and refuses', async (_what, changes) => {
+      const answer = minted(changes)
+      const result = await mint({ githubApp: { token: answer } })
+      expect(result.status).toBe(1)
+      const granted = JSON.stringify({ permissions: answer.permissions ?? null, repositories: (answer.repositories ?? []).map((repo) => repo.full_name) })
+      expect(errors(result.stdout)).toEqual([refusal(`GitHub gave a token with ${granted}, not contents: write on ${REPOSITORY} alone, so it was revoked unused`)])
+      expect(result.outputs).toEqual({})
+      const revoke = result.githubAppCalls[2]
+      expect(result.githubAppCalls).toHaveLength(3)
+      expect(revoke).toMatchObject({ method: 'DELETE', path: 'installation/token', data: '' })
+      expect(bearerOf(revoke)).toBe(TOKEN)
+      expect(revoke.args).not.toContain(TOKEN)
+      // Masked before anything about it is said.
+      expect(masks(result.stdout)).toEqual([bearerOf(result.githubAppCalls[0]), TOKEN, basic(TOKEN)])
+      expect(shown(result)).not.toContain(TOKEN)
+    })
+
+    it.each([
+      ['401', 1],
+      ['503', 3]
+    ])('warns when that revoke fails with %s (tried %i times), and still refuses', async (status, tries) => {
+      const result = await mint({ githubApp: { token: minted({ permissions: { contents: 'write', workflows: 'write' } }), revokeStatus: status } })
+      expect(result.status).toBe(1)
+      expect(result.stdout).toContain(NOT_REVOKED(status))
+      expect(errors(result.stdout)).toHaveLength(1)
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST', ...Array(tries).fill('DELETE')])
+      expect(result.sleeps).toEqual(['2', '4'].slice(0, tries - 1))
+    })
+
+    it('revokes once a retried revoke goes through', async () => {
+      const result = await mint({ githubApp: { token: minted({ permissions: { contents: 'write', workflows: 'write' } }), revokeStatus: ['000', '204'] } })
+      expect(result.status).toBe(1)
+      expect(result.stdout).not.toContain('::warning')
+      expect(result.githubAppCalls.map(({ method }) => method)).toEqual(['GET', 'POST', 'DELETE', 'DELETE'])
+      for (const call of result.githubAppCalls.slice(2)) expect(bearerOf(call)).toBe(TOKEN)
+      expect(result.sleeps).toEqual(['2'])
+    })
+
+    // Under set -e a missing tool would stop the step partway, saying
+    // nothing of what to fix.
+    it.each(['openssl', 'jq', 'curl'])('refuses up front, saying so, on a runner with no %s', async (missing) => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'hotfix-runner-path-'))
+      workspaces.push(dir)
+      // The step runs under the real bash; the tools it has are stubs, as it
+      // must refuse before it runs any of them.
+      const bash = process.env.PATH.split(path.delimiter).map((d) => path.join(d, 'bash')).find((file) => existsSync(file))
+      symlinkSync(bash, path.join(dir, 'bash'))
+      for (const tool of ['openssl', 'jq', 'curl', 'aws'].filter((tool) => tool !== missing)) {
+        writeFileSync(path.join(dir, tool), '#!/bin/sh\nexit 99\n')
+        chmodSync(path.join(dir, tool), 0o755)
+      }
+      const result = await mint({ runnerPath: dir })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([refusal(`this runner has no ${missing}, which this step needs to mint the App's token. Run the hotfix on a runner that has openssl, jq and curl`)])
+      expect(result.outputs).toEqual({})
+    })
+
+    it.each([
+      ['no metadata permission', { permissions: { contents: 'write' } }],
+      ['the repo named in other case', { repositories: [{ full_name: 'Example-Org/Example-App' }] }]
+    ])('takes a token with %s', async (_what, changes) => {
+      const result = await mint({ githubApp: { token: minted(changes) } })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.outputs).toEqual({ token: TOKEN })
+      expect(result.githubAppCalls).toHaveLength(2)
+    })
+  })
+
+  describe(REVOKE, () => {
+    const revoke = (githubApp = {}) => runShellStep(findStep(workflow, 'hotfix', REVOKE), {
+      context: { 'inputs.project-name': 'example-app', 'steps.push-token.outputs.token': TOKEN },
+      githubApp
+    })
+
+    it('revokes the token, given to curl on its standard input', async () => {
+      const result = await revoke()
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.stdout).toBe("Revoked the push App's token.\n")
+      expect(result.githubAppCalls).toHaveLength(1)
+      const [call] = result.githubAppCalls
+      expect(call).toMatchObject({ method: 'DELETE', path: 'installation/token', data: '' })
+      expect(call.headers).toEqual([`${BEARER}${TOKEN}`, 'Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28'])
+      expect(call.args).not.toContain(TOKEN)
+    })
+
+    it.each([
+      ['401', 1],
+      ['403', 1],
+      ['000', 3],
+      ['502', 3]
+    ])('only warns when GitHub answers %s (tried %i times), so the run\'s result stays the cut\'s', async (status, tries) => {
+      const result = await revoke({ revokeStatus: status })
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain(`::warning title=push_app_token_not_revoked::GitHub answered ${status} to revoking the push App's token. It expires on its own within an hour`)
+      expect(result.githubAppCalls).toHaveLength(tries)
+      for (const call of result.githubAppCalls) expect(call.headers[0]).toBe(`${BEARER}${TOKEN}`)
+      expect(result.sleeps).toEqual(['2', '4'].slice(0, tries - 1))
+      expect(result.stdout + result.stderr).not.toContain(TOKEN)
+    })
+
+    it('tries again after no answer or a 5xx, and revokes once GitHub answers', async () => {
+      const result = await revoke({ revokeStatus: ['000', '503', '204'] })
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      expect(result.stdout).toBe([
+        "GitHub answered 000 to revoking the push App's token, so it is tried again in 2 seconds.",
+        "GitHub answered 503 to revoking the push App's token, so it is tried again in 4 seconds.",
+        "Revoked the push App's token.",
+        ''
+      ].join('\n'))
+      expect(result.githubAppCalls).toHaveLength(3)
+      expect(result.sleeps).toEqual(['2', '4'])
+    })
+  })
+
+  describe(EXPLAIN, () => {
+    it('says what the role must trust when it could not be assumed', async () => {
+      const result = await runShellStep(findStep(workflow, 'hotfix', EXPLAIN), {
+        context: { 'inputs.project-name': 'example-app', 'steps.push-app.outputs.key-role-arn': ROLE_ARN }
+      })
+      expect(result.status).toBe(1)
+      expect(errors(result.stdout)).toEqual([`::error title=push_app_failed::could not assume ${ROLE_ARN} with this job's OIDC token (see the step above), so the push App's key was not read. The role must trust this reusable workflow as the caller runs it: the caller's repo and ref as the token's sub, and CruGlobal/.github's hotfix.yml, at the ref the caller pinned, as its job_workflow_ref. Nothing was pushed`])
+    })
   })
 })
 

@@ -8,6 +8,7 @@ import {
   PIPELINE_WORKFLOW,
   REASONS,
   appWorkflowRuns,
+  basicCredential,
   candidateKind,
   cutHotfix,
   gitIn,
@@ -29,7 +30,9 @@ import {
 //   cut           hotfix.yml: cut or extend hotfix/<release>, cherry-pick the
 //                 fix and push the branch. Refuses unless the authorize-actor
 //                 check passed earlier in the same job, because the push is
-//                 made with a token that can write to every app repo.
+//                 made with a token that can write to every app repo, or
+//                 with a GitHub App's token (push-token) when the caller
+//                 named one.
 //   report        hotfix.yml, after the build is dispatched: say in the run
 //                 summary whether the app's own CI ran on the hotfix branch.
 //                 Never fails the run.
@@ -106,6 +109,22 @@ async function runVerify ({ readLedger }) {
   }
 }
 
+// Which token the cut pushes with. push-token, when given, is the only one.
+// push-as-app "true" says hotfix.yml set the caller's GitHub App up to push,
+// so its token must be here: without it, the push would fall back to the
+// checkout's token, the identity the caller chose to replace. Returns
+// { token } or { refusal }, before anything is read or pushed.
+export function pushCredential ({ asApp, token }) {
+  const flag = String(asApp ?? '').trim().toLowerCase()
+  if (!['', 'true', 'false'].includes(flag)) {
+    return { refusal: `push-as-app must be true or false, not '${oneLine(asApp)}'; refusing to cut a hotfix. Nothing was pushed` }
+  }
+  if (flag === 'true' && !token) {
+    return { refusal: "push-as-app is true, but no push-token was given, so there is no GitHub App token to push with, and the run does not fall back to the checkout's token; refusing to cut a hotfix. Nothing was pushed" }
+  }
+  return { token }
+}
+
 async function runCut ({ env, readLedger }) {
   try {
     assertAttemptAuthorized('push a hotfix branch', env)
@@ -114,13 +133,27 @@ async function runCut ({ env, readLedger }) {
     refuse(error.message, 'actor_not_allowed')
     return
   }
+  const { token: pushToken, refusal } = pushCredential({ asApp: core.getInput('push-as-app'), token: core.getInput('push-token') })
+  if (refusal) {
+    refuse(refusal, 'push_app_failed')
+    return
+  }
+  if (pushToken) {
+    // hotfix.yml masks the token, and this base64 form of it, when it mints
+    // it. Both are masked again here, should git ever print what it sends,
+    // in case push-token comes from some other caller.
+    core.setSecret(pushToken)
+    core.setSecret(basicCredential(pushToken))
+  }
+  const pushedAs = pushToken ? " with push-token, the GitHub App's token" : ''
   try {
     const result = await cutHotfix({
       git: gitIn(repoPath(core.getInput('path'))),
       project: core.getInput('project-name'),
       commit: core.getInput('commit'),
       expectedRelease: core.getInput('expected-release'),
-      readLedger
+      readLedger,
+      pushToken
     })
     core.setOutput('release', result.release)
     core.setOutput('branch', result.branch)
@@ -135,7 +168,7 @@ async function runCut ({ env, readLedger }) {
     // the branch. A later pick of a revert could have undone its change.
     const what = result.alreadyApplied
       ? `${result.branch} already has a cherry-pick of ${short(result.commit)} (${short(result.appliedAs)}), so nothing new was pushed. The build is dispatched again; it reuses the candidate when this commit was already built`
-      : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch`
+      : `cherry-picked ${short(result.commit)} from ${result.defaultBranch} onto ${result.branch} as ${short(result.head)} and pushed the branch${pushedAs}`
     core.notice(what, { title: 'Hotfix branch' })
     await writeSummary([
       `## Hotfix for ${result.release}`,
@@ -144,7 +177,7 @@ async function runCut ({ env, readLedger }) {
       `- Fix: \`${short(result.commit)}\` from \`${result.defaultBranch}\`, cherry-picked with \`-x\`.`,
       result.alreadyApplied
         ? `- \`${result.branch}\` already has a cherry-pick of this fix (\`${short(result.appliedAs)}\`). Nothing new was pushed.`
-        : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`.`,
+        : `- Pushed \`${result.branch}\` at \`${short(result.head)}\`${pushedAs}.`,
       ...result.warnings.map((warning) => `- :warning: ${warning}`)
     ])
   } catch (error) {

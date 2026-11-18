@@ -10,7 +10,7 @@ const { core, inputs, outputs, summary, octokit } = vi.hoisted(() => {
   summary.addRaw = (text) => { summary.text += text; return summary }
   summary.write = async () => summary
   return {
-    core: { notice: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn(), setFailed: vi.fn(), exportVariable: vi.fn() },
+    core: { notice: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn(), setFailed: vi.fn(), exportVariable: vi.fn(), setSecret: vi.fn() },
     inputs: {},
     outputs: {},
     summary,
@@ -27,6 +27,7 @@ vi.mock('@actions/core', () => ({
   error: core.error,
   setFailed: core.setFailed,
   exportVariable: core.exportVariable,
+  setSecret: core.setSecret,
   summary,
   ExitCode: { Success: 0, Failure: 1 }
 }))
@@ -35,7 +36,7 @@ vi.mock('@actions/github', () => ({
   getOctokit: () => octokit.current
 }))
 
-import { run, buildRefusal } from '../src/hotfix.js'
+import { run, buildRefusal, pushCredential } from '../src/hotfix.js'
 import { AUTHORIZED_ATTEMPT_MARKER } from '../src/v2/attempt-guard.js'
 
 vi.setConfig({ testTimeout: 60000 })
@@ -215,6 +216,55 @@ describe('mode cut (hotfix.yml)', () => {
     expect(process.exitCode).toBe(1)
     expect(errors()).toEqual([{ title: 'production_moved', message: expect.stringMatching(/^production is now running release-2026-10-22-10150/) }])
     expect(outputs).toEqual({})
+  })
+
+  // The push with push-token itself, against a server that checks who
+  // pushes, is in v2-hotfix-push-token.test.js.
+  it('pushes with push-token, masking it and the credential git sends, and says so', async () => {
+    const fx = app()
+    const token = 'example-app-token-0001'
+    Object.assign(inputs, { mode: 'cut', 'project-name': PROJECT, path: fx.clone(), commit: fx.fix, 'expected-release': RELEASE, 'push-as-app': 'true', 'push-token': token })
+    await run({ env: authorized, readLedger: fakeLedger([ledgerRow(RELEASE, fx.release)]).readLedger })
+    expect(errors()).toEqual([])
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(core.setSecret.mock.calls).toEqual([[token], [Buffer.from(`x-access-token:${token}`).toString('base64')]])
+    const head = fx.originGit(['rev-parse', `hotfix/${RELEASE}`])
+    expect(outputs).toMatchObject({ pushed: 'true', 'head-sha': head })
+    expect(core.notice).toHaveBeenCalledWith(expect.stringMatching(/and pushed the branch with push-token, the GitHub App's token$/), { title: 'Hotfix branch' })
+    expect(summary.text).toContain(`- Pushed \`hotfix/${RELEASE}\` at \`${head.slice(0, 12)}\` with push-token, the GitHub App's token.`)
+  })
+
+  it('refuses to push without the App\'s token when push-as-app is true, before reading anything', async () => {
+    const ledger = fakeLedger(new Error('must not be read'))
+    Object.assign(inputs, { mode: 'cut', 'project-name': PROJECT, path: '/nonexistent', commit: 'a'.repeat(40), 'expected-release': RELEASE, 'push-as-app': 'true' })
+    await run({ env: authorized, readLedger: ledger.readLedger })
+    expect(process.exitCode).toBe(1)
+    expect(errors()).toEqual([{ title: 'push_app_failed', message: "push-as-app is true, but no push-token was given, so there is no GitHub App token to push with, and the run does not fall back to the checkout's token; refusing to cut a hotfix. Nothing was pushed" }])
+    expect(ledger.calls).toEqual([])
+    expect(outputs).toEqual({})
+  })
+
+  it('still checks authorize-actor first', async () => {
+    Object.assign(inputs, { mode: 'cut', 'project-name': PROJECT, path: '/nonexistent', commit: 'a'.repeat(40), 'expected-release': RELEASE, 'push-as-app': 'true' })
+    await run({ env: { GITHUB_RUN_ATTEMPT: '1' }, readLedger: fakeLedger(new Error('must not be read')).readLedger })
+    expect(errors().map(({ title }) => title)).toEqual(['actor_not_allowed'])
+    expect(core.setSecret).not.toHaveBeenCalled()
+  })
+})
+
+describe('pushCredential', () => {
+  it.each([
+    [{ asApp: '', token: '' }, { token: '' }],
+    [{ asApp: 'false', token: '' }, { token: '' }],
+    [{ asApp: ' TRUE ', token: 'example-token' }, { token: 'example-token' }],
+    // The token decides; push-as-app only makes it required.
+    [{ asApp: 'false', token: 'example-token' }, { token: 'example-token' }]
+  ])('%j pushes with %j', (given, expected) => {
+    expect(pushCredential(given)).toEqual(expected)
+  })
+
+  it.each(['yes', '1', 'true\nfalse'])('refuses push-as-app %j', (asApp) => {
+    expect(pushCredential({ asApp, token: 'example-token' })).toEqual({ refusal: `push-as-app must be true or false, not '${asApp.replace('\n', ' ')}'; refusing to cut a hotfix. Nothing was pushed` })
   })
 })
 
