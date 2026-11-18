@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.0](https://github.com/CruGlobal/.github/compare/v2.24.1...v2.25.0) (2026-11-18)
+
+
+### Features
+
+* **v2:** let hotfix push the hotfix branch as a GitHub App ([#591](https://github.com/CruGlobal/.github/issues/591)) ([15d798e](https://github.com/CruGlobal/.github/commit/15d798ea80ad98cd1be037de7c7f9d413bbc6ee2))
+
 ## [2.24.1](https://github.com/CruGlobal/.github/compare/v2.24.0...v2.24.1) (2026-11-17)
 
 
