@@ -23,14 +23,14 @@
     "@actions/core": "^3.0.0",
     "@actions/exec": "^3.0.0",
     "@actions/github": "^9.1.1",
-    "@aws-sdk/client-cloudfront": "^3.1169.0",
-    "@aws-sdk/client-dynamodb": "^3.1169.0",
-    "@aws-sdk/client-ecr": "^3.1169.0",
-    "@aws-sdk/client-ecs": "^3.1169.0",
-    "@aws-sdk/client-eventbridge": "^3.1169.0",
-    "@aws-sdk/client-lambda": "^3.1169.0",
-    "@aws-sdk/client-s3": "^3.1169.0",
-    "@aws-sdk/client-ssm": "^3.1169.0",
+    "@aws-sdk/client-cloudfront": "^3.1175.0",
+    "@aws-sdk/client-dynamodb": "^3.1175.0",
+    "@aws-sdk/client-ecr": "^3.1175.0",
+    "@aws-sdk/client-ecs": "^3.1175.0",
+    "@aws-sdk/client-eventbridge": "^3.1175.0",
+    "@aws-sdk/client-lambda": "^3.1175.0",
+    "@aws-sdk/client-s3": "^3.1175.0",
+    "@aws-sdk/client-ssm": "^3.1175.0",
     "@google-cloud/run": "^4.2.0",
     "@google-cloud/secret-manager": "^8.0.0",
     "escape-string-regexp": "^5.0.0",
@@ -44,7 +44,7 @@
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
     "js-yaml": "^5.5.0",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   },
   "overrides": {
     "minimatch@^10": "^11.0.4"
