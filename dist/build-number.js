@@ -31270,21 +31270,26 @@ var init_hostHeaderMiddleware = __esm({
 var loggerMiddleware, loggerMiddlewareOptions, getLoggerPlugin;
 var init_loggerMiddleware = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-logger/loggerMiddleware.js"() {
+    init_client2();
     loggerMiddleware = () => (next, context) => async (args) => {
       try {
         const response = await next(args);
-        const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context;
-        const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
-        const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
-        const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
-        const { $metadata, ...outputWithoutMetadata } = response.output;
-        logger2?.info?.({
-          clientName,
-          commandName,
-          input: inputFilterSensitiveLog(args.input),
-          output: outputFilterSensitiveLog(outputWithoutMetadata),
-          metadata: $metadata
-        });
+        const { logger: logger2 } = context;
+        const isNoOpLogger = logger2 instanceof NoOpLogger;
+        if (logger2 && !isNoOpLogger) {
+          const { clientName, commandName, dynamoDbDocumentClientOptions = {} } = context;
+          const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
+          const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
+          const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
+          const { $metadata, ...outputWithoutMetadata } = response.output;
+          logger2.info?.({
+            clientName,
+            commandName,
+            input: inputFilterSensitiveLog(args.input),
+            output: outputFilterSensitiveLog(outputWithoutMetadata),
+            metadata: $metadata
+          });
+        }
         return response;
       } catch (error3) {
         const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context;
@@ -38091,7 +38096,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.998.3",
+      version: "3.998.4",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -38191,7 +38196,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.981.0",
+        "@aws-sdk/core": "^3.981.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.52",
         "@aws-sdk/types": "^3.975.1",
         "@smithy/core": "^3.40.0",
@@ -51751,7 +51756,7 @@ var require_dist_cjs19 = __commonJS({
     ];
     var DescribeEndpointsCommand = class extends command5(_ep05, _mw05, "DescribeEndpoints", DescribeEndpoints$) {
     };
-    var version = "3.1168.0";
+    var version = "3.1174.0";
     var packageInfo = {
       version
     };

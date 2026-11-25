@@ -31186,21 +31186,26 @@ var init_hostHeaderMiddleware = __esm({
 var loggerMiddleware, loggerMiddlewareOptions, getLoggerPlugin;
 var init_loggerMiddleware = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-logger/loggerMiddleware.js"() {
+    init_client2();
     loggerMiddleware = () => (next, context) => async (args) => {
       try {
         const response = await next(args);
-        const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context;
-        const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
-        const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
-        const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
-        const { $metadata, ...outputWithoutMetadata } = response.output;
-        logger2?.info?.({
-          clientName,
-          commandName,
-          input: inputFilterSensitiveLog(args.input),
-          output: outputFilterSensitiveLog(outputWithoutMetadata),
-          metadata: $metadata
-        });
+        const { logger: logger2 } = context;
+        const isNoOpLogger = logger2 instanceof NoOpLogger;
+        if (logger2 && !isNoOpLogger) {
+          const { clientName, commandName, dynamoDbDocumentClientOptions = {} } = context;
+          const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
+          const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
+          const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
+          const { $metadata, ...outputWithoutMetadata } = response.output;
+          logger2.info?.({
+            clientName,
+            commandName,
+            input: inputFilterSensitiveLog(args.input),
+            output: outputFilterSensitiveLog(outputWithoutMetadata),
+            metadata: $metadata
+          });
+        }
         return response;
       } catch (error3) {
         const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context;
@@ -37299,7 +37304,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.998.3",
+      version: "3.998.4",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -37399,7 +37404,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.981.0",
+        "@aws-sdk/core": "^3.981.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.52",
         "@aws-sdk/types": "^3.975.1",
         "@smithy/core": "^3.40.0",
@@ -45851,7 +45856,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1168.0";
+    var version = "3.1174.0";
     var packageInfo = {
       version
     };
@@ -46905,9 +46910,10 @@ var require_dist_cjs16 = __commonJS({
     };
     var _A2 = "Action";
     var _AA = "AliasArn";
-    var _AC = "AliasConfiguration";
+    var _AC = "AcceleratorConfig";
     var _ACc = "AccessConfigs";
-    var _ACl = "AllowCredentials";
+    var _ACl = "AliasConfiguration";
+    var _ACll = "AllowCredentials";
     var _AFSC = "AppliedFunctionScalingConfig";
     var _AH = "AllowHeaders";
     var _AIT = "AllowedInstanceTypes";
@@ -46920,6 +46926,7 @@ var require_dist_cjs16 = __commonJS({
     var _ALl = "AliasList";
     var _AM = "AllowMethods";
     var _AMKESC = "AmazonManagedKafkaEventSourceConfig";
+    var _AMS = "AcceleratorMemorySize";
     var _AO = "AllowOrigins";
     var _AOp = "ApplyOn";
     var _AP = "AllowedPublishers";
@@ -47045,6 +47052,9 @@ var require_dist_cjs16 = __commonJS({
     var _DCSCRe = "DeleteCodeSigningConfigResponse";
     var _DCu = "DurableConfig";
     var _DDBESC = "DocumentDBEventSourceConfig";
+    var _DDE = "DeleteDurableExecution";
+    var _DDER = "DeleteDurableExecutionRequest";
+    var _DDERe = "DeleteDurableExecutionResponse";
     var _DE = "DurableExecutions";
     var _DEA = "DurableExecutionArn";
     var _DEASE = "DurableExecutionAlreadyStartedException";
@@ -47071,6 +47081,7 @@ var require_dist_cjs16 = __commonJS({
     var _DR = "DryRun";
     var _DRP = "DeleteResourcePolicy";
     var _DRPR = "DeleteResourcePolicyRequest";
+    var _DRT = "DeletionRequestTimestamp";
     var _DSR = "DirectS3Read";
     var _De = "Destination";
     var _Du = "Duration";
@@ -47086,6 +47097,7 @@ var require_dist_cjs16 = __commonJS({
     var _EDx = "ExecutionDetails";
     var _EE = "EnvironmentError";
     var _EEMGBPVC = "ExecutionEnvironmentMemoryGiBPerVCpu";
+    var _EETT = "ExpectedExecutionTimeoutTimestamp";
     var _EEv = "EventError";
     var _EFD = "ExecutionFailedDetails";
     var _EFSIOE = "EFSIOException";
@@ -47101,8 +47113,12 @@ var require_dist_cjs16 = __commonJS({
     var _ENINRE = "ENINotReadyException";
     var _EO = "ErrorObject";
     var _EP = "EntryPoint";
+    var _EPD = "ExecutionPausedDetails";
+    var _EPR = "EventPauseReason";
     var _ER = "EnvironmentResponse";
+    var _ERD = "ExecutionResumedDetails";
     var _ERF = "EventRecordFormat";
+    var _ERR = "EventResumeReason";
     var _ERv = "EventResult";
     var _ES = "EphemeralStorage";
     var _ESA = "EventSourceArn";
@@ -47119,6 +47135,7 @@ var require_dist_cjs16 = __commonJS({
     var _ESv = "EventStream";
     var _ET = "ErrorType";
     var _ETOD = "ExecutionTimedOutDetails";
+    var _ETP = "ExecutionTimeoutPaused";
     var _ETn = "EndTimestamp";
     var _ETv = "EventType";
     var _ETve = "EventTimestamp";
@@ -47404,6 +47421,10 @@ var require_dist_cjs16 = __commonJS({
     var _PCCNFE = "ProvisionedConcurrencyConfigNotFoundException";
     var _PCE = "ProvisionedConcurrentExecutions";
     var _PCa = "PayloadChunk";
+    var _PD = "PauseDetails";
+    var _PDE = "PauseDurableExecution";
+    var _PDER = "PauseDurableExecutionRequest";
+    var _PDERa = "PauseDurableExecutionResponse";
     var _PEEMC = "PerExecutionEnvironmentMaxConcurrency";
     var _PF = "ParallelizationFactor";
     var _PFC = "PutFunctionConcurrency";
@@ -47433,12 +47454,14 @@ var require_dist_cjs16 = __commonJS({
     var _PPCCR = "PutProvisionedConcurrencyConfigRequest";
     var _PPCCRu = "PutProvisionedConcurrencyConfigResponse";
     var _PPE = "PublicPolicyException";
+    var _PR = "PauseReason";
     var _PRMC = "PutRuntimeManagementConfig";
     var _PRMCR = "PutRuntimeManagementConfigRequest";
     var _PRMCRu = "PutRuntimeManagementConfigResponse";
     var _PRP = "PutResourcePolicy";
     var _PRPR = "PutResourcePolicyRequest";
     var _PRPRu = "PutResourcePolicyResponse";
+    var _PRT = "PauseRequestTimestamp";
     var _PT = "PropagateTags";
     var _PTa = "PackageType";
     var _PTu = "PublishTo";
@@ -47462,6 +47485,9 @@ var require_dist_cjs16 = __commonJS({
     var _RCe = "ReplayChildren";
     var _RCu = "RuntimeConfig";
     var _RD = "RetryDetails";
+    var _RDE2 = "ResumeDurableExecution";
+    var _RDER = "ResumeDurableExecutionRequest";
+    var _RDERe = "ResumeDurableExecutionResponse";
     var _RFSC = "RequestedFunctionScalingConfig";
     var _RI = "RevisionId";
     var _RIE = "RecursiveInvocationException";
@@ -47478,6 +47504,8 @@ var require_dist_cjs16 = __commonJS({
     var _RPCE = "RequestedProvisionedConcurrentExecutions";
     var _RPID = "RetentionPeriodInDays";
     var _RPR = "RemovePermissionRequest";
+    var _RR = "ResumeReason";
+    var _RRT = "ResumeRequestTimestamp";
     var _RSCT = "ResponseStreamContentType";
     var _RSO = "ResolvedS3Object";
     var _RT3 = "RepositoryType";
@@ -48200,8 +48228,19 @@ var require_dist_cjs16 = __commonJS({
     var InputPayload = [0, n05, _IP, 8, 0];
     var OperationPayload = [0, n05, _OP, 8, 0];
     var OutputPayload = [0, n05, _OPu, 8, 0];
+    var PauseReason = [0, n05, _PR, 8, 0];
+    var ResumeReason = [0, n05, _RR, 8, 0];
     var SensitiveString = [0, n05, _SS, 8, 0];
     var StackTraceEntry = [0, n05, _STE, 8, 0];
+    var AcceleratorConfig$ = [
+      3,
+      n05,
+      _AC,
+      0,
+      [_AMS],
+      [1],
+      1
+    ];
     var AccountLimit$ = [
       3,
       n05,
@@ -48255,7 +48294,7 @@ var require_dist_cjs16 = __commonJS({
     var AliasConfiguration$ = [
       3,
       n05,
-      _AC,
+      _ACl,
       0,
       [_AA, _N, _FV, _D, _RC2, _RI],
       [0, 0, 0, 0, () => AliasRoutingConfiguration$, 0]
@@ -48557,7 +48596,7 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _Co,
       0,
-      [_ACl, _AH, _AM, _AO, _EH, _MA],
+      [_ACll, _AH, _AM, _AO, _EH, _MA],
       [2, 64 | 0, 64 | 0, 64 | 0, 64 | 0, 1]
     ];
     var CreateAliasRequest$ = [
@@ -48619,8 +48658,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _CFR,
       0,
-      [_FN, _Ro, _Cod, _Ru, _H, _D, _Ti, _MS, _Pu, _PTu, _VC, _PTa, _DLC, _Env, _KMSKA, _TCr, _Ta2, _L, _FSC, _CSCA, _IC, _Ar, _ES, _SSn, _LC, _TCe, _CPC, _DCu, _RCu],
-      [0, 0, [() => FunctionCode$, 0], 0, 0, 0, 1, 1, 2, 0, () => VpcConfig$, 0, () => DeadLetterConfig$, [() => Environment$, 0], 0, () => TracingConfig$, 128 | 0, 64 | 0, () => FileSystemConfigList, 0, () => ImageConfig$, 64 | 0, () => EphemeralStorage$, () => SnapStart$, () => LoggingConfig$, () => TenancyConfig$, () => CapacityProviderConfig$, () => DurableConfig$, () => FunctionRuntimeConfig$],
+      [_FN, _Ro, _Cod, _Ru, _H, _D, _Ti, _MS, _Pu, _PTu, _VC, _PTa, _DLC, _Env, _KMSKA, _TCr, _Ta2, _L, _FSC, _CSCA, _IC, _Ar, _ES, _SSn, _LC, _TCe, _CPC, _DCu, _RCu, _AC],
+      [0, 0, [() => FunctionCode$, 0], 0, 0, 0, 1, 1, 2, 0, () => VpcConfig$, 0, () => DeadLetterConfig$, [() => Environment$, 0], 0, () => TracingConfig$, 128 | 0, 64 | 0, () => FileSystemConfigList, 0, () => ImageConfig$, 64 | 0, () => EphemeralStorage$, () => SnapStart$, () => LoggingConfig$, () => TenancyConfig$, () => CapacityProviderConfig$, () => DurableConfig$, () => FunctionRuntimeConfig$, () => AcceleratorConfig$],
       3
     ];
     var CreateFunctionUrlConfigRequest$ = [
@@ -48692,6 +48731,24 @@ var require_dist_cjs16 = __commonJS({
       0,
       [],
       []
+    ];
+    var DeleteDurableExecutionRequest$ = [
+      3,
+      n05,
+      _DDER,
+      0,
+      [_DEA],
+      [[0, 1]],
+      1
+    ];
+    var DeleteDurableExecutionResponse$ = [
+      3,
+      n05,
+      _DDERe,
+      0,
+      [_DRT],
+      [4],
+      1
     ];
     var DeleteEventSourceMappingRequest$ = [
       3,
@@ -48852,8 +48909,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _Ev,
       0,
-      [_ETv, _STu, _EI2, _Id, _N, _ETve, _PI2, _ESD, _ESDx, _EFD, _ETOD, _ESDxe, _CSDo, _CSDon, _CFDo, _WSD, _WSDa, _WCD, _SSD, _SSDt, _SFD, _CISD, _CISDha, _CIFD, _CITOD, _CISDh, _CSD, _CSDa, _CFD, _CTOD, _ICD],
-      [0, 0, 1, 0, 0, 4, 0, [() => ExecutionStartedDetails$, 0], [() => ExecutionSucceededDetails$, 0], [() => ExecutionFailedDetails$, 0], [() => ExecutionTimedOutDetails$, 0], [() => ExecutionStoppedDetails$, 0], () => ContextStartedDetails$, [() => ContextSucceededDetails$, 0], [() => ContextFailedDetails$, 0], () => WaitStartedDetails$, () => WaitSucceededDetails$, [() => WaitCancelledDetails$, 0], () => StepStartedDetails$, [() => StepSucceededDetails$, 0], [() => StepFailedDetails$, 0], [() => ChainedInvokeStartedDetails$, 0], [() => ChainedInvokeSucceededDetails$, 0], [() => ChainedInvokeFailedDetails$, 0], [() => ChainedInvokeTimedOutDetails$, 0], [() => ChainedInvokeStoppedDetails$, 0], () => CallbackStartedDetails$, [() => CallbackSucceededDetails$, 0], [() => CallbackFailedDetails$, 0], [() => CallbackTimedOutDetails$, 0], [() => InvocationCompletedDetails$, 0]]
+      [_ETv, _STu, _EI2, _Id, _N, _ETve, _PI2, _ESD, _ESDx, _EFD, _ETOD, _ESDxe, _CSDo, _CSDon, _CFDo, _WSD, _WSDa, _WCD, _SSD, _SSDt, _SFD, _CISD, _CISDha, _CIFD, _CITOD, _CISDh, _CSD, _CSDa, _CFD, _CTOD, _ICD, _EPD, _ERD],
+      [0, 0, 1, 0, 0, 4, 0, [() => ExecutionStartedDetails$, 0], [() => ExecutionSucceededDetails$, 0], [() => ExecutionFailedDetails$, 0], [() => ExecutionTimedOutDetails$, 0], [() => ExecutionStoppedDetails$, 0], () => ContextStartedDetails$, [() => ContextSucceededDetails$, 0], [() => ContextFailedDetails$, 0], () => WaitStartedDetails$, () => WaitSucceededDetails$, [() => WaitCancelledDetails$, 0], () => StepStartedDetails$, [() => StepSucceededDetails$, 0], [() => StepFailedDetails$, 0], [() => ChainedInvokeStartedDetails$, 0], [() => ChainedInvokeSucceededDetails$, 0], [() => ChainedInvokeFailedDetails$, 0], [() => ChainedInvokeTimedOutDetails$, 0], [() => ChainedInvokeStoppedDetails$, 0], () => CallbackStartedDetails$, [() => CallbackSucceededDetails$, 0], [() => CallbackFailedDetails$, 0], [() => CallbackTimedOutDetails$, 0], [() => InvocationCompletedDetails$, 0], [() => ExecutionPausedDetails$, 0], [() => ExecutionResumedDetails$, 0]]
     ];
     var EventError$ = [
       3,
@@ -48871,6 +48928,14 @@ var require_dist_cjs16 = __commonJS({
       [_Pa, _Tr],
       [[() => InputPayload, 0], 2]
     ];
+    var EventPauseReason$ = [
+      3,
+      n05,
+      _EPR,
+      0,
+      [_Pa, _Tr],
+      [[() => PauseReason, 0], 2]
+    ];
     var EventResult$ = [
       3,
       n05,
@@ -48878,6 +48943,14 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_Pa, _Tr],
       [[() => OperationPayload, 0], 2]
+    ];
+    var EventResumeReason$ = [
+      3,
+      n05,
+      _ERR,
+      0,
+      [_Pa, _Tr],
+      [[() => ResumeReason, 0], 2]
     ];
     var EventSourceMappingConfiguration$ = [
       3,
@@ -48927,6 +49000,24 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_E2],
       [[() => EventError$, 0]],
+      1
+    ];
+    var ExecutionPausedDetails$ = [
+      3,
+      n05,
+      _EPD,
+      0,
+      [_PRT, _ETP, _R],
+      [4, 2, [() => EventPauseReason$, 0]],
+      2
+    ];
+    var ExecutionResumedDetails$ = [
+      3,
+      n05,
+      _ERD,
+      0,
+      [_RRT, _R],
+      [4, [() => EventResumeReason$, 0]],
       1
     ];
     var ExecutionStartedDetails$ = [
@@ -49026,8 +49117,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _FCun,
       0,
-      [_FN, _FA, _Ru, _Ro, _H, _CS2, _D, _Ti, _MS, _LM, _CSo, _Ve, _VC, _DLC, _Env, _KMSKA, _TCr, _MAa, _RI, _L, _St, _SR, _SRCt, _LUS, _LUSR, _LUSRC, _FSC, _SPVAi, _SJA, _PTa, _ICR, _Ar, _ES, _SSn, _RVC, _LC, _TCe, _CPC, _CSon, _DCu, _RCu],
-      [0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, () => VpcConfigResponse$, () => DeadLetterConfig$, [() => EnvironmentResponse$, 0], 0, () => TracingConfigResponse$, 0, 0, () => LayersReferenceList, 0, 0, 0, 0, 0, 0, () => FileSystemConfigList, 0, 0, 0, [() => ImageConfigResponse$, 0], 64 | 0, () => EphemeralStorage$, () => SnapStartResponse$, [() => RuntimeVersionConfig$, 0], () => LoggingConfig$, () => TenancyConfig$, () => CapacityProviderConfig$, 0, () => DurableConfig$, () => FunctionRuntimeConfig$]
+      [_FN, _FA, _Ru, _Ro, _H, _CS2, _D, _Ti, _MS, _LM, _CSo, _Ve, _VC, _DLC, _Env, _KMSKA, _TCr, _MAa, _RI, _L, _St, _SR, _SRCt, _LUS, _LUSR, _LUSRC, _FSC, _SPVAi, _SJA, _PTa, _ICR, _Ar, _ES, _SSn, _RVC, _LC, _TCe, _CPC, _CSon, _DCu, _RCu, _AC],
+      [0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, () => VpcConfigResponse$, () => DeadLetterConfig$, [() => EnvironmentResponse$, 0], 0, () => TracingConfigResponse$, 0, 0, () => LayersReferenceList, 0, 0, 0, 0, 0, 0, () => FileSystemConfigList, 0, 0, 0, [() => ImageConfigResponse$, 0], 64 | 0, () => EphemeralStorage$, () => SnapStartResponse$, [() => RuntimeVersionConfig$, 0], () => LoggingConfig$, () => TenancyConfig$, () => CapacityProviderConfig$, 0, () => DurableConfig$, () => FunctionRuntimeConfig$, () => AcceleratorConfig$]
     ];
     var FunctionEventInvokeConfig$ = [
       3,
@@ -49165,8 +49256,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _GDERe,
       0,
-      [_DEA, _DEN, _FA, _STt, _Sta, _IP, _Re, _E2, _ETn, _Ve, _TH, _EDI, _DCu],
-      [0, 0, 0, 4, 0, [() => InputPayload, 0], [() => OutputPayload, 0], [() => ErrorObject$, 0], 4, 0, () => TraceHeader$, 2, () => DurableConfig$],
+      [_DEA, _DEN, _FA, _STt, _Sta, _IP, _Re, _E2, _ETn, _Ve, _TH, _EDI, _DCu, _PD, _EETT],
+      [0, 0, 0, 4, 0, [() => InputPayload, 0], [() => OutputPayload, 0], [() => ErrorObject$, 0], 4, 0, () => TraceHeader$, 2, () => DurableConfig$, [() => PauseDetails$, 0], 4],
       5
     ];
     var GetDurableExecutionStateRequest$ = [
@@ -49905,6 +49996,32 @@ var require_dist_cjs16 = __commonJS({
       [0, 0, 0, 0, 0, 0, [() => OperationPayload, 0], [() => ErrorObject$, 0], () => ContextOptions$, () => StepOptions$, () => WaitOptions$, () => CallbackOptions$, () => ChainedInvokeOptions$],
       3
     ];
+    var PauseDetails$ = [
+      3,
+      n05,
+      _PD,
+      0,
+      [_PRT, _ETP, _R],
+      [4, 2, [() => PauseReason, 0]],
+      2
+    ];
+    var PauseDurableExecutionRequest$ = [
+      3,
+      n05,
+      _PDER,
+      0,
+      [_DEA, _CTl, _R, _ETP],
+      [[0, 1], [0, 4], [() => PauseReason, 0], 2],
+      1
+    ];
+    var PauseDurableExecutionResponse$ = [
+      3,
+      n05,
+      _PDERa,
+      0,
+      [],
+      []
+    ];
     var PropagateTags$ = [
       3,
       n05,
@@ -50102,6 +50219,23 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_SB, _SK, _SOV],
       [0, 0, 0]
+    ];
+    var ResumeDurableExecutionRequest$ = [
+      3,
+      n05,
+      _RDER,
+      0,
+      [_DEA, _CTl, _R],
+      [[0, 1], [0, 4], [() => ResumeReason, 0]],
+      1
+    ];
+    var ResumeDurableExecutionResponse$ = [
+      3,
+      n05,
+      _RDERe,
+      0,
+      [],
+      []
     ];
     var RetryDetails$ = [
       3,
@@ -50431,8 +50565,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _UFCRp,
       0,
-      [_FN, _Ro, _H, _D, _Ti, _MS, _VC, _Env, _Ru, _DLC, _KMSKA, _TCr, _RI, _L, _FSC, _IC, _ES, _SSn, _LC, _CPC, _DCu, _RCu],
-      [[0, 1], 0, 0, 0, 1, 1, () => VpcConfig$, [() => Environment$, 0], 0, () => DeadLetterConfig$, 0, () => TracingConfig$, 0, 64 | 0, () => FileSystemConfigList, () => ImageConfig$, () => EphemeralStorage$, () => SnapStart$, () => LoggingConfig$, () => CapacityProviderConfig$, () => DurableConfig$, () => FunctionRuntimeConfig$],
+      [_FN, _Ro, _H, _D, _Ti, _MS, _VC, _Env, _Ru, _DLC, _KMSKA, _TCr, _RI, _L, _FSC, _IC, _ES, _SSn, _LC, _CPC, _DCu, _RCu, _AC],
+      [[0, 1], 0, 0, 0, 1, 1, () => VpcConfig$, [() => Environment$, 0], 0, () => DeadLetterConfig$, 0, () => TracingConfig$, 0, 64 | 0, () => FileSystemConfigList, () => ImageConfig$, () => EphemeralStorage$, () => SnapStart$, () => LoggingConfig$, () => CapacityProviderConfig$, () => DurableConfig$, () => FunctionRuntimeConfig$, () => AcceleratorConfig$],
       1
     ];
     var UpdateFunctionEventInvokeConfigRequest$ = [
@@ -50823,6 +50957,14 @@ var require_dist_cjs16 = __commonJS({
       { [_h4]: ["DELETE", "/2020-04-22/code-signing-configs/{CodeSigningConfigArn}", 204] },
       () => DeleteCodeSigningConfigRequest$,
       () => DeleteCodeSigningConfigResponse$
+    ];
+    var DeleteDurableExecution$ = [
+      9,
+      n05,
+      _DDE,
+      { [_h4]: ["DELETE", "/2025-12-01/durable-executions/{DurableExecutionArn}", 202] },
+      () => DeleteDurableExecutionRequest$,
+      () => DeleteDurableExecutionResponse$
     ];
     var DeleteEventSourceMapping$ = [
       9,
@@ -51224,6 +51366,14 @@ var require_dist_cjs16 = __commonJS({
       () => ListVersionsByFunctionRequest$,
       () => ListVersionsByFunctionResponse$
     ];
+    var PauseDurableExecution$ = [
+      9,
+      n05,
+      _PDE,
+      { [_h4]: ["POST", "/2025-12-01/durable-executions/{DurableExecutionArn}/pause", 202] },
+      () => PauseDurableExecutionRequest$,
+      () => PauseDurableExecutionResponse$
+    ];
     var PublishLayerVersion$ = [
       9,
       n05,
@@ -51319,6 +51469,14 @@ var require_dist_cjs16 = __commonJS({
       { [_h4]: ["DELETE", "/2015-03-31/functions/{FunctionName}/policy/{StatementId}", 204] },
       () => RemovePermissionRequest$,
       () => __Unit
+    ];
+    var ResumeDurableExecution$ = [
+      9,
+      n05,
+      _RDE2,
+      { [_h4]: ["POST", "/2025-12-01/durable-executions/{DurableExecutionArn}/resume", 202] },
+      () => ResumeDurableExecutionRequest$,
+      () => ResumeDurableExecutionResponse$
     ];
     var SendDurableExecutionCallbackFailure$ = [
       9,
@@ -51600,6 +51758,8 @@ var require_dist_cjs16 = __commonJS({
     };
     var DeleteCodeSigningConfigCommand = class extends command5(_ep05, _mw05, "DeleteCodeSigningConfig", DeleteCodeSigningConfig$) {
     };
+    var DeleteDurableExecutionCommand = class extends command5(_ep05, _mw05, "DeleteDurableExecution", DeleteDurableExecution$) {
+    };
     var DeleteEventSourceMappingCommand = class extends command5(_ep05, _mw05, "DeleteEventSourceMapping", DeleteEventSourceMapping$) {
     };
     var DeleteFunctionCodeSigningConfigCommand = class extends command5(_ep05, _mw05, "DeleteFunctionCodeSigningConfig", DeleteFunctionCodeSigningConfig$) {
@@ -51700,6 +51860,8 @@ var require_dist_cjs16 = __commonJS({
     };
     var ListVersionsByFunctionCommand = class extends command5(_ep05, _mw05, "ListVersionsByFunction", ListVersionsByFunction$) {
     };
+    var PauseDurableExecutionCommand = class extends command5(_ep05, _mw05, "PauseDurableExecution", PauseDurableExecution$) {
+    };
     var PublishLayerVersionCommand = class extends command5(_ep05, _mw05, "PublishLayerVersion", PublishLayerVersion$) {
     };
     var PublishVersionCommand2 = class extends command5(_ep05, _mw05, "PublishVersion", PublishVersion$) {
@@ -51723,6 +51885,8 @@ var require_dist_cjs16 = __commonJS({
     var RemoveLayerVersionPermissionCommand = class extends command5(_ep05, _mw05, "RemoveLayerVersionPermission", RemoveLayerVersionPermission$) {
     };
     var RemovePermissionCommand = class extends command5(_ep05, _mw05, "RemovePermission", RemovePermission$) {
+    };
+    var ResumeDurableExecutionCommand = class extends command5(_ep05, _mw05, "ResumeDurableExecution", ResumeDurableExecution$) {
     };
     var SendDurableExecutionCallbackFailureCommand = class extends command5(_ep05, _mw05, "SendDurableExecutionCallbackFailure", SendDurableExecutionCallbackFailure$) {
     };
@@ -52034,6 +52198,7 @@ var require_dist_cjs16 = __commonJS({
       DeleteAliasCommand,
       DeleteCapacityProviderCommand,
       DeleteCodeSigningConfigCommand,
+      DeleteDurableExecutionCommand,
       DeleteEventSourceMappingCommand,
       DeleteFunctionCommand: DeleteFunctionCommand2,
       DeleteFunctionCodeSigningConfigCommand,
@@ -52084,6 +52249,7 @@ var require_dist_cjs16 = __commonJS({
       ListProvisionedConcurrencyConfigsCommand,
       ListTagsCommand,
       ListVersionsByFunctionCommand,
+      PauseDurableExecutionCommand,
       PublishLayerVersionCommand,
       PublishVersionCommand: PublishVersionCommand2,
       PutFunctionCodeSigningConfigCommand,
@@ -52096,6 +52262,7 @@ var require_dist_cjs16 = __commonJS({
       PutRuntimeManagementConfigCommand,
       RemoveLayerVersionPermissionCommand,
       RemovePermissionCommand,
+      ResumeDurableExecutionCommand,
       SendDurableExecutionCallbackFailureCommand,
       SendDurableExecutionCallbackHeartbeatCommand,
       SendDurableExecutionCallbackSuccessCommand,
@@ -52140,6 +52307,15 @@ var require_dist_cjs16 = __commonJS({
     var Lambda = class extends LambdaClient2 {
     };
     createAggregatedClient2(commands5, Lambda, { paginators, waiters });
+    var AcceleratorMemoryGB;
+    (function(AcceleratorMemoryGB2) {
+      AcceleratorMemoryGB2[AcceleratorMemoryGB2["MEMORY_3"] = 3] = "MEMORY_3";
+      AcceleratorMemoryGB2[AcceleratorMemoryGB2["MEMORY_6"] = 6] = "MEMORY_6";
+      AcceleratorMemoryGB2[AcceleratorMemoryGB2["MEMORY_12"] = 12] = "MEMORY_12";
+      AcceleratorMemoryGB2[AcceleratorMemoryGB2["MEMORY_16"] = 16] = "MEMORY_16";
+      AcceleratorMemoryGB2[AcceleratorMemoryGB2["MEMORY_24"] = 24] = "MEMORY_24";
+      AcceleratorMemoryGB2[AcceleratorMemoryGB2["MEMORY_48"] = 48] = "MEMORY_48";
+    })(AcceleratorMemoryGB || (AcceleratorMemoryGB = {}));
     var ThrottleReason = {
       CallerRateLimitExceeded: "CallerRateLimitExceeded",
       ConcurrentInvocationLimitExceeded: "ConcurrentInvocationLimitExceeded",
@@ -52183,7 +52359,8 @@ var require_dist_cjs16 = __commonJS({
       Manual: "Manual"
     };
     var CapacityProviderPredefinedMetricType = {
-      LambdaCapacityProviderAverageCPUUtilization: "LambdaCapacityProviderAverageCPUUtilization"
+      LambdaCapacityProviderAverageCPUUtilization: "LambdaCapacityProviderAverageCPUUtilization",
+      LambdaCapacityProviderAverageGPUUtilization: "LambdaCapacityProviderAverageGPUUtilization"
     };
     var PropagateTagsMode = {
       Explicit: "Explicit",
@@ -52240,7 +52417,10 @@ var require_dist_cjs16 = __commonJS({
       TIMED_OUT: "TIMED_OUT"
     };
     var ExecutionStatus = {
+      DELETING: "DELETING",
       FAILED: "FAILED",
+      PAUSED: "PAUSED",
+      PAUSING: "PAUSING",
       RUNNING: "RUNNING",
       STOPPED: "STOPPED",
       SUCCEEDED: "SUCCEEDED",
@@ -52260,6 +52440,8 @@ var require_dist_cjs16 = __commonJS({
       ContextStarted: "ContextStarted",
       ContextSucceeded: "ContextSucceeded",
       ExecutionFailed: "ExecutionFailed",
+      ExecutionPaused: "ExecutionPaused",
+      ExecutionResumed: "ExecutionResumed",
       ExecutionStarted: "ExecutionStarted",
       ExecutionStopped: "ExecutionStopped",
       ExecutionSucceeded: "ExecutionSucceeded",
@@ -52430,6 +52612,7 @@ var require_dist_cjs16 = __commonJS({
       FunctionErrorTooManyExtensions: "FunctionError.TooManyExtensions",
       ImageAccessDenied: "ImageAccessDenied",
       ImageDeleted: "ImageDeleted",
+      IncompatibleAcceleratorInstanceTypes: "IncompatibleAcceleratorInstanceTypes",
       InsufficientCapacity: "InsufficientCapacity",
       InsufficientRolePermissions: "InsufficientRolePermissions",
       InternalError: "InternalError",
@@ -52475,6 +52658,7 @@ var require_dist_cjs16 = __commonJS({
       Idle: "Idle",
       ImageAccessDenied: "ImageAccessDenied",
       ImageDeleted: "ImageDeleted",
+      IncompatibleAcceleratorInstanceTypes: "IncompatibleAcceleratorInstanceTypes",
       InsufficientCapacity: "InsufficientCapacity",
       InsufficientRolePermissions: "InsufficientRolePermissions",
       InternalError: "InternalError",
@@ -52526,6 +52710,8 @@ var require_dist_cjs16 = __commonJS({
       IN_PROGRESS: "IN_PROGRESS",
       READY: "READY"
     };
+    exports2.AcceleratorConfig$ = AcceleratorConfig$;
+    exports2.AcceleratorMemoryGB = AcceleratorMemoryGB;
     exports2.AccountLimit$ = AccountLimit$;
     exports2.AccountUsage$ = AccountUsage$;
     exports2.AddLayerVersionPermission$ = AddLayerVersionPermission$;
@@ -52631,6 +52817,10 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeleteCodeSigningConfigCommand = DeleteCodeSigningConfigCommand;
     exports2.DeleteCodeSigningConfigRequest$ = DeleteCodeSigningConfigRequest$;
     exports2.DeleteCodeSigningConfigResponse$ = DeleteCodeSigningConfigResponse$;
+    exports2.DeleteDurableExecution$ = DeleteDurableExecution$;
+    exports2.DeleteDurableExecutionCommand = DeleteDurableExecutionCommand;
+    exports2.DeleteDurableExecutionRequest$ = DeleteDurableExecutionRequest$;
+    exports2.DeleteDurableExecutionResponse$ = DeleteDurableExecutionResponse$;
     exports2.DeleteEventSourceMapping$ = DeleteEventSourceMapping$;
     exports2.DeleteEventSourceMappingCommand = DeleteEventSourceMappingCommand;
     exports2.DeleteEventSourceMappingRequest$ = DeleteEventSourceMappingRequest$;
@@ -52692,7 +52882,9 @@ var require_dist_cjs16 = __commonJS({
     exports2.Event$ = Event$;
     exports2.EventError$ = EventError$;
     exports2.EventInput$ = EventInput$;
+    exports2.EventPauseReason$ = EventPauseReason$;
     exports2.EventResult$ = EventResult$;
+    exports2.EventResumeReason$ = EventResumeReason$;
     exports2.EventSourceMappingConfiguration$ = EventSourceMappingConfiguration$;
     exports2.EventSourceMappingLoggingConfig$ = EventSourceMappingLoggingConfig$;
     exports2.EventSourceMappingMetric = EventSourceMappingMetric;
@@ -52703,6 +52895,8 @@ var require_dist_cjs16 = __commonJS({
     exports2.Execution$ = Execution$;
     exports2.ExecutionDetails$ = ExecutionDetails$;
     exports2.ExecutionFailedDetails$ = ExecutionFailedDetails$;
+    exports2.ExecutionPausedDetails$ = ExecutionPausedDetails$;
+    exports2.ExecutionResumedDetails$ = ExecutionResumedDetails$;
     exports2.ExecutionStartedDetails$ = ExecutionStartedDetails$;
     exports2.ExecutionStatus = ExecutionStatus;
     exports2.ExecutionStoppedDetails$ = ExecutionStoppedDetails$;
@@ -52952,6 +53146,11 @@ var require_dist_cjs16 = __commonJS({
     exports2.OperationType = OperationType;
     exports2.OperationUpdate$ = OperationUpdate$;
     exports2.PackageType = PackageType;
+    exports2.PauseDetails$ = PauseDetails$;
+    exports2.PauseDurableExecution$ = PauseDurableExecution$;
+    exports2.PauseDurableExecutionCommand = PauseDurableExecutionCommand;
+    exports2.PauseDurableExecutionRequest$ = PauseDurableExecutionRequest$;
+    exports2.PauseDurableExecutionResponse$ = PauseDurableExecutionResponse$;
     exports2.PolicyLengthExceededException = PolicyLengthExceededException;
     exports2.PolicyLengthExceededException$ = PolicyLengthExceededException$;
     exports2.PreconditionFailedException = PreconditionFailedException;
@@ -53023,6 +53222,10 @@ var require_dist_cjs16 = __commonJS({
     exports2.ResourceNotReadyException = ResourceNotReadyException;
     exports2.ResourceNotReadyException$ = ResourceNotReadyException$;
     exports2.ResponseStreamingInvocationType = ResponseStreamingInvocationType;
+    exports2.ResumeDurableExecution$ = ResumeDurableExecution$;
+    exports2.ResumeDurableExecutionCommand = ResumeDurableExecutionCommand;
+    exports2.ResumeDurableExecutionRequest$ = ResumeDurableExecutionRequest$;
+    exports2.ResumeDurableExecutionResponse$ = ResumeDurableExecutionResponse$;
     exports2.RetryDetails$ = RetryDetails$;
     exports2.Runtime = Runtime;
     exports2.RuntimeAliasDeletedException = RuntimeAliasDeletedException;

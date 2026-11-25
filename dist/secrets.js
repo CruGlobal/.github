@@ -31186,21 +31186,26 @@ var init_hostHeaderMiddleware = __esm({
 var loggerMiddleware, loggerMiddlewareOptions, getLoggerPlugin;
 var init_loggerMiddleware = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-logger/loggerMiddleware.js"() {
+    init_client2();
     loggerMiddleware = () => (next, context) => async (args) => {
       try {
         const response = await next(args);
-        const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context;
-        const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
-        const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
-        const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
-        const { $metadata, ...outputWithoutMetadata } = response.output;
-        logger2?.info?.({
-          clientName,
-          commandName,
-          input: inputFilterSensitiveLog(args.input),
-          output: outputFilterSensitiveLog(outputWithoutMetadata),
-          metadata: $metadata
-        });
+        const { logger: logger2 } = context;
+        const isNoOpLogger = logger2 instanceof NoOpLogger;
+        if (logger2 && !isNoOpLogger) {
+          const { clientName, commandName, dynamoDbDocumentClientOptions = {} } = context;
+          const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
+          const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
+          const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
+          const { $metadata, ...outputWithoutMetadata } = response.output;
+          logger2.info?.({
+            clientName,
+            commandName,
+            input: inputFilterSensitiveLog(args.input),
+            output: outputFilterSensitiveLog(outputWithoutMetadata),
+            metadata: $metadata
+          });
+        }
         return response;
       } catch (error3) {
         const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context;
@@ -37299,7 +37304,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.998.3",
+      version: "3.998.4",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -37399,7 +37404,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.981.0",
+        "@aws-sdk/core": "^3.981.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.52",
         "@aws-sdk/types": "^3.975.1",
         "@smithy/core": "^3.40.0",
@@ -45850,7 +45855,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1168.0";
+    var version = "3.1174.0";
     var packageInfo = {
       version
     };
@@ -48249,7 +48254,10 @@ var require_dist_cjs16 = __commonJS({
     var _CPB = "CreatePatchBaseline";
     var _CPBR = "CreatePatchBaselineRequest";
     var _CPBRr = "CreatePatchBaselineResult";
-    var _CPL = "CommandPluginList";
+    var _CPL = "CloudProviderList";
+    var _CPLo = "CommandPluginList";
+    var _CPl = "CloudProviders";
+    var _CPlo = "CloudProvider";
     var _CPo = "CommandPlugin";
     var _CRDS = "CreateResourceDataSync";
     var _CRDSR = "CreateResourceDataSyncRequest";
@@ -51320,8 +51328,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _CDR,
       0,
-      [_Cont, _N, _Req, _At, _DNi, _VN, _DT, _DF, _TT, _T2],
-      [0, 0, () => DocumentRequiresList, () => AttachmentsSourceList, 0, 0, 0, 0, 0, () => TagList],
+      [_Cont, _N, _Req, _At, _DNi, _VN, _DT, _DF, _TT, _T2, _CPl],
+      [0, 0, () => DocumentRequiresList, () => AttachmentsSourceList, 0, 0, 0, 0, 0, () => TagList, [() => CloudProviderList, 0]],
       2
     ];
     var CreateDocumentResult$ = [
@@ -52316,8 +52324,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DD,
       0,
-      [_Sha, _H, _HT, _N, _DNi, _VN, _Ow, _CD, _St, _SI2, _DV, _D, _P2, _PTl, _DT, _SV, _LV, _DVe, _DF, _TT, _T2, _AItt, _Req, _Au2, _RIe, _AVp, _PRV, _RS, _Ca, _CEa],
-      [0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, [() => DocumentParameterList, 0], [() => PlatformTypeList, 0], 0, 0, 0, 0, 0, 0, () => TagList, [() => AttachmentInformationList, 0], () => DocumentRequiresList, 0, [() => ReviewInformationList, 0], 0, 0, 0, 64 | 0, 64 | 0]
+      [_Sha, _H, _HT, _N, _DNi, _VN, _Ow, _CD, _St, _SI2, _DV, _D, _P2, _PTl, _DT, _SV, _LV, _DVe, _DF, _TT, _T2, _AItt, _Req, _Au2, _RIe, _AVp, _PRV, _RS, _Ca, _CEa, _CPl],
+      [0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, [() => DocumentParameterList, 0], [() => PlatformTypeList, 0], 0, 0, 0, 0, 0, 0, () => TagList, [() => AttachmentInformationList, 0], () => DocumentRequiresList, 0, [() => ReviewInformationList, 0], 0, 0, 0, 64 | 0, 64 | 0, [() => CloudProviderList, 0]]
     ];
     var DocumentFilter$ = [
       3,
@@ -52333,8 +52341,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DIo,
       0,
-      [_N, _CD, _DNi, _Ow, _VN, _PTl, _DV, _DT, _SV, _DF, _TT, _T2, _Req, _RS, _Au2],
-      [0, 4, 0, 0, 0, [() => PlatformTypeList, 0], 0, 0, 0, 0, 0, () => TagList, () => DocumentRequiresList, 0, 0]
+      [_N, _CD, _DNi, _Ow, _VN, _PTl, _DV, _DT, _SV, _DF, _TT, _T2, _Req, _RS, _Au2, _CPl],
+      [0, 4, 0, 0, 0, [() => PlatformTypeList, 0], 0, 0, 0, 0, 0, () => TagList, () => DocumentRequiresList, 0, 0, [() => CloudProviderList, 0]]
     ];
     var DocumentKeyValuesFilter$ = [
       3,
@@ -52399,8 +52407,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DVI,
       0,
-      [_N, _DNi, _DV, _VN, _CD, _IDVs, _DF, _St, _SI2, _RS],
-      [0, 0, 0, 0, 4, 2, 0, 0, 0, 0]
+      [_N, _DNi, _DV, _VN, _CD, _IDVs, _DF, _St, _SI2, _RS, _CPl],
+      [0, 0, 0, 0, 4, 2, 0, 0, 0, 0, [() => CloudProviderList, 0]]
     ];
     var EffectivePatch$ = [
       3,
@@ -53314,7 +53322,7 @@ var require_dist_cjs16 = __commonJS({
       _LDVRi,
       0,
       [_DVo, _NT],
-      [() => DocumentVersionList, 0]
+      [[() => DocumentVersionList, 0], 0]
     ];
     var ListInventoryEntriesRequest$ = [
       3,
@@ -54692,8 +54700,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _UDR,
       0,
-      [_Cont, _N, _At, _DNi, _VN, _DV, _DF, _TT],
-      [0, 0, () => AttachmentsSourceList, 0, 0, 0, 0, 0],
+      [_Cont, _N, _At, _DNi, _VN, _DV, _DF, _TT, _CPl],
+      [0, 0, () => AttachmentsSourceList, 0, 0, 0, 0, 0, [() => CloudProviderList, 0]],
       2
     ];
     var UpdateDocumentResult$ = [
@@ -55080,6 +55088,16 @@ var require_dist_cjs16 = __commonJS({
       0,
       () => CloudConnectorSummary$
     ];
+    var CloudProviderList = [
+      1,
+      n05,
+      _CPL,
+      0,
+      [
+        0,
+        { [_xN]: _CPlo }
+      ]
+    ];
     var CommandFilterList = [
       1,
       n05,
@@ -55107,7 +55125,7 @@ var require_dist_cjs16 = __commonJS({
     var CommandPluginList = [
       1,
       n05,
-      _CPL,
+      _CPLo,
       0,
       () => CommandPlugin$
     ];
@@ -55238,7 +55256,10 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _DVL,
       0,
-      () => DocumentVersionInfo$
+      [
+        () => DocumentVersionInfo$,
+        0
+      ]
     ];
     var EffectivePatchList = [
       1,
@@ -58180,6 +58201,11 @@ var require_dist_cjs16 = __commonJS({
       S3FileUrl: "S3FileUrl",
       SourceUrl: "SourceUrl"
     };
+    var CloudProvider = {
+      AWS: "AWS",
+      AZURE: "Azure",
+      GCP: "GCP"
+    };
     var DocumentFormat = {
       JSON: "JSON",
       TEXT: "TEXT",
@@ -58944,6 +58970,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.CloudConnectorFilter$ = CloudConnectorFilter$;
     exports2.CloudConnectorFilterKey = CloudConnectorFilterKey;
     exports2.CloudConnectorSummary$ = CloudConnectorSummary$;
+    exports2.CloudProvider = CloudProvider;
     exports2.CloudWatchOutputConfig$ = CloudWatchOutputConfig$;
     exports2.Command$ = Command$;
     exports2.CommandFilter$ = CommandFilter$;

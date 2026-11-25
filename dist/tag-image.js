@@ -190003,21 +190003,26 @@ var init_hostHeaderMiddleware = __esm({
 var loggerMiddleware, loggerMiddlewareOptions, getLoggerPlugin;
 var init_loggerMiddleware = __esm({
   "node_modules/@aws-sdk/core/dist-es/submodules/client/middleware-logger/loggerMiddleware.js"() {
+    init_client2();
     loggerMiddleware = () => (next, context2) => async (args) => {
       try {
         const response = await next(args);
-        const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context2;
-        const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
-        const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context2.inputFilterSensitiveLog;
-        const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context2.outputFilterSensitiveLog;
-        const { $metadata, ...outputWithoutMetadata } = response.output;
-        logger2?.info?.({
-          clientName,
-          commandName,
-          input: inputFilterSensitiveLog(args.input),
-          output: outputFilterSensitiveLog(outputWithoutMetadata),
-          metadata: $metadata
-        });
+        const { logger: logger2 } = context2;
+        const isNoOpLogger = logger2 instanceof NoOpLogger;
+        if (logger2 && !isNoOpLogger) {
+          const { clientName, commandName, dynamoDbDocumentClientOptions = {} } = context2;
+          const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
+          const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context2.inputFilterSensitiveLog;
+          const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context2.outputFilterSensitiveLog;
+          const { $metadata, ...outputWithoutMetadata } = response.output;
+          logger2.info?.({
+            clientName,
+            commandName,
+            input: inputFilterSensitiveLog(args.input),
+            output: outputFilterSensitiveLog(outputWithoutMetadata),
+            metadata: $metadata
+          });
+        }
         return response;
       } catch (error3) {
         const { clientName, commandName, logger: logger2, dynamoDbDocumentClientOptions = {} } = context2;
@@ -196116,7 +196121,7 @@ var init_package = __esm({
   "node_modules/@aws-sdk/nested-clients/package.json"() {
     package_default = {
       name: "@aws-sdk/nested-clients",
-      version: "3.998.3",
+      version: "3.998.4",
       description: "Nested clients for AWS SDK packages.",
       homepage: "https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients",
       license: "Apache-2.0",
@@ -196216,7 +196221,7 @@ var init_package = __esm({
         "test:watch": "yarn g:vitest watch"
       },
       dependencies: {
-        "@aws-sdk/core": "^3.981.0",
+        "@aws-sdk/core": "^3.981.1",
         "@aws-sdk/signature-v4-multi-region": "^3.996.52",
         "@aws-sdk/types": "^3.975.1",
         "@smithy/core": "^3.40.0",
@@ -204667,7 +204672,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1168.0";
+    var version = "3.1174.0";
     var packageInfo = {
       version
     };
@@ -205534,7 +205539,7 @@ var require_dist_cjs16 = __commonJS({
     var _DPTUE = "DeregisterPullTimeUpdateExclusion";
     var _DPTUER = "DeregisterPullTimeUpdateExclusionRequest";
     var _DPTUERe = "DeregisterPullTimeUpdateExclusionResponse";
-    var _DR = "DeleteRepository";
+    var _DR = "DeleteReplication";
     var _DRBR = "DescribeReplicationBackfillResults";
     var _DRBRR = "DescribeReplicationBackfillResultsRequest";
     var _DRBRRe = "DescribeReplicationBackfillResultsResponse";
@@ -205556,8 +205561,9 @@ var require_dist_cjs16 = __commonJS({
     var _DRResc = "DescribeRegistryResponse";
     var _DRRescr = "DescribeRepositoriesRequest";
     var _DRRescri = "DescribeRepositoriesResponse";
-    var _DRe = "DescribeRegistry";
-    var _DRes = "DescribeRepositories";
+    var _DRe = "DeleteRepository";
+    var _DRes = "DescribeRegistry";
+    var _DResc = "DescribeRepositories";
     var _DSC = "DeleteSigningConfiguration";
     var _DSCR = "DeleteSigningConfigurationRequest";
     var _DSCRe = "DeleteSigningConfigurationResponse";
@@ -205834,6 +205840,7 @@ var require_dist_cjs16 = __commonJS({
     var _cRC = "completedReplicationCount";
     var _cv = "cvss";
     var _d = "description";
+    var _dR = "deleteReplication";
     var _dU = "downloadUrl";
     var _de = "destination";
     var _des = "destinations";
@@ -205849,6 +205856,7 @@ var require_dist_cjs16 = __commonJS({
     var _eRP = "ecrRepositoryPrefix";
     var _eRPc = "ecrRepositoryPrefixes";
     var _eT = "encryptionType";
+    var _en = "enabled";
     var _ep = "epoch";
     var _f = "failures";
     var _fA = "findingArn";
@@ -206707,6 +206715,15 @@ var require_dist_cjs16 = __commonJS({
       0,
       [_rI, _pT],
       [0, 0]
+    ];
+    var DeleteReplication$ = [
+      3,
+      n05,
+      _DR,
+      0,
+      [_en],
+      [2],
+      1
     ];
     var DeleteRepositoryCreationTemplateRequest$ = [
       3,
@@ -207662,8 +207679,8 @@ var require_dist_cjs16 = __commonJS({
       n05,
       _RR,
       0,
-      [_des, _rF],
-      [() => ReplicationDestinationList, () => RepositoryFilterList],
+      [_des, _rF, _dR],
+      [() => ReplicationDestinationList, () => RepositoryFilterList, () => DeleteReplication$],
       1
     ];
     var Repository$ = [
@@ -208341,7 +208358,7 @@ var require_dist_cjs16 = __commonJS({
     var DeleteRepository$ = [
       9,
       n05,
-      _DR,
+      _DRe,
       0,
       () => DeleteRepositoryRequest$,
       () => DeleteRepositoryResponse$
@@ -208421,7 +208438,7 @@ var require_dist_cjs16 = __commonJS({
     var DescribeRegistry$ = [
       9,
       n05,
-      _DRe,
+      _DRes,
       0,
       () => DescribeRegistryRequest$,
       () => DescribeRegistryResponse$
@@ -208437,7 +208454,7 @@ var require_dist_cjs16 = __commonJS({
     var DescribeRepositories$ = [
       9,
       n05,
-      _DRes,
+      _DResc,
       0,
       () => DescribeRepositoriesRequest$,
       () => DescribeRepositoriesResponse$
@@ -209275,6 +209292,7 @@ var require_dist_cjs16 = __commonJS({
       FAILED: "FAILED",
       FINDINGS_UNAVAILABLE: "FINDINGS_UNAVAILABLE",
       IMAGE_ARCHIVED: "IMAGE_ARCHIVED",
+      IMAGE_SIZE_EXCEEDED: "IMAGE_SIZE_EXCEEDED",
       IN_PROGRESS: "IN_PROGRESS",
       LIMIT_EXCEEDED: "LIMIT_EXCEEDED",
       PENDING: "PENDING",
@@ -209396,6 +209414,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.DeleteRegistryPolicyCommand = DeleteRegistryPolicyCommand;
     exports2.DeleteRegistryPolicyRequest$ = DeleteRegistryPolicyRequest$;
     exports2.DeleteRegistryPolicyResponse$ = DeleteRegistryPolicyResponse$;
+    exports2.DeleteReplication$ = DeleteReplication$;
     exports2.DeleteRepository$ = DeleteRepository$;
     exports2.DeleteRepositoryCommand = DeleteRepositoryCommand;
     exports2.DeleteRepositoryCreationTemplate$ = DeleteRepositoryCreationTemplate$;
